@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment and credentials — never commit these
+.env
+.env.*
+!.env.example
+*-service-account*.json
+*credentials*.json
+gcloud-key*.json
+application_default_credentials.json
+
+# Local data
+var/
+uploads/
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Test output
+coverage/
+.nyc_output/
+
+# Claude Code local state (project memory in .claude/ IS committed)
+.claude/settings.local.json
+
+# Source archive
+arcnave-frontend.zip

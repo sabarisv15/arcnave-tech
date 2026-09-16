@@ -1,0 +1,6 @@
+ArcNave file preview test
+
+Observation: the western side of the route has shade in the morning.
+Next step: repeat the observation in the afternoon.
+
+This is synthetic test content created for frontend verification.

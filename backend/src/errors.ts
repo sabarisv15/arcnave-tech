@@ -1,0 +1,176 @@
+/**
+ * Normalized error envelope.
+ *
+ * Every failure a client can see is an `ApiError` with a stable machine-readable `code`.
+ * The frontend switches on `code`, never on prose, so copy can change without breaking
+ * behaviour. HTTP status is derived from the code, so one code always maps to one status.
+ */
+
+export interface ErrorBody {
+  error: {
+    code: string;
+    title: string;
+    detail: string;
+    requestId: string;
+    meta?: Record<string, unknown>;
+  };
+}
+
+interface CatalogEntry {
+  status: number;
+  title: string;
+  detail: string;
+}
+
+export const ERROR_CATALOG = {
+  // --- client -------------------------------------------------------------
+  validation_error: {
+    status: 422,
+    title: 'That request could not be processed',
+    detail: 'Check the highlighted fields and try again.',
+  },
+  not_found: {
+    status: 404,
+    title: 'Not found',
+    detail: 'That item does not exist, or you do not have access to it.',
+  },
+  conflict: {
+    status: 409,
+    title: 'This changed somewhere else',
+    detail: 'Reload to get the latest version, then reapply your edit.',
+  },
+  unauthorized: {
+    status: 401,
+    title: 'Sign in to continue',
+    detail: 'Your session has ended. Sign in again.',
+  },
+  forbidden: { status: 403, title: 'Not permitted', detail: 'You do not have access to that.' },
+  email_taken: {
+    status: 409,
+    title: 'That email is already registered',
+    detail: 'Sign in instead, or use a different address.',
+  },
+  invalid_credentials: {
+    status: 401,
+    title: 'That email or password is incorrect',
+    detail: 'Check both and try again.',
+  },
+  weak_password: {
+    status: 422,
+    title: 'Choose a longer password',
+    detail: 'Passwords must be at least 12 characters.',
+  },
+  payload_too_large: {
+    status: 413,
+    title: 'That file is too large',
+    detail: 'Choose a smaller file.',
+  },
+  unsupported_media_type: {
+    status: 415,
+    title: 'That file type is not supported',
+    detail: 'Try a document, image, spreadsheet, or code file.',
+  },
+  rate_limit: { status: 429, title: 'Too many requests', detail: 'Wait a moment, then try again.' },
+  idempotency_conflict: {
+    status: 409,
+    title: 'Duplicate request',
+    detail: 'This idempotency key was already used with a different body.',
+  },
+
+  // --- product / capability -----------------------------------------------
+  model_unavailable: {
+    status: 400,
+    title: 'This model is unavailable',
+    detail: 'It is not configured for this workspace. Choose another model.',
+  },
+  no_model_available: {
+    status: 503,
+    title: 'No model is available',
+    detail: 'No model in the registry is currently configured and reachable.',
+  },
+  capability_unavailable: {
+    status: 400,
+    title: 'That capability is not configured',
+    detail:
+      'Search and research need a grounding provider. Ordinary chat still works.',
+  },
+  budget_exceeded: {
+    status: 402,
+    title: 'Token budget reached',
+    detail:
+      'You have reached your configured limit. Raise or clear it in Settings under Usage & limits.',
+  },
+  run_in_progress: {
+    status: 409,
+    title: 'A response is already running',
+    detail: 'Stop the current response before starting another.',
+  },
+
+  // --- provider / server ---------------------------------------------------
+  provider_error: {
+    status: 502,
+    title: 'The response could not finish',
+    detail: 'The model provider returned an error. You can retry.',
+  },
+  provider_timeout: {
+    status: 504,
+    title: 'The model took too long',
+    detail: 'The provider did not respond in time. You can retry.',
+  },
+  storage_error: {
+    status: 500,
+    title: 'That file could not be stored',
+    detail: 'Try again. If it keeps failing, the storage backend may be unavailable.',
+  },
+  internal_error: {
+    status: 500,
+    title: 'Something went wrong',
+    detail: 'An unexpected error occurred. The request ID helps trace it.',
+  },
+} as const satisfies Record<string, CatalogEntry>;
+
+export type ErrorCode = keyof typeof ERROR_CATALOG;
+
+export class ApiError extends Error {
+  readonly code: ErrorCode;
+  readonly status: number;
+  readonly title: string;
+  readonly detail: string;
+  readonly meta?: Record<string, unknown>;
+
+  constructor(
+    code: ErrorCode,
+    options: { detail?: string; title?: string; meta?: Record<string, unknown> } = {},
+  ) {
+    const entry = ERROR_CATALOG[code];
+    super(`${code}: ${options.detail ?? entry.detail}`);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = entry.status;
+    this.title = options.title ?? entry.title;
+    this.detail = options.detail ?? entry.detail;
+    if (options.meta) this.meta = options.meta;
+  }
+
+  toBody(requestId: string): ErrorBody {
+    return {
+      error: {
+        code: this.code,
+        title: this.title,
+        detail: this.detail,
+        requestId,
+        ...(this.meta ? { meta: this.meta } : {}),
+      },
+    };
+  }
+}
+
+export function notFound(what = 'item'): ApiError {
+  return new ApiError('not_found', {
+    detail: `That ${what} does not exist, or you do not have access to it.`,
+  });
+}
+
+export function isApiError(err: unknown): err is ApiError {
+  return err instanceof ApiError;
+}
