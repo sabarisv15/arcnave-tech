@@ -1,8 +1,9 @@
 # ArcNave — current checkpoint
 
 **Last updated:** 2026-09-17
-**Status:** backend API surface complete (38 routes); frontend still on mock data
-**Progress:** ~55% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
+**Status:** backend API surface complete (38 routes); **connected to Vertex AI — all four
+models verified with real calls**; frontend still on mock data
+**Progress:** ~60% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
 > `mistakes.md` has what has already gone wrong here; `docs/backend-research.md` has the

@@ -72,7 +72,7 @@ export class GptOssVertexProvider implements Provider {
     if (!project) {
       throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });
     }
-    return endpointFor(project, this.cfg.VERTEX_LOCATION);
+    return endpointFor(project, this.cfg.gptOssLocation);
   }
 
   private payload(request: GenerationRequest, stream: boolean): Record<string, unknown> {
@@ -98,7 +98,7 @@ export class GptOssVertexProvider implements Provider {
   }
 
   private raiseForStatus(status: number, body: string, modelId: string): never {
-    if (status === 404) throw new ModelNotFoundError(modelId, this.cfg.VERTEX_LOCATION);
+    if (status === 404) throw new ModelNotFoundError(modelId, this.cfg.gptOssLocation);
     throw new ProviderError(`gpt-oss endpoint returned ${status}: ${body.slice(0, 300)}`, {
       retryable: RETRYABLE_STATUS.has(status),
       statusCode: status,

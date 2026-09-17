@@ -89,7 +89,8 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       provider: 'openai-oss',
       tier: 'balanced',
       providerModelId: cfg.MODEL_GPT_OSS,
-      location: cfg.VERTEX_LOCATION,
+      // Not cfg.VERTEX_LOCATION: this endpoint is regional and 404s at `global`.
+      location: cfg.gptOssLocation,
       // The OpenAI-compatible shim exposes no Google Search tool.
       supportsGrounding: false,
       contextWindow: 128_000,

@@ -76,6 +76,13 @@ const envSchema = z.object({
   VERTEX_LOCATION: z.string().default('global'),
   /** Gemini 3.8 Flash is global-only, so it gets its own knob. */
   GEMINI_LOCATION: optionalStr,
+  /**
+   * gpt-oss is a Model-as-a-Service open model and is NOT served at the `global` endpoint —
+   * a request there 404s. Verified 2026-09-17: present in `us-central1`, absent from
+   * `global`. It therefore needs its own location, because VERTEX_LOCATION must stay
+   * `global` for Opus 5 / Sonnet 5.
+   */
+  GPT_OSS_LOCATION: optionalStr,
 
   // --- Model registry -----------------------------------------------------
   // Each is an exact publisher model ID, verified present in your project and region.
@@ -146,6 +153,7 @@ export interface Config extends Env {
   readonly isTest: boolean;
   readonly vertexConfigured: boolean;
   readonly geminiLocation: string;
+  readonly gptOssLocation: string;
   readonly sessionTtlMs: number;
 }
 
@@ -179,6 +187,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     isTest: env.NODE_ENV === 'test',
     vertexConfigured: Boolean(env.GOOGLE_CLOUD_PROJECT),
     geminiLocation: env.GEMINI_LOCATION ?? env.VERTEX_LOCATION,
+    gptOssLocation: env.GPT_OSS_LOCATION ?? env.VERTEX_LOCATION,
     sessionTtlMs: env.SESSION_TTL_HOURS * 60 * 60 * 1000,
   };
 }
