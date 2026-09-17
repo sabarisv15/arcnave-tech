@@ -123,7 +123,7 @@ npm run build        # clean (baseline, unchanged)
 ```bash
 cd backend
 npx tsc --noEmit     # clean, 0 errors
-npx vitest run       # 63 passed, 4 files
+npx vitest run       # 167 passed, 9 files (63 unit + 104 integration)
 npm run openapi      # 38 paths -> docs/openapi.json
 ```
 
@@ -171,12 +171,13 @@ used for this pass. Harmless locally; drop the volume before treating this datab
 ## Exact next steps, in order
 
 1. ~~**Routes**~~ — **done 2026-09-17.** All five modules written and registered; 38 paths.
-2. **Tests** (`vitest`): pure-logic suite exists (63 passing). Still missing, and all of these
-   need a live Postgres: Auto routing rules, budget reservation under concurrency, grounding
-   UTF-8 byte-offset slicing, SSE cancellation, and integration coverage of the new routes.
-   The manual pass on 2026-09-17 is the script to automate — every row of that table is a
-   test case, and ownership isolation deserves one per resource.
-   **Must mock providers — tests must never spend Vertex quota.**
+2. ~~**Tests**~~ — **done 2026-09-17.** 167 passing across 9 files: 63 pure-logic plus 104
+   integration against a real Postgres. Harness at `src/test/harness.ts`; a separate
+   `arcnave_test` database is created and migrated by the global setup. `FakeProvider` is
+   injected into all three container slots, so **no test can reach Vertex**.
+   Two defects were found and fixed by writing them — see `mistakes.md`.
+   Still uncovered: grounding UTF-8 byte-offset slicing, and the provider adapters themselves,
+   which cannot be tested without a GCP project.
 3. **Docker**: `backend/Dockerfile` (non-root, healthcheck), root `compose.yaml`
    (frontend + backend + Postgres + volumes), `.dockerignore`, `.env.example`.
 4. **Frontend rewiring** — the biggest chunk:
