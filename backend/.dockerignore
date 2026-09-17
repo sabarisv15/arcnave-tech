@@ -1,0 +1,13 @@
+# Everything the build does not need. Keeping this tight is not only about image size — a
+# stray .env copied into a layer is a credential leak that survives every later RUN.
+node_modules
+dist
+var
+coverage
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+Dockerfile
+.dockerignore

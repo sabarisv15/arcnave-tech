@@ -10,10 +10,9 @@ split is the prevailing convention for agent memory — a rules file that double
 append-only incident log stops being read, and context-file bloat measurably *reduces* task
 success rather than improving it. See [Convention and sources](#convention-and-sources).
 
-> **Not yet wired into context.** Nothing loads this file automatically today, because the root
-> `CLAUDE.md` and the SessionStart hook are still unwritten (step 5 of the checkpoint). Until
-> that lands this is documentation, not memory. Wiring it is the highest-value thing on this
-> page.
+**Wired in as of 2026-09-17.** `.claude/hooks/session-start.mjs` injects these entry headings
+into every session, [`CLAUDE.md`](CLAUDE.md) points here twice, and a `Stop` hook notices when
+source changed and this file did not. It is memory, not documentation — keep it that way.
 
 ---
 
@@ -104,7 +103,10 @@ failure mode of this pattern, not a sign it is working.
 - **Rule:** **A decision is not changed until the document recording it is changed.** Superseding
   an ADR is an edit to that ADR in the same commit, not a follow-up.
 - **Verify:** `grep -ril fastapi docs/` returns nothing outside a superseded-by note.
-- **Status:** ⚠️ still open — the ADR has not been rewritten.
+- **Closed 2026-09-17:** ADR-0001 is marked superseded and
+  [ADR-0003](docs/decisions/0003-node-stack.md) records the stack that exists. The original
+  text was left unedited on purpose — an ADR records what was decided, and rewriting this one
+  would erase the fact that the stack was chosen, argued for, and then reversed.
 
 ### 2026-09-17 — An npm script pointed at a file that was never written
 
@@ -172,6 +174,33 @@ failure mode of this pattern, not a sign it is working.
 - **Note:** This is the same failure the project's own ADR-0002 exists to prevent — a label that
   does not name what actually happens.
 
+### 2026-09-17 — `.dockerignore` excluded a file the Dockerfile copies
+
+- **Symptom:** `docker compose build` failed with `"/nginx.conf": not found` on a `COPY` of a
+  file that plainly exists in the directory.
+- **Cause:** I listed `nginx.conf` in `.dockerignore` while thinking about image size. A file
+  excluded from the build context cannot be copied *out* of it, however present it is on disk.
+- **Rule:** **Before ignoring a path, grep the Dockerfile for it.** `.dockerignore` controls
+  what the daemon can see, not merely what it ships.
+- **Verify:** `docker compose build` completes.
+
+### 2026-09-17 — A devDependency the production image asks for but does not have
+
+- **Symptom:** The backend container crash-looped with
+  `unable to determine transport target for "pino-pretty"`, exiting before it could log why.
+- **Cause:** `logger.ts` attached the `pino-pretty` transport whenever `NODE_ENV !==
+  production`. The image is built with `npm ci --omit=dev`, so the package is absent — and
+  `NODE_ENV=development` is a *supported* way to run that image, because a Secure cookie is
+  dropped over plain HTTP and the local path in `.env.example` therefore sets it. My own
+  documented instructions crashed the container.
+- **Rule:** **Never branch on `NODE_ENV` to decide whether a module is present.** Ask whether
+  it resolves. Environment is intent; installation is fact, and only one of them can be wrong.
+- **Verify:** `docker compose up` with `NODE_ENV=development` reaches `healthy`; logs fall back
+  to JSON instead of dying.
+- **Wider point:** this could only be found by *running* the image. The Dockerfile built, the
+  types checked, and 167 tests passed — none of which execute `dist/logger.js` under
+  `--omit=dev`. A build that succeeds is not a program that starts.
+
 ---
 
 ## Convention and sources
@@ -203,4 +232,7 @@ practice, not canon.
   Nothing retired yet.
 - **2026-09-17** — Two entries added after the integration suite caught real defects in code
   written earlier the same day: a bare `SELECT max(...)` mistaken for a lock, and an API enum
-  invented rather than traced to its consumer. 9 entries, 31 to the cap.
+  invented rather than traced to its consumer.
+- **2026-09-17** — Two more from building the Docker stack, both found by running the image
+  rather than building it. The stale-ADR entry is closed. **12 entries, 28 to the cap.**
+  Wired into context by a SessionStart hook, which was this file's own open caveat.

@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+Dockerfile
+.dockerignore
+# nginx.conf is deliberately NOT ignored: the runtime stage COPYs it, and a file excluded
+# from the build context cannot be copied out of it.

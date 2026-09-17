@@ -5,11 +5,33 @@
  * `log.info({ body })` that happens to contain a password cannot print it. Pino applies these
  * paths before serialisation, so the secret never reaches the output stream.
  */
+import { createRequire } from 'node:module';
+
 import { pino } from 'pino';
 
 import { config } from './config.js';
 
 const cfg = config();
+
+/**
+ * Is `pino-pretty` actually installed?
+ *
+ * It is a devDependency, so a production image built with `npm ci --omit=dev` does not have
+ * it. Asking for the transport anyway makes pino throw at import time and the process exits
+ * before it has logged anything — a container that crash-loops with no usable output.
+ *
+ * NODE_ENV is the wrong thing to branch on here: `NODE_ENV=development` is a supported way to
+ * run the shipped image (it is how you run it over plain HTTP locally, since a Secure cookie
+ * is dropped by the browser there). Resolvability is the real question, so ask it directly.
+ */
+function prettyAvailable(): boolean {
+  try {
+    createRequire(import.meta.url).resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Wildcards cover nested objects one level deep in the usual places (`req.headers.cookie`,
@@ -47,8 +69,9 @@ export const logger = pino({
   formatters: {
     level: (label) => ({ level: label }),
   },
-  // Human-readable in development, JSON everywhere else so log shipping works unmodified.
-  ...(cfg.isProduction || cfg.isTest
+  // Human-readable in development when the formatter is present, JSON everywhere else so log
+  // shipping works unmodified.
+  ...(cfg.isProduction || cfg.isTest || !prettyAvailable()
     ? {}
     : {
         transport: {

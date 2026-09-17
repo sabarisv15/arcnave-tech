@@ -1,0 +1,110 @@
+# ArcNave, whole stack.
+#
+#   cp .env.example .env     # then fill in the values it asks for
+#   docker compose up --build
+#   open http://localhost:8080
+#
+# Only the frontend publishes a port. The backend is reachable at http://backend:8080 on the
+# internal network and nginx proxies /v1 to it, so the browser talks to one origin and the API
+# is not exposed to the host at all. Uncomment the backend `ports` block to reach it directly
+# for debugging — that also makes it reachable from anything else on your machine.
+
+name: arcnave
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arcnave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-arcnave}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # -d matters: without it pg_isready reports the server is up before *this* database
+      # exists, and the backend's migration step then fails on first boot.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-arcnave} -d ${POSTGRES_DB:-arcnave}']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        # Not merely "started": the container runs migrations before the server binds, so it
+        # needs a database that is actually accepting connections, not one that has begun
+        # starting up.
+        condition: service_healthy
+    environment:
+      # Overridable because config.ts enforces production-only invariants — a signed cookie
+      # secret, a non-wildcard CORS list, and Secure cookies. Those are right for a deployment
+      # and wrong for a plain-HTTP localhost trial, where a Secure cookie is dropped by the
+      # browser and nobody can sign in. .env.example spells out both settings.
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: '8080'
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DATABASE_URL: postgres://${POSTGRES_USER:-arcnave}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-arcnave}
+
+      # Required in production; config.ts refuses to boot without them.
+      COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET in .env (32+ characters)}
+      # Both of these assume you terminate TLS in front of this stack. Over plain HTTP a
+      # Secure cookie is silently dropped and nobody can sign in — see .env.example.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+
+      # Vertex AI. Absent, every model alias reports `vertex_not_configured` and the app runs
+      # and says so rather than failing obscurely at the first message.
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
+      GEMINI_LOCATION: ${GEMINI_LOCATION:-}
+      # gpt-oss is not served at `global`; it needs a region of its own. See .env.example.
+      GPT_OSS_LOCATION: ${GPT_OSS_LOCATION:-}
+      MODEL_GEMINI_FLASH: ${MODEL_GEMINI_FLASH:-}
+      MODEL_SONNET: ${MODEL_SONNET:-}
+      MODEL_OPUS: ${MODEL_OPUS:-}
+      MODEL_GPT_OSS: ${MODEL_GPT_OSS:-}
+      ENABLE_GOOGLE_SEARCH_GROUNDING: ${ENABLE_GOOGLE_SEARCH_GROUNDING:-false}
+      ENABLE_ANTHROPIC_WEB_SEARCH: ${ENABLE_ANTHROPIC_WEB_SEARCH:-false}
+
+      # No entry for a model means its cost is reported as null, never 0.
+      PRICING_TABLE: ${PRICING_TABLE:-}
+
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_PATH: /data/uploads
+      STORAGE_GCS_BUCKET: ${STORAGE_GCS_BUCKET:-}
+
+      # Application Default Credentials. The file is mounted read-only below; on GCP use
+      # workload identity instead and delete both this and the mount.
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+    volumes:
+      - uploads:/data/uploads
+      # To use your local `gcloud auth application-default login` credentials, uncomment the
+      # mount below and set GOOGLE_APPLICATION_CREDENTIALS to the container path. It stays
+      # commented out by default because an absent bind mount is an error, not a no-op, and a
+      # stack that will not start is a worse default than one with no Vertex access.
+      # On GCP use workload identity instead and leave this alone. No service-account key is
+      # ever baked into an image or committed.
+      #
+      # - ${GOOGLE_ADC_PATH}:/var/secrets/adc.json:ro
+    # ports:
+    #   - '127.0.0.1:8081:8080'   # uncomment to reach the API and /docs directly
+
+  frontend:
+    build:
+      context: ./arcnave-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '${PORT:-8080}:8080'
+
+volumes:
+  db-data:
+  uploads:

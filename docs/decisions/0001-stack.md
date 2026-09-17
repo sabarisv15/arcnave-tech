@@ -1,7 +1,15 @@
 # ADR-0001: Python / FastAPI / PostgreSQL for the ArcNave backend
 
-- Status: accepted
+- Status: **superseded by [ADR-0003](0003-node-stack.md)** (2026-09-17)
 - Date: 2026-09-16
+
+> **This decision was reversed the same day it was made.** The backend is Node 22 and
+> TypeScript, not Python. Nothing below describes the code that exists.
+>
+> The text is kept unedited rather than rewritten, because an ADR is a record of what was
+> decided and why, not a description of the current system — that is the checkpoint's job.
+> Rewriting this one would erase the fact that the stack was chosen, argued for on these
+> grounds, and then changed. Read it for the reasoning; read ADR-0003 for the outcome.
 
 ## Context
 
