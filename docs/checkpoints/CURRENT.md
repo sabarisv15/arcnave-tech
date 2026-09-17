@@ -56,12 +56,7 @@ adapter aborts the real HTTP request.
 - `GET /models` reports every alias with a machine-readable unavailability reason
 - `/healthz` (no dependencies) and `/readyz` (checks database)
 
-### Built, typechecks clean, not yet exercised against a database
-- All three provider adapters (no GCP project configured yet, so never called for real)
-- BM25 retrieval + PDF/DOCX extraction + chunking
-- Token accounting, budget reservation, usage aggregation
-- Object storage with path-traversal-safe generated keys
-- **Session of 2026-09-17** — the five remaining route modules:
+- **Session of 2026-09-17** — the five remaining route modules, all exercised live:
   - `projects.ts` — CRUD, pin, reorder, search, file upload/list/download/reindex/delete,
     saved sources. File indexing runs inside the upload request, so the response already
     carries the final status and there is nothing to poll.
@@ -73,6 +68,11 @@ adapter aborts the real HTTP request.
 
   All five are registered as separately encapsulated plugins in `app.ts`, so each module's
   `requireAuth` hook stays scoped to its own routes.
+
+### Built, typechecks clean, never called for real
+- All three provider adapters — no GCP project is configured, so every alias reports
+  `vertex_not_configured` and no model call has ever been made from this codebase.
+- Grounded search and research modes, for the same reason.
 
 ## Decisions and reasons
 
@@ -127,19 +127,37 @@ npx vitest run       # 63 passed, 4 files
 npm run openapi      # 38 paths -> docs/openapi.json
 ```
 
-**Docker was not running on this machine, so nothing was exercised against Postgres.** The new
-routes are typechecked and their schemas compile, and the OpenAPI generator boots the whole app
-(registering every route and every plugin) without a database. That is not the same as a live
-request. Start the container and re-run the happy paths before trusting them.
+**Live-verified against Postgres.** Every new route was exercised by hand against the running
+server with two accounts. What was checked, and what it proved:
 
-The unit suite covers pure logic only: BM25 ranking, chunking and overlap, upload policy,
-storage-key traversal rejection, budget period boundaries across DST, cost nullability, cursor
-encoding, and CSV escaping. No test touches a provider.
+| Check | Result |
+| --- | --- |
+| Upload → index → search | `sample-notes.txt` indexed to 1 chunk; BM25 returned it at 0.6987 for terms in the document and nothing for terms absent from it |
+| Reindex | replaced chunks rather than accumulating — still 1 after a second run |
+| File delete | chunks cascade; the same search then returns nothing |
+| Upload rejection | `.exe` and an unknown extension both refused as `unsupported_media_type` |
+| Artifact versioning | v1 → v2 → restore v1 appended as v3; history intact `[3,2,1]` |
+| Optimistic concurrency | a stale `version` returned `conflict` with both numbers in `meta` |
+| Ownership isolation | account B got `not_found` for A's project, search, artifact filing, and attachment; anonymous got `unauthorized` |
+| Limits validation | unknown model alias, unknown timezone, and an over-ceiling output cap all `422`; `Asia/Kolkata` reset landed at 18:30 UTC |
+| Downloads | `Content-Disposition: attachment` + `nosniff` on both file routes |
+| Attachments | text → `ready`/`hasText`; PNG → `unsupported`, stored, with the reason |
+| CSV export | correct headers and filename; cost column empty, not `0` |
+| Reorder guard | a foreign id in the list refused the whole reorder |
+| Regression on the 2026-09-16 stuck-status bug | generate with no model configured left the row `error`/`no_model_available`, not `generating` |
+
+**No defects were found.** The unit suite covers pure logic only: BM25 ranking, chunking and
+overlap, upload policy, storage-key traversal rejection, budget period boundaries across DST,
+cost nullability, cursor encoding, and CSV escaping. No test touches a provider.
+
+The dev database still holds the two throwaway accounts (`a@example.test`, `b@example.test`)
+used for this pass. Harmless locally; drop the volume before treating this database as clean.
 
 ## Known issues
 
 - `docs/decisions/0001-stack.md` still argues for Python/FastAPI. Stale — rewrite for Node/TS.
-- New routes have **no integration tests** — they need a live Postgres (see next steps).
+- New routes have **no automated integration tests**. The 2026-09-17 pass above was manual, so
+  it protects nothing against regression. This is now the single most important gap.
 - Project-file indexing is synchronous inside the upload request. Correct at a 20 MB cap;
   it needs a queue before the cap is raised.
 - `npm audit`: 4 moderate, all from `drizzle-kit`'s transitive `esbuild` (dev-only, never
@@ -155,9 +173,9 @@ encoding, and CSV escaping. No test touches a provider.
 1. ~~**Routes**~~ — **done 2026-09-17.** All five modules written and registered; 38 paths.
 2. **Tests** (`vitest`): pure-logic suite exists (63 passing). Still missing, and all of these
    need a live Postgres: Auto routing rules, budget reservation under concurrency, grounding
-   UTF-8 byte-offset slicing, SSE cancellation, and integration coverage of the new routes —
-   project file upload → index → search, artifact restore, CSV export, ownership isolation
-   (one user must never reach another's project by guessing a UUID).
+   UTF-8 byte-offset slicing, SSE cancellation, and integration coverage of the new routes.
+   The manual pass on 2026-09-17 is the script to automate — every row of that table is a
+   test case, and ownership isolation deserves one per resource.
    **Must mock providers — tests must never spend Vertex quota.**
 3. **Docker**: `backend/Dockerfile` (non-root, healthcheck), root `compose.yaml`
    (frontend + backend + Postgres + volumes), `.dockerignore`, `.env.example`.
