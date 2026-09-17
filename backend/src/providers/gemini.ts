@@ -5,6 +5,7 @@
  * See docs/backend-research.md section 1.
  */
 import { GoogleGenAI } from '@google/genai';
+import type { Content, Part, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
@@ -14,6 +15,36 @@ import type { GenerationRequest, Provider, ProviderEvent, ProviderUsage } from '
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 
 const log = logger.child({ module: 'provider:gemini' });
+
+function attachmentParts(attachments: GenerationRequest['attachments']): Part[] {
+  if (!attachments || attachments.length === 0) return [];
+  return attachments.map((a): Part => ({
+    inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
+  }));
+}
+
+/**
+ * Build the Gemini contents array for one request.
+ *
+ * No cache marker is set here, unlike the Anthropic adapter — Vertex's implicit caching for
+ * Gemini 2.5+/3.x models is automatic on a repeated prefix, with no request changes needed. The
+ * only thing this function has to get right for that to work is stability: the same history in
+ * the same order, byte-identical, every call for the same chat.
+ */
+export function buildGeminiContents(request: GenerationRequest): Content[] {
+  const turns = request.history.filter(
+    (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0,
+  );
+
+  const historyContents: Content[] = turns.map((turn) => {
+    const parts: Part[] = [...attachmentParts(turn.attachments)];
+    if (turn.text.trim() !== '') parts.push({ text: turn.text });
+    return { role: turn.role === 'user' ? 'user' : 'model', parts };
+  });
+
+  const currentParts: Part[] = [...attachmentParts(request.attachments), { text: request.prompt }];
+  return [...historyContents, { role: 'user', parts: currentParts }];
+}
 
 function isNotFound(err: unknown): boolean {
   const text = String(err).toLowerCase();
@@ -73,16 +104,6 @@ export class GeminiProvider implements Provider {
     return this.client;
   }
 
-  private buildContents(request: GenerationRequest) {
-    return [
-      ...request.history.map((turn) => ({
-        role: turn.role === 'user' ? 'user' : 'model',
-        parts: [{ text: turn.text }],
-      })),
-      { role: 'user', parts: [{ text: request.prompt }] },
-    ];
-  }
-
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     const grounded = request.grounded && this.supportsGrounding();
 
@@ -103,7 +124,7 @@ export class GeminiProvider implements Provider {
     try {
       const stream = await this.getClient().models.generateContentStream({
         model: request.providerModelId,
-        contents: this.buildContents(request),
+        contents: buildGeminiContents(request),
         config: {
           ...(request.systemInstruction ? { systemInstruction: request.systemInstruction } : {}),
           maxOutputTokens: request.maxOutputTokens,
