@@ -325,6 +325,15 @@ export const attachments = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     messageId: uuid('message_id').references(() => messages.id, { onDelete: 'cascade' }),
+    /**
+     * Set when this attachment reuses an existing project file's bytes rather than a fresh
+     * upload. Its `storageKey` is then a copy of that file's key, not one of its own — the same
+     * project file can be attached to more than one message, which is why the key is no longer
+     * unique below.
+     */
+    projectFileId: uuid('project_file_id').references(() => projectFiles.id, {
+      onDelete: 'set null',
+    }),
     filename: varchar('filename', { length: 255 }).notNull(),
     mimeType: varchar('mime_type', { length: 160 }).notNull(),
     sizeBytes: integer('size_bytes').notNull(),
@@ -335,7 +344,7 @@ export const attachments = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('uq_attachments_key').on(t.storageKey),
+    index('ix_attachments_key').on(t.storageKey),
     index('ix_attachments_message').on(t.messageId),
     index('ix_attachments_user').on(t.userId),
   ],
