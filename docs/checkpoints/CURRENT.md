@@ -55,6 +55,13 @@ adapter aborts the real HTTP request.
 
 ## Completed work
 
+### Frontend visual polish — 2026-09-17
+- Applied a shared One UI-inspired shape and motion system across the app: the main workspace
+  is now an inset rounded surface against the sidebar, with coordinated radii for cards,
+  controls, dialogs, panels, chat content, and mobile layouts.
+- Added smooth spring-like transitions, restrained hover lift/press feedback, and preserved the
+  existing reduced-motion overrides for accessibility.
+
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`
 - Chat create, list (keyset pagination), read with full transcript, patch, soft delete, branch

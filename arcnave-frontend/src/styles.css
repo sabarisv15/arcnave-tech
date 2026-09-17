@@ -3542,3 +3542,309 @@ textarea {
     transform: none;
   }
 }
+
+/* One UI-inspired shape and motion pass.
+   Large shells get generous radii; nested controls step down so the hierarchy remains clear. */
+:root {
+  --radius-shell: 26px;
+  --radius-panel: 22px;
+  --radius-card: 18px;
+  --radius-control: 13px;
+  --radius-pill: 999px;
+  --ease-smooth: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-shell: 0 1px 2px #1721320a, 0 14px 42px #1721320d;
+  --shadow-float: 0 16px 50px #1721321a;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--sidebar);
+}
+
+.app-shell {
+  padding: 10px 10px 10px 0;
+  background: var(--sidebar);
+}
+
+.main-area {
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: var(--radius-shell);
+  box-shadow: var(--shadow-shell);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.sidebar {
+  background: transparent;
+  transition:
+    width 420ms var(--ease-spring),
+    padding 420ms var(--ease-spring);
+}
+
+.topbar {
+  transition:
+    height 360ms var(--ease-spring),
+    min-height 360ms var(--ease-spring),
+    padding 280ms var(--ease-smooth);
+}
+
+.icon-button,
+.nav-item,
+.profile,
+.quiet-button,
+.button,
+.menu-item,
+.suggestions button,
+.search-results > button,
+.sidebar-project-row,
+.sidebar-standalone-chat,
+.project-picker > button,
+.settings-layout > nav > button {
+  border-radius: var(--radius-control);
+}
+
+.nav-item,
+.profile,
+.quiet-button,
+.button,
+.menu-item,
+.suggestions button,
+.search-results > button,
+.sidebar-project-row,
+.sidebar-standalone-chat,
+.project-picker > button,
+.settings-layout > nav > button,
+.project-card,
+.artifact-card,
+.source-card,
+.model-option,
+.theme-option {
+  transition:
+    color 220ms var(--ease-smooth),
+    background-color 220ms var(--ease-smooth),
+    border-color 220ms var(--ease-smooth),
+    box-shadow 320ms var(--ease-smooth),
+    transform 320ms var(--ease-spring),
+    opacity 220ms var(--ease-smooth);
+}
+
+.nav-item:hover,
+.profile:hover,
+.sidebar-project-row:hover,
+.sidebar-standalone-chat:hover,
+.search-results > button:hover {
+  transform: translateX(2px);
+}
+
+.button:hover,
+.suggestions button:hover,
+.project-card:hover,
+.artifact-card:hover,
+.source-card:hover,
+.model-option:hover,
+.theme-option:hover {
+  transform: translateY(-2px);
+}
+
+.button:active,
+.icon-button:active,
+.nav-item:active,
+.quiet-button:active,
+.suggestions button:active {
+  transform: scale(0.97);
+  transition-duration: 90ms;
+}
+
+.nav-item.active,
+.mode-active,
+.settings-layout > nav > button.active {
+  background: var(--surface);
+  box-shadow: 0 4px 16px #1721320b;
+}
+
+.new-chat {
+  border-radius: 16px;
+  box-shadow: 0 6px 20px #1721320b;
+}
+
+.composer {
+  border-radius: var(--radius-panel);
+  transition:
+    border-color 220ms var(--ease-smooth),
+    box-shadow 320ms var(--ease-smooth),
+    transform 320ms var(--ease-spring);
+}
+
+.composer:focus-within {
+  transform: translateY(-1px);
+}
+
+.send-button {
+  border-radius: 12px;
+  transition:
+    background-color 200ms var(--ease-smooth),
+    color 200ms var(--ease-smooth),
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-smooth);
+}
+
+.send-button:not(:disabled):hover {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.send-button:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+.dropdown,
+.modal,
+.search-modal,
+.auth-card {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-float);
+}
+
+.dropdown {
+  padding: 8px;
+  animation: popover 260ms var(--ease-spring);
+}
+
+.modal {
+  animation: modal-in 320ms var(--ease-spring);
+}
+
+.tooltip,
+.demo-label,
+.source-type,
+.sample-label,
+.attachment-chip,
+.offline-banner,
+.background-run,
+.toast,
+.edit-notice,
+.error-card,
+.artifact-message,
+.settings-note,
+.usage-period,
+.search-field,
+input,
+textarea,
+select {
+  border-radius: var(--radius-control);
+}
+
+.project-card,
+.artifact-card,
+.project-context-card,
+.source-card,
+.auth-notice,
+.model-option,
+.usage-period {
+  border-radius: var(--radius-card);
+}
+
+.project-card:hover,
+.artifact-card:hover {
+  box-shadow: 0 16px 36px #17213212;
+}
+
+.project-symbol,
+.empty-icon,
+.artifact-card-preview,
+.theme-preview {
+  border-radius: 15px;
+}
+
+.segmented {
+  border-radius: 15px;
+  padding: 4px;
+}
+
+.segmented button {
+  border-radius: 11px;
+  transition:
+    background-color 220ms var(--ease-smooth),
+    color 220ms var(--ease-smooth),
+    box-shadow 260ms var(--ease-smooth),
+    transform 260ms var(--ease-spring);
+}
+
+.switch,
+.usage-meter {
+  border-radius: var(--radius-pill);
+}
+
+.switch > span {
+  transition: transform 320ms var(--ease-spring);
+}
+
+.conversation-list-row,
+.saved-source {
+  border-radius: 14px;
+  padding-inline: 8px;
+  transition:
+    background-color 220ms var(--ease-smooth),
+    transform 280ms var(--ease-spring);
+}
+
+.conversation-list-row:hover,
+.saved-source:hover {
+  transform: translateX(2px);
+}
+
+.user-bubble,
+.source-summary,
+.related-questions > button,
+.markdown pre,
+.markdown blockquote,
+.markdown img,
+.table-scroll {
+  border-radius: var(--radius-card);
+}
+
+.context-panel {
+  border-radius: 0 var(--radius-shell) var(--radius-shell) 0;
+  overflow: hidden;
+  animation: panel-in 320ms var(--ease-spring);
+}
+
+.panel-overlay,
+.expanded-panel {
+  border-radius: var(--radius-panel) 0 0 var(--radius-panel);
+  overflow: hidden;
+}
+
+.drawer-content {
+  border-radius: 0 var(--radius-shell) var(--radius-shell) 0;
+  overflow: hidden;
+  box-shadow: var(--shadow-float);
+}
+
+.settings-modal {
+  border-radius: var(--radius-panel);
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    padding: 7px;
+  }
+
+  .main-area {
+    border-radius: 22px;
+  }
+
+  .panel-overlay,
+  .expanded-panel {
+    border-radius: 22px;
+  }
+
+  .settings-modal {
+    border-radius: 20px;
+  }
+}
