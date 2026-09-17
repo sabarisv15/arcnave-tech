@@ -4610,6 +4610,9 @@
                     "hasText": {
                       "type": "boolean"
                     },
+                    "viewable": {
+                      "type": "boolean"
+                    },
                     "createdAt": {
                       "nullable": true,
                       "type": "string"
@@ -4624,6 +4627,95 @@
                     "status",
                     "error",
                     "hasText",
+                    "viewable",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/from-project": {
+      "post": {
+        "summary": "Attach an existing project file to a message",
+        "tags": [
+          "projects"
+        ],
+        "description": "Reuses the project file's stored bytes rather than re-uploading. Returns an id to pass in `attachmentIds` on the next generate call, same as `POST /files`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectFileId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "projectFileId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "hasText": {
+                      "type": "boolean"
+                    },
+                    "viewable": {
+                      "type": "boolean"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "messageId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "hasText",
+                    "viewable",
                     "createdAt"
                   ],
                   "additionalProperties": false
@@ -4685,6 +4777,9 @@
                     "hasText": {
                       "type": "boolean"
                     },
+                    "viewable": {
+                      "type": "boolean"
+                    },
                     "createdAt": {
                       "nullable": true,
                       "type": "string"
@@ -4699,6 +4794,7 @@
                     "status",
                     "error",
                     "hasText",
+                    "viewable",
                     "createdAt"
                   ],
                   "additionalProperties": false

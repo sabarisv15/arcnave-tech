@@ -57,7 +57,7 @@ describe('upload and extraction', () => {
     });
   });
 
-  it('stores a file it cannot read as unsupported, with the reason, rather than rejecting it', async () => {
+  it('marks an image as viewable rather than running text extraction on it', async () => {
     const png = Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       Buffer.alloc(32, 3),
@@ -65,8 +65,12 @@ describe('upload and extraction', () => {
     const { statusCode, body } = await upload('pic.png', png, 'image/png');
 
     expect(statusCode).toBe(201);
-    expect(body).toMatchObject({ status: 'unsupported', hasText: false });
-    expect(String(body['error'])).toContain('not indexed');
+    expect(body).toMatchObject({ status: 'ready', hasText: false, viewable: true, error: '' });
+  });
+
+  it('marks a plain text file as not viewable', async () => {
+    const { body } = await upload('notes.txt', 'the budget is due friday');
+    expect(body).toMatchObject({ viewable: false, hasText: true });
   });
 
   it('refuses a file type the workspace does not accept', async () => {
@@ -290,5 +294,94 @@ describe('isolation', () => {
 
   it('requires a session', async () => {
     expect((await ctx.app.inject({ method: 'POST', url: '/v1/files' })).statusCode).toBe(401);
+  });
+});
+
+/* -------------------------------------------------------------------------- from project */
+
+describe('picking a file from a project', () => {
+  async function createProjectWithFile(): Promise<{ projectId: string; projectFileId: string }> {
+    const projectRes = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/projects',
+      headers: auth(),
+      payload: { title: 'Multimodal test project' },
+    });
+    expect(projectRes.statusCode).toBe(201);
+    const projectId = (projectRes.json() as { id: string }).id;
+
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(32, 5),
+    ]);
+    const part = multipart('scan.png', png, 'image/png');
+    const fileRes = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/projects/${projectId}/files`,
+      headers: { ...part.headers, ...auth() },
+      payload: part.payload,
+    });
+    expect(fileRes.statusCode).toBe(201);
+    return { projectId, projectFileId: (fileRes.json() as { id: string }).id };
+  }
+
+  it('attaches an existing project file without re-uploading its bytes', async () => {
+    const { projectFileId } = await createProjectWithFile();
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files/from-project',
+      headers: auth(),
+      payload: { projectFileId },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      filename: 'scan.png',
+      mimeType: 'image/png',
+      viewable: true,
+      messageId: null,
+    });
+  });
+
+  it('refuses a project file owned by someone else', async () => {
+    const { projectFileId } = await createProjectWithFile();
+    const other = await signUp(ctx);
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files/from-project',
+      headers: { cookie: other.cookie },
+      payload: { projectFileId },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('deleting an attachment sourced from a project file does not delete the project file', async () => {
+    const { projectId, projectFileId } = await createProjectWithFile();
+
+    const picked = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files/from-project',
+      headers: auth(),
+      payload: { projectFileId },
+    });
+    const attachmentId = (picked.json() as { id: string }).id;
+
+    const deleted = await ctx.app.inject({
+      method: 'DELETE',
+      url: `/v1/files/${attachmentId}`,
+      headers: auth(),
+    });
+    expect(deleted.statusCode).toBe(204);
+
+    // The project file itself, and its stored bytes, must still be there.
+    const stillThere = await ctx.app.inject({
+      method: 'GET',
+      url: `/v1/projects/${projectId}/files/${projectFileId}/download`,
+      headers: auth(),
+    });
+    expect(stillThere.statusCode).toBe(200);
   });
 });

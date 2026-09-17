@@ -13,7 +13,7 @@ import { and, eq, isNull, lt } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
-import { attachments } from '../db/schema.js';
+import { attachments, projectFiles } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { ExtractionUnsupported, extractText } from '../services/retrieval.js';
@@ -23,6 +23,10 @@ import { iso, uuidParam } from './helpers.js';
 
 /** Extracted text handed to a single prompt, so it is capped independently of file size. */
 const MAX_EXTRACTED_CHARS = 200_000;
+
+function isNativelyViewable(mimeType: string): boolean {
+  return mimeType === 'application/pdf' || mimeType.startsWith('image/');
+}
 
 const attachmentSchema = z.object({
   id: z.string(),
@@ -35,6 +39,9 @@ const attachmentSchema = z.object({
   error: z.string(),
   /** Whether this file will contribute text to the prompt. */
   hasText: z.boolean(),
+  /** True for an image or PDF the model can read directly, regardless of whether text
+   *  extraction would have succeeded — this is a different question from `hasText`. */
+  viewable: z.boolean(),
   createdAt: z.string().nullable(),
 });
 
@@ -75,27 +82,31 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       const storageKey = generateStorageKey(user.id);
       await storage.put(storageKey, data, check.mimeType);
 
-      // Extraction failing is not upload failing. An image has no text to give a text-only
-      // model, and saying so beats either rejecting the upload or pretending it was read.
+      // Images and PDFs are read by the model directly (see the multimodal file input design)
+      // — there is nothing useful to extract, and extracting anyway would just be discarded
+      // work. Extraction failing for any other type is not upload failing: a format nothing
+      // here can read is stored with a machine-readable reason, never silently dropped.
       let extractedText: string | null = null;
       let status = 'ready';
       let error = '';
-      try {
-        const text = await extractText(data, check.mimeType, part.filename);
-        extractedText = text.slice(0, MAX_EXTRACTED_CHARS);
-        if (text.length > MAX_EXTRACTED_CHARS) {
-          error =
-            `Only the first ${MAX_EXTRACTED_CHARS.toLocaleString('en-US')} characters of ` +
-            'this file are sent with your message.';
-        }
-      } catch (err) {
-        if (err instanceof ExtractionUnsupported) {
-          status = 'unsupported';
-          error = err.message;
-        } else {
-          request.log.error({ err }, 'attachment extraction failed');
-          status = 'unsupported';
-          error = 'The text of this file could not be read. It is stored but will not be sent.';
+      if (!isNativelyViewable(check.mimeType)) {
+        try {
+          const text = await extractText(data, check.mimeType, part.filename);
+          extractedText = text.slice(0, MAX_EXTRACTED_CHARS);
+          if (text.length > MAX_EXTRACTED_CHARS) {
+            error =
+              `Only the first ${MAX_EXTRACTED_CHARS.toLocaleString('en-US')} characters of ` +
+              'this file are sent with your message.';
+          }
+        } catch (err) {
+          if (err instanceof ExtractionUnsupported) {
+            status = 'unsupported';
+            error = err.message;
+          } else {
+            request.log.error({ err }, 'attachment extraction failed');
+            status = 'unsupported';
+            error = 'The text of this file could not be read. It is stored but will not be sent.';
+          }
         }
       }
 
@@ -110,6 +121,51 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
           status,
           error,
           extractedText,
+        })
+        .returning();
+
+      return reply.status(201).send(toDto(created!));
+    },
+  );
+
+  /* ---------------------------------------------------------------- from project */
+
+  typed.post(
+    '/files/from-project',
+    {
+      schema: {
+        tags: ['projects'],
+        summary: 'Attach an existing project file to a message',
+        description:
+          "Reuses the project file's stored bytes rather than re-uploading. Returns an id to " +
+          'pass in `attachmentIds` on the next generate call, same as `POST /files`.',
+        body: z.object({ projectFileId: z.string().uuid() }),
+        response: { 201: attachmentSchema },
+      },
+    },
+    async (request, reply) => {
+      const user = currentUser(request);
+      const { db } = request.services;
+
+      const [file] = await db
+        .select()
+        .from(projectFiles)
+        .where(and(eq(projectFiles.id, request.body.projectFileId), eq(projectFiles.userId, user.id)))
+        .limit(1);
+      if (!file) throw notFound('file');
+
+      const [created] = await db
+        .insert(attachments)
+        .values({
+          userId: user.id,
+          projectFileId: file.id,
+          filename: file.filename,
+          mimeType: file.mimeType,
+          sizeBytes: file.sizeBytes,
+          storageKey: file.storageKey,
+          status: 'ready',
+          error: '',
+          extractedText: null,
         })
         .returning();
 
@@ -183,10 +239,12 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       }
 
       await db.delete(attachments).where(eq(attachments.id, file.id));
-      try {
-        await storage.delete(file.storageKey);
-      } catch (err) {
-        request.log.warn({ err, storageKey: file.storageKey }, 'orphaned object after delete');
+      if (!file.projectFileId) {
+        try {
+          await storage.delete(file.storageKey);
+        } catch (err) {
+          request.log.warn({ err, storageKey: file.storageKey }, 'orphaned object after delete');
+        }
       }
       return reply.status(204).send(null);
     },
@@ -262,6 +320,7 @@ function toDto(row: AttachmentRow): z.infer<typeof attachmentSchema> {
     status: row.status,
     error: row.error,
     hasText: Boolean(row.extractedText?.trim()),
+    viewable: isNativelyViewable(row.mimeType),
     createdAt: iso(row.createdAt),
   };
 }
