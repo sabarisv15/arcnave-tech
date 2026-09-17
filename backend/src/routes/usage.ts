@@ -148,7 +148,10 @@ export async function usageRoutes(app: AppInstance): Promise<void> {
           dailyTokenBudget: z.number().int().min(1).nullable().optional(),
           monthlyTokenBudget: z.number().int().min(1).nullable().optional(),
           warnThresholdPct: z.number().int().min(1).max(100).optional(),
-          routingPreference: z.enum(['fast', 'balanced', 'quality']).optional(),
+          // These are the exact strings `normalizeTier` in the generation service accepts.
+          // Anything else it silently reads as 'balanced', so accepting a friendlier word
+          // here would store a preference that is echoed back but never acted on.
+          routingPreference: z.enum(['economy', 'balanced', 'quality']).optional(),
           timezone: z.string().max(64).optional(),
           version: z.number().int().optional(),
         }),

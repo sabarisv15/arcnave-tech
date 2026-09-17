@@ -245,7 +245,7 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
       const artifact = await loadArtifact(request, request.params.id);
       assertVersion(request.body.version, artifact.version, 'artifact');
 
-      const updated = await appendVersion(request, artifact, request.body.content);
+      const updated = await appendVersion(request, artifact.id, request.body.content);
       return reply.status(201).send({ ...toArtifactDto(updated), content: request.body.content });
     },
   );
@@ -314,7 +314,7 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
       assertVersion(request.body.version, artifact.version, 'artifact');
 
       const content = await readVersion(request, artifact, request.body.restoreVersion);
-      const updated = await appendVersion(request, artifact, content);
+      const updated = await appendVersion(request, artifact.id, content);
       return reply.status(201).send({ ...toArtifactDto(updated), content });
     },
   );
@@ -379,31 +379,43 @@ async function readVersion(
 }
 
 /**
- * Append a version inside one transaction.
+ * Append a version inside one transaction, serialised on the artifact row.
  *
- * The next version number is taken from `max(version) + 1` under the transaction rather than
- * from `currentVersion + 1`, so two concurrent writers cannot both compute the same number and
- * have one of them fail the unique index.
+ * The `FOR UPDATE` is load-bearing. `max(version) + 1` alone takes no lock: under READ
+ * COMMITTED two concurrent appends both read the same number, both insert it, and one dies on
+ * the unique index as a 500. Locking the parent row first makes concurrent appends queue, so
+ * the second one reads a max that already includes the first.
+ *
+ * The concurrency counter is bumped from the *locked* row rather than from whatever the caller
+ * read earlier, for the same reason — two writers must not both set it to the same value.
  */
 async function appendVersion(
   request: OwnedRequest,
-  artifact: ArtifactRow,
+  artifactId: string,
   content: string,
 ): Promise<ArtifactRow> {
   const { db } = request.services;
   return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.id, artifactId))
+      .for('update')
+      .limit(1);
+    if (!locked) throw notFound('artifact');
+
     const [head] = await tx
       .select({ next: sql<number>`coalesce(max(${artifactVersions.version}), 0) + 1` })
       .from(artifactVersions)
-      .where(eq(artifactVersions.artifactId, artifact.id));
+      .where(eq(artifactVersions.artifactId, artifactId));
     const next = head?.next ?? 1;
 
-    await tx.insert(artifactVersions).values({ artifactId: artifact.id, version: next, content });
+    await tx.insert(artifactVersions).values({ artifactId, version: next, content });
 
     const [updated] = await tx
       .update(artifacts)
-      .set({ currentVersion: next, version: artifact.version + 1, updatedAt: new Date() })
-      .where(eq(artifacts.id, artifact.id))
+      .set({ currentVersion: next, version: locked.version + 1, updatedAt: new Date() })
+      .where(eq(artifacts.id, artifactId))
       .returning();
     return updated!;
   });

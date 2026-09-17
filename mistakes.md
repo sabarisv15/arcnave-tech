@@ -141,6 +141,37 @@ failure mode of this pattern, not a sign it is working.
   bound to the concrete type verifies the wrong thing and misses interface drift.
 - **Verify:** `npx tsc --noEmit` is clean — tests are typechecked, not only executed.
 
+### 2026-09-17 — A comment asserted a guarantee the code did not provide
+
+- **Symptom:** Two concurrent `POST /artifacts/:id/versions` returned `[500, 201]`. The 500 was
+  a unique-index violation on `(artifact_id, version)`.
+- **Cause:** The handler took the next version from `max(version) + 1` inside a transaction, and
+  a comment claimed that was why concurrent writers could not collide. It is not. Under READ
+  COMMITTED an aggregate takes no lock — both transactions read the same max, both insert it.
+  The fix was a `FOR UPDATE` on the parent artifact row, which is the pattern the usage counters
+  already used three files away.
+- **Rule:** **A transaction is not a lock.** Serialising writers requires `FOR UPDATE`, a unique
+  constraint plus a retry, or `SERIALIZABLE` — never a bare `SELECT max(...)`. And **never let a
+  comment state a guarantee without a test that fails when it stops holding.** The comment here
+  was the most confident sentence in the file and it was wrong.
+- **Verify:** `src/routes/artifacts.integration.test.ts` fires two appends with `Promise.all`
+  and requires `[201, 201]` with history `[3,2,1]`.
+
+### 2026-09-17 — Invented an enum instead of reading the code that consumes it
+
+- **Symptom:** `PATCH /usage/limits` accepted `routingPreference: "fast"`, stored it, and echoed
+  it back. The router reads `'economy' | 'balanced' | 'quality'` and silently treats everything
+  else as `balanced`, so the setting did nothing.
+- **Cause:** I wrote the Zod enum from what the word ought to be rather than from
+  `normalizeTier()` in the generation service. Nothing failed — the value round-tripped
+  perfectly through the API and was discarded one layer below it.
+- **Rule:** **Never write a validator for a value you have not traced to its consumer.** An enum
+  at an API boundary is a promise the system acts on that value; grep for the reader first.
+- **Verify:** `src/routes/usage.integration.test.ts` requires `fast`, `cheap` and `best` to be
+  rejected and all three real tiers to be accepted.
+- **Note:** This is the same failure the project's own ADR-0002 exists to prevent — a label that
+  does not name what actually happens.
+
 ---
 
 ## Convention and sources
@@ -170,3 +201,6 @@ practice, not canon.
 - **2026-09-17** — File created. Seeded with the four bugs fixed on 2026-09-16 (recorded in
   `docs/checkpoints/CURRENT.md`), the stale-ADR drift, and three mistakes from this session.
   Nothing retired yet.
+- **2026-09-17** — Two entries added after the integration suite caught real defects in code
+  written earlier the same day: a bare `SELECT max(...)` mistaken for a lock, and an API enum
+  invented rather than traced to its consumer. 9 entries, 31 to the cap.

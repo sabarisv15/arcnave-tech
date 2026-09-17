@@ -4064,7 +4064,7 @@
                   "routingPreference": {
                     "type": "string",
                     "enum": [
-                      "fast",
+                      "economy",
                       "balanced",
                       "quality"
                     ]
