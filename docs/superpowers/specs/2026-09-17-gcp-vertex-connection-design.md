@@ -69,8 +69,10 @@ The alternative — dropping the alias as permanently unavailable — was reject
 
 ### 3. Environment values
 
-- `backend/.env.example` — committed, names with empty values.
-- `backend/.env` — real values, already covered by `.gitignore`.
+- `backend/.env` — real values, already covered by `.gitignore`. Drives `npm run dev`.
+- The template lives at the repo root as `.env.example`, written by the concurrent Docker
+  work, and already carries these names. A second backend-level template was written here
+  and then removed as redundant — two templates for one set of variables is how they drift.
 
 No credential material is written to either file. Authentication is Application Default
 Credentials, which already exist on this machine.
