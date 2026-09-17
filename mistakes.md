@@ -379,6 +379,28 @@ failure mode of this pattern, not a sign it is working.
   allowed origin" and its negative counterpart for a non-allow-listed origin. Both fail if the
   header logic in `chats.ts`'s generate handler regresses.
 
+### 2026-09-17 — Sign out looked broken because the UI waited for a cross-region round trip
+
+- **Symptom:** Reported live as "sign out not working." Reproduced in a real session: clicking
+  "Sign out" closed the menu and then visibly did nothing — same signed-in screen — until an
+  unrelated later interaction finally showed the sign-in form. No error, no console output, no
+  network request even visible to the debugging tooling used (cross-origin `fetch` calls don't
+  show up there), which made it look like the click handler never fired at all.
+- **Cause:** `session.tsx`'s `signOut` awaited `api.auth.logout()` *before* clearing local state
+  (`setUser(null)`, etc.). The call is a real cross-region request (frontend on Cloudflare,
+  API on Cloud Run `asia-south1`, see the `SameSite=None` entry above), so the UI sat frozen on
+  the signed-in screen for however long that round trip took, with zero loading indicator on the
+  menu item to show anything was happening — indistinguishable from the click doing nothing.
+- **Rule:** **Never make a client-side state change wait on a server call whose failure is
+  already handled as a no-op.** The code's own comment already said a failed logout shouldn't
+  block ending the local session — the same reasoning means a *slow* one shouldn't either. Clear
+  local state synchronously in the handler, then fire the server call and swallow its failure.
+- **Verify:** Manual — click Sign out and confirm the sign-in screen appears on the same paint as
+  the click, not after a visible delay. No automated coverage: the frontend suite has no
+  component-rendering harness (`vitest` only, no `@testing-library/react`), so this is
+  reasoned from the diff, not asserted by a test — adding one means introducing that dependency,
+  which is a bigger decision than this fix.
+
 ---
 
 ## Convention and sources
@@ -433,3 +455,7 @@ practice, not canon.
   message, not just curling individual endpoints: the SSE generate route had no CORS headers
   at all, invisible for the entire session until the cross-origin architecture change above
   made it a hard failure. **21 entries, 19 to the cap.**
+- **2026-09-17** — One more from a live user report: sign out awaited a real cross-region round
+  trip before clearing local state, so the UI sat frozen long enough to look broken. Found by
+  reproducing in a real browser session against production, not by reading the code first.
+  **22 entries, 18 to the cap.**

@@ -146,15 +146,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setUser(result.user);
       },
       signOut: async () => {
+        // The local session ends the instant this is called, not when the server answers.
+        // asia-south1 is a real cross-region round trip (see mistakes.md), and awaiting it
+        // before clearing state left the screen looking frozen for however long that took —
+        // indistinguishable from Sign out doing nothing. The server call still happens, so the
+        // cookie is actually revoked; the UI just no longer waits on it.
         deliberate.current = true;
+        setExpired(false);
+        setUser(null);
+        writeLocal("theme", "system");
         try {
           await api.auth.logout();
-        } finally {
-          // Even if the call fails the local session is over; leaving the user apparently
-          // signed in after they asked to leave is the worse failure.
-          setExpired(false);
-          setUser(null);
-          writeLocal("theme", "system");
+        } catch {
+          // Local session already ended above; a failed revoke here changes nothing the user
+          // can act on, and the cookie expires on its own regardless.
         }
       },
     }),
