@@ -3,7 +3,8 @@
 **Last updated:** 2026-09-17
 **Status:** backend API surface complete (38 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
-**deployed to production and confirmed working** (see
+**deployed to production and confirmed working end-to-end in a real browser** — sign-in,
+session persistence, and a real streamed chat answer all verified live (see
 [Production deployment](#production-deployment-2026-09-17)) — with a stated `SameSite=None`
 cookie trade-off and accepted cold-start latency, both flagged there for revisit.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
@@ -311,11 +312,13 @@ locally, workload identity on GCP). **No service-account key is ever committed o
 
 Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets only —
 no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres
-(pooled endpoint), GCP project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end:
-signup, login persists past the first request (cross-origin, `SameSite=None`), and all four
-model aliases report `available: true` from a live `/v1/models?probe=true` call against Vertex.
+(pooled endpoint), GCP project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
+**in a real browser, not just curl**: signup, login persists past the first request
+(cross-origin, `SameSite=None`), a real chat message gets a real streamed answer ("Hello, nice
+to meet you!" from Gemini 3.8 Flash), and all four model aliases report `available: true` from
+a live `/v1/models?probe=true` call against Vertex.
 
-Getting there surfaced six production-only bugs — none reproducible locally, all found by
+Getting there surfaced seven production-only bugs — none reproducible locally, all found by
 testing the deployed service rather than by any local check. Full detail, cause, and the
 verification command for each is in `mistakes.md`; summary:
 
@@ -351,6 +354,18 @@ verification command for each is in `mistakes.md`; summary:
    the container is cold, worth moving to a separate deploy-time step rather than the container
    entrypoint. Left alone this session since it touches the deliberate design in `mistakes.md`
    (migrations run separately so a migration failure cannot block the server from starting).
+7. **The SSE `/chats/:id/generate` endpoint had no CORS headers at all**, found only by actually
+   opening the site in a browser and sending a message — curl and every other endpoint-level
+   check this session made are blind to CORS, since only browsers enforce it. The handler writes
+   its response with `reply.raw.writeHead(...)` to stream frames, which bypasses Fastify's
+   reply pipeline entirely — exactly where `@fastify/cors` injects its headers. Invisible for
+   the whole session while frontend and API were same-origin; a hard, silent hang on
+   "Thinking…" the moment they were not. Fixed in `src/routes/chats.ts` by replicating the same
+   origin-allowlist decision `@fastify/cors` would have made; covered by two new integration
+   tests (allowed origin gets the header, non-allowed origin does not). **This is the one item
+   on this list actually confirmed working via a real browser session, not just curl** — a
+   distinction worth preserving: everything else above was verified against the API directly,
+   which is necessary but was not sufficient to catch this one.
 
 ## Blocked on the user
 
