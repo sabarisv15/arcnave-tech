@@ -419,6 +419,8 @@ export class GenerationService {
         promptChars: input.prompt.length,
         contextChars,
         hasAttachments: input.hasAttachments,
+        // Not wired to attachment vision-capability yet — see Task 7 of the multimodal plan.
+        requiresVision: false,
         routingPreference: normalizeTier(prefs.routingPreference),
         requiresGrounding,
       },

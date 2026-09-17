@@ -13,7 +13,7 @@ import { chooseTier, routeAuto, type RoutingInput } from './routing.js';
 
 const cfg = loadConfig({ NODE_ENV: 'test' });
 
-function entry(alias: string, tier: Tier, supportsGrounding: boolean): ModelEntry {
+function entry(alias: string, tier: Tier, supportsGrounding: boolean, supportsVision = true): ModelEntry {
   return {
     alias,
     description: '',
@@ -22,6 +22,7 @@ function entry(alias: string, tier: Tier, supportsGrounding: boolean): ModelEntr
     providerModelId: `model-${alias}`,
     location: 'global',
     supportsGrounding,
+    supportsVision,
     contextWindow: 1_000,
   };
 }
@@ -30,7 +31,7 @@ function entry(alias: string, tier: Tier, supportsGrounding: boolean): ModelEntr
 const GEMINI = entry('Gemini', 'economy', true);
 const SONNET = entry('Sonnet', 'balanced', true);
 const OPUS = entry('Opus', 'quality', true);
-const GPT_OSS = entry('GPT-OSS', 'balanced', false);
+const GPT_OSS = entry('GPT-OSS', 'balanced', false, false);
 const ALL = [GEMINI, SONNET, OPUS, GPT_OSS];
 
 function input(over: Partial<RoutingInput> = {}): RoutingInput {
@@ -39,6 +40,7 @@ function input(over: Partial<RoutingInput> = {}): RoutingInput {
     promptChars: 10,
     contextChars: 0,
     hasAttachments: false,
+    requiresVision: false,
     routingPreference: 'balanced',
     requiresGrounding: false,
     ...over,
@@ -145,5 +147,24 @@ describe('routeAuto', () => {
     expect(routeAuto(input({ mode: 'research', requiresGrounding: true }), cfg, ALL)?.rule).toBe(
       'grounded_economy',
     );
+  });
+
+  it('never considers a vision-incapable model when vision is required', () => {
+    const decision = routeAuto(input({ requiresVision: true }), cfg, ALL);
+    expect(decision?.considered).not.toContain('GPT-OSS');
+  });
+
+  it('returns null when nothing configured can see an attachment', () => {
+    expect(routeAuto(input({ requiresVision: true }), cfg, [GPT_OSS])).toBeNull();
+  });
+
+  it('combines the grounding and vision filters', () => {
+    // GPT-OSS fails both; only a model with both capabilities should be considered.
+    const decision = routeAuto(
+      input({ requiresGrounding: true, requiresVision: true }),
+      cfg,
+      ALL,
+    );
+    expect(decision?.considered).toEqual(['Gemini', 'Sonnet', 'Opus']);
   });
 });

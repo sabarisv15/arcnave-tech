@@ -29,6 +29,7 @@ export interface ModelEntry {
   providerModelId: string | undefined;
   location: string;
   supportsGrounding: boolean;
+  supportsVision: boolean;
   contextWindow: number | null;
 }
 
@@ -58,6 +59,7 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       providerModelId: cfg.MODEL_GEMINI_FLASH,
       location: cfg.geminiLocation,
       supportsGrounding: true,
+      supportsVision: true,
       contextWindow: 1_000_000,
     },
     {
@@ -68,6 +70,7 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       providerModelId: cfg.MODEL_SONNET,
       location: cfg.VERTEX_LOCATION,
       supportsGrounding: true,
+      supportsVision: true,
       contextWindow: 1_000_000,
     },
     {
@@ -78,6 +81,7 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       providerModelId: cfg.MODEL_OPUS,
       location: cfg.VERTEX_LOCATION,
       supportsGrounding: true,
+      supportsVision: true,
       contextWindow: 1_000_000,
     },
     {
@@ -93,6 +97,8 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       location: cfg.gptOssLocation,
       // The OpenAI-compatible shim exposes no Google Search tool.
       supportsGrounding: false,
+      // gpt-oss-120b has no vision capability on Vertex or anywhere else.
+      supportsVision: false,
       contextWindow: 128_000,
     },
   ];

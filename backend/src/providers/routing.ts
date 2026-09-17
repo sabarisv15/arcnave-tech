@@ -14,6 +14,7 @@ export interface RoutingInput {
   promptChars: number;
   contextChars: number;
   hasAttachments: boolean;
+  requiresVision: boolean;
   routingPreference: Tier;
   /** Search and research need a grounded model; ungrounded candidates are skipped. */
   requiresGrounding: boolean;
@@ -88,9 +89,9 @@ export function routeAuto(
   cfg: Config,
   available: ModelEntry[],
 ): RoutingDecision | null {
-  const candidates = input.requiresGrounding
-    ? available.filter((e) => e.supportsGrounding)
-    : available;
+  const candidates = available.filter(
+    (e) => (!input.requiresGrounding || e.supportsGrounding) && (!input.requiresVision || e.supportsVision),
+  );
   if (candidates.length === 0) return null;
 
   const { tier, rule } = chooseTier(input, cfg);
