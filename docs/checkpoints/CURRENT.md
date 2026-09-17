@@ -97,6 +97,7 @@ Credentials are ADC; nothing secret is stored in the repo. See
 | TypeScript 5.9, not 7 | TS 7.0.2 is GA but `typescript-eslint` caps at `<6.1.0`. Ecosystem not ready. |
 | `global` Vertex region | The only endpoint type serving Opus 5 / Sonnet 5, and no pricing premium. Regional tops out at Sonnet 4.6. |
 | Session rows, not JWT | Revocable. A password change can actually end other sessions. |
+| Search and research default to the economy tier | Grounding cost is dominated by the provider's search tool, not the model. Same question on Vertex: Anthropic web search 20,440 tokens, Gemini 368. Auto previously sent research to the quality tier, so the default was the most expensive path. Expressed as a tier, not a hardcoded alias, so it still degrades when Gemini is unconfigured and a `quality` preference still shifts up. |
 | BM25, not embeddings | Semantic retrieval is not implemented, so the product must not claim it. `Retriever` is the seam for a managed backend later. |
 | **"GPT 5 Terra" → "GPT-OSS 120B"** | That model does not exist on Vertex. User chose to remap to `openai/gpt-oss-120b-maas`; the label changed with it because keeping the old badge would be the silent substitution the brief forbids. [ADR-0002](../decisions/0002-model-aliases.md) |
 
