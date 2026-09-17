@@ -412,6 +412,24 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       const onClose = (): void => controller.abort();
       request.raw.on('close', onClose);
 
+      // `reply.raw.writeHead` bypasses Fastify's reply pipeline entirely, which is where
+      // `@fastify/cors` (registered in app.ts) injects Access-Control-* headers — so this SSE
+      // response gets none of them for free. Invisible whenever the frontend and API are
+      // same-origin; a hard failure the moment they are not, because the browser blocks the
+      // response outright before any event body is read. Replicate the same origin-matching
+      // decision here rather than reaching for `*`, which `@fastify/cors` already refuses to
+      // allow in production.
+      const { cfg } = request.services;
+      const origin = request.headers.origin;
+      const corsHeaders: Record<string, string> =
+        origin && cfg.CORS_ORIGINS.includes(origin)
+          ? {
+              'Access-Control-Allow-Origin': origin,
+              'Access-Control-Allow-Credentials': 'true',
+              Vary: 'Origin',
+            }
+          : {};
+
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         // Without no-cache an intermediary may buffer the whole stream and deliver it at once.
@@ -420,6 +438,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         // Tells nginx not to buffer, which otherwise defeats streaming entirely.
         'X-Accel-Buffering': 'no',
         'X-Request-ID': request.id,
+        ...corsHeaders,
       });
 
       const send = (event: StreamEvent): void => {

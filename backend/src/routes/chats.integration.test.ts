@@ -96,6 +96,36 @@ describe('streaming generation', () => {
     expect(sseText(frames)).toBe('Hello, world.');
   });
 
+  it('sends CORS headers on the SSE response for an allowed origin', async () => {
+    // The SSE handler writes its response headers via `reply.raw.writeHead`, bypassing
+    // Fastify's reply pipeline entirely — which is where `@fastify/cors` normally injects
+    // these. A regression here is invisible whenever frontend and API are same-origin, and a
+    // hard failure (browser blocks the response before any event body is read) the moment
+    // they are not. See mistakes.md.
+    const chatId = await newChat();
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/chats/${chatId}/generate`,
+      headers: { ...auth(), origin: 'http://localhost:5173' },
+      payload: { prompt: 'What is in the notes?' },
+    });
+
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('omits the CORS origin header for an origin that is not allow-listed', async () => {
+    const chatId = await newChat();
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/chats/${chatId}/generate`,
+      headers: { ...auth(), origin: 'https://not-arcnave.example' },
+      payload: { prompt: 'What is in the notes?' },
+    });
+
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
   it('names the model that answered in the start frame', async () => {
     const chatId = await newChat();
     const frames = parseSse((await generate(chatId, { model: 'Opus 5' })).body);

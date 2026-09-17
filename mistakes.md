@@ -358,6 +358,27 @@ failure mode of this pattern, not a sign it is working.
   `SameSite=None; Secure`. Test login in Safari specifically before trusting this for anyone
   but the single test account this was built against.
 
+### 2026-09-17 — The SSE generate endpoint had no CORS headers, only visible once cross-origin
+
+- **Symptom:** In a real browser, sending a chat message hung on "Thinking…" forever. Every
+  other endpoint (login, chats list, models) worked fine from the same page. Curl-based testing
+  all session had not caught this — curl does not enforce CORS, only browsers do.
+- **Cause:** `/chats/:id/generate` writes its response with `reply.raw.writeHead(...)` to
+  stream SSE frames, bypassing Fastify's reply pipeline entirely — which is exactly where
+  `@fastify/cors` (registered in `app.ts`) injects `Access-Control-Allow-Origin` and
+  `-Credentials`. Every other route uses `reply.send()`/Fastify's normal response path and got
+  CORS headers for free; this one silently never had them. Invisible for the entire time the
+  frontend and API were same-origin (via `vite.config.ts`'s proxy, or the Worker proxy tried
+  and reverted earlier tonight) — a hard, silent failure the moment they were not.
+- **Rule:** **Any handler that reaches for `reply.raw` to bypass Fastify's response pipeline
+  must be checked against every `onSend`-hook-based plugin the app registers — CORS, but also
+  anything else added later that assumes it runs through `reply.send()`.** Test it with an
+  actual cross-origin `Origin` header via `app.inject()`, not just same-origin curl calls;
+  curl and `fetch` with no `Origin` set will never reproduce a CORS failure.
+- **Verify:** `chats.integration.test.ts` — "sends CORS headers on the SSE response for an
+  allowed origin" and its negative counterpart for a non-allow-listed origin. Both fail if the
+  header logic in `chats.ts`'s generate handler regresses.
+
 ---
 
 ## Convention and sources
@@ -408,3 +429,7 @@ practice, not canon.
   and Cloud Run's domain mapping doesn't support this region, so the Worker proxy was removed
   again and the cookie moved to `SameSite=None` as a stated, temporary trade-off rather than a
   fix. **20 entries, 20 to the cap** — halfway; worth a pruning pass soon.
+- **2026-09-17** — One more found by actually opening the site in a browser and sending a
+  message, not just curling individual endpoints: the SSE generate route had no CORS headers
+  at all, invisible for the entire session until the cross-origin architecture change above
+  made it a hard failure. **21 entries, 19 to the cap.**
