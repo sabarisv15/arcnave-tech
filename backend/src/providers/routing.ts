@@ -44,6 +44,22 @@ function shift(tier: Tier, preference: Tier): Tier {
  * mean "never use a good model for research" — it means "prefer cheaper at each decision".
  */
 export function chooseTier(input: RoutingInput, cfg: Config): { tier: Tier; rule: string } {
+  /**
+   * Grounded modes start at the cheapest model that can ground, and this rule comes first so
+   * neither research nor an attachment can quietly promote them.
+   *
+   * Measured against Vertex on 2026-09-17, same question, same quality of answer: an
+   * Anthropic web search cost 20,440 tokens where the Gemini equivalent cost 368. The
+   * Anthropic tool pulls page content into the prompt, so the gap is structural rather than
+   * a property of that one query. Defaulting a grounded request to the quality tier
+   * multiplies the bill roughly fiftyfold for no reliable gain.
+   *
+   * An explicit `quality` routing preference still shifts one step up, so this is a default
+   * and not a ceiling.
+   */
+  if (input.requiresGrounding) {
+    return { tier: shift('economy', input.routingPreference), rule: 'grounded_economy' };
+  }
   if (input.mode === 'research') {
     return { tier: shift('quality', input.routingPreference), rule: 'research_mode' };
   }
