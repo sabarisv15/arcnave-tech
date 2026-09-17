@@ -70,10 +70,22 @@ adapter aborts the real HTTP request.
   All five are registered as separately encapsulated plugins in `app.ts`, so each module's
   `requireAuth` hook stays scoped to its own routes.
 
-### Built, typechecks clean, never called for real
-- All three provider adapters — no GCP project is configured, so every alias reports
-  `vertex_not_configured` and no model call has ever been made from this codebase.
-- Grounded search and research modes, for the same reason.
+### Connected to Vertex AI and verified live — 2026-09-17
+`GOOGLE_CLOUD_PROJECT=project-8bcf740a-a7bd-4aea-974` (billing on, `aiplatform` enabled).
+Credentials are ADC; nothing secret is stored in the repo. See
+[the design](../superpowers/specs/2026-09-17-gcp-vertex-connection-design.md).
+
+- All four aliases answered a real streaming request. Usage is `exact`; cost is `null`
+  because no `PRICING_TABLE` is set — never `0`.
+- `gpt-oss-120b-maas` is **not served at `global`** (404). It needs `GPT_OSS_LOCATION`,
+  which defaults to `VERTEX_LOCATION` and is set to `us-central1` here. `VERTEX_LOCATION`
+  must stay `global` for Opus 5 / Sonnet 5.
+- **Grounded search and research verified live.** Gemini grounding resolved all 4 Vertex
+  redirect URLs to their real pages; Anthropic web search returned 10 cited sources.
+  Both are gated by `ENABLE_GOOGLE_SEARCH_GROUNDING` / `ENABLE_ANTHROPIC_WEB_SEARCH`,
+  both now `true` in the local `.env`, and each grounded request is billed per search.
+  One Anthropic search cost 20,440 tokens against 368 for the Gemini equivalent — search
+  pulls page content into the prompt, so the two are not comparable on price.
 
 ## Decisions and reasons
 
