@@ -463,7 +463,13 @@ describe('buildAnthropicMessages', () => {
     expect(messages).toHaveLength(3);
     const firstBlocks = messages[0]!.content as Array<{ type: string }>;
     expect(firstBlocks.map((b) => b.type)).toEqual(['image', 'text']);
-    expect(messages[1]).toEqual({ role: 'assistant', content: 'I see a cat.' });
+    // messages[1] is the second-to-last message, so it also picks up the cache_control
+    // breakpoint described in the next test — caching applies independent of whether any
+    // particular turn has an attachment, so this is not a bare string here.
+    expect(messages[1]).toEqual({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'I see a cat.', cache_control: { type: 'ephemeral' } }],
+    });
     expect(messages[2]).toEqual({ role: 'user', content: 'What is this?' });
   });
 
