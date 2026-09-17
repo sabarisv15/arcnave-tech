@@ -8,6 +8,7 @@
  * only one with no pricing premium. Regional endpoints top out at Sonnet 4.6.
  * See docs/backend-research.md section 2.
  */
+import type Anthropic from '@anthropic-ai/sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 
 import type { Config } from '../config.js';
@@ -84,6 +85,71 @@ function collectSearchResults(block: unknown): SearchResultBlock[] {
   );
 }
 
+type CacheableBlock = Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam | Anthropic.TextBlockParam;
+
+function attachmentBlocks(attachments: GenerationRequest['attachments']): CacheableBlock[] {
+  if (!attachments || attachments.length === 0) return [];
+  return attachments.map((a): CacheableBlock =>
+    a.mimeType === 'application/pdf'
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.base64 } }
+      : {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: a.mimeType as Anthropic.Base64ImageSource['media_type'],
+            data: a.base64,
+          },
+        },
+  );
+}
+
+/**
+ * Build the Anthropic message array for one request, including caching.
+ *
+ * A turn with an attachment becomes a content-block array (media first, text last — Anthropic's
+ * documented order); a plain-text turn stays a bare string, the cheapest wire shape. The
+ * `cache_control` breakpoint marks everything through the previous assistant turn as cacheable;
+ * the newest user turn is never marked, since by definition it is new on every call. Vertex only
+ * supports the SDK's default 5-minute cache — the 1-hour variant needs an `anthropic-beta` header
+ * Vertex rejects, so none is sent here.
+ */
+export function buildAnthropicMessages(request: GenerationRequest): Anthropic.MessageParam[] {
+  const turns = request.history.filter(
+    (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0,
+  );
+
+  const messages: { role: 'user' | 'assistant'; content: string | CacheableBlock[] }[] = turns.map(
+    (turn) => {
+      const blocks = attachmentBlocks(turn.attachments);
+      if (blocks.length === 0) return { role: turn.role, content: turn.text };
+      const content: CacheableBlock[] = [...blocks];
+      if (turn.text.trim() !== '') content.push({ type: 'text', text: turn.text });
+      return { role: turn.role, content };
+    },
+  );
+
+  // The API requires the sequence to start with a user turn.
+  while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
+
+  const currentBlocks = attachmentBlocks(request.attachments);
+  if (currentBlocks.length === 0) {
+    messages.push({ role: 'user', content: request.prompt });
+  } else {
+    messages.push({ role: 'user', content: [...currentBlocks, { type: 'text', text: request.prompt }] });
+  }
+
+  if (messages.length > 1) {
+    const cached = messages[messages.length - 2]!;
+    if (typeof cached.content === 'string') {
+      cached.content = [{ type: 'text', text: cached.content, cache_control: { type: 'ephemeral' } }];
+    } else if (cached.content.length > 0) {
+      cached.content[cached.content.length - 1]!.cache_control = { type: 'ephemeral' };
+    }
+  }
+
+  return messages as Anthropic.MessageParam[];
+}
+
 export class AnthropicVertexProvider implements Provider {
   readonly name = 'anthropic';
   private client: AnthropicVertex | undefined;
@@ -111,16 +177,6 @@ export class AnthropicVertexProvider implements Provider {
     return this.client;
   }
 
-  private buildMessages(request: GenerationRequest): Array<{ role: 'user' | 'assistant'; content: string }> {
-    const messages = request.history
-      .filter((turn) => turn.text.trim() !== '')
-      .map((turn) => ({ role: turn.role, content: turn.text }));
-    // The API requires the sequence to start with a user turn.
-    while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
-    messages.push({ role: 'user', content: request.prompt });
-    return messages;
-  }
-
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     const grounded = request.grounded && this.supportsGrounding();
 
@@ -142,7 +198,7 @@ export class AnthropicVertexProvider implements Provider {
         {
           model: request.providerModelId,
           max_tokens: request.maxOutputTokens,
-          messages: this.buildMessages(request),
+          messages: buildAnthropicMessages(request),
           ...(request.systemInstruction ? { system: request.systemInstruction } : {}),
           ...(grounded ? { tools: [WEB_SEARCH_TOOL] } : {}),
         },
