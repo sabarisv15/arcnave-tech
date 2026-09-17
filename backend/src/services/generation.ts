@@ -516,12 +516,27 @@ export class GenerationService {
       .from(messages)
       .where(and(eq(messages.chatId, chatId), sql`${messages.id} <> ${excludeMessageId}`))
       .orderBy(desc(messages.seq))
-      .limit(this.cfg.HISTORY_MAX_TURNS);
+      .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 12));
 
-    return rows
+    // Keep the newest complete context within a predictable character budget. Without this
+    // guard, a long chat sends the full recent transcript on every turn and input-token usage
+    // grows linearly until the provider context limit is reached.
+    const turns = rows
       .reverse()
       .filter((r) => r.text.trim() !== '')
       .map((r) => ({ role: r.role === 'user' ? 'user' : 'assistant', text: r.text }) as Turn);
+    const budget = 24_000;
+    let used = 0;
+    const kept: Turn[] = [];
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      const turn = turns[i];
+      if (!turn) continue;
+      const cost = turn.text.length;
+      if (kept.length > 0 && used + cost > budget) break;
+      kept.unshift(turn);
+      used += cost;
+    }
+    return kept;
   }
 
   private async buildSystemInstruction(
