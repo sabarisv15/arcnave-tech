@@ -51,6 +51,11 @@ cp .env.example .env   # fill in POSTGRES_PASSWORD and COOKIE_SECRET
 docker compose up --build
 ```
 
+**Environment files live in two places, by design.** `docker compose` reads `./.env`;
+`npm run dev` reads `./backend/.env` via `--env-file-if-exists`. Same variable names, one
+template (`.env.example`), but a value set in one does not reach the other. Neither is
+committed.
+
 Postgres for local development runs as a container named `arcnave-pg`:
 
 ```bash
