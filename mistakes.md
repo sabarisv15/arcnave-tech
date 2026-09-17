@@ -201,6 +201,37 @@ failure mode of this pattern, not a sign it is working.
   types checked, and 167 tests passed — none of which execute `dist/logger.js` under
   `--omit=dev`. A build that succeeds is not a program that starts.
 
+### 2026-09-17 — Reconciling with the server raced the server's own write
+
+- **Symptom:** Pressing stop mid-answer left the response spinning "Thinking…" forever, even
+  though `GET /v1/chats/:id` showed the row as `stopped` a second later.
+- **Cause:** After a stream ends the client re-reads the chat so ids and status come from the
+  database rather than from what it guessed. Aborting closes the socket, so the client resumes
+  *immediately* — while the server is still in its own `finally` writing the final row. The
+  read won the race, returned `generating`, and that overwrote the `stopped` the client had
+  correctly just set.
+- **Rule:** **A read issued because you closed a connection can arrive before the other side
+  has finished reacting to the close.** When reconciling, never let a non-terminal server
+  status overwrite a terminal status you observed locally; keep yours and re-read on a short
+  bounded delay. Generally: **reconciliation must be a merge, not an assignment.**
+- **Verify:** Stop a long answer; the message reads "Response stopped" with its partial text,
+  and `GET /v1/chats/:id` agrees. (`loadTranscript`'s `settled` argument in
+  [`arcnave-frontend/src/workspace.tsx`](arcnave-frontend/src/workspace.tsx).)
+- **Wider point:** this is the third appearance of the stuck-`generating` failure in this
+  project, and the first on the client. The backend fix from 2026-09-16 was correct and did not
+  help, because the bug had moved.
+
+### 2026-09-17 — A deliberate sign-out announced itself as an expired session
+
+- **Symptom:** Clicking "Sign out" showed "Your session ended. Sign in to pick up where you
+  left off." — telling the user something alarming about something they had just chosen.
+- **Cause:** A single global `onUnauthorized` handler turns any 401 into "expired". Signing out
+  clears the cookie, so requests already in flight 401 a moment later and tripped it.
+- **Rule:** **A global error handler cannot distinguish a failure from a consequence of an
+  intent it does not know about.** Give it the intent — a flag set before the action — rather
+  than trying to infer it from the error.
+- **Verify:** Sign out; the sign-in screen appears with no "session ended" notice.
+
 ---
 
 ## Convention and sources

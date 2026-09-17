@@ -1,102 +1,73 @@
-import type { Workspace, Attachment } from "./types";
-import { initialWorkspace } from "./fixtures";
-export const STORAGE_KEY = "still-workspace-v1";
-export function loadWorkspace(): Workspace {
+/**
+ * Local helpers that are not persistence.
+ *
+ * Conversations, projects, artifacts, preferences, and files all live on the server now. What
+ * is left here is presentation: formatting a size, deciding whether a file can be previewed as
+ * text, triggering a download, and remembering purely local interface state such as whether
+ * the sidebar is collapsed.
+ *
+ * `validateFile` mirrors `checkUpload` in `backend/src/services/storage.ts` so an obviously
+ * unusable file is refused before the bytes are sent. The server remains the authority: this
+ * is a courtesy, never a guarantee, and a file that passes here can still come back
+ * `unsupported_media_type`.
+ */
+import type { Attachment } from "./types";
+
+/** Local, non-syncing interface state. Namespaced so it cannot collide with anything else. */
+const UI_PREFIX = "arcnave-ui:";
+
+export function readLocal(key: string): string | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const data = JSON.parse(raw);
-      if (
-        Array.isArray(data.chats) &&
-        Array.isArray(data.projects) &&
-        Array.isArray(data.artifacts) &&
-        data.preferences
-      ) {
-        return {
-          ...data,
-          preferences: {
-            ...data.preferences,
-            model:
-              data.preferences.model === "Quick"
-                ? "Gemini 3.8 Flash"
-                : data.preferences.model === "Deliberate"
-                  ? "Opus 5"
-                  : data.preferences.model,
-          },
-          chats: data.chats.map((c: any) => ({
-            ...c,
-            messages: c.messages.map((m: any) =>
-              ["generating", "submitting"].includes(m.status)
-                ? { ...m, status: "stopped" }
-                : m,
-            ),
-          })),
-        };
-      }
-    }
+    return localStorage.getItem(UI_PREFIX + key);
   } catch {
-    /* Recover to a usable fresh workspace when local storage is corrupt or unavailable. */
+    // Private browsing and blocked storage both throw. A missing preference is not an error.
+    return null;
   }
-  return initialWorkspace();
 }
-export function persistWorkspace(w: Workspace) {
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({ ...w, chats: w.preferences.saveHistory ? w.chats : [] }),
-  );
+
+export function writeLocal(key: string, value: string): void {
+  try {
+    localStorage.setItem(UI_PREFIX + key, value);
+  } catch {
+    /* The interface still works without it; nothing user-owned is lost. */
+  }
 }
-function db(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("still-files", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("files");
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+
+export function clearLocal(key: string): void {
+  try {
+    localStorage.removeItem(UI_PREFIX + key);
+  } catch {
+    /* Nothing to clean up if storage is unavailable. */
+  }
 }
-export async function storeFile(id: string, file: File) {
-  const d = await db();
-  return new Promise<void>((resolve, reject) => {
-    const tx = d.transaction("files", "readwrite");
-    tx.objectStore("files").put(file, id);
-    tx.oncomplete = () => {
-      d.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      d.close();
-      reject(tx.error);
-    };
-  });
-}
-export async function readFile(id: string): Promise<File | undefined> {
-  const d = await db();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction("files", "readonly");
-    const req = tx.objectStore("files").get(id);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => d.close();
-  });
-}
+
+/** Extensions the backend accepts, by name. Keep in step with `ALLOWED` on the server. */
 export const allowed =
-  /\.(pdf|docx|txt|csv|xlsx|png|jpe?g|webp|gif|md|json|js|jsx|ts|tsx|py|html|css|yml|yaml|xml|sql)$/i;
-export function validateFile(file: Pick<File, "name" | "size">) {
+  /\.(pdf|docx|xlsx|txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini|png|jpe?g|webp|gif)$/i;
+
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+export function validateFile(file: Pick<File, "name" | "size">): string | null {
   if (!allowed.test(file.name))
     return "This file format is not supported. Try a document, image, spreadsheet, or code file.";
-  if (file.size > 20 * 1024 * 1024)
+  if (file.size === 0) return "That file is empty.";
+  if (file.size > MAX_UPLOAD_BYTES)
     return "This file is larger than 20 MB. Choose a smaller file.";
   return null;
 }
+
 export const sizeLabel = (bytes: number) =>
   bytes < 1024
     ? `${bytes} B`
     : bytes < 1024 * 1024
       ? `${Math.round(bytes / 1024)} KB`
       : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
 export const canPreviewText = (file: Attachment) =>
-  /\.(txt|csv|md|json|js|jsx|ts|tsx|py|html|css|yml|yaml|xml|sql)$/i.test(
+  /\.(txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini)$/i.test(
     file.name,
   );
+
 export function download(
   content: string | Blob,
   name: string,
@@ -110,4 +81,17 @@ export function download(
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Save a file the server owns.
+ *
+ * A plain link would work for a public URL, but these endpoints need the session cookie and
+ * set `Content-Disposition` themselves, so the response is fetched with credentials and handed
+ * to the same download path as everything else.
+ */
+export async function downloadFrom(href: string, name: string): Promise<void> {
+  const response = await fetch(href, { credentials: "include" });
+  if (!response.ok) throw new Error(`download failed: ${response.status}`);
+  download(await response.blob(), name, "application/octet-stream");
 }

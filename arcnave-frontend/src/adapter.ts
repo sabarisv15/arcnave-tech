@@ -1,172 +1,176 @@
-import { coolingAnswer, sources } from "./fixtures";
-import type {
-  ErrorCode,
-  Mode,
-  ResearchEvent,
-  Source,
-  ResearchStage,
-} from "./types";
-export type AdapterEvent =
+/**
+ * The generation boundary.
+ *
+ * `POST /v1/chats/:id/generate` answers with `text/event-stream`, so this cannot be an
+ * `EventSource` — that API only does GET and cannot send a body. It is a `fetch` whose
+ * response body is read as a stream and re-framed into the same typed events the UI has
+ * always consumed.
+ *
+ * Two details that are easy to get wrong and expensive when they are:
+ *
+ * - **A frame can be split across reads.** Network chunks have nothing to do with SSE frame
+ *   boundaries, so the buffer is only drained at a blank line. Parsing per chunk drops text.
+ * - **Aborting must reach the server.** The signal is passed to `fetch`, which closes the
+ *   socket; the backend listens for that close and aborts the provider call. The UI also
+ *   posts `/stop`, because a run started on another tab has no socket here to close.
+ */
+import { ApiError, describeError, errorCopy, url } from "./api";
+import type { SourceDto, UsageDto } from "./api";
+import type { Mode, ResearchEvent } from "./types";
+
+export interface ModelInfo {
+  requested: string;
+  resolved: string;
+  provider: string;
+  providerModelId: string;
+  /** Present only when the request asked for Auto, so routing is never opaque. */
+  routing?: { rule: string; considered: string[] };
+  grounded: boolean;
+}
+
+export type StreamEvent =
+  | {
+      type: "start";
+      messageId: string;
+      chatId: string;
+      requestId: string;
+      model: ModelInfo;
+    }
   | { type: "research"; event: ResearchEvent }
   | { type: "delta"; text: string }
-  | { type: "sources"; sources: Source[] }
-  | { type: "done"; questions: string[] }
-  | { type: "error"; code: ErrorCode };
+  | { type: "sources"; sources: SourceDto[]; searchEntryPoint?: string }
+  | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
+  | {
+      type: "error";
+      code: string;
+      title: string;
+      detail: string;
+      usage?: UsageDto;
+    };
+
 export interface GenerateRequest {
   prompt: string;
   mode: Mode;
+  /** A model alias from `GET /models`, or `Auto`. */
   model: string;
-  scope: string;
-  context?: string;
-  fault?: ErrorCode | "partial";
+  attachmentIds?: string[];
+  /** Re-run an existing assistant message instead of appending a new pair. */
+  retryMessageId?: string;
 }
-const delay = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const cancel = () => {
-      clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", cancel);
-      resolve();
-    }, ms);
-    signal.addEventListener("abort", cancel, { once: true });
-  });
-export function responseFor(req: GenerateRequest) {
-  const p = req.prompt.toLowerCase();
-  if (req.mode !== "chat") {
-    if (
-      /cool|heat|canopy|roof|shade|neighborhood|cities/.test(p) &&
-      req.scope === "All sources"
-    )
-      return {
-        text: coolingAnswer,
-        refs: sources,
-        questions: [
-          "Compare tree canopy and cool roofs",
-          "What should a neighborhood cooling pilot measure?",
-          "Turn these findings into a project brief",
-        ],
-      };
-    const refs = /cool|heat|canopy|roof|cities/.test(p)
-      ? sources.filter((s) => s.type === req.scope)
-      : [];
-    return {
-      text: `## A research starting point\n\nYour question: **${req.prompt.replace(/[*<>]/g, "")}**\n\nThis workspace uses a demonstration adapter. It has not searched the web for this question. ${refs.length ? "The reference list contains saved examples that match your source filter, not newly retrieved evidence." : "No supporting sources are available for this question in the demo collection."}\n\n### A useful investigation would\n\n1. Define the comparison and the outcome that matters.\n2. Find primary material and record publication dates.\n3. Compare supporting and opposing evidence.\n4. Separate established findings from open questions.\n\nYou can edit the question, change the source scope, or try the urban-cooling example to explore the full citation experience.`,
-      refs,
-      questions: [
-        `What evidence would help answer “${req.prompt.slice(0, 65)}”?`,
-        "How can cities stay cooler?",
-      ],
-    };
-  }
-  if (/essay|write|draft|story/.test(p))
-    return {
-      text: `## A place to start\n\nHere is an illustrative opening you can shape in your own voice:\n\n> There are days when the smallest things ask us to pay attention. A familiar street in different light. A sentence we return to. A question that stays a little longer than expected.\n\nBuild outward from one specific detail. Let the reader see what you saw before explaining what it means.\n\n**For your next draft:** choose one scene, one change, and one thing left unsaid.\n\n*This is a sample writing response. A live model is not connected.*`,
-      refs: [],
-      questions: [],
-    };
-  if (/code|function|javascript/.test(p))
-    return {
-      text: 'Here is a small, self-contained example you can adapt:\n\n```javascript\nfunction uniqueBy(items, key) {\n  return [...new Map(items.map(item => [item[key], item])).values()];\n}\n\nconst result = uniqueBy([{ id: 1 }, { id: 1 }], "id");\n```\n\nThe map keeps one value per key. Later entries replace earlier entries with the same key.\n\n*Demonstration response; no code was executed.*',
-      refs: [],
-      questions: [],
-    };
-  return {
-    text: `Let’s give that thought a little structure.\n\nYou’re exploring **${req.prompt.replace(/[*<>]/g, "")}**.\n\nStart with the outcome: what would a useful answer help you understand or do? Then separate what you already know from what still needs evidence.\n\n- **Clarify the question.** Keep one main decision in view.\n- **Make it concrete.** Bring an example, a constraint, or a first draft.\n- **Choose the next step.** A small test often teaches more than a perfect plan.\n\n${req.context ? "This conversation includes your project’s saved context.\n\n" : ""}*This is a demonstration response. For a sourced example, ask how cities can stay cooler in Search or Research mode.*`,
-    refs: [],
-    questions: [],
-  };
-}
-/** Replace this generator with server SSE events. All visible progress comes from this boundary. */
+
+/**
+ * Stream one assistant turn.
+ *
+ * Yields server frames verbatim. A transport failure surfaces as a thrown `ApiError`; a
+ * modelling or budget failure arrives as an `error` frame, because by then the response is
+ * already committed as a 200 and cannot become a status code.
+ */
 export async function* generate(
+  chatId: string,
   req: GenerateRequest,
   signal: AbortSignal,
-): AsyncGenerator<AdapterEvent> {
-  await delay(350, signal);
-  if (req.fault && req.fault !== "partial") {
-    yield { type: "error", code: req.fault };
-    return;
-  }
-  const result = responseFor(req);
-  if (req.mode !== "chat") {
-    const steps: [ResearchStage, string, string][] = [
-      [
-        "planning",
-        "Preparing demo response",
-        "This is a local demonstration; no live web search is running.",
-      ],
-      [
-        "reading",
-        `Loading ${result.refs.length} saved reference records`,
-        "The frontend is loading its curated example collection.",
-      ],
-    ];
-    for (const [stage, label, detail] of steps) {
-      yield {
-        type: "research",
-        event: { stage, label, detail, at: Date.now() },
-      };
-      await delay(req.mode === "research" ? 650 : 200, signal);
-    }
-    yield {
-      type: "sources",
-      sources: result.refs.map((s, i) => ({
-        ...s,
-        unavailable: req.fault === "partial" && i === 1,
-      })),
-    };
-  }
-  for (const text of result.text.match(/.{1,36}(?:\s|$)|.{1,36}/gs) || []) {
-    await delay(
-      req.model === "Gemini 3.8 Flash" ? 10 : req.model === "Opus 5" ? 110 : 40,
-      signal,
-    );
-    yield { type: "delta", text };
-  }
-  if (req.mode !== "chat")
-    yield {
-      type: "research",
-      event: {
-        stage: req.fault === "partial" ? "partial" : "complete",
-        label:
-          req.fault === "partial"
-            ? "Example ready with an unavailable source"
-            : "Example response ready",
-        detail:
-          "Saved reference metadata and prepared text have loaded. No live investigation was performed.",
-        at: Date.now(),
+): AsyncGenerator<StreamEvent> {
+  let response: Response;
+  try {
+    response = await fetch(url(`/chats/${chatId}/generate`), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
       },
-    };
-  yield { type: "done", questions: result.questions };
+      body: JSON.stringify({
+        prompt: req.prompt,
+        mode: req.mode,
+        model: req.model,
+        attachmentIds: req.attachmentIds ?? [],
+        ...(req.retryMessageId ? { retryMessageId: req.retryMessageId } : {}),
+      }),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    throw new ApiError({ code: "network", ...errorCopy["network"]! });
+  }
+
+  // A refusal happens before the stream opens: 409 for a run already in progress, 401 for a
+  // dead session, 429 for rate limiting. Those are ordinary JSON envelopes.
+  if (!response.ok || !response.body) {
+    throw await refusalToError(response);
+  }
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += value;
+      // Only complete frames are parsed; a partial tail stays in the buffer for the next read.
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = parseFrame(frame);
+        if (event) yield event;
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+    const trailing = parseFrame(buffer);
+    if (trailing) yield trailing;
+  } finally {
+    // Releasing the lock lets the abort tear the socket down; without it a cancelled run can
+    // hold the connection open until the server gives up.
+    reader.cancel().catch(() => {});
+  }
 }
-export const errors: Record<ErrorCode, { title: string; detail: string }> = {
-  network: {
-    title: "Connection interrupted",
-    detail: "Your message is saved. Check your connection, then retry.",
-  },
-  generation: {
-    title: "The response could not finish",
-    detail: "You can retry this response or edit your question.",
-  },
-  research: {
-    title: "Research could not finish",
-    detail: "Any loaded references are still available. Retry or use Search.",
-  },
-  session: {
-    title: "Session expired",
-    detail: "This is a simulated session error. Retry to continue the demo.",
-  },
-  model: {
-    title: "This model is unavailable",
-    detail: "Choose Auto or try again in a moment.",
-  },
-  "rate-limit": {
-    title: "Too many requests",
-    detail: "This is a simulated rate limit. Retry when you are ready.",
-  },
-};
+
+/** One SSE frame to a typed event, or null for a heartbeat or anything unrecognised. */
+function parseFrame(frame: string): StreamEvent | null {
+  const data = frame
+    .split("\n")
+    // `: heartbeat` is a comment line and `event:` duplicates the `type` already in the body.
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+  if (!data) return null;
+  try {
+    const parsed = JSON.parse(data) as StreamEvent;
+    return parsed.type ? parsed : null;
+  } catch {
+    // A malformed frame is not worth killing a running answer for. Skip it.
+    return null;
+  }
+}
+
+async function refusalToError(response: Response): Promise<ApiError> {
+  let code = response.status === 401 ? "unauthorized" : "internal_error";
+  let title: string | undefined;
+  let detail: string | undefined;
+  let requestId = response.headers.get("X-Request-ID") ?? "";
+  try {
+    const body = (await response.json()) as {
+      error?: {
+        code?: string;
+        title?: string;
+        detail?: string;
+        requestId?: string;
+      };
+    };
+    if (body.error?.code) code = body.error.code;
+    title = body.error?.title;
+    detail = body.error?.detail;
+    if (body.error?.requestId) requestId = body.error.requestId;
+  } catch {
+    /* Not our envelope; the status is all we know, and the code above already says so. */
+  }
+  const fallback = describeError(code);
+  return new ApiError({
+    code,
+    title: title ?? fallback.title,
+    detail: detail ?? fallback.detail,
+    requestId,
+    status: response.status,
+  });
+}

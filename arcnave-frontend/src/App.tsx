@@ -25,6 +25,7 @@ import {
   MessageCircle,
   MoreHorizontal,
   Paperclip,
+  PanelsTopLeft,
   Pencil,
   RotateCcw,
   Share2,
@@ -34,17 +35,22 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { WorkspaceProvider, useWorkspace } from "./workspace";
+import { SessionProvider, useSession } from "./session";
+import Auth from "./Auth";
 import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import Composer, { AttachmentChip } from "./Composer";
 import Settings from "./Settings";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
-import { errors } from "./adapter";
-import type { Message, Mode } from "./types";
+import { api, describeError } from "./api";
+import { readLocal, writeLocal } from "./storage";
+import type { Message, MessageUsage, Mode } from "./types";
+
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
   import("./Content").then((module) => ({ default: module.Markdown })),
 );
+
 class ErrorBoundary extends Component<
   { children: ReactNode },
   { failed: boolean }
@@ -58,7 +64,7 @@ class ErrorBoundary extends Component<
       return (
         <div className="fatal-error">
           <h1>This view could not load.</h1>
-          <p>Your saved work is still in this browser.</p>
+          <p>Your work is saved on the server and will still be here.</p>
           <button
             className="button primary"
             onClick={() => window.location.reload()}
@@ -70,20 +76,45 @@ class ErrorBoundary extends Component<
     return this.props.children;
   }
 }
+
 export default function App() {
   return (
     <ErrorBoundary>
       <Tooltip.Provider>
-        <WorkspaceProvider>
-          <Shell />
-        </WorkspaceProvider>
+        <SessionProvider>
+          <Gate />
+        </SessionProvider>
       </Tooltip.Provider>
     </ErrorBoundary>
   );
 }
+
+/** Nothing below this point renders without a session, so nothing below it has to check. */
+function Gate() {
+  const { user, loading } = useSession();
+  if (loading)
+    return (
+      <div className="boot-screen">
+        <BrandMark />
+        <p className="loading-line">
+          <Loader2 size={16} className="spin" />
+          Opening your workspace…
+        </p>
+      </div>
+    );
+  if (!user) return <Auth />;
+  return (
+    <WorkspaceProvider>
+      <Shell />
+    </WorkspaceProvider>
+  );
+}
+
 function Shell() {
   const {
-    data,
+    chats,
+    ready,
+    loadError,
     panel,
     setPanel,
     toastText,
@@ -91,20 +122,17 @@ function Shell() {
     setSettings,
     activeRun,
   } = useWorkspace();
-  const [collapsed, setCollapsed] = useState(() => {
-      try {
-        return localStorage.getItem("still-sidebar") === "collapsed";
-      } catch {
-        return false;
-      }
-    }),
+  const [collapsed, setCollapsed] = useState(
+      () => readLocal("sidebar") === "collapsed",
+    ),
     [drawer, setDrawer] = useState(false),
     [offline, setOffline] = useState(!navigator.onLine);
   const navigate = useNavigate(),
     location = useLocation();
   const activeChat = location.pathname.startsWith("/chat/")
-    ? data.chats.find((c) => c.id === location.pathname.split("/")[2])
+    ? chats.find((c) => c.id === location.pathname.split("/")[2])
     : undefined;
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -124,6 +152,7 @@ function Shell() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [navigate, setPanel, setSearch, setSettings]);
+
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine);
     window.addEventListener("online", update);
@@ -133,19 +162,30 @@ function Shell() {
       window.removeEventListener("offline", update);
     };
   }, []);
+
   useEffect(() => {
     document.title = activeChat
       ? `${activeChat.title} — ArcNave`
       : "ArcNave — A little room to think";
   }, [activeChat?.title]);
-  const collapse = () => {
+
+  const collapse = () =>
     setCollapsed((c) => {
-      try {
-        localStorage.setItem("still-sidebar", c ? "expanded" : "collapsed");
-      } catch {}
+      writeLocal("sidebar", c ? "expanded" : "collapsed");
       return !c;
     });
-  };
+
+  if (!ready)
+    return (
+      <div className="boot-screen">
+        <BrandMark />
+        <p className="loading-line">
+          <Loader2 size={16} className="spin" />
+          Loading your conversations…
+        </p>
+      </div>
+    );
+
   return (
     <div
       className={`app-shell ${collapsed ? "collapsed" : ""} ${panel.kind !== "closed" ? "has-panel" : ""}`}
@@ -195,10 +235,16 @@ function Shell() {
             </>
           ) : null}
         </header>
+        {loadError && (
+          <div className="offline-banner" role="alert">
+            <TriangleAlert size={15} />
+            {loadError}
+          </div>
+        )}
         {offline && (
           <div className="offline-banner" role="status">
             <TriangleAlert size={15} />
-            You’re offline. Saved conversations and files are available.
+            You’re offline. ArcNave needs a connection to answer.
           </div>
         )}
         {activeRun && activeRun !== activeChat?.id && (
@@ -256,10 +302,13 @@ function Shell() {
     </div>
   );
 }
+
 function Home() {
-  const { data } = useWorkspace();
+  const { preferences } = useWorkspace();
+  const { models } = useSession();
   const [suggestion, setSuggestion] = useState(""),
-    [mode, setMode] = useState<Mode>(data.preferences.defaultMode);
+    [mode, setMode] = useState<Mode>(preferences.defaultMode);
+  const grounded = models?.capabilities.groundedSearch ?? true;
   return (
     <>
       <div className="home">
@@ -271,6 +320,8 @@ function Home() {
         <Composer initialPrompt={suggestion} initialMode={mode} />
         <div className="suggestions">
           <button
+            disabled={!grounded}
+            title={grounded ? undefined : models?.capabilities.detail}
             onClick={() => {
               setMode("research");
               setSuggestion(
@@ -309,32 +360,90 @@ function Home() {
         </p>
       </div>
       <footer className="app-footer">
-        Demo responses. Your work stays on this device.
+        {models && !models.auto.available
+          ? models.auto.detail
+          : "ArcNave can make mistakes. Check anything that matters."}
       </footer>
     </>
   );
 }
+
+/**
+ * Per-message token accounting.
+ *
+ * The transcript deliberately returns `usage: null` to stay small, so it is fetched here and
+ * only while a conversation is actually on screen. It refreshes when a run finishes, because
+ * that is the only thing that adds a row.
+ */
+function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
+  const [usage, setUsage] = useState<Record<string, MessageUsage>>({});
+  useEffect(() => {
+    if (!chatId || activeRun === chatId) return;
+    let live = true;
+    api.usage
+      .messages(chatId)
+      .then((result) => {
+        if (!live) return;
+        const map: Record<string, MessageUsage> = {};
+        for (const row of result.items)
+          map[row.messageId] = {
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            totalTokens: row.totalTokens,
+            cacheReadTokens: row.cacheReadTokens,
+            cacheWriteTokens: row.cacheWriteTokens,
+            exact: row.exact,
+            costUsd: row.costUsd,
+          };
+        setUsage(map);
+      })
+      .catch(() => {
+        // Usage is supplementary; failing to read it must not disturb the transcript.
+      });
+    return () => {
+      live = false;
+    };
+  }, [chatId, activeRun]);
+  return usage;
+}
+
 function Conversation() {
   const { id } = useParams();
-  const { data } = useWorkspace();
-  const chat = data.chats.find((c) => c.id === id);
+  const { chats, projects, messages, transcript, openChat, activeRun } =
+    useWorkspace();
+  const chat = chats.find((c) => c.id === id);
+  const state = id ? transcript[id] : undefined;
+  const history = (id && messages[id]) || [];
+  const usage = useMessageUsage(id, activeRun);
   const scroll = useRef<HTMLDivElement>(null),
     bottom = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
+
+  useEffect(() => {
+    if (id) openChat(id);
+  }, [id, openChat]);
   useEffect(() => {
     setNearBottom(true);
     bottom.current?.scrollIntoView();
   }, [id]);
-  const last = chat?.messages.at(-1);
+  const last = history.at(-1);
   useEffect(() => {
     if (nearBottom) bottom.current?.scrollIntoView({ block: "end" });
   }, [last?.text, last?.status, nearBottom]);
-  if (!chat)
+
+  if (state === "loading" && !history.length)
+    return (
+      <div className="panel-scroll loading-line">
+        <Loader2 className="spin" size={16} />
+        Loading this conversation…
+      </div>
+    );
+  if (state === "missing" || (!chat && state === "failed"))
     return (
       <EmptyState
         icon={<MessageCircle />}
         title="Conversation not found"
-        description="It may have been removed from this device."
+        description="It may have been deleted, or it belongs to another account."
         action={
           <Link className="button" to="/">
             Start a new conversation
@@ -342,6 +451,7 @@ function Conversation() {
         }
       />
     );
+
   return (
     <div className="conversation-view">
       <div
@@ -356,26 +466,22 @@ function Conversation() {
         }}
       >
         <div className="messages">
-          {chat.projectId && (
+          {chat?.projectId && (
             <Link
               className="conversation-project"
               to={`/project/${chat.projectId}`}
             >
-              {data.projects.find((p) => p.id === chat.projectId)?.title}
+              {projects.find((p) => p.id === chat.projectId)?.title ??
+                "Project"}
               <ChevronRight size={13} />
             </Link>
           )}
-          {chat.demo && (
-            <p className="example-note">
-              SAVED EXAMPLE · EXPLORE THE INTERACTIONS
-            </p>
-          )}
-          {chat.messages.map((m, index) => (
+          {history.map((m) => (
             <MessageView
               key={m.id}
               message={m}
-              chatId={chat.id}
-              index={index}
+              chatId={chat?.id ?? id!}
+              usage={m.usage ?? usage[m.id]}
             />
           ))}
           <div ref={bottom} />
@@ -395,28 +501,66 @@ function Conversation() {
       )}
       <div className="conversation-composer">
         <Composer
-          key={chat.id}
-          chatId={chat.id}
-          projectId={chat.projectId}
-          initialMode={chat.messages.at(-1)?.mode}
+          key={id}
+          chatId={id!}
+          projectId={chat?.projectId ?? undefined}
+          initialMode={history.at(-1)?.mode}
           compact
         />
       </div>
     </div>
   );
 }
+
+const tokens = (value: number) => value.toLocaleString();
+
+function UsageRow({ usage }: { usage: MessageUsage }) {
+  return (
+    <p className="message-usage">
+      {usage.exact ? (
+        <>
+          <span>{tokens(usage.inputTokens)} in</span>
+          <span>{tokens(usage.outputTokens)} out</span>
+          <span>{tokens(usage.totalTokens)} total</span>
+          {usage.cacheReadTokens > 0 && (
+            <span>{tokens(usage.cacheReadTokens)} cached</span>
+          )}
+          <span>
+            {usage.costUsd === null
+              ? "cost not priced"
+              : `$${usage.costUsd.toFixed(4)}`}
+          </span>
+        </>
+      ) : (
+        <span>The provider reported no token counts for this response.</span>
+      )}
+    </p>
+  );
+}
+
 function MessageView({
   message: m,
   chatId,
-  index,
+  usage,
 }: {
   message: Message;
   chatId: string;
-  index: number;
+  usage?: MessageUsage;
 }) {
-  const { data, setData, setPanel, toast, retry, activeRun, branch, setEdit } =
-    useWorkspace();
+  const {
+    artifacts,
+    setPanel,
+    toast,
+    retry,
+    activeRun,
+    branch,
+    setEdit,
+    feedback,
+    saveResponseAsArtifact,
+  } = useWorkspace();
   const [copied, setCopied] = useState(false);
+  const pending = m.id.startsWith("pending-");
+
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(m.text);
@@ -428,28 +572,7 @@ function MessageView({
       );
     }
   };
-  const feedback = (value: "up" | "down") => {
-    setData((w) => ({
-      ...w,
-      chats: w.chats.map((c) =>
-        c.id === chatId
-          ? {
-              ...c,
-              messages: c.messages.map((x) =>
-                x.id === m.id
-                  ? { ...x, feedback: x.feedback === value ? undefined : value }
-                  : x,
-              ),
-            }
-          : c,
-      ),
-    }));
-    toast(
-      m.feedback === value
-        ? "Feedback removed"
-        : "Feedback saved on this device",
-    );
-  };
+
   if (m.role === "user")
     return (
       <div className="user-message">
@@ -469,15 +592,17 @@ function MessageView({
           </IconButton>
           <IconButton
             label="Edit prompt"
-            disabled={!!activeRun}
-            onClick={() => setEdit({ chatId, index, text: m.text })}
+            disabled={!!activeRun || pending}
+            onClick={() => setEdit({ chatId, messageId: m.id, text: m.text })}
           >
             <Pencil size={14} />
           </IconButton>
         </div>
       </div>
     );
+
   const loading = m.status === "submitting" || m.status === "generating";
+  const failure = m.status === "error" ? describeError(m.error) : null;
   return (
     <article
       className={`assistant-message ${loading ? "is-generating" : ""}`}
@@ -486,6 +611,7 @@ function MessageView({
       <div className="answer-byline">
         <BrandMark />
         <span>ArcNave</span>
+        {m.modelAlias && <span className="sample-label">{m.modelAlias}</span>}
         {m.mode !== "chat" && (
           <button
             className="research-summary"
@@ -503,15 +629,12 @@ function MessageView({
               : m.status === "error"
                 ? "Interrupted"
                 : loading
-                  ? "Loading example"
+                  ? "Working"
                   : m.mode === "research"
-                    ? "Research example"
-                    : "Search example"}
+                    ? "Research details"
+                    : "Search details"}
             <ChevronRight size={12} />
           </button>
-        )}
-        {m.mode === "chat" && m.demo && (
-          <span className="sample-label">Sample response</span>
         )}
       </div>
       {m.text && (
@@ -533,7 +656,7 @@ function MessageView({
               <i />
               <i />
             </span>
-            {m.text ? "" : "Preparing a demonstration response…"}
+            {m.text ? "" : "Thinking…"}
           </span>
         )}
         {m.status === "stopped" && (
@@ -543,16 +666,16 @@ function MessageView({
           </span>
         )}
       </div>
-      {m.status === "error" && (
+      {failure && (
         <div className="error-card" role="alert">
           <TriangleAlert size={19} />
           <div>
-            <strong>{errors[m.error || "generation"].title}</strong>
-            <p>{errors[m.error || "generation"].detail}</p>
+            <strong>{m.errorTitle || failure.title}</strong>
+            <p>{m.errorDetail || failure.detail}</p>
             <button
               className="button"
               onClick={() => retry(chatId, m.id)}
-              disabled={!!activeRun}
+              disabled={!!activeRun || pending}
             >
               <RotateCcw size={14} />
               Retry response
@@ -573,7 +696,9 @@ function MessageView({
               ))}
           </span>
           <span>
-            <strong>{m.sources.length} sources</strong>
+            <strong>
+              {m.sources.length} source{m.sources.length === 1 ? "" : "s"}
+            </strong>
             <small>
               {[...new Set(m.sources.map((s) => s.domain))].join(" · ")}
             </small>
@@ -589,7 +714,7 @@ function MessageView({
           <FileText size={23} />
           <span>
             <strong>
-              {data.artifacts.find((a) => a.id === m.artifactId)?.title ||
+              {artifacts.find((a) => a.id === m.artifactId)?.title ||
                 "Open artifact"}
             </strong>
             <small>Open and edit this artifact</small>
@@ -597,7 +722,7 @@ function MessageView({
           <ArrowUpRight size={17} />
         </button>
       )}
-      {!loading && m.text && (
+      {!loading && m.text && !pending && (
         <div className="message-actions assistant-actions">
           <IconButton label="Copy response" onClick={() => void copy()}>
             {copied ? <Check size={15} /> : <Copy size={15} />}
@@ -612,14 +737,18 @@ function MessageView({
           <IconButton
             label="Helpful response"
             className={m.feedback === "up" ? "feedback-selected" : ""}
-            onClick={() => feedback("up")}
+            onClick={() =>
+              feedback(chatId, m.id, m.feedback === "up" ? null : "up")
+            }
           >
             <ThumbsUp size={15} />
           </IconButton>
           <IconButton
             label="Unhelpful response"
             className={m.feedback === "down" ? "feedback-selected" : ""}
-            onClick={() => feedback("down")}
+            onClick={() =>
+              feedback(chatId, m.id, m.feedback === "down" ? null : "down")
+            }
           >
             <ThumbsDown size={15} />
           </IconButton>
@@ -637,7 +766,12 @@ function MessageView({
               {
                 label: "Branch from here",
                 icon: <GitBranch size={15} />,
-                onSelect: () => branch(chatId, index),
+                onSelect: () => branch(chatId, m.id),
+              },
+              {
+                label: "Save as artifact",
+                icon: <PanelsTopLeft size={15} />,
+                onSelect: () => saveResponseAsArtifact(chatId, m.id),
               },
               {
                 label: "View research details",
@@ -651,6 +785,7 @@ function MessageView({
           {copied && <span className="copy-label">Copied</span>}
         </div>
       )}
+      {usage && !loading && <UsageRow usage={usage} />}
       {m.questions && m.status === "complete" && m.questions.length > 0 && (
         <div className="related-questions">
           <p className="eyebrow">KEEP EXPLORING</p>
@@ -662,6 +797,7 @@ function MessageView({
     </article>
   );
 }
+
 function RelatedQuestion({
   text,
   chatId,
@@ -671,7 +807,7 @@ function RelatedQuestion({
   chatId: string;
   mode: Mode;
 }) {
-  const { send, data, activeRun } = useWorkspace();
+  const { send, chats, activeRun } = useWorkspace();
   return (
     <button
       disabled={!!activeRun}
@@ -681,7 +817,7 @@ function RelatedQuestion({
           mode,
           [],
           chatId,
-          data.chats.find((c) => c.id === chatId)?.projectId,
+          chats.find((c) => c.id === chatId)?.projectId ?? undefined,
         )
       }
     >
@@ -690,10 +826,11 @@ function RelatedQuestion({
     </button>
   );
 }
+
 function ShareButton({ chatId }: { chatId: string }) {
-  const { data, exportChat, toast } = useWorkspace();
+  const { chats, messages, exportChat, toast } = useWorkspace();
   const [open, setOpen] = useState(false);
-  const chat = data.chats.find((c) => c.id === chatId);
+  const chat = chats.find((c) => c.id === chatId);
   if (!chat) return null;
   return (
     <>
@@ -708,7 +845,7 @@ function ShareButton({ chatId }: { chatId: string }) {
         open={open}
         onClose={() => setOpen(false)}
         title="Take this conversation with you"
-        description="This workspace is local. Export a copy to share; private browser links won’t work for someone else."
+        description="Conversations are private to your account. Export a copy to share one."
       >
         <div className="share-options">
           <button
@@ -716,7 +853,7 @@ function ShareButton({ chatId }: { chatId: string }) {
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(
-                  chat.messages
+                  (messages[chatId] ?? [])
                     .map(
                       (m) =>
                         `${m.role === "user" ? "You" : "ArcNave"}\n${m.text}`,

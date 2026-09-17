@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -6,37 +6,44 @@ import {
   Code2,
   FileText,
   FolderClosed,
+  Loader2,
   MessageCircleMore,
   MoreHorizontal,
   PanelsTopLeft,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Trash2,
   Upload,
 } from "lucide-react";
+import { ApiError, api } from "./api";
 import { useWorkspace } from "./workspace";
 import { Dropdown, EmptyState, IconButton, Modal } from "./ui";
-import type { Artifact, Attachment, Project } from "./types";
-import { uid } from "./types";
+import type { Artifact, Attachment, Project, SavedSource } from "./types";
+import { toProjectFile, toSavedSource } from "./types";
 import { ChatMenu } from "./Navigation";
 import Composer, { AttachmentChip } from "./Composer";
-import { storeFile, validateFile } from "./storage";
-export const relativeDate = (time: number) =>
-  new Date(time).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+import { validateFile } from "./storage";
+
+export const relativeDate = (time: string | null) =>
+  time
+    ? new Date(time).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : "";
+
 export function ChatsPage() {
-  const { data } = useWorkspace();
+  const { chats, projects } = useWorkspace();
   const [query, setQuery] = useState(""),
     [sort, setSort] = useState("Recent");
-  const list = data.chats
+  const list = chats
     .filter((c) => c.title.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) =>
       sort === "Recent"
-        ? b.updatedAt - a.updatedAt
+        ? (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
         : a.title.localeCompare(b.title),
     );
   return (
@@ -79,10 +86,9 @@ export function ChatsPage() {
                 <strong>{c.title}</strong>
                 <small>
                   {c.projectId
-                    ? data.projects.find((p) => p.id === c.projectId)?.title
-                    : "Personal workspace"}{" "}
-                  · {c.messages.filter((m) => m.role === "user").length}{" "}
-                  messages{c.demo ? " · Example" : ""}
+                    ? (projects.find((p) => p.id === c.projectId)?.title ??
+                      "Project")
+                    : "Personal workspace"}
                 </small>
               </span>
               <time>{relativeDate(c.updatedAt)}</time>
@@ -114,6 +120,7 @@ export function ChatsPage() {
     </div>
   );
 }
+
 function ProjectForm({
   project,
   onClose,
@@ -121,55 +128,57 @@ function ProjectForm({
   project?: Project;
   onClose: () => void;
 }) {
-  const { setData, toast } = useWorkspace();
+  const { refreshProjects, toast } = useWorkspace();
   const navigate = useNavigate();
   const [title, setTitle] = useState(project?.title || ""),
     [description, setDescription] = useState(project?.description || ""),
-    [instructions, setInstructions] = useState(project?.instructions || "");
+    [instructions, setInstructions] = useState(project?.instructions || ""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
   return (
     <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const id = project?.id || uid();
-        setData((w) => ({
-          ...w,
-          projects: project
-            ? w.projects.map((p) =>
-                p.id === id
-                  ? {
-                      ...p,
-                      title: title.trim(),
-                      description,
-                      instructions,
-                      updatedAt: Date.now(),
-                    }
-                  : p,
-              )
-            : [
-                {
-                  id,
-                  title: title.trim(),
-                  description,
-                  instructions,
-                  files: [],
-                  savedSources: [],
-                  updatedAt: Date.now(),
-                },
-                ...w.projects,
-              ],
-        }));
-        onClose();
-        navigate(`/project/${id}`);
-        toast(project ? "Project updated" : "Project created");
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        setError(null);
+        const work = project
+          ? api.projects.patch(project.id, {
+              title: title.trim(),
+              description,
+              instructions,
+              version: project.version,
+            })
+          : api.projects.create({
+              title: title.trim(),
+              description,
+              instructions,
+            });
+        void work
+          .then(async (saved) => {
+            await refreshProjects();
+            onClose();
+            if (!project) navigate(`/project/${saved.id}`);
+            toast(project ? "Project updated" : "Project created");
+          })
+          .catch((failure) =>
+            setError(
+              failure instanceof ApiError
+                ? failure.detail
+                : "The project could not be saved.",
+            ),
+          )
+          .finally(() => setBusy(false));
       }}
     >
+      {error && <p className="source-warning">{error}</p>}
       <label className="field-label">
         Project name
         <input
           autoFocus
           placeholder="What are you working on?"
           value={title}
-          maxLength={120}
+          maxLength={200}
           onChange={(e) => setTitle(e.target.value)}
           required
         />
@@ -180,6 +189,7 @@ function ProjectForm({
           placeholder="A little context about what you want to achieve."
           value={description}
           rows={3}
+          maxLength={2000}
           onChange={(e) => setDescription(e.target.value)}
         />
       </label>
@@ -191,23 +201,28 @@ function ProjectForm({
           placeholder="Tone, context, or preferences for this project…"
           onChange={(e) => setInstructions(e.target.value)}
         />
+        <span className="field-help">
+          Prepended to every message sent inside this project.
+        </span>
       </label>
       <div className="dialog-actions">
         <button type="button" className="button" onClick={onClose}>
           Cancel
         </button>
-        <button className="button primary" disabled={!title.trim()}>
+        <button className="button primary" disabled={!title.trim() || busy}>
+          {busy && <Loader2 size={14} className="spin" />}
           {project ? "Save changes" : "Create project"}
         </button>
       </div>
     </form>
   );
 }
+
 export function ProjectsPage() {
-  const { data } = useWorkspace();
+  const { projects, chats } = useWorkspace();
   const [create, setCreate] = useState(false),
     [query, setQuery] = useState("");
-  const list = data.projects.filter((p) =>
+  const list = projects.filter((p) =>
     (p.title + " " + p.description).toLowerCase().includes(query.toLowerCase()),
   );
   return (
@@ -242,10 +257,11 @@ export function ProjectsPage() {
             <p>{p.description || "A fresh space for your next idea."}</p>
             <div>
               <span>
-                {data.chats.filter((c) => c.projectId === p.id).length}{" "}
+                {chats.filter((c) => c.projectId === p.id).length ||
+                  p.counts.chats}{" "}
                 conversations
               </span>
-              <span>{p.demo ? "Example" : relativeDate(p.updatedAt)}</span>
+              <span>{relativeDate(p.updatedAt)}</span>
             </div>
           </Link>
         ))}
@@ -282,22 +298,51 @@ export function ProjectsPage() {
     </div>
   );
 }
+
 export function ProjectPage() {
   const { id } = useParams();
-  const { data, setData, toast, setPanel } = useWorkspace();
-  const p = data.projects.find((p) => p.id === id);
+  const {
+    projects,
+    chats,
+    artifacts,
+    refreshProjects,
+    refreshChats,
+    toast,
+    setPanel,
+  } = useWorkspace();
+  const p = projects.find((x) => x.id === id);
   const [tab, setTab] = useState("Conversations"),
     [editing, setEditing] = useState(false),
-    [removing, setRemoving] = useState(false);
+    [removing, setRemoving] = useState(false),
+    [files, setFiles] = useState<Attachment[]>([]),
+    [sources, setSources] = useState<SavedSource[]>([]),
+    [detail, setDetail] = useState<"loading" | "ready" | "missing">("loading");
   const fileInput = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const [replacement, setReplacement] = useState<string>();
-  if (!p)
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    try {
+      const project = await api.projects.read(id);
+      setFiles(project.files.map(toProjectFile));
+      setSources(project.sources.map(toSavedSource));
+      setDetail("ready");
+    } catch {
+      setDetail("missing");
+    }
+  }, [id]);
+
+  useEffect(() => {
+    setDetail("loading");
+    void load();
+  }, [load]);
+
+  if (detail === "missing" || (!p && detail === "ready"))
     return (
       <EmptyState
         icon={<FolderClosed />}
         title="Project not found"
-        description="This project is not in this browser’s workspace."
+        description="It may have been deleted, or it belongs to another account."
         action={
           <Link className="button" to="/projects">
             Go to projects
@@ -305,71 +350,65 @@ export function ProjectPage() {
         }
       />
     );
-  const chats = data.chats.filter((c) => c.projectId === id),
-    arts = data.artifacts.filter((a) => a.projectId === id);
+  if (!p)
+    return (
+      <div className="panel-scroll loading-line">
+        <Loader2 className="spin" size={16} />
+        Loading this project…
+      </div>
+    );
+
+  const projectChats = chats.filter((c) => c.projectId === id),
+    arts = artifacts.filter((a) => a.projectId === id);
+
+  /**
+   * Upload straight into the project.
+   *
+   * Indexing happens inside the upload request, so the row that comes back already carries
+   * its final status and chunk count — there is nothing to poll.
+   */
   async function upload(list: FileList | null) {
-    if (!list) return;
+    if (!list || !id) return;
     for (const f of Array.from(list)) {
-      const error = validateFile(f);
-      const file: Attachment = {
-        id: uid(),
-        name: f.name,
-        size: f.size,
-        type: f.type,
-        status: error ? "unsupported" : "processing",
-        error: error || undefined,
-      };
-      setData((w) => ({
-        ...w,
-        projects: w.projects.map((x) =>
-          x.id === id
-            ? {
-                ...x,
-                files: [...x.files.filter((x) => x.id !== replacement), file],
-              }
-            : x,
-        ),
-      }));
-      if (!error)
-        try {
-          await storeFile(file.id, f);
-          setData((w) => ({
-            ...w,
-            projects: w.projects.map((x) =>
-              x.id === id
-                ? {
-                    ...x,
-                    files: x.files.map((a) =>
-                      a.id === file.id ? { ...a, status: "ready" } : a,
-                    ),
-                  }
-                : x,
-            ),
-          }));
-        } catch {
-          setData((w) => ({
-            ...w,
-            projects: w.projects.map((x) =>
-              x.id === id
-                ? {
-                    ...x,
-                    files: x.files.map((a) =>
-                      a.id === file.id
-                        ? {
-                            ...a,
-                            status: "failed",
-                            error: "Could not save the file. Try replacing it.",
-                          }
-                        : a,
-                    ),
-                  }
-                : x,
-            ),
-          }));
-        }
+      const problem = validateFile(f);
+      const localId = `upload-${crypto.randomUUID()}`;
+      setFiles((all) => [
+        ...all,
+        {
+          id: localId,
+          name: f.name,
+          size: f.size,
+          type: f.type,
+          status: problem ? "unsupported" : "indexing",
+          ...(problem ? { error: problem } : {}),
+        },
+      ]);
+      if (problem) continue;
+      try {
+        const uploaded = await api.projects.upload(id, f);
+        setFiles((all) =>
+          all.map((x) => (x.id === localId ? toProjectFile(uploaded) : x)),
+        );
+        void refreshProjects();
+      } catch (error) {
+        setFiles((all) =>
+          all.map((x) =>
+            x.id === localId
+              ? {
+                  ...x,
+                  status: "failed",
+                  error:
+                    error instanceof ApiError
+                      ? error.detail
+                      : "The upload failed. Try again.",
+                }
+              : x,
+          ),
+        );
+      }
     }
-    setReplacement(undefined);
   }
+
   return (
     <div className="page project-page">
       <div className="project-breadcrumb">
@@ -414,16 +453,13 @@ export function ProjectPage() {
               </div>
               <h2 className="project-section-title">Recent conversations</h2>
               <div className="conversation-list">
-                {chats.map((c) => (
+                {projectChats.map((c) => (
                   <div className="conversation-list-row" key={c.id}>
                     <Link to={`/chat/${c.id}`}>
                       <MessageCircleMore size={18} />
                       <span>
                         <strong>{c.title}</strong>
-                        <small>
-                          {relativeDate(c.updatedAt)}
-                          {c.demo ? " · Example" : ""}
-                        </small>
+                        <small>{relativeDate(c.updatedAt)}</small>
                       </span>
                       <ArrowUpRight size={16} />
                     </Link>
@@ -431,7 +467,7 @@ export function ProjectPage() {
                   </div>
                 ))}
               </div>
-              {!chats.length && (
+              {!projectChats.length && (
                 <p className="field-help center">
                   Your first project conversation begins above.
                 </p>
@@ -442,56 +478,69 @@ export function ProjectPage() {
             <>
               <div className="section-toolbar">
                 <p className="subtle">
-                  Reference material, kept on this device.
+                  Uploaded files are extracted and indexed, then ranked against
+                  your questions in this project.
                 </p>
                 <button
                   className="button"
-                  onClick={() => {
-                    setReplacement(undefined);
-                    fileInput.current?.click();
-                  }}
+                  onClick={() => fileInput.current?.click()}
                 >
                   <Upload size={15} />
                   Add files
                 </button>
               </div>
-              {p.files.map((f) => (
+              {files.map((f) => (
                 <div className="project-file" key={f.id}>
                   <AttachmentChip file={f} />
                   <IconButton
-                    label={`Replace ${f.name}`}
+                    label={`Re-index ${f.name}`}
+                    disabled={!f.downloadUrl}
                     onClick={() => {
-                      setReplacement(f.id);
-                      fileInput.current?.click();
+                      if (!id) return;
+                      setFiles((all) =>
+                        all.map((x) =>
+                          x.id === f.id ? { ...x, status: "indexing" } : x,
+                        ),
+                      );
+                      void api.projects
+                        .reindex(id, f.id)
+                        .then((updated) =>
+                          setFiles((all) =>
+                            all.map((x) =>
+                              x.id === f.id ? toProjectFile(updated) : x,
+                            ),
+                          ),
+                        )
+                        .catch(() => {
+                          toast("That file could not be re-indexed.");
+                          void load();
+                        });
                     }}
                   >
-                    <Upload size={15} />
+                    <RefreshCw size={15} />
                   </IconButton>
                   <IconButton
                     label={`Remove ${f.name} from project`}
-                    onClick={() =>
-                      setData((w) => ({
-                        ...w,
-                        projects: w.projects.map((x) =>
-                          x.id === id
-                            ? {
-                                ...x,
-                                files: x.files.filter((a) => a.id !== f.id),
-                              }
-                            : x,
-                        ),
-                      }))
-                    }
+                    onClick={() => {
+                      if (!id) return;
+                      void api.projects
+                        .removeFile(id, f.id)
+                        .then(() => {
+                          setFiles((all) => all.filter((x) => x.id !== f.id));
+                          void refreshProjects();
+                        })
+                        .catch(() => toast("That file could not be removed."));
+                    }}
                   >
                     <XIcon />
                   </IconButton>
                 </div>
               ))}
-              {!p.files.length && (
+              {!files.length && (
                 <EmptyState
                   icon={<FileText />}
                   title="A place for your reference material"
-                  description="Add documents, images, spreadsheets, or code. They stay on this device."
+                  description="Add documents, spreadsheets, or code. Their text is indexed so answers in this project can draw on it."
                   action={
                     <button
                       className="button"
@@ -505,7 +554,7 @@ export function ProjectPage() {
               <input
                 ref={fileInput}
                 type="file"
-                multiple={!replacement}
+                multiple
                 className="sr-only"
                 aria-label="Project file upload"
                 onChange={(e) => {
@@ -526,15 +575,15 @@ export function ProjectPage() {
                 <EmptyState
                   icon={<PanelsTopLeft />}
                   title="The things you make, together"
-                  description="Create an artifact from the plus menu in a project conversation."
+                  description="Save a response as an artifact from a conversation in this project."
                 />
               )}
             </>
           )}
           {tab === "Saved sources" && (
             <>
-              {p.savedSources.map((s) => (
-                <div className="saved-source" key={s.url}>
+              {sources.map((s) => (
+                <div className="saved-source" key={s.id}>
                   <Bookmark size={18} />
                   <a href={s.url} target="_blank" rel="noopener noreferrer">
                     <small>
@@ -544,27 +593,24 @@ export function ProjectPage() {
                   </a>
                   <IconButton
                     label={`Remove saved source ${s.title}`}
-                    onClick={() =>
-                      setData((w) => ({
-                        ...w,
-                        projects: w.projects.map((x) =>
-                          x.id === id
-                            ? {
-                                ...x,
-                                savedSources: x.savedSources.filter(
-                                  (a) => a.url !== s.url,
-                                ),
-                              }
-                            : x,
-                        ),
-                      }))
-                    }
+                    onClick={() => {
+                      if (!id) return;
+                      void api.projects
+                        .removeSource(id, s.id)
+                        .then(() => {
+                          setSources((all) => all.filter((x) => x.id !== s.id));
+                          void refreshProjects();
+                        })
+                        .catch(() =>
+                          toast("That source could not be removed."),
+                        );
+                    }}
                   >
                     <XIcon />
                   </IconButton>
                 </div>
               ))}
-              {!p.savedSources.length && (
+              {!sources.length && (
                 <EmptyState
                   icon={<Bookmark />}
                   title="Keep the evidence close"
@@ -583,7 +629,7 @@ export function ProjectPage() {
               <MessageCircleMore size={17} />
               <strong>Conversations</strong>
             </span>
-            <small>{chats.length} recent</small>
+            <small>{projectChats.length} recent</small>
           </button>
           <button onClick={() => setEditing(true)}>
             <span>
@@ -601,8 +647,8 @@ export function ProjectPage() {
               <strong>Context</strong>
             </span>
             <small>
-              {p.files.length
-                ? `${p.files.length} local file${p.files.length === 1 ? "" : "s"}`
+              {files.length
+                ? `${files.length} file${files.length === 1 ? "" : "s"} · ${p.counts.indexedChunks} chunks`
                 : "Add reference files"}
             </small>
           </button>
@@ -627,9 +673,7 @@ export function ProjectPage() {
               <strong>Saved sources</strong>
             </span>
             <small>
-              {p.savedSources.length
-                ? `${p.savedSources.length} saved`
-                : "No saved sources"}
+              {sources.length ? `${sources.length} saved` : "No saved sources"}
             </small>
           </button>
         </aside>
@@ -645,7 +689,7 @@ export function ProjectPage() {
         open={removing}
         onClose={() => setRemoving(false)}
         title="Delete this project?"
-        description="The project context will be removed. Its conversations and artifacts will remain in your personal workspace."
+        description="The project, its uploaded files, and its saved sources are removed. Its conversations and artifacts stay in your workspace."
       >
         <div className="dialog-actions">
           <button className="button" onClick={() => setRemoving(false)}>
@@ -654,19 +698,16 @@ export function ProjectPage() {
           <button
             className="button destructive"
             onClick={() => {
-              setData((w) => ({
-                ...w,
-                projects: w.projects.filter((x) => x.id !== id),
-                chats: w.chats.map((c) =>
-                  c.projectId === id ? { ...c, projectId: undefined } : c,
-                ),
-                artifacts: w.artifacts.map((a) =>
-                  a.projectId === id ? { ...a, projectId: undefined } : a,
-                ),
-              }));
-              setPanel({ kind: "closed" });
-              navigate("/projects");
-              toast("Project deleted; conversations kept");
+              if (!id) return;
+              void api.projects
+                .remove(id)
+                .then(async () => {
+                  await Promise.all([refreshProjects(), refreshChats()]);
+                  setPanel({ kind: "closed" });
+                  navigate("/projects");
+                  toast("Project deleted; conversations kept");
+                })
+                .catch(() => toast("The project could not be deleted."));
             }}
           >
             Delete project
@@ -676,6 +717,7 @@ export function ProjectPage() {
     </div>
   );
 }
+
 function XIcon() {
   return (
     <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>
@@ -683,8 +725,9 @@ function XIcon() {
     </span>
   );
 }
+
 function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
-  const { setPanel, setData } = useWorkspace();
+  const { setPanel, refreshArtifacts, toast } = useWorkspace();
   const [confirm, setConfirm] = useState(false);
   return (
     <div className="artifact-card">
@@ -694,7 +737,7 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
         >
           {a.kind === "document" ? (
             <>
-              <p>PROJECT BRIEF</p>
+              <p>DOCUMENT</p>
               <h3>{a.title}</h3>
               <span />
               <span />
@@ -702,31 +745,20 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
             </>
           ) : a.kind === "webpage" ? (
             <>
-              <p>FIELD NOTES / 01</p>
-              <h3>
-                Make room
-                <br />
-                for a thought.
-              </h3>
+              <p>WEBPAGE</p>
+              <h3>{a.title}</h3>
             </>
           ) : (
             <>
               <Code2 size={28} />
-              <code>
-                function idea() {"{"}
-                <br /> return possibility;
-                <br />
-                {"}"}
-              </code>
+              <code>{a.title}</code>
             </>
           )}
         </div>
         <div className="artifact-card-info">
           <strong>{a.title}</strong>
           <small>
-            {a.kind} · {a.versions.length} version
-            {a.versions.length > 1 ? "s" : ""}
-            {a.demo ? " · Example" : ""}
+            {a.kind} · version {a.currentVersion}
           </small>
         </div>
       </button>
@@ -741,7 +773,7 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
         open={confirm}
         onClose={() => setConfirm(false)}
         title="Delete artifact?"
-        description={`“${a.title}” and its saved versions will be removed. Download a copy first if you want to keep it.`}
+        description={`“${a.title}” and every saved version will be removed. Download a copy first if you want to keep it.`}
       >
         <div className="dialog-actions">
           <button className="button" onClick={() => setConfirm(false)}>
@@ -750,12 +782,15 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
           <button
             className="button destructive"
             onClick={() => {
-              setData((w) => ({
-                ...w,
-                artifacts: w.artifacts.filter((x) => x.id !== a.id),
-              }));
-              setPanel({ kind: "closed" });
-              setConfirm(false);
+              void api.artifacts
+                .remove(a.id)
+                .then(async () => {
+                  await refreshArtifacts();
+                  setPanel({ kind: "closed" });
+                  setConfirm(false);
+                  toast("Artifact deleted");
+                })
+                .catch(() => toast("The artifact could not be deleted."));
             }}
           >
             Delete artifact
@@ -765,14 +800,16 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
     </div>
   );
 }
+
 export function ArtifactsPage() {
-  const { data, setData, setPanel, toast } = useWorkspace();
+  const { artifacts, refreshArtifacts, setPanel, toast } = useWorkspace();
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All"),
     [creating, setCreating] = useState(false),
+    [busy, setBusy] = useState(false),
     [title, setTitle] = useState(""),
     [kind, setKind] = useState<Artifact["kind"]>("document");
-  const list = data.artifacts.filter(
+  const list = artifacts.filter(
     (a) =>
       (filter === "All" || a.kind === filter) &&
       a.title.toLowerCase().includes(query.toLowerCase()),
@@ -842,31 +879,25 @@ export function ArtifactsPage() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            const id = uid();
+            if (busy) return;
+            setBusy(true);
             const content =
               kind === "document"
                 ? `# ${title}\n\nYour next idea starts here.`
                 : kind === "code"
                   ? "// Your code starts here.\n"
                   : '<!doctype html><html><head><meta charset="UTF-8"></head><body><h1>Your next idea starts here.</h1></body></html>';
-            setData((w) => ({
-              ...w,
-              artifacts: [
-                {
-                  id,
-                  title: title.trim(),
-                  kind,
-                  versions: [content],
-                  version: 0,
-                  updatedAt: Date.now(),
-                },
-                ...w.artifacts,
-              ],
-            }));
-            setCreating(false);
-            setTitle("");
-            setPanel({ kind: "artifact", id });
-            toast("Artifact created");
+            void api.artifacts
+              .create({ title: title.trim(), kind, content })
+              .then(async (created) => {
+                await refreshArtifacts();
+                setCreating(false);
+                setTitle("");
+                setPanel({ kind: "artifact", id: created.id });
+                toast("Artifact created");
+              })
+              .catch(() => toast("The artifact could not be created."))
+              .finally(() => setBusy(false));
           }}
         >
           <label className="field-label">
@@ -876,7 +907,7 @@ export function ArtifactsPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
-              maxLength={120}
+              maxLength={200}
             />
           </label>
           <label className="field-label">
@@ -898,7 +929,8 @@ export function ArtifactsPage() {
             >
               Cancel
             </button>
-            <button className="button primary" disabled={!title.trim()}>
+            <button className="button primary" disabled={!title.trim() || busy}>
+              {busy && <Loader2 size={14} className="spin" />}
               Create artifact
             </button>
           </div>

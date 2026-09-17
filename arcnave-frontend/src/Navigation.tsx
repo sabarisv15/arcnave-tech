@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -10,6 +10,8 @@ import {
   FolderClosed,
   FolderInput,
   GitBranch,
+  Loader2,
+  LogOut,
   MessageCircleMore,
   PanelLeftClose,
   PanelLeftOpen,
@@ -22,12 +24,23 @@ import {
   Pencil,
   X,
 } from "lucide-react";
+import { api } from "./api";
+import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
 import { Dropdown, IconButton, Modal, Tip } from "./ui";
 import type { Chat } from "./types";
+import { toChat } from "./types";
+
 export function ChatMenu({ chat }: { chat: Chat }) {
-  const { data, setData, renameChat, deleteChat, branch, exportChat, toast } =
-    useWorkspace();
+  const {
+    projects,
+    renameChat,
+    pinChat,
+    moveChat,
+    deleteChat,
+    branch,
+    exportChat,
+  } = useWorkspace();
   const [modal, setModal] = useState<"rename" | "delete" | "move" | null>(null),
     [name, setName] = useState(chat.title);
   return (
@@ -55,13 +68,7 @@ export function ChatMenu({ chat }: { chat: Chat }) {
           {
             label: chat.pinned ? "Unpin conversation" : "Pin conversation",
             icon: <Pin size={15} />,
-            onSelect: () =>
-              setData({
-                ...data,
-                chats: data.chats.map((c) =>
-                  c.id === chat.id ? { ...c, pinned: !c.pinned } : c,
-                ),
-              }),
+            onSelect: () => pinChat(chat.id, !chat.pinned),
           },
           {
             label: chat.projectId
@@ -128,27 +135,15 @@ export function ChatMenu({ chat }: { chat: Chat }) {
         open={modal === "move"}
         onClose={() => setModal(null)}
         title={chat.projectId ? "Move conversation" : "Add to project"}
-        description="Project instructions and knowledge will apply to future messages in this conversation."
+        description="Project instructions and indexed files apply to future messages in this conversation."
       >
         <div className="project-picker">
-          {data.projects.map((project) => (
+          {projects.map((project) => (
             <button
               key={project.id}
               className={chat.projectId === project.id ? "selected" : ""}
               onClick={() => {
-                setData((workspace) => ({
-                  ...workspace,
-                  chats: workspace.chats.map((item) =>
-                    item.id === chat.id
-                      ? {
-                          ...item,
-                          projectId: project.id,
-                          updatedAt: Date.now(),
-                        }
-                      : item,
-                  ),
-                }));
-                toast(`Moved to ${project.title}`);
+                moveChat(chat.id, project.id);
                 setModal(null);
               }}
             >
@@ -160,18 +155,15 @@ export function ChatMenu({ chat }: { chat: Chat }) {
               {chat.projectId === project.id && <Check size={16} />}
             </button>
           ))}
+          {!projects.length && (
+            <p className="field-help">
+              You have no projects yet. Create one from the Projects page.
+            </p>
+          )}
           {chat.projectId && (
             <button
               onClick={() => {
-                setData((workspace) => ({
-                  ...workspace,
-                  chats: workspace.chats.map((item) =>
-                    item.id === chat.id
-                      ? { ...item, projectId: undefined, updatedAt: Date.now() }
-                      : item,
-                  ),
-                }));
-                toast("Conversation removed from project");
+                moveChat(chat.id, null);
                 setModal(null);
               }}
             >
@@ -188,7 +180,7 @@ export function ChatMenu({ chat }: { chat: Chat }) {
         open={modal === "delete"}
         onClose={() => setModal(null)}
         title="Delete conversation?"
-        description={`“${chat.title}” will be removed from this device. Export it first if you want to keep a copy.`}
+        description={`“${chat.title}” will be removed from your workspace. Export it first if you want to keep a copy.`}
       >
         <div className="dialog-actions">
           <button className="button" onClick={() => setModal(null)}>
@@ -208,6 +200,7 @@ export function ChatMenu({ chat }: { chat: Chat }) {
     </>
   );
 }
+
 export default function Sidebar({
   collapsed,
   onCollapse,
@@ -219,7 +212,8 @@ export default function Sidebar({
   onNavigate: () => void;
   mobile?: boolean;
 }) {
-  const { data, setSettings, setSearch, setPanel } = useWorkspace();
+  const { chats, projects, setSettings, setSearch, setPanel } = useWorkspace();
+  const { user, signOut } = useSession();
   const [openProjects, setOpenProjects] = useState<Set<string>>(
     () => new Set(),
   );
@@ -229,16 +223,18 @@ export default function Sidebar({
     { label: "Projects", icon: FolderClosed, to: "/projects" },
     { label: "Artifacts", icon: PanelsTopLeft, to: "/artifacts" },
   ];
-  const chats = [...data.chats].sort((a, b) => b.updatedAt - a.updatedAt);
+  // The server already orders by pinned then recency; this keeps that order stable if the
+  // list is refreshed mid-render.
   const standaloneChats = chats
     .filter((chat) => !chat.projectId)
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned))
     .slice(0, 16);
   const go = (path: string) => {
     navigate(path);
     setPanel({ kind: "closed" });
     onNavigate();
   };
+  const label = user?.name?.trim() || user?.email || "Your workspace";
   return (
     <aside
       className={`sidebar ${mobile ? "mobile-sidebar" : ""}`}
@@ -285,24 +281,24 @@ export default function Sidebar({
             <span>New chat</span>
           </button>
         </Tip>
-        {nav.map(({ label, icon: Icon, to }) => (
-          <Tip key={to} label={label}>
+        {nav.map(({ label: item, icon: Icon, to }) => (
+          <Tip key={to} label={item}>
             <button
               className={`nav-item ${location.pathname.startsWith(to) ? "active" : ""}`}
-              aria-label={label}
+              aria-label={item}
               aria-current={
                 location.pathname.startsWith(to) ? "page" : undefined
               }
               onClick={() => go(to)}
             >
               <Icon size={18} />
-              <span>{label}</span>
+              <span>{item}</span>
             </button>
           </Tip>
         ))}
       </nav>
       <div className="sidebar-recents">
-        {data.projects.length > 0 && (
+        {projects.length > 0 && (
           <div className="sidebar-projects">
             <div className="eyebrow sidebar-section-heading">
               <span>Projects</span>
@@ -313,7 +309,7 @@ export default function Sidebar({
                 <ArrowUpRight size={14} />
               </IconButton>
             </div>
-            {data.projects.map((project) => {
+            {projects.map((project) => {
               const projectChats = chats.filter(
                 (chat) => chat.projectId === project.id,
               );
@@ -357,6 +353,11 @@ export default function Sidebar({
                           <span>{chat.title}</span>
                         </button>
                       ))}
+                      {!projectChats.length && (
+                        <p className="sidebar-section-empty">
+                          No conversations yet.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -421,12 +422,10 @@ export default function Sidebar({
         side="top"
         trigger={
           <button className="profile" aria-label="Your account">
-            <span className="avatar">
-              {data.preferences.name.slice(0, 1).toUpperCase() || "Y"}
-            </span>
+            <span className="avatar">{label.slice(0, 1).toUpperCase()}</span>
             <span>
-              {data.preferences.name}
-              <small>Personal workspace</small>
+              {label}
+              <small>{user?.email}</small>
             </span>
             <Ellipsis size={18} />
           </button>
@@ -441,27 +440,54 @@ export default function Sidebar({
             },
           },
           {
-            label: "Saved on this device",
-            description: "Local demo · no account connected",
-            icon: <Check size={16} />,
-            disabled: true,
+            label: "Sign out",
+            icon: <LogOut size={16} />,
+            separator: true,
+            onSelect: () => void signOut(),
           },
         ]}
       />
     </aside>
   );
 }
+
+/**
+ * Conversation search.
+ *
+ * Titles only, and the label says so. The server has no full-text index over message bodies,
+ * and filtering whatever happens to be cached in this tab would silently return less than the
+ * user's whole history.
+ */
 export function SearchDialog() {
-  const { data, search, setSearch, setPanel } = useWorkspace();
+  const { search, setSearch, setPanel } = useWorkspace();
   const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Chat[]>([]);
+  const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
-  const matches = data.chats
-    .filter((c) =>
-      (c.title + " " + c.messages.map((m) => m.text).join(" "))
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-    )
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  useEffect(() => {
+    if (!search) return;
+    let live = true;
+    setBusy(true);
+    const timer = setTimeout(() => {
+      api.chats
+        .list({ limit: 30, ...(query.trim() ? { q: query.trim() } : {}) })
+        .then((page) => {
+          if (live) setResults(page.items.map(toChat));
+        })
+        .catch(() => {
+          if (live) setResults([]);
+        })
+        .finally(() => {
+          if (live) setBusy(false);
+        });
+    }, 180);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [query, search]);
+
   return (
     <Modal
       open={search}
@@ -473,14 +499,14 @@ export function SearchDialog() {
         <Search size={19} />
         <input
           autoFocus
-          aria-label="Search conversations"
-          placeholder="A title, a phrase, a passing thought…"
+          aria-label="Search conversation titles"
+          placeholder="A title you remember…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
       <div className="search-results">
-        {matches.map((c) => (
+        {results.map((c) => (
           <button
             key={c.id}
             onClick={() => {
@@ -493,19 +519,34 @@ export function SearchDialog() {
             <MessageCircleMore size={17} />
             <span>
               <strong>{c.title}</strong>
-              <small>{c.messages.find((m) => m.role === "user")?.text}</small>
+              <small>
+                {c.updatedAt
+                  ? new Date(c.updatedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })
+                  : ""}
+              </small>
             </span>
             <ArrowUpRight size={15} />
           </button>
         ))}
-        {!matches.length && (
+        {busy && !results.length && (
+          <p className="loading-line">
+            <Loader2 size={15} className="spin" />
+            Searching…
+          </p>
+        )}
+        {!busy && !results.length && (
           <p className="no-results">
-            No conversations match “{query}”. Try another phrase.
+            {query
+              ? `No conversation title matches “${query}”.`
+              : "You have no conversations yet."}
           </p>
         )}
       </div>
       <div className="search-hint">
-        Tab to browse results · Enter to open · Esc to close
+        Titles only · Tab to browse results · Enter to open · Esc to close
       </div>
     </Modal>
   );

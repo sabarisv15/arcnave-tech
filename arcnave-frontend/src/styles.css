@@ -1180,12 +1180,6 @@ textarea {
   font-size: 12px;
   margin-bottom: 20px;
 }
-.example-note {
-  font-size: 10px;
-  letter-spacing: 1.2px;
-  color: var(--muted);
-  margin-bottom: 25px;
-}
 .user-message {
   display: flex;
   flex-direction: column;
@@ -2619,14 +2613,6 @@ textarea {
   font-size: 12px;
   margin: 6px 0 0;
 }
-.settings-saved {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 10px;
-  margin-top: 32px;
-}
 .section-description {
   font-size: 13px;
   color: var(--muted);
@@ -2744,21 +2730,159 @@ textarea {
   color: var(--muted);
   white-space: nowrap;
 }
-.demo-controls {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.7;
-}
-.demo-controls summary {
-  cursor: pointer;
+/* Sign-in, boot, and the usage panel — all added with the real backend */
+.boot-screen,
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s24);
+  padding: var(--s32);
+  background: var(--bg);
   color: var(--ink);
 }
-.demo-controls select {
+.auth-card {
   width: 100%;
-  font-size: 12px;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: var(--s32);
+  box-shadow: var(--shadow);
 }
-.demo-controls p {
-  margin: 10px 0;
+.auth-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s8);
+  margin-bottom: var(--s24);
+}
+.auth-intro h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.4px;
+}
+.auth-intro p:last-child {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 0;
+}
+.auth-notice {
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  margin-bottom: var(--s16);
+}
+.auth-submit {
+  width: 100%;
+  margin-top: var(--s8);
+}
+.auth-switch {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  margin: var(--s24) 0 0;
+}
+.auth-switch button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.auth-footer {
+  max-width: 420px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+  text-align: center;
+}
+.message-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s12);
+  font-size: 11px;
+  color: var(--muted);
+  margin: var(--s12) 0 0;
+}
+.message-usage span::after {
+  content: "·";
+  margin-left: var(--s12);
+  opacity: 0.5;
+}
+.message-usage span:last-child::after {
+  content: "";
+}
+.usage-periods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s12);
+  margin-bottom: var(--s24);
+}
+.usage-period {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: var(--s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.usage-period strong {
+  font-size: 20px;
+  font-weight: 600;
+}
+.usage-period small {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.usage-budget {
+  margin: var(--s16) 0;
+}
+.usage-budget-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: var(--s6);
+}
+.usage-budget-head span:last-child {
+  color: var(--muted);
+}
+.usage-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.usage-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: var(--s24) 0;
+}
+.usage-table th,
+.usage-table td {
+  text-align: left;
+  padding: var(--s8);
+  border-bottom: 1px solid var(--line);
+}
+.usage-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.usage-table td:not(:first-child),
+.usage-table th:not(:first-child) {
+  text-align: right;
 }
 /* Original charcoal theme and reading preferences */
 [data-theme="dark"] {

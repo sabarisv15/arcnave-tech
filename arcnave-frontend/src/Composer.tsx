@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
-  Check,
   ChevronDown,
   FileText,
   Globe2,
@@ -12,14 +11,18 @@ import {
   Plus,
   Square,
   Telescope,
+  TriangleAlert,
   X,
   PanelsTopLeft,
 } from "lucide-react";
+import { ApiError, api } from "./api";
 import type { Attachment, Mode } from "./types";
-import { modelOptions, uid } from "./types";
-import { sizeLabel, storeFile, validateFile } from "./storage";
+import { toAttachment } from "./types";
+import { sizeLabel, validateFile } from "./storage";
 import { Dropdown, IconButton } from "./ui";
+import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
+
 export function AttachmentChip({
   file,
   onRemove,
@@ -28,19 +31,19 @@ export function AttachmentChip({
   onRemove?: () => void;
 }) {
   const { setPanel } = useWorkspace();
+  const broken = file.status === "failed" || file.status === "unsupported";
+  const openable = file.status === "ready" && !!file.downloadUrl;
   return (
-    <div
-      className={`attachment-chip ${file.status === "failed" || file.status === "unsupported" ? "failed" : ""}`}
-    >
+    <div className={`attachment-chip ${broken ? "failed" : ""}`}>
       <button
         className="attachment-main"
-        onClick={() =>
-          file.status === "ready" && setPanel({ kind: "file", file })
-        }
-        disabled={file.status !== "ready"}
+        onClick={() => openable && setPanel({ kind: "file", file })}
+        disabled={!openable}
       >
-        {file.status === "processing" ? (
+        {file.status === "uploading" || file.status === "indexing" ? (
           <Loader2 className="spin" size={18} />
+        ) : broken ? (
+          <TriangleAlert size={18} />
         ) : file.type.startsWith("image/") ? (
           <Image size={18} />
         ) : (
@@ -49,9 +52,21 @@ export function AttachmentChip({
         <span>
           <strong>{file.name}</strong>
           <small>
-            {file.status === "ready"
-              ? `${sizeLabel(file.size)} · On this device`
-              : file.error || "Saving to this device…"}
+            {file.status === "uploading"
+              ? "Uploading…"
+              : file.status === "indexing"
+                ? "Indexing…"
+                : file.error
+                  ? file.error
+                  : file.status === "unsupported"
+                    ? "Stored, but no text could be read from it"
+                    : `${sizeLabel(file.size)}${
+                        file.chunkCount !== undefined
+                          ? ` · ${file.chunkCount} indexed chunk${file.chunkCount === 1 ? "" : "s"}`
+                          : file.hasText === false
+                            ? " · no text"
+                            : ""
+                      }`}
           </small>
         </span>
       </button>
@@ -63,6 +78,7 @@ export function AttachmentChip({
     </div>
   );
 }
+
 export default function Composer({
   chatId,
   projectId,
@@ -76,12 +92,19 @@ export default function Composer({
   initialMode?: Mode;
   compact?: boolean;
 }) {
-  const { data, setData, send, activeRun, stop, toast, edit, setEdit } =
-    useWorkspace();
+  const {
+    preferences,
+    updatePreferences,
+    send,
+    activeRun,
+    stop,
+    toast,
+    edit,
+    setEdit,
+  } = useWorkspace();
+  const { models } = useSession();
   const [text, setText] = useState(initialPrompt),
-    [mode, setMode] = useState<Mode>(
-      initialMode || data.preferences.defaultMode,
-    ),
+    [mode, setMode] = useState<Mode>(initialMode || preferences.defaultMode),
     [files, setFiles] = useState<Attachment[]>([]),
     [dragging, setDragging] = useState(false),
     [artifact, setArtifact] = useState(false);
@@ -89,6 +112,7 @@ export default function Composer({
     input = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const mounted = useRef(true);
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -120,8 +144,18 @@ export default function Composer({
         ) + "px";
     }
   }, [text, compact]);
+
   const busy = !!activeRun;
   const ownRun = activeRun === chatId;
+  const grounded = models?.capabilities.groundedSearch ?? true;
+
+  /**
+   * Upload each file as it is chosen.
+   *
+   * The id the server returns is what `generate` needs in `attachmentIds`, so a file that is
+   * still uploading blocks send — a message that referenced an id the server had not issued
+   * would simply drop the attachment.
+   */
   async function addFiles(list: FileList | File[] | null) {
     if (!list) return;
     const selected = Array.from(list).slice(0, 10 - files.length);
@@ -130,52 +164,68 @@ export default function Composer({
       return;
     }
     for (const file of selected) {
-      const error = validateFile(file);
-      const item: Attachment = {
-        id: uid(),
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        status: error ? "unsupported" : "processing",
-        error: error || undefined,
-      };
-      setFiles((f) => [...f, item]);
-      if (!error) {
-        try {
-          await storeFile(item.id, file);
-          if (mounted.current)
-            setFiles((f) =>
-              f.map((x) => (x.id === item.id ? { ...x, status: "ready" } : x)),
-            );
-        } catch {
-          if (mounted.current)
-            setFiles((f) =>
-              f.map((x) =>
-                x.id === item.id
-                  ? {
-                      ...x,
-                      status: "failed",
-                      error: "Could not save. Remove and try again.",
-                    }
-                  : x,
-              ),
-            );
-        }
+      const problem = validateFile(file);
+      const localId = `upload-${crypto.randomUUID()}`;
+      setFiles((f) => [
+        ...f,
+        {
+          id: localId,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          status: problem ? "unsupported" : "uploading",
+          ...(problem ? { error: problem } : {}),
+        },
+      ]);
+      if (problem) continue;
+      try {
+        const uploaded = await api.files.upload(file);
+        if (mounted.current)
+          setFiles((f) =>
+            f.map((x) => (x.id === localId ? toAttachment(uploaded) : x)),
+          );
+      } catch (error) {
+        if (mounted.current)
+          setFiles((f) =>
+            f.map((x) =>
+              x.id === localId
+                ? {
+                    ...x,
+                    status: "failed",
+                    error:
+                      error instanceof ApiError
+                        ? error.detail
+                        : "The upload failed. Remove the file and try again.",
+                  }
+                : x,
+            ),
+          );
       }
     }
   }
+
+  const removeFile = (file: Attachment) => {
+    setFiles((all) => all.filter((x) => x.id !== file.id));
+    // Only server-side rows need deleting; a rejected file was never sent.
+    if (file.downloadUrl) void api.files.remove(file.id).catch(() => {});
+  };
+
+  const pending = files.some((f) => f.status === "uploading");
+  const unusable = files.some(
+    (f) => f.status === "failed" || f.status === "unsupported",
+  );
+
   const submit = () => {
-    if (
-      busy ||
-      files.some((f) => f.status !== "ready") ||
-      (!text.trim() && !files.length)
-    )
-      return;
-    send(text, mode, files, chatId, projectId, artifact);
+    if (busy || pending || (!text.trim() && !files.length)) return;
+    const ready = files.filter(
+      (f) => f.status === "ready" || f.status === "unsupported",
+    );
+    send(text, mode, ready, chatId, projectId, artifact);
     setText("");
     setFiles([]);
     setArtifact(false);
   };
+
   const modeIcon =
     mode === "chat" ? (
       <MessageCircleMore size={16} />
@@ -184,11 +234,39 @@ export default function Composer({
     ) : (
       <Telescope size={16} />
     );
+
+  const modelItems = [
+    ...(models
+      ? [
+          {
+            label: models.auto.alias,
+            description: models.auto.available
+              ? models.auto.description
+              : models.auto.detail,
+            selected: preferences.modelAlias === models.auto.alias,
+            disabled: !models.auto.available,
+            onSelect: () =>
+              updatePreferences({ modelAlias: models.auto.alias }),
+          },
+          ...models.models.map((model, index) => ({
+            label: model.alias,
+            // An unavailable model says why, in the server's words, instead of vanishing.
+            description: model.available ? model.description : model.detail,
+            selected: model.alias === preferences.modelAlias,
+            disabled: !model.available,
+            separator: index === 0,
+            onSelect: () => updatePreferences({ modelAlias: model.alias }),
+          })),
+        ]
+      : [{ label: "Loading models…", disabled: true }]),
+  ];
+
   return (
     <div className="composer-wrap">
       {edit && edit.chatId === chatId && (
         <div className="edit-notice">
-          Editing this prompt replaces the replies after it.
+          Sending this continues in a new branch; the original conversation
+          stays as it is.
           <button
             onClick={() => {
               setEdit(null);
@@ -230,9 +308,7 @@ export default function Composer({
               <AttachmentChip
                 key={f.id}
                 file={f}
-                onRemove={() =>
-                  setFiles((all) => all.filter((x) => x.id !== f.id))
-                }
+                onRemove={() => removeFile(f)}
               />
             ))}
           </div>
@@ -240,7 +316,7 @@ export default function Composer({
         {artifact && (
           <div className="composer-context">
             <PanelsTopLeft size={14} />
-            Create an artifact
+            Save the response as an artifact
             <button
               aria-label="Cancel artifact creation"
               onClick={() => setArtifact(false)}
@@ -264,7 +340,7 @@ export default function Composer({
               e.key === "Enter" &&
               !e.shiftKey &&
               !e.nativeEvent.isComposing &&
-              (data.preferences.enterToSend || e.ctrlKey || e.metaKey)
+              (preferences.enterToSend || e.ctrlKey || e.metaKey)
             ) {
               e.preventDefault();
               submit();
@@ -288,7 +364,7 @@ export default function Composer({
                 onSelect: () => {
                   if (input.current)
                     input.current.accept =
-                      ".pdf,.docx,.txt,.csv,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.md,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.yml,.yaml,.xml,.sql";
+                      ".pdf,.docx,.xlsx,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.yml,.yaml,.xml,.sql,.png,.jpg,.jpeg,.webp,.gif";
                   input.current?.click();
                 },
               },
@@ -303,8 +379,8 @@ export default function Composer({
                 },
               },
               {
-                label: "Create artifact",
-                description: "A document, code snippet, or webpage",
+                label: "Save response as artifact",
+                description: "Keep this reply as an editable document",
                 icon: <PanelsTopLeft size={16} />,
                 separator: true,
                 onSelect: () => {
@@ -341,48 +417,26 @@ export default function Composer({
               },
               {
                 label: "Search",
-                description: "A quick answer with references",
+                description: grounded
+                  ? "A quick answer with references"
+                  : models?.capabilities.detail,
                 icon: <Globe2 size={16} />,
                 selected: mode === "search",
+                disabled: !grounded,
                 onSelect: () => setMode("search"),
               },
               {
                 label: "Research",
-                description: "Explore evidence in more depth",
+                description: grounded
+                  ? "Explore evidence in more depth"
+                  : models?.capabilities.detail,
                 icon: <Telescope size={16} />,
                 selected: mode === "research",
+                disabled: !grounded,
                 onSelect: () => setMode("research"),
               },
             ]}
           />
-          {mode !== "chat" && (
-            <Dropdown
-              label="Source scope"
-              side="top"
-              trigger={
-                <button
-                  className="quiet-button source-scope"
-                  aria-label="Source scope"
-                >
-                  {data.preferences.sourceScope === "All sources"
-                    ? "Sources"
-                    : data.preferences.sourceScope}
-                  <ChevronDown size={12} />
-                </button>
-              }
-              items={(["All sources", "Government", "Academic"] as const).map(
-                (scope) => ({
-                  label: scope,
-                  selected: data.preferences.sourceScope === scope,
-                  onSelect: () =>
-                    setData((w) => ({
-                      ...w,
-                      preferences: { ...w.preferences, sourceScope: scope },
-                    })),
-                }),
-              )}
-            />
-          )}
           <div className="spacer" />
           <Dropdown
             label="Model selection"
@@ -391,23 +445,13 @@ export default function Composer({
             trigger={
               <button
                 className="quiet-button model-button"
-                aria-label={`Model: ${data.preferences.model}`}
+                aria-label={`Model: ${preferences.modelAlias}`}
               >
-                {data.preferences.model}
+                {preferences.modelAlias}
                 <ChevronDown size={13} />
               </button>
             }
-            items={modelOptions.map((model, index) => ({
-              label: model.name,
-              description: model.description,
-              selected: model.name === data.preferences.model,
-              separator: index === 1,
-              onSelect: () =>
-                setData((w) => ({
-                  ...w,
-                  preferences: { ...w.preferences, model: model.name },
-                })),
-            }))}
+            items={modelItems}
           />
           {ownRun ? (
             <button
@@ -422,11 +466,7 @@ export default function Composer({
               className="send-button"
               aria-label={edit ? "Send edited message" : "Send message"}
               onClick={submit}
-              disabled={
-                busy ||
-                (!text.trim() && !files.length) ||
-                files.some((f) => f.status !== "ready")
-              }
+              disabled={busy || pending || (!text.trim() && !files.length)}
             >
               <ArrowUp size={19} />
             </button>
@@ -445,12 +485,17 @@ export default function Composer({
           }}
         />
       </div>
-      {chatId && (
+      {(chatId || unusable) && (
         <p className="composer-disclaimer">
-          Demo responses · Files stay on this device ·{" "}
-          {data.preferences.enterToSend
-            ? "Shift + Enter for a new line"
-            : "Ctrl + Enter to send"}
+          {pending
+            ? "Waiting for uploads to finish…"
+            : unusable
+              ? "Files marked with a warning are sent without their text."
+              : `ArcNave can make mistakes · ${
+                  preferences.enterToSend
+                    ? "Shift + Enter for a new line"
+                    : "Ctrl + Enter to send"
+                }`}
         </p>
       )}
     </div>

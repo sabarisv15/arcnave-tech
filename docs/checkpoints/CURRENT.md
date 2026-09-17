@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-09-17
 **Status:** backend API surface complete (38 routes); **connected to Vertex AI — all four
-models verified with real calls**; frontend still on mock data
-**Progress:** ~60% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
+models verified with real calls**; **frontend rewired onto the API — no mock data remains**
+**Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
 > `mistakes.md` has what has already gone wrong here; `docs/backend-research.md` has the
@@ -166,6 +166,43 @@ cost nullability, cursor encoding, and CSV escaping. No test touches a provider.
 The dev database still holds the two throwaway accounts (`a@example.test`, `b@example.test`)
 used for this pass. Harmless locally; drop the volume before treating this database as clean.
 
+### 2026-09-17 — frontend rewiring
+
+```bash
+cd arcnave-frontend
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters   # clean, 0 errors
+npx vitest run                                           # 27 passed, 2 files
+npx vite build                                           # clean
+```
+
+The unit suite is pure logic — SSE frame reassembly across awkward chunk boundaries, heartbeat
+and malformed-frame handling, refusal-to-`ApiError` mapping, DTO mapping, and upload policy.
+No test reaches a server.
+
+**Driven by hand in a browser against the running backend and a real Vertex project.** What was
+checked, and what it proved:
+
+| Check | Result |
+| --- | --- |
+| Register / sign in / sign out | New account lands in a genuinely empty workspace; wrong password renders the server's own `invalid_credentials` copy |
+| Streaming | Deltas arrive progressively and render as Markdown; `Gemini 3.8 Flash` named in the byline |
+| Follow-up turn | Appends to the same chat, no duplicate rows |
+| Per-message usage | `12 in · 8 out · 20 total · cost not priced` — and `null` cost shown as unpriced, never `$0.00` |
+| Attachment | Dropped file uploaded to `POST /files`, claimed by the next generate, its text reached the model; Auto routed to **Opus 5** because of the attachment |
+| Project file | Uploaded, indexed to 1 chunk in the upload response, and BM25 retrieval put it into a later answer, which cited `cooling-notes.txt` by name |
+| Stop | Mid-stream stop persisted `stopped` with 9,069 characters of partial text; screen shows "Response stopped", no spinner |
+| Retry | Reused the same assistant row via `retryMessageId` — still two messages, not four |
+| Artifacts | Create → edit → save version → step back to v1 → "Restore this version" banner, Edit disabled while viewing history |
+| Models | List, descriptions, and `providerModelId` all from `GET /models`; grounding note reads the server's `capabilities.detail` verbatim |
+| Usage & limits | Real totals, per-model table, "No pricing is configured" note, budgets as "no limit" rather than a full bar |
+
+**Two defects were found by running it, both mine, both fixed** — see `mistakes.md`: a
+reconcile that raced the server's own write and put the spinner back on a stopped response, and
+a deliberate sign-out reporting itself as an expired session.
+
+The dev database also holds `gcp-verify@example.test` and `wire-check@example.test` from these
+passes.
+
 ## Known issues
 
 - `docs/decisions/0001-stack.md` still argues for Python/FastAPI. Stale — rewrite for Node/TS.
@@ -178,8 +215,30 @@ used for this pass. Harmless locally; drop the volume before treating this datab
 - `services.activeRuns` is an in-process Map, so `/stop` only reaches a run on the same
   instance. Horizontal scaling needs shared signalling (Redis pub/sub) first.
 - Message transcripts still return `usage: null` by design; `GET /v1/usage/messages?chatId=`
-  now supplies it, and the frontend has to call that when it renders the per-message row.
-- No Docker image or compose file yet.
+  supplies it, and the conversation view calls that when it renders the per-message row.
+
+### Contract gaps the frontend rewiring exposed
+
+These are places where the API stores a value nothing acts on, or where the UI wants something
+the API cannot express. Each is currently handled by *not* offering the affordance, so nothing
+on screen claims a behaviour the system does not have.
+
+- **`preferences.sourceScope` is dead.** It is stored and echoed back, but `POST
+  /chats/:id/generate` takes no scope and no code reads the column. The composer's source-scope
+  control was removed rather than left as a knob that does nothing. Either wire it into
+  grounding or drop the column.
+- **`preferences.saveHistory` is dead** in the same way: chats are always persisted. The toggle
+  was removed from Settings.
+- **`messages.artifactId` has no writer.** Nothing sets it, so "save this response as an
+  artifact" creates the artifact with `chatId` set and keeps the message→artifact link in
+  client state only; it is gone after a reload. A `PATCH /chats/:id/messages/:messageId`
+  accepting `artifactId` would close this.
+- **No route changes a user's display name.** `users.name` is set at registration and Settings
+  can only show it.
+- **Chat search is titles only.** `GET /chats?q=` does an `ilike` on `title`; there is no index
+  over message bodies. The search dialog says "Titles only" rather than implying more.
+- **Lists are capped at 100.** The workspace loads one page of chats, projects, and artifacts
+  and does not paginate. `nextCursor` is returned and ignored.
 
 ## Exact next steps, in order
 
@@ -191,17 +250,26 @@ used for this pass. Harmless locally; drop the volume before treating this datab
    Two defects were found and fixed by writing them — see `mistakes.md`.
    Still uncovered: grounding UTF-8 byte-offset slicing, and the provider adapters themselves,
    which cannot be tested without a GCP project.
-3. **Docker**: `backend/Dockerfile` (non-root, healthcheck), root `compose.yaml`
-   (frontend + backend + Postgres + volumes), `.dockerignore`, `.env.example`.
-4. **Frontend rewiring** — the biggest chunk:
-   - Delete `src/fixtures.ts` and every import of it
-   - Replace the `generate()` mock in `src/adapter.ts` with a typed SSE client
-   - Replace `src/storage.ts` localStorage/IndexedDB with API calls
-   - Rename storage keys from `still-*`
-   - Add sign-in / sign-up screens
-   - Add **Usage & limits** to Settings; per-message usage row
-   - Drive the model list from `GET /models`; show unavailable reasons
-   - Strip all "demo" copy from `README.md` and UI
+3. ~~**Docker**~~ — **done 2026-09-17.** `backend/Dockerfile`, root `compose.yaml`,
+   `.dockerignore`, `.env.example`.
+4. ~~**Frontend rewiring**~~ — **done 2026-09-17.** Every item below landed, and the whole
+   surface was exercised against the running backend and a real Vertex project:
+   - `src/fixtures.ts` deleted; no mock data of any kind remains
+   - `src/api.ts` is the new HTTP boundary — every endpoint, the DTO types, and a typed
+     `ApiError` carrying the server's `code`, `title`, `detail`, and `requestId`
+   - `src/adapter.ts` is now a real SSE client over `POST /chats/:id/generate`, read with
+     `fetch` + a stream reader because `EventSource` cannot POST
+   - `src/storage.ts` keeps only presentation helpers plus `arcnave-ui:` local interface state
+     (theme, sidebar, unsaved artifact draft). The `still-*` keys and the IndexedDB file store
+     are gone; files live on the server
+   - `src/session.tsx` + `src/Auth.tsx`: sign-in, sign-up, sign-out, change password
+   - Settings gained **Usage & limits** and **Account**; every assistant message shows its own
+     token row from `GET /usage/messages`
+   - The composer and Settings drive their model list from `GET /models`, showing the server's
+     own unavailability reason on a disabled row
+   - Editing a prompt branches (`POST /chats/:id/branch`) instead of truncating, because the
+     API has no truncate and deleting messages to fake one would destroy work
+   - Dev server proxies `/v1` to the backend so the session cookie stays first-party
 5. **Claude Code continuity**: root `CLAUDE.md`, `.claude/rules/`, statusline script,
    SessionStart/SessionEnd hooks, `docs/claude-code-workflow.md`. **This step now also has to
    wire `mistakes.md` in** — `CLAUDE.md` must point at it and the SessionEnd hook must require
