@@ -63,4 +63,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
 ENTRYPOINT ["dumb-init", "--"]
 # Cloud Run must bind to $PORT promptly. Database migrations are run separately so a migration
 # failure cannot prevent the HTTP process from starting and exposing useful health diagnostics.
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "node dist/db/migrate.js || true; exec node dist/index.js"]
