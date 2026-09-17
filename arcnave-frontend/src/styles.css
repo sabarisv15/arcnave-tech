@@ -234,12 +234,12 @@ p {
   flex-direction: column;
 }
 .topbar {
-  height: 64px;
-  min-height: 64px;
+  height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 0 24px;
   font-size: 13px;
   gap: 12px;
 }
@@ -1145,6 +1145,7 @@ textarea {
 }
 /* Conversations */
 .conversation-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1170,7 +1171,7 @@ textarea {
   max-width: 760px;
   width: calc(100% - 64px);
   margin: 0 auto;
-  padding: 24px 0 40px;
+  padding: 16px 0 28px;
 }
 .conversation-project {
   display: inline-flex;
@@ -1184,15 +1185,15 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  margin: 8px 0 25px;
+  margin: 6px 0 18px;
 }
 .user-bubble {
   background: var(--soft);
   border-radius: 14px 14px 4px 14px;
   max-width: 88%;
-  padding: 14px 19px;
-  font-size: 15px;
-  line-height: 1.65;
+  padding: 11px 16px;
+  font-size: 14px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 .user-bubble p {
@@ -1214,14 +1215,14 @@ textarea {
   opacity: 1;
 }
 .assistant-message {
-  padding: 0 0 20px;
+  padding: 0 0 14px;
   min-width: 0;
 }
 .answer-byline {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 0 0 20px;
+  margin: 0 0 14px;
   font-size: 13px;
   font-weight: 550;
   color: var(--ink);
@@ -1256,12 +1257,12 @@ textarea {
   border-radius: 5px;
 }
 .markdown {
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 15px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 .markdown p {
-  margin: 0 0 19px;
+  margin: 0 0 14px;
 }
 .markdown h1 {
   font-family: Georgia, serif;
@@ -1272,20 +1273,20 @@ textarea {
   margin: 12px 0 24px;
 }
 .markdown h2 {
-  font-size: 23px;
+  font-size: 20px;
   font-weight: 550;
   line-height: 1.4;
   letter-spacing: -0.5px;
-  margin: 30px 0 14px;
+  margin: 24px 0 10px;
 }
 .markdown h2:first-child {
   margin-top: 0;
 }
 .markdown h3 {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.5;
-  margin: 26px 0 12px;
+  margin: 20px 0 10px;
 }
 .markdown strong {
   font-weight: 600;
@@ -1293,11 +1294,11 @@ textarea {
 .markdown ul,
 .markdown ol {
   padding-left: 24px;
-  margin: 10px 0 23px;
+  margin: 8px 0 16px;
 }
 .markdown li {
   padding-left: 4px;
-  margin: 7px 0;
+  margin: 5px 0;
 }
 .markdown li p {
   margin: 0;
@@ -1533,7 +1534,7 @@ textarea {
   color: var(--muted);
 }
 .conversation-composer {
-  padding: 10px 32px 14px;
+  padding: 8px 24px 10px;
   background: var(--bg);
   flex-shrink: 0;
   z-index: 3;
@@ -1543,10 +1544,11 @@ textarea {
   margin: auto;
 }
 .conversation-composer .composer {
-  padding-top: 15px;
+  padding-top: 10px;
 }
 .conversation-composer .composer textarea {
-  min-height: 46px;
+  min-height: 40px;
+  font-size: 14px;
 }
 .jump-bottom {
   position: absolute;
