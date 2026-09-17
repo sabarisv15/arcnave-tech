@@ -386,11 +386,17 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         ? await resetForRetry(request, chat.id, retryMessageId)
         : await appendTurn(request, chat.id, user.id, prompt, mode, attachmentIds);
 
-      // --- gather attachment text ---------------------------------------
+      // --- gather attachments: text-extraction path vs. native path -----
       let attachmentText = '';
+      let nativeAttachments: { mimeType: string; base64: string }[] = [];
       if (attachmentIds.length > 0) {
         const rows = await db
-          .select({ filename: attachmentsTable.filename, extractedText: attachmentsTable.extractedText })
+          .select({
+            filename: attachmentsTable.filename,
+            mimeType: attachmentsTable.mimeType,
+            storageKey: attachmentsTable.storageKey,
+            extractedText: attachmentsTable.extractedText,
+          })
           .from(attachmentsTable)
           .where(
             and(
@@ -398,10 +404,23 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
               eq(attachmentsTable.userId, user.id),
             ),
           );
+
+        const isNative = (mimeType: string): boolean =>
+          mimeType === 'application/pdf' || mimeType.startsWith('image/');
+
         attachmentText = rows
-          .filter((r) => r.extractedText?.trim())
+          .filter((r) => !isNative(r.mimeType) && r.extractedText?.trim())
           .map((r) => `--- ${r.filename} ---\n${r.extractedText}`)
           .join('\n\n');
+
+        nativeAttachments = await Promise.all(
+          rows
+            .filter((r) => isNative(r.mimeType))
+            .map(async (r) => ({
+              mimeType: r.mimeType,
+              base64: (await request.services.storage.get(r.storageKey)).toString('base64'),
+            })),
+        );
       }
 
       // --- wire up cancellation -----------------------------------------
@@ -464,6 +483,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           projectId: chat.projectId,
           hasAttachments: attachmentIds.length > 0,
           attachmentText,
+          attachments: nativeAttachments,
           signal: controller.signal,
         })) {
           send(event);

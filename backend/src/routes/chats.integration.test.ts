@@ -10,7 +10,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, FakeProvider, parseSse, signUp, sleep, sseText } from '../test/harness.js';
+import { createTestApp, FakeProvider, multipart, parseSse, signUp, sleep, sseText } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -566,5 +566,65 @@ describe('isolation', () => {
       headers: { cookie: intruder.cookie },
     });
     expect(response.statusCode).toBe(404);
+  });
+});
+
+/* -------------------------------------------------------------------------- vision */
+
+describe('vision capability gate', () => {
+  it('refuses to send an image to a model that cannot see it', async () => {
+    const chatId = await newChat();
+    const part = multipart(
+      'photo.png',
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 1)]),
+      'image/png',
+    );
+    const upload = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files',
+      headers: { ...part.headers, ...auth() },
+      payload: part.payload,
+    });
+    expect(upload.statusCode).toBe(201);
+    const attachmentId = (upload.json() as { id: string }).id;
+
+    const response = await generate(chatId, {
+      model: 'GPT-OSS 120B',
+      attachmentIds: [attachmentId],
+    });
+
+    expect(response.statusCode).toBe(200);
+    const frames = parseSse(response.body);
+    const errorFrame = frames.find((f) => f.event === 'error');
+    expect(errorFrame?.data['code']).toBe('capability_unavailable');
+  });
+});
+
+describe('attachments carried across turns', () => {
+  it('re-sends an image attached in an earlier turn on a later one', async () => {
+    const chatId = await newChat();
+    const part = multipart(
+      'photo.png',
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 2)]),
+      'image/png',
+    );
+    const upload = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files',
+      headers: { ...part.headers, ...auth() },
+      payload: part.payload,
+    });
+    const attachmentId = (upload.json() as { id: string }).id;
+
+    const first = await generate(chatId, { prompt: 'What is in this photo?', attachmentIds: [attachmentId] });
+    expect(first.statusCode).toBe(200);
+
+    const second = await generate(chatId, { prompt: 'Describe it again, differently.' });
+    expect(second.statusCode).toBe(200);
+
+    // provider.seen[0] is the first turn's request, [1] is the second's.
+    const secondRequest = ctx.provider.seen[ctx.provider.seen.length - 1]!;
+    const carried = secondRequest.history.find((t) => (t.attachments?.length ?? 0) > 0);
+    expect(carried?.attachments?.[0]).toMatchObject({ mimeType: 'image/png' });
   });
 });

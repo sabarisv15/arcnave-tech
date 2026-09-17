@@ -13,11 +13,12 @@
  * - **Cancellation still writes a usage row.** A run that streamed 800 tokens before the user
  *   pressed stop cost those tokens; dropping the record would understate real spend.
  */
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
 import {
+  attachments,
   chats,
   messages,
   messageSources,
@@ -33,6 +34,7 @@ import { AUTO_ALIAS } from '../providers/registry.js';
 import type { RoutingDecision } from '../providers/routing.js';
 import { routeAuto } from '../providers/routing.js';
 import type {
+  AttachmentBlock,
   GenerationRequest,
   Mode,
   ProviderEvent,
@@ -41,6 +43,7 @@ import type {
   Turn,
 } from '../providers/types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError, totalTokens } from '../providers/types.js';
+import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext } from './retrieval.js';
 import type { UsageService } from './usage.js';
@@ -123,6 +126,8 @@ export interface GenerateInput {
   projectId: string | null;
   hasAttachments: boolean;
   attachmentText: string;
+  /** This turn's image/PDF attachments, ready as native content blocks. */
+  attachments: AttachmentBlock[];
   signal: AbortSignal;
 }
 
@@ -145,6 +150,7 @@ export class GenerationService {
     private readonly registry: ModelRegistry,
     private readonly usage: UsageService,
     private readonly retriever: Retriever,
+    private readonly storage: ObjectStorage,
   ) {}
 
   /**
@@ -159,13 +165,20 @@ export class GenerationService {
     const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
+    // Loaded before model resolution (not its historical position) because whether this turn
+    // needs a vision-capable model depends on what's carried forward, not only on what's newly
+    // attached — and loadHistory has no dependency on which model gets picked.
+    const history = await this.loadHistory(input.chatId, input.messageId);
 
     // --- resolve the model ------------------------------------------------
     const requiresGrounding = input.mode !== 'chat';
+    const requiresVision =
+      input.attachments.length > 0 || history.some((t) => (t.attachments?.length ?? 0) > 0);
     const { entry, routing } = await this.resolveModel(
       input,
       prefs,
       requiresGrounding,
+      requiresVision,
       project?.instructions.length ?? 0,
     );
     const provider = this.registry.providerFor(entry);
@@ -206,7 +219,6 @@ export class GenerationService {
     };
 
     // --- assemble context -------------------------------------------------
-    const history = await this.loadHistory(input.chatId, input.messageId);
     const { systemInstruction, contextEvents } = await this.buildSystemInstruction(
       input,
       prefs,
@@ -238,6 +250,7 @@ export class GenerationService {
     const request: GenerationRequest = {
       prompt: input.prompt,
       history,
+      attachments: input.attachments,
       systemInstruction,
       mode: input.mode,
       maxOutputTokens,
@@ -394,6 +407,7 @@ export class GenerationService {
     input: GenerateInput,
     prefs: PreferencesRow,
     requiresGrounding: boolean,
+    requiresVision: boolean,
     contextChars: number,
   ): Promise<{ entry: ModelEntry; routing: RoutingDecision | null }> {
     if (input.modelAlias !== AUTO_ALIAS) {
@@ -409,6 +423,14 @@ export class GenerationService {
           meta: { alias: input.modelAlias, reason: status.reason },
         });
       }
+      if (requiresVision && !status.entry.supportsVision) {
+        throw new ApiError('capability_unavailable', {
+          detail:
+            `"${input.modelAlias}" cannot see images or PDFs. Choose a different model, or ` +
+            'remove the attachment.',
+          meta: { alias: input.modelAlias, capability: 'vision' },
+        });
+      }
       return { entry: status.entry, routing: null };
     }
 
@@ -419,8 +441,7 @@ export class GenerationService {
         promptChars: input.prompt.length,
         contextChars,
         hasAttachments: input.hasAttachments,
-        // Not wired to attachment vision-capability yet — see Task 7 of the multimodal plan.
-        requiresVision: false,
+        requiresVision,
         routingPreference: normalizeTier(prefs.routingPreference),
         requiresGrounding,
       },
@@ -429,9 +450,13 @@ export class GenerationService {
     );
     if (!decision) {
       throw new ApiError('no_model_available', {
-        detail: requiresGrounding
-          ? 'No configured model supports grounded search. Enable grounding or use Chat mode.'
-          : 'No model in the registry is configured and reachable. Check the MODEL_* environment variables.',
+        detail: requiresVision
+          ? 'No configured model can see images or PDFs. Remove the attachment, or configure ' +
+            'Claude or Gemini.'
+          : requiresGrounding
+            ? 'No configured model supports grounded search. Enable grounding or use Chat mode.'
+            : 'No model in the registry is configured and reachable. Check the MODEL_* ' +
+              'environment variables.',
       });
     }
     return { entry: decision.entry, routing: decision };
@@ -514,31 +539,72 @@ export class GenerationService {
   /** Prior turns, oldest first, excluding the assistant row we are about to fill. */
   private async loadHistory(chatId: string, excludeMessageId: string): Promise<Turn[]> {
     const rows = await this.db
-      .select({ role: messages.role, text: messages.text, seq: messages.seq })
+      .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq })
       .from(messages)
       .where(and(eq(messages.chatId, chatId), sql`${messages.id} <> ${excludeMessageId}`))
       .orderBy(desc(messages.seq))
       .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 12));
 
-    // Keep the newest complete context within a predictable character budget. Without this
-    // guard, a long chat sends the full recent transcript on every turn and input-token usage
-    // grows linearly until the provider context limit is reached.
-    const turns = rows
-      .reverse()
-      .filter((r) => r.text.trim() !== '')
-      .map((r) => ({ role: r.role === 'user' ? 'user' : 'assistant', text: r.text }) as Turn);
+    const ordered = rows.reverse().filter((r) => r.text.trim() !== '');
+
+    // Keep the newest complete context within a predictable character budget, exactly as
+    // before attachments existed. A turn trimmed out here never gets its attachments fetched
+    // either — there is no point spending a storage read on a turn that was already dropped.
     const budget = 24_000;
     let used = 0;
-    const kept: Turn[] = [];
-    for (let i = turns.length - 1; i >= 0; i -= 1) {
-      const turn = turns[i];
-      if (!turn) continue;
-      const cost = turn.text.length;
+    const kept: typeof ordered = [];
+    for (let i = ordered.length - 1; i >= 0; i -= 1) {
+      const row = ordered[i];
+      if (!row) continue;
+      const cost = row.text.length;
       if (kept.length > 0 && used + cost > budget) break;
-      kept.unshift(turn);
+      kept.unshift(row);
       used += cost;
     }
-    return kept;
+
+    const attachmentRows = kept.length
+      ? await this.db
+          .select({
+            messageId: attachments.messageId,
+            mimeType: attachments.mimeType,
+            storageKey: attachments.storageKey,
+            sizeBytes: attachments.sizeBytes,
+          })
+          .from(attachments)
+          .where(
+            and(
+              inArray(
+                attachments.messageId,
+                kept.map((r) => r.id),
+              ),
+              sql`(${attachments.mimeType} = 'application/pdf' or ${attachments.mimeType} like 'image/%')`,
+            ),
+          )
+          .orderBy(desc(attachments.createdAt))
+      : [];
+
+    // Newest carried-forward attachment wins first claim on the byte budget; once the next one
+    // wouldn't fit, everything older than it is dropped rather than skipped-and-continued past —
+    // a simple, predictable "most recent that fit" rule rather than a bin-packing exercise.
+    let budgetBytes = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES;
+    const byMessage = new Map<string, { mimeType: string; base64: string }[]>();
+    for (const row of attachmentRows) {
+      if (!row.messageId) continue;
+      if (row.sizeBytes > budgetBytes) break;
+      const data = await this.storage.get(row.storageKey);
+      budgetBytes -= row.sizeBytes;
+      const list = byMessage.get(row.messageId) ?? [];
+      list.push({ mimeType: row.mimeType, base64: data.toString('base64') });
+      byMessage.set(row.messageId, list);
+    }
+
+    return kept.map(
+      (r): Turn => ({
+        role: r.role === 'user' ? 'user' : 'assistant',
+        text: r.text,
+        ...(byMessage.has(r.id) ? { attachments: byMessage.get(r.id) } : {}),
+      }),
+    );
   }
 
   private async buildSystemInstruction(

@@ -108,6 +108,10 @@ const envSchema = z.object({
   PROJECT_CONTEXT_MAX_CHARS: int(12_000),
   PROJECT_CONTEXT_MAX_CHUNKS: int(8),
   HISTORY_MAX_TURNS: int(20),
+  /** Bytes of image/PDF attachment data carried forward from earlier turns in one chat, total,
+   *  per generate call. Oldest carried-forward attachments drop first past this cap; a file
+   *  newly attached to the current turn is never dropped by it. */
+  HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
 
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),

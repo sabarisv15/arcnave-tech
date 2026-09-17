@@ -61,7 +61,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const usage = new UsageService(db, cfg);
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
-  const generation = new GenerationService(db, cfg, registry, usage, retriever);
+  const generation = new GenerationService(db, cfg, registry, usage, retriever, storage);
 
   return {
     cfg,
