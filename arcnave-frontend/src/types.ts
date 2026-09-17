@@ -112,6 +112,7 @@ export interface Message {
   errorDetail?: string;
   modelAlias?: string;
   providerModelId?: string;
+  createdAt?: string | null;
   usage?: MessageUsage;
 }
 
@@ -276,6 +277,7 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.errorCode ? { error: dto.errorCode } : {}),
     ...(dto.modelAlias ? { modelAlias: dto.modelAlias } : {}),
     ...(dto.providerModelId ? { providerModelId: dto.providerModelId } : {}),
+    ...(dto.createdAt ? { createdAt: dto.createdAt } : {}),
     ...(dto.usage ? { usage: toUsage(dto.usage) } : {}),
   };
 }

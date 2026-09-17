@@ -514,9 +514,16 @@ function Conversation() {
 
 const tokens = (value: number) => value.toLocaleString();
 
-function UsageRow({ usage }: { usage: MessageUsage }) {
+function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: string | null }) {
+  const formattedDate = createdAt
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(createdAt))
+    : null;
   return (
     <p className="message-usage">
+      {formattedDate && <span className="message-date">{formattedDate}</span>}
       {usage.exact ? (
         <>
           <span>{tokens(usage.inputTokens)} in</span>
@@ -785,7 +792,7 @@ function MessageView({
           {copied && <span className="copy-label">Copied</span>}
         </div>
       )}
-      {usage && !loading && <UsageRow usage={usage} />}
+      {usage && !loading && <UsageRow usage={usage} createdAt={m.createdAt} />}
       {m.questions && m.status === "complete" && m.questions.length > 0 && (
         <div className="related-questions">
           <p className="eyebrow">KEEP EXPLORING</p>
