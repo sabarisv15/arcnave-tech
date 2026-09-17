@@ -401,6 +401,23 @@ failure mode of this pattern, not a sign it is working.
   reasoned from the diff, not asserted by a test — adding one means introducing that dependency,
   which is a bigger decision than this fix.
 
+### 2026-09-17 — `docker start arcnave-pg` fails in this Claude Code web/cloud sandbox
+
+- **Symptom:** `global-setup.ts`'s own error message ("Is Postgres running? `docker start
+  arcnave-pg`") is wrong advice here: `docker start arcnave-pg` fails with `failed to connect to
+  the docker API at unix:///var/run/docker.sock ... no such file or directory` — there is no
+  Docker daemon in a Claude Code on the web / cloud-session container.
+- **Cause:** The sandbox this session runs in has no `dockerd`, but it does ship a real
+  `postgresql-16` cluster pre-installed and stopped (`pg_lsclusters` shows `16 main 5432 down`).
+  The `arcnave` role and `arcnave` database also do not exist yet on a fresh container.
+- **Rule:** **In a Claude Code web/cloud session with no Docker, use the native cluster instead
+  of trying to make `docker` work:** `service postgresql start`, then, as the `postgres` OS
+  user, create the `arcnave` superuser role and `arcnave` database matching
+  `TEST_DATABASE_URL`'s defaults (`postgres://arcnave:arcnave@localhost:5432/arcnave_test`) —
+  `global-setup.ts` creates the `_test` database itself once the base role exists.
+- **Verify:** `pg_lsclusters` shows `5432 online`; `psql -U arcnave -h localhost -c 'select 1'`
+  connects; `npx vitest run` (which needs the database) passes.
+
 ---
 
 ## Convention and sources

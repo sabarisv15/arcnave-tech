@@ -1,12 +1,16 @@
 # ArcNave — current checkpoint
 
 **Last updated:** 2026-09-17
-**Status:** backend API surface complete (38 routes); connected to Vertex AI — all four
+**Status:** backend API surface complete (39 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
 session persistence, and a real streamed chat answer all verified live (see
 [Production deployment](#production-deployment-2026-09-17)) — with a stated `SameSite=None`
-cookie trade-off and accepted cold-start latency, both flagged there for revisit.
+cookie trade-off and accepted cold-start latency, both flagged there for revisit. Native
+multimodal file input (images/PDFs seen directly by Claude and Gemini) is code-complete,
+tested, and pushed, but **not yet live-verified or fully deployed** — see
+[Blocked on the user](#blocked-on-the-user). `PRICING_TABLE` now has real Vertex rates for all
+four aliases in `.env.example`, also pending propagation to the live service.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -55,16 +59,15 @@ adapter aborts the real HTTP request.
 
 ## Completed work
 
-### Native multimodal file input — in progress, 2026-09-17
+### Native multimodal file input — code complete, 2026-09-17; live verification still pending
 Let Claude and Gemini (not `gpt-oss-120b`, which has no vision) actually see images and
 scanned PDFs attached to a message, instead of the current text-extraction-only path.
-Executing [the implementation plan](../superpowers/plans/2026-09-17-multimodal-file-input.md)
+Executed [the implementation plan](../superpowers/plans/2026-09-17-multimodal-file-input.md)
 (design: [spec](../superpowers/specs/2026-09-17-multimodal-file-input-design.md)) via
-subagent-driven development, one task per commit, each reviewed before moving on. Progress
-ledger (git-ignored, local to this checkout, not authoritative once this section is updated):
-`.superpowers/sdd/2026-09-17-multimodal-file-input/progress.md`.
+subagent-driven development, one task per commit, each reviewed before moving on.
 
-**Done — Tasks 1-5 of 8, all reviewed clean, `tsc`/`vitest` green at every step:**
+**Done — Tasks 1-8 of 8, all reviewed clean, `tsc`/`vitest` green at every step (backend: 205
+tests, 13 files; frontend: 27 tests, 2 files, unaffected — this plan is backend-only):**
 1. **Schema** — `attachments` gained `projectFileId` (a message can reuse an existing project
    file's bytes instead of re-uploading); storage-key uniqueness on `attachments` was dropped,
    since two attachments can now legitimately point at the same project file's key.
@@ -81,28 +84,27 @@ ledger (git-ignored, local to this checkout, not authoritative once this section
    `inlineData` parts. No explicit cache code needed — Vertex's implicit caching for Gemini is
    automatic given a stable, repeated request prefix.
 
-None of this has behavior-changed a real request yet: the new fields are optional and nothing
-populates them outside tests, so production traffic through the adapters is unaffected until
-Task 7 lands. Nothing in this feature has touched a real Vertex/Anthropic/Gemini call — every
-test runs against `FakeProvider`, per the existing testing invariant.
+6. **`files.ts`** — image/PDF uploads skip text extraction entirely (nothing to extract when the
+   model reads the file itself); attachment DTO gained `viewable`; new `POST /files/from-project`
+   lets an existing project file be attached to a message without re-uploading its bytes;
+   `DELETE /files/:id` no longer deletes storage bytes when the attachment is
+   project-file-sourced (they belong to the project file, not the attachment row).
+7. **`generation.ts` + `chats.ts`** — the actual wiring. `resolveModel` gained a vision
+   capability gate: an explicit pin to `gpt-oss-120b` with any image/PDF present (new *or*
+   carried forward) fails fast with `capability_unavailable`, before any provider call.
+   `loadHistory` now re-reads and re-attaches image/PDF bytes from earlier turns in the same
+   chat, capped by the new `HISTORY_MAX_ATTACHMENT_BYTES` (default 12 MB; oldest drops first
+   past the cap). Model resolution moved to run *after* history loading, since whether this turn
+   needs vision depends on what's carried forward, not only on what's newly attached.
+   `chats.ts`'s generate handler now splits attachment rows into the existing text-extraction
+   path (unchanged, for docx/text/code) versus the new native path (reads bytes from
+   `ObjectStorage`, base64-encodes, passes through as `AttachmentBlock[]`).
+8. **Verification** — full clean-room `tsc`/`vitest`/`openapi` run, backend and frontend: clean.
+   **Manual live verification against real Vertex credentials was not done this session** — see
+   [Blocked on the user](#blocked-on-the-user).
 
-**Remaining — Tasks 6-8:**
-6. **`files.ts`** — stop running text extraction on image/PDF uploads (nothing to extract when
-   the model reads the file itself); add a `viewable` field to the attachment DTO; add
-   `POST /files/from-project` so an existing project file can be attached to a message without
-   re-uploading; fix `DELETE /files/:id` so deleting a project-file-sourced attachment doesn't
-   delete the project file's storage bytes out from under it.
-7. **`generation.ts` + `chats.ts`** — the actual wiring: `resolveModel` gains a vision
-   capability gate (an explicit pin to `gpt-oss-120b` with an image attached fails fast with
-   `capability_unavailable`, before any provider call); `loadHistory` carries image/PDF
-   attachments forward across later turns in the same chat, capped by a new
-   `HISTORY_MAX_ATTACHMENT_BYTES` config value (oldest drops first past the cap); `chats.ts`'s
-   generate handler splits attachment rows into the existing text-extraction path (unchanged,
-   for docx/text/code) versus the new native path (reads bytes, base64-encodes, passes through).
-8. **Verification and docs** — full clean-room `tsc`/`vitest`/`openapi` run; manual live
-   verification against real Vertex credentials (cannot be scripted — a human with
-   `GOOGLE_CLOUD_PROJECT` configured has to actually attach a photo and confirm the model
-   describes it); update this checkpoint with the live-verification results; push (see below).
+None of this has touched a real Vertex/Anthropic/Gemini call during development — every test
+runs against `FakeProvider`, per the existing testing invariant.
 
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`
@@ -352,7 +354,8 @@ Names only — **never commit values**. See `.env.example` (to be written).
 | `SESSION_COOKIE_SECURE` | Must be true in production |
 | `CORS_ORIGINS` | Comma-separated; cannot be `*` in production |
 | `REGISTRATION_ENABLED` | Default `true`. Set `false` to close `POST /auth/register` (`registration_closed`, 403) while only the existing test account should be able to sign in — set on the live Cloud Run service 2026-09-17. |
-| `PRICING_TABLE` | JSON. Absent ⇒ cost reported as `null`, never `0` |
+| `PRICING_TABLE` | JSON. Absent ⇒ cost reported as `null`, never `0`. Populated in `.env.example` 2026-09-17 with real Vertex global-endpoint rates for all four aliases — **not yet propagated to the live Cloud Run service**, see [Blocked on the user](#blocked-on-the-user). |
+| `HISTORY_MAX_ATTACHMENT_BYTES` | Default 12,000,000. Total bytes of image/PDF attachment data carried forward from earlier turns in one chat, per generate call; oldest drops first past the cap. Added 2026-09-17 with the multimodal file input feature. |
 | `STORAGE_BACKEND` | `local` or `gcs` |
 
 Credentials use Application Default Credentials (`gcloud auth application-default login`
@@ -420,4 +423,24 @@ verification command for each is in `mistakes.md`; summary:
 ## Blocked on the user
 
 - No local Postgres is required anymore for production, but integration tests still need
-  `arcnave-pg` running locally (`docker start arcnave-pg`).
+  `arcnave-pg` running locally (`docker start arcnave-pg`) — or, in a Claude Code web/cloud
+  session with no Docker, the native `postgresql-16` cluster (`service postgresql start`); see
+  `mistakes.md`.
+- **Multimodal file input (Tasks 6-8) is code-complete and pushed to `main`, but not
+  live-verified.** This session has no `gcloud` CLI, no GCP credentials, and no browser — the
+  four checks below need a human with `GOOGLE_CLOUD_PROJECT` configured and
+  `gcloud auth application-default login` run:
+  1. Attach a real photo to a chat message on Claude or Gemini; confirm the reply actually
+     describes its content (not "I cannot see images").
+  2. Ask a follow-up two turns later with no re-attachment; confirm the model still references
+     the photo (proves `loadHistory`'s carry-forward).
+  3. Attach a real scanned (image-only) PDF; confirm it's read rather than rejected as "no
+     selectable text."
+  4. Pin the model to "GPT-OSS 120B" and attach a photo; confirm the response is the typed
+     `capability_unavailable` error, not a hang or a 500.
+- **`PRICING_TABLE` is populated in `.env.example` with real rates but not yet set on the live
+  Cloud Run service** (`arcnave-sandbox-service`, `asia-south1`). Per `mistakes.md`'s entry on
+  `--set-env-vars` compounding damage after a failed deploy, restate the **complete** env var
+  set via `--env-vars-file` rather than patching just this one key in. Until this is done,
+  `GET /v1/usage/messages` and the per-message cost row in the UI will keep showing `cost not
+  priced` against real production traffic, even though the code path is ready.
