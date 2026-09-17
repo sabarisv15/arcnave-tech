@@ -232,6 +232,67 @@ failure mode of this pattern, not a sign it is working.
   than trying to infer it from the error.
 - **Verify:** Sign out; the sign-in screen appears with no "session ended" notice.
 
+### 2026-09-17 — A Cloud Run service attached to a VPC with no NAT reached nothing
+
+- **Symptom:** The deployed backend passed its health check and served `/healthz`, but every
+  database call failed with `ETIMEDOUT` — both the startup migration and a live signup insert.
+  Vertex AI would have failed identically for the same reason, just not yet observed.
+- **Cause:** The service had Direct VPC egress to a custom network with `vpc-egress: all-traffic`
+  — routing *every* outbound call, not just private-range traffic, through that VPC. The VPC's
+  only firewall rule was `deny-all-egress` to `0.0.0.0/0`, and the project had zero Cloud
+  Routers and zero Cloud NATs anywhere. Nothing could leave the instance. `/healthz` deliberately
+  checks nothing but the process (by design, see the Dockerfile), so the container reported
+  healthy while completely unable to reach Neon or any external API.
+- **Rule:** **A "healthy" Cloud Run service has not been shown to have working egress.** Before
+  trusting a deployment, either confirm there is no VPC attached, or confirm the attached VPC
+  has a Cloud NAT (or Private Google Access, for Google APIs specifically). `all-traffic` egress
+  with no NAT is a silent, total outage that passes liveness checks.
+- **Verify:** `gcloud run services describe <svc> --format=json | grep network-interfaces` — if
+  present, `gcloud compute routers list` must show a router with a NAT in the same region, or
+  the service should use `--clear-network` instead.
+
+### 2026-09-17 — `gcloud run services update --set-env-vars` after a failed deploy compounded the damage
+
+- **Symptom:** Adding two Vertex env vars with `--set-env-vars` crashed the new revision on
+  `COOKIE_SECRET must be set to at least 32 characters`. Cloud Run correctly kept serving the
+  last good revision, but the *next* `--update-env-vars` call — which should only have merged in
+  two more keys — produced the exact same crash.
+- **Cause:** `--set-env-vars` replaces the entire env var set, not just the keys given, so the
+  first command deleted `COOKIE_SECRET`, `DATABASE_URL`, and everything else in the same
+  request. Separately, and less obviously: a `gcloud run services update` call persists its env
+  vars onto the Service object's desired spec **the moment it is submitted**, regardless of
+  whether the resulting Revision ever passes its startup probe. The second, "safe" merge command
+  was merging onto that already-emptied spec, not onto the last Revision that actually served
+  traffic — there was nothing left under it to merge onto.
+- **Rule:** **Never use `--set-env-vars` for an incremental change; use `--update-env-vars` or an
+  `--env-vars-file` with the complete desired state.** And after any failed deploy, assume the
+  service's *spec* — not just its live traffic — is now in the failed state; the fix is to
+  restate every variable in one file-based update, not to patch on top of the last command.
+- **Verify:** `gcloud run revisions describe <new-revision> --format='value(status.conditions)'`
+  reports `True` before trusting any subsequent incremental update to it.
+
+### 2026-09-17 — The frontend pointed at the Cloud Run URL directly, and the session cookie stopped working
+
+- **Symptom:** Logging in returned `200` with the correct user object — server logs showed
+  nothing wrong — but the app immediately behaved as signed out, showing "Your session ended."
+  (Same banner text as the unrelated 2026-09-17 sign-out entry above; a different cause,
+  confirm which one before reusing that fix.)
+- **Cause:** `src/api.ts`'s `API_BASE` fallback had been pointed at the Cloud Run service's own
+  `*.run.app` URL directly — a different registrable domain from the frontend at
+  `www.arcnave.tech` — while the session cookie is `SameSite=Lax`. A Lax cookie is stored from a
+  cross-site response but is **never attached to a subsequent cross-site `fetch`**, only to
+  same-site requests or top-level navigations. Login worked and set the cookie; the very next
+  `fetch` (checking the session) silently went out without it.
+- **Rule:** **The frontend and the API must be same-origin in production, not merely
+  CORS-permitted.** `credentials: "include"` and a permissive `Access-Control-Allow-Origin` do
+  not fix a `SameSite=Lax` cookie across origins — only same-site (or `SameSite=None`, with its
+  own trade-offs) does. Route `/v1/*` through the same host the frontend is served from (a
+  Worker/proxy in production, matching what `vite.config.ts` already does in development) rather
+  than pointing `VITE_API_BASE` at the backend's own domain.
+- **Verify:** After login, `document.cookie` will not show the (HttpOnly) session cookie, but
+  the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
+  `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
+
 ---
 
 ## Convention and sources
@@ -267,3 +328,9 @@ practice, not canon.
 - **2026-09-17** — Two more from building the Docker stack, both found by running the image
   rather than building it. The stale-ADR entry is closed. **12 entries, 28 to the cap.**
   Wired into context by a SessionStart hook, which was this file's own open caveat.
+- **2026-09-17** — Three entries from the first production deploy: a VPC with no NAT that made
+  a "healthy" service unable to reach anything, a `--set-env-vars` call that clobbered
+  production config and compounded across a second "safe" update, and the frontend pointed at
+  the Cloud Run URL directly, silently breaking the `SameSite=Lax` session cookie. All three
+  were found by testing the deployed service itself, not by any local check. **17 entries, 23
+  to the cap.**

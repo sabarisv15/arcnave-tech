@@ -16,8 +16,15 @@
  *   `docs/openapi.json` is the reference.
  */
 
-/** Same-origin by default; `vite.config.ts` proxies `/v1` to the backend in development. */
-export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1";
+/**
+ * Same-origin by default: `vite.config.ts` proxies `/v1` to the backend in development, and
+ * `worker.ts` does the same job in production. This must stay same-origin, not merely
+ * `VITE_API_BASE` pointed at the Cloud Run URL directly — the session cookie is
+ * `SameSite=Lax`, and a cross-site `fetch` never carries a Lax cookie back, no matter how
+ * correct the login response looks. (It briefly was a cross-origin URL here; that shipped a
+ * login that appeared to succeed and then immediately looked signed out. See mistakes.md.)
+ */
+export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/v1";
 
 /* -------------------------------------------------------------------------- errors */
 

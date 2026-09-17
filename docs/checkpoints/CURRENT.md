@@ -1,8 +1,10 @@
 # ArcNave — current checkpoint
 
 **Last updated:** 2026-09-17
-**Status:** backend API surface complete (38 routes); **connected to Vertex AI — all four
-models verified with real calls**; **frontend rewired onto the API — no mock data remains**
+**Status:** backend API surface complete (38 routes); connected to Vertex AI — all four
+models verified with real calls; frontend rewired onto the API — no mock data remains;
+**deployed to production** (see [Production deployment](#production-deployment-2026-09-17)),
+with one fix pending redeploy.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -21,7 +23,8 @@ citations, and exact token accounting.
 
 ```
 D:\new\
-├── arcnave-frontend/        React 19 + Vite + TS   ← UNTOUCHED, still mock data
+├── arcnave-frontend/        React 19 + Vite + TS   ← wired to the real API; worker.ts proxies
+│                            /v1 in production so the session cookie stays same-origin
 ├── backend/                 Node 22 + TypeScript + Fastify 5
 │   ├── src/
 │   │   ├── config.ts        Zod-validated env; fails boot on bad production config
@@ -285,7 +288,7 @@ Names only — **never commit values**. See `.env.example` (to be written).
 | Variable | Notes |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string |
-| `GOOGLE_CLOUD_PROJECT` | **Still not supplied by the user.** Until set, all aliases report `vertex_not_configured`. |
+| `GOOGLE_CLOUD_PROJECT` | Set in production (`project-8bcf740a-a7bd-4aea-974`) as of 2026-09-17. |
 | `VERTEX_LOCATION` | Default `global`. Keep unless data residency demands otherwise. |
 | `GEMINI_LOCATION` | Optional override; Gemini 3.8 Flash is global-only |
 | `MODEL_GEMINI_FLASH` | Verified ID: `gemini-3.8-flash` |
@@ -303,8 +306,41 @@ Names only — **never commit values**. See `.env.example` (to be written).
 Credentials use Application Default Credentials (`gcloud auth application-default login`
 locally, workload identity on GCP). **No service-account key is ever committed or pasted.**
 
+## Production deployment (2026-09-17)
+
+Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets) and
+`arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres, GCP project
+`project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end: signup, login persists past the
+first request, and all four model aliases report `available: true` from a live `/v1/models?probe=true`
+call against Vertex.
+
+Getting there surfaced three production-only bugs — none reproducible locally, all found by
+testing the deployed service rather than by any local check. Full detail, cause, and the
+verification command for each is in `mistakes.md`; summary:
+
+1. **Total egress blackout.** The Cloud Run service was on a VPC (`arcnave-sandbox-vpc`) whose
+   only firewall rule denied all egress, with no Cloud NAT anywhere in the project. `/healthz`
+   passed (it only checks the process) while every DB and Vertex call timed out. Fixed with
+   `gcloud run services update --clear-network` — nothing else used that VPC.
+2. **`--set-env-vars` clobbered production config**, twice compounding, because a failed
+   deploy still overwrites the Service's desired spec even though it never serves traffic. Fixed
+   by restating the complete env var set via `--env-vars-file` rather than patching
+   incrementally.
+3. **The session cookie broke across origins.** `arcnave-frontend/src/api.ts` had been pointed
+   directly at the Cloud Run URL, which is cross-site relative to `www.arcnave.tech`; the
+   `SameSite=Lax` session cookie is never sent on a cross-site `fetch`, so login appeared to
+   succeed and the very next request looked signed out. Fixed by adding
+   [`arcnave-frontend/worker.ts`](../../arcnave-frontend/worker.ts), which proxies `/v1/*` to
+   Cloud Run from the same Cloudflare Worker that serves the frontend — the production
+   equivalent of the `/v1` proxy `vite.config.ts` already does in development — and restoring
+   `API_BASE`'s default to the relative `/v1`.
+
+**Not yet deployed:** fix (3) is committed to source but the Cloudflare Worker has not been
+redeployed with the new `worker.ts` / `wrangler.jsonc` since it was written. Until
+`npm run deploy` (or the next push to `main` through the connected Cloudflare build) ships it,
+production is still serving the cross-origin build and login will still appear to fail this way.
+
 ## Blocked on the user
 
-- `GOOGLE_CLOUD_PROJECT` and region. Offered twice; not yet provided. Everything is built to
-  work without them, but no real model call can happen until they exist.
-- No git remote configured. Work is committed locally only.
+- No local Postgres is required anymore for production, but integration tests still need
+  `arcnave-pg` running locally (`docker start arcnave-pg`).
