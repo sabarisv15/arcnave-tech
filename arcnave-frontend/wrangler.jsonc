@@ -2,21 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "site",
   "compatibility_date": "2026-09-17",
-  "main": "worker.ts",
-  // Every `/v1/*` request is a fetch out to Cloud Run in asia-south1 — a non-Cloudflare
-  // origin. Without this, the Worker runs at whichever edge received the client's request and
-  // pays a fresh cross-region TCP+TLS handshake to Cloud Run on every call (measured ~1.2s
-  // added per request). Smart Placement runs the Worker near the origin it calls instead, so
-  // that expensive hop happens once, close to Cloud Run, not once per client's edge location.
-  "placement": { "mode": "smart" },
   "assets": {
     "directory": "./dist",
-    "binding": "ASSETS",
     "not_found_handling": "single-page-application"
-  },
-  "vars": {
-    // Server-to-server target for the `/v1/*` proxy in worker.ts. Not secret — it is the
-    // service's own public URL — so it lives here rather than as a Cloudflare secret.
-    "API_ORIGIN": "https://arcnave-sandbox-service-756927892291.asia-south1.run.app"
   }
 }

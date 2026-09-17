@@ -1,9 +1,18 @@
 /**
  * Authentication routes.
  *
- * The session cookie is HttpOnly, SameSite=Lax, signed, and Secure in production. SameSite=Lax
- * (not Strict) so a normal top-level navigation back into the app keeps the session, while
- * cross-site POSTs still cannot carry it.
+ * The session cookie is HttpOnly, signed, and Secure in production. SameSite is `none`: the
+ * frontend (Cloudflare) and this API (Cloud Run) are deliberately on different origins, and a
+ * `Lax` cookie is never attached to a cross-site `fetch` — only to same-site requests or a
+ * top-level navigation. `None` requires `Secure`, which production already forces. Trade-off,
+ * accepted deliberately: Safari (and some Firefox tracking-protection modes) block `SameSite=
+ * None` third-party cookies by default with no site-level opt-out for a plain fetch flow, so
+ * login will not work there under this architecture. Revisit before this has real multi-browser
+ * traffic — either a same-site domain for the API (Cloud Run domain mapping, unsupported in
+ * this service's region as of 2026-09-17, or a load balancer) or a token-based session. See
+ * mistakes.md for the two things already tried and reverted (a same-origin Worker proxy added
+ * ~1.2s/request with no Smart Placement convergence at low traffic; Cloud Run's own domain
+ * mapping does not support this region).
  */
 import type { FastifyReply } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -25,7 +34,7 @@ const userResponse = z.object({
 function setSessionCookie(reply: FastifyReply, cfg: Config, token: string, expiresAt: Date): void {
   void reply.setCookie(cfg.SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'none',
     secure: cfg.SESSION_COOKIE_SECURE,
     signed: true,
     path: '/',

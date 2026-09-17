@@ -331,6 +331,33 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** Full suite (`npx vitest run`, 183 tests) against real Postgres with `prepare:
   false` set, before the pooled endpoint went anywhere near production.
 
+### 2026-09-17 — Chased the "proper" same-site fix through two dead ends before taking the trade-off
+
+- **Symptom:** Not a bug — a record of a decision reversed twice in one session, so the next
+  session does not re-walk the same two dead ends. The cross-origin cookie entry above
+  (frontend pointed at Cloud Run directly) was fixed with a same-origin Worker proxy; that
+  proxy was then removed again in favor of `SameSite=None`.
+- **Cause of each dead end:**
+  - The Worker proxy fixed the cookie correctly, but added ~1.2s/request (see the Smart
+    Placement entry above), and Smart Placement does not converge at this app's traffic level
+    — it needs sustained, concentrated real usage to relocate the Worker, which a single test
+    user does not produce. No amount of waiting fixed it; there was no traffic to converge on.
+  - Cloud Run's own domain-mapping feature (`api.arcnave.tech` on the same registrable domain,
+    same-site without a proxy) does not support `asia-south1` — mapping is Preview-only,
+    limited to ten specific regions, and Google's own docs call it "not production-ready" even
+    where it is supported.
+- **Rule:** **When the textbook-correct fix is blocked by a platform limitation two ways in a
+  row, stop and name the trade-off explicitly rather than reaching for a third workaround.**
+  `SameSite=None` was accepted deliberately here, for single-user testing, with its real
+  cost stated plainly: Safari and strict Firefox tracking-protection modes block it by
+  default, no site-level opt-out for a plain fetch flow. This is not a fix to reproduce
+  reflexively — it is a stated, temporary trade-off. Revisit before real multi-browser traffic:
+  either move the Cloud Run service to a domain-mapping-supported region, or put a real load
+  balancer in front of it, or move to a token-based session.
+- **Verify:** `curl -D - <backend-url>/v1/auth/login ... | grep -i set-cookie` shows
+  `SameSite=None; Secure`. Test login in Safari specifically before trusting this for anyone
+  but the single test account this was built against.
+
 ---
 
 ## Convention and sources
@@ -377,3 +404,7 @@ practice, not canon.
   latency fix's own remedy (Neon's pooled endpoint) would have broken prepared statements under
   load if `prepare: false` had not been added and verified against the full suite first. **19
   entries, 21 to the cap.**
+- **2026-09-17** — One more closing out the same latency chase: Smart Placement didn't converge
+  and Cloud Run's domain mapping doesn't support this region, so the Worker proxy was removed
+  again and the cookie moved to `SameSite=None` as a stated, temporary trade-off rather than a
+  fix. **20 entries, 20 to the cap** — halfway; worth a pruning pass soon.

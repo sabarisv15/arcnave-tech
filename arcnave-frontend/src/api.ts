@@ -17,14 +17,18 @@
  */
 
 /**
- * Same-origin by default: `vite.config.ts` proxies `/v1` to the backend in development, and
- * `worker.ts` does the same job in production. This must stay same-origin, not merely
- * `VITE_API_BASE` pointed at the Cloud Run URL directly — the session cookie is
- * `SameSite=Lax`, and a cross-site `fetch` never carries a Lax cookie back, no matter how
- * correct the login response looks. (It briefly was a cross-origin URL here; that shipped a
- * login that appeared to succeed and then immediately looked signed out. See mistakes.md.)
+ * Cross-origin, deliberately: this points straight at Cloud Run rather than through a
+ * same-origin proxy. `vite.config.ts` still proxies `/v1` in development (VITE_API_PROXY), but
+ * production talks to the API directly. That is only safe because the session cookie is
+ * `SameSite=None` (see `backend/src/routes/auth.ts`) — a same-origin proxy was tried first and
+ * reverted; it added ~1.2s per request with no reliable fix at low traffic. See mistakes.md.
+ *
+ * `SameSite=None` does not work in Safari or strict Firefox tracking-protection modes by
+ * default — this is a deliberate, temporary trade-off for single-user testing, not a
+ * production-ready posture. Revisit before this has real multi-browser traffic.
  */
-export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/v1";
+export const API_BASE: string =
+  import.meta.env.VITE_API_BASE ?? "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1";
 
 /* -------------------------------------------------------------------------- errors */
 
