@@ -2972,6 +2972,14 @@ textarea {
   font-family: Georgia, serif;
   font-weight: 600;
 }
+/* Claude-style conversation typography: chat content stays sans-serif even if an older
+   account preference selected the legacy serif option. Branding headings remain serif. */
+[data-font="serif"] .assistant-message > .markdown,
+[data-font="serif"] .assistant-message > .markdown h1,
+[data-font="serif"] .assistant-message > .markdown h2,
+[data-font="serif"] .assistant-message > .markdown h3 {
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
 [data-motion="reduced"] *,
 [data-motion="reduced"] *::before,
 [data-motion="reduced"] *::after {
