@@ -56,33 +56,53 @@ adapter aborts the real HTTP request.
 ## Completed work
 
 ### Native multimodal file input — in progress, 2026-09-17
+Let Claude and Gemini (not `gpt-oss-120b`, which has no vision) actually see images and
+scanned PDFs attached to a message, instead of the current text-extraction-only path.
 Executing [the implementation plan](../superpowers/plans/2026-09-17-multimodal-file-input.md)
 (design: [spec](../superpowers/specs/2026-09-17-multimodal-file-input-design.md)) via
-subagent-driven development. **5 of 8 tasks complete, all reviewed clean, none pushed to
-production yet.** Progress ledger:
-[`.superpowers/sdd/2026-09-17-multimodal-file-input/progress.md`](../../.superpowers/sdd/2026-09-17-multimodal-file-input/progress.md)
-(git-ignored, local only).
+subagent-driven development, one task per commit, each reviewed before moving on. Progress
+ledger (git-ignored, local to this checkout, not authoritative once this section is updated):
+`.superpowers/sdd/2026-09-17-multimodal-file-input/progress.md`.
 
-- Task 1 — `attachments` table gained `projectFileId`; storage-key uniqueness dropped (a
-  project-file-sourced attachment can share a key with other attachments of the same file).
-- Task 2 — `ModelEntry.supportsVision` (false only for `gpt-oss-120b`) and a matching
-  `requiresVision` filter in Auto routing, mirroring the existing grounding filter. Not yet
-  wired to `true` anywhere real — that's Task 7.
-- Task 3 — `AttachmentBlock` type; optional `attachments` field added to `Turn` and
-  `GenerationRequest`. Zero behavior change, purely additive.
-- Task 4 — Anthropic/Vertex adapter sends image/PDF attachments as native content blocks, with
-  a `cache_control` breakpoint covering every turn but the newest (Vertex's 5-minute cache).
-  One pre-review plan bug caught and fixed mid-task: a test asserted a turn stayed uncached
-  when the caching rule actually covers it regardless of attachment content.
-- Task 5 — Gemini/Vertex adapter sends the same as `inlineData` parts. No explicit cache code
-  needed here — Vertex's implicit caching for Gemini is automatic given a stable prefix.
-- Remaining: Task 6 (`files.ts` — stop extracting text from images/PDFs, add
-  `POST /files/from-project`), Task 7 (`generation.ts`/`chats.ts` wiring — capability gate,
-  carry attachments across turns), Task 8 (verification, live-check, deploy).
+**Done — Tasks 1-5 of 8, all reviewed clean, `tsc`/`vitest` green at every step:**
+1. **Schema** — `attachments` gained `projectFileId` (a message can reuse an existing project
+   file's bytes instead of re-uploading); storage-key uniqueness on `attachments` was dropped,
+   since two attachments can now legitimately point at the same project file's key.
+2. **Routing** — `ModelEntry.supportsVision` (false only for `gpt-oss-120b`) and a matching
+   `requiresVision` filter in Auto routing, mirroring the existing grounding filter. Nothing
+   sets `requiresVision: true` yet outside a placeholder — real wiring is Task 7.
+3. **Shared type** — `AttachmentBlock { mimeType, base64 }`; optional `attachments` field added
+   to both `Turn` (history) and `GenerationRequest` (current turn). Purely additive so far.
+4. **Anthropic adapter** — `buildAnthropicMessages` (now exported, directly unit-tested) sends
+   image/PDF attachments as native `image`/`document` content blocks, with a `cache_control`
+   breakpoint covering every message but the newest user turn (Vertex's 5-minute cache; the
+   1-hour variant needs a header Vertex rejects).
+5. **Gemini adapter** — `buildGeminiContents` (exported, unit-tested) sends the same as
+   `inlineData` parts. No explicit cache code needed — Vertex's implicit caching for Gemini is
+   automatic given a stable, repeated request prefix.
 
-Every task's `npx tsc --noEmit` and `npx vitest run` (from `backend/`) are clean; nothing in
-this feature has touched a real Vertex/Anthropic/Gemini call yet — all tests run against
-`FakeProvider`, per the existing testing invariant.
+None of this has behavior-changed a real request yet: the new fields are optional and nothing
+populates them outside tests, so production traffic through the adapters is unaffected until
+Task 7 lands. Nothing in this feature has touched a real Vertex/Anthropic/Gemini call — every
+test runs against `FakeProvider`, per the existing testing invariant.
+
+**Remaining — Tasks 6-8:**
+6. **`files.ts`** — stop running text extraction on image/PDF uploads (nothing to extract when
+   the model reads the file itself); add a `viewable` field to the attachment DTO; add
+   `POST /files/from-project` so an existing project file can be attached to a message without
+   re-uploading; fix `DELETE /files/:id` so deleting a project-file-sourced attachment doesn't
+   delete the project file's storage bytes out from under it.
+7. **`generation.ts` + `chats.ts`** — the actual wiring: `resolveModel` gains a vision
+   capability gate (an explicit pin to `gpt-oss-120b` with an image attached fails fast with
+   `capability_unavailable`, before any provider call); `loadHistory` carries image/PDF
+   attachments forward across later turns in the same chat, capped by a new
+   `HISTORY_MAX_ATTACHMENT_BYTES` config value (oldest drops first past the cap); `chats.ts`'s
+   generate handler splits attachment rows into the existing text-extraction path (unchanged,
+   for docx/text/code) versus the new native path (reads bytes, base64-encodes, passes through).
+8. **Verification and docs** — full clean-room `tsc`/`vitest`/`openapi` run; manual live
+   verification against real Vertex credentials (cannot be scripted — a human with
+   `GOOGLE_CLOUD_PROJECT` configured has to actually attach a photo and confirm the model
+   describes it); update this checkpoint with the live-verification results; push (see below).
 
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`
