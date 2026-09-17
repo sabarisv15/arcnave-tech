@@ -49,7 +49,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: int(8080),
   HOST: z.string().default('0.0.0.0'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // 'silent' is a real pino level, not a sentinel. Tests and the OpenAPI generator need a way
+  // to run the app without writing a log line per request.
+  LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // --- HTTP ---------------------------------------------------------------
   API_PREFIX: z.string().default('/v1'),

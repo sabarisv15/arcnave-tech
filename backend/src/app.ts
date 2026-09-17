@@ -26,10 +26,15 @@ import { buildServices } from './container.js';
 import { ApiError } from './errors.js';
 import { logger } from './logger.js';
 import contextPlugin from './plugins/context.js';
+import { artifactRoutes } from './routes/artifacts.js';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chats.js';
+import { fileRoutes } from './routes/files.js';
 import { healthRoutes } from './routes/health.js';
 import { modelRoutes } from './routes/models.js';
+import { preferenceRoutes } from './routes/preferences.js';
+import { projectRoutes } from './routes/projects.js';
+import { usageRoutes } from './routes/usage.js';
 import type { AppInstance } from './types.js';
 
 export interface CreateAppOptions extends BuildOptions {
@@ -170,9 +175,17 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
   await app.register(healthRoutes);
   await app.register(
     async (scope) => {
+      // Each route module is registered as its own encapsulated plugin, so the `requireAuth`
+      // hook a module adds applies to that module's routes and nowhere else. Registering them
+      // into one shared scope would put the guard on `/auth/login` too.
       await scope.register(authRoutes);
       await scope.register(modelRoutes);
       await scope.register(chatRoutes);
+      await scope.register(projectRoutes);
+      await scope.register(artifactRoutes);
+      await scope.register(usageRoutes);
+      await scope.register(preferenceRoutes);
+      await scope.register(fileRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );
