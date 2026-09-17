@@ -69,14 +69,26 @@ export type ProviderEvent =
   | { type: 'progress'; stage: Stage; label: string; detail: string }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
+/** An image or PDF, ready to hand a provider as a native content block. */
+export interface AttachmentBlock {
+  mimeType: string;
+  base64: string;
+}
+
 export interface Turn {
   role: 'user' | 'assistant';
   text: string;
+  /** Present only for a turn that had an image/PDF attached; carried forward on every later
+   *  turn of the same chat so the model keeps "seeing" it, per the design's caching strategy. */
+  attachments?: AttachmentBlock[];
 }
 
 export interface GenerationRequest {
   prompt: string;
   history: Turn[];
+  /** Images/PDFs attached to *this* turn specifically, as opposed to `history[].attachments`
+   *  which are carried forward from earlier turns. */
+  attachments?: AttachmentBlock[];
   systemInstruction: string;
   mode: Mode;
   maxOutputTokens: number;
