@@ -55,12 +55,34 @@ adapter aborts the real HTTP request.
 
 ## Completed work
 
-### Frontend visual polish — 2026-09-17
-- Applied a shared One UI-inspired shape and motion system across the app: the main workspace
-  is now an inset rounded surface against the sidebar, with coordinated radii for cards,
-  controls, dialogs, panels, chat content, and mobile layouts.
-- Added smooth spring-like transitions, restrained hover lift/press feedback, and preserved the
-  existing reduced-motion overrides for accessibility.
+### Native multimodal file input — in progress, 2026-09-17
+Executing [the implementation plan](../superpowers/plans/2026-09-17-multimodal-file-input.md)
+(design: [spec](../superpowers/specs/2026-09-17-multimodal-file-input-design.md)) via
+subagent-driven development. **5 of 8 tasks complete, all reviewed clean, none pushed to
+production yet.** Progress ledger:
+[`.superpowers/sdd/2026-09-17-multimodal-file-input/progress.md`](../../.superpowers/sdd/2026-09-17-multimodal-file-input/progress.md)
+(git-ignored, local only).
+
+- Task 1 — `attachments` table gained `projectFileId`; storage-key uniqueness dropped (a
+  project-file-sourced attachment can share a key with other attachments of the same file).
+- Task 2 — `ModelEntry.supportsVision` (false only for `gpt-oss-120b`) and a matching
+  `requiresVision` filter in Auto routing, mirroring the existing grounding filter. Not yet
+  wired to `true` anywhere real — that's Task 7.
+- Task 3 — `AttachmentBlock` type; optional `attachments` field added to `Turn` and
+  `GenerationRequest`. Zero behavior change, purely additive.
+- Task 4 — Anthropic/Vertex adapter sends image/PDF attachments as native content blocks, with
+  a `cache_control` breakpoint covering every turn but the newest (Vertex's 5-minute cache).
+  One pre-review plan bug caught and fixed mid-task: a test asserted a turn stayed uncached
+  when the caching rule actually covers it regardless of attachment content.
+- Task 5 — Gemini/Vertex adapter sends the same as `inlineData` parts. No explicit cache code
+  needed here — Vertex's implicit caching for Gemini is automatic given a stable prefix.
+- Remaining: Task 6 (`files.ts` — stop extracting text from images/PDFs, add
+  `POST /files/from-project`), Task 7 (`generation.ts`/`chats.ts` wiring — capability gate,
+  carry attachments across turns), Task 8 (verification, live-check, deploy).
+
+Every task's `npx tsc --noEmit` and `npx vitest run` (from `backend/`) are clean; nothing in
+this feature has touched a real Vertex/Anthropic/Gemini call yet — all tests run against
+`FakeProvider`, per the existing testing invariant.
 
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`
