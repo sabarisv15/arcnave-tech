@@ -39,6 +39,14 @@ export function getSql(): postgres.Sql {
       // custom type parsers are needed.
       onnotice: () => {},
       connection: { application_name: 'arcnave-backend' },
+      // Neon's pooled endpoint is PgBouncer in transaction-pooling mode: each transaction can
+      // land on a different backend server connection, so a server-side prepared statement
+      // from one transaction is not guaranteed to exist for the next. Session-scoped prepares
+      // are exactly the kind of state transaction pooling does not preserve. Disabling prepare
+      // costs a little query-planning overhead and makes the client correct against either
+      // Neon endpoint (direct or pooled) rather than correct only by accident of which one is
+      // configured today.
+      prepare: false,
     });
   }
   return sql;

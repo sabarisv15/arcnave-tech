@@ -293,6 +293,44 @@ failure mode of this pattern, not a sign it is working.
   the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
   `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
 
+### 2026-09-17 — A Worker proxying to a non-Cloudflare origin added ~1.2s per request
+
+- **Symptom:** `GET /v1/chats` took 1.5–1.9s through `www.arcnave.tech`, versus ~0.2–0.3s
+  hitting the Cloud Run URL directly. The gap sat entirely between TLS handshake and first
+  byte, ruling out anything client-side.
+- **Cause:** The Worker fixing the previous entry's cookie bug (proxying `/v1/*` to Cloud Run)
+  runs at whichever Cloudflare edge received the client's request, and Cloud Run is not a
+  Cloudflare-fronted origin — so every proxied request pays a fresh cross-region TCP+TLS
+  handshake from that edge to `asia-south1`, with none of Cloudflare's connection reuse.
+- **Rule:** **A Worker that proxies to a non-Cloudflare origin needs `placement: { mode: "smart"
+  }` in `wrangler.jsonc`, or it pays a full handshake to that origin on every single request**
+  from whatever edge the client happened to hit. Smart Placement relocates the Worker's
+  execution near the origin instead, so the expensive hop happens once. It is not instant:
+  Cloudflare's own docs say convergence needs sustained multi-location traffic and can take up
+  to ~15 minutes after deploy — do not conclude the fix failed from measurements taken
+  immediately after deploying it.
+- **Verify:** `curl -D - <url> | grep -i cf-placement` — `local-<colo>` means unconverged (or
+  not proxying to a distant origin at all); `remote-<colo>` means Smart Placement is active.
+
+### 2026-09-17 — Neon's pooled endpoint would have broken prepared statements, silently, under load
+
+- **Symptom:** Never actually shipped — caught while investigating a separate latency issue
+  (Neon free-tier compute auto-suspends after 5 minutes idle, causing multi-second cold-start
+  spikes on the next query; switching to Neon's `-pooler` endpoint was the fix for a related,
+  correct reason, but almost went out without this).
+- **Cause:** `src/db/client.ts` used `postgres.js` with its default `prepare: true` — server-side
+  prepared statements over a persistent connection. Neon's pooled endpoint is PgBouncer in
+  transaction-pooling mode: each transaction can land on a *different* backend server
+  connection, so a prepared statement created during one transaction is not guaranteed to exist
+  for the next. This fails intermittently under real load, not in a quick smoke test, which is
+  exactly the kind of bug that reaches production before anyone reproduces it.
+- **Rule:** **Never point a client at Neon's (or any PgBouncer transaction-pooling) endpoint
+  without checking what the client's driver assumes about connection-scoped state first.** For
+  `postgres.js`, that means `prepare: false`. Trace the assumption before changing the
+  connection string, not after something fails under load.
+- **Verify:** Full suite (`npx vitest run`, 183 tests) against real Postgres with `prepare:
+  false` set, before the pooled endpoint went anywhere near production.
+
 ---
 
 ## Convention and sources
@@ -334,3 +372,8 @@ practice, not canon.
   the Cloud Run URL directly, silently breaking the `SameSite=Lax` session cookie. All three
   were found by testing the deployed service itself, not by any local check. **17 entries, 23
   to the cap.**
+- **2026-09-17** — Two more chasing a slow-chats-list report: the cookie-fix Worker proxying to
+  a non-Cloudflare origin without Smart Placement, and a caught-before-shipping one — the
+  latency fix's own remedy (Neon's pooled endpoint) would have broken prepared statements under
+  load if `prepare: false` had not been added and verified against the full suite first. **19
+  entries, 21 to the cap.**
