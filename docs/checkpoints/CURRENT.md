@@ -3,8 +3,9 @@
 **Last updated:** 2026-09-17
 **Status:** backend API surface complete (38 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
-**deployed to production** (see [Production deployment](#production-deployment-2026-09-17)),
-with one fix pending redeploy.
+**deployed to production and confirmed working** (see
+[Production deployment](#production-deployment-2026-09-17)) — with a stated `SameSite=None`
+cookie trade-off and accepted cold-start latency, both flagged there for revisit.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -23,8 +24,8 @@ citations, and exact token accounting.
 
 ```
 D:\new\
-├── arcnave-frontend/        React 19 + Vite + TS   ← wired to the real API; worker.ts proxies
-│                            /v1 in production so the session cookie stays same-origin
+├── arcnave-frontend/        React 19 + Vite + TS   ← wired to the real API; calls Cloud Run
+│                            directly in production (SameSite=None cookie, see checkpoint below)
 ├── backend/                 Node 22 + TypeScript + Fastify 5
 │   ├── src/
 │   │   ├── config.ts        Zod-validated env; fails boot on bad production config
@@ -308,13 +309,13 @@ locally, workload identity on GCP). **No service-account key is ever committed o
 
 ## Production deployment (2026-09-17)
 
-Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets) and
-`arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres, GCP project
-`project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end: signup, login persists past the
-first request, and all four model aliases report `available: true` from a live `/v1/models?probe=true`
-call against Vertex.
+Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets only —
+no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres
+(pooled endpoint), GCP project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end:
+signup, login persists past the first request (cross-origin, `SameSite=None`), and all four
+model aliases report `available: true` from a live `/v1/models?probe=true` call against Vertex.
 
-Getting there surfaced three production-only bugs — none reproducible locally, all found by
+Getting there surfaced six production-only bugs — none reproducible locally, all found by
 testing the deployed service rather than by any local check. Full detail, cause, and the
 verification command for each is in `mistakes.md`; summary:
 
@@ -326,19 +327,30 @@ verification command for each is in `mistakes.md`; summary:
    deploy still overwrites the Service's desired spec even though it never serves traffic. Fixed
    by restating the complete env var set via `--env-vars-file` rather than patching
    incrementally.
-3. **The session cookie broke across origins.** `arcnave-frontend/src/api.ts` had been pointed
-   directly at the Cloud Run URL, which is cross-site relative to `www.arcnave.tech`; the
-   `SameSite=Lax` session cookie is never sent on a cross-site `fetch`, so login appeared to
-   succeed and the very next request looked signed out. Fixed by adding
-   [`arcnave-frontend/worker.ts`](../../arcnave-frontend/worker.ts), which proxies `/v1/*` to
-   Cloud Run from the same Cloudflare Worker that serves the frontend — the production
-   equivalent of the `/v1` proxy `vite.config.ts` already does in development — and restoring
-   `API_BASE`'s default to the relative `/v1`.
-
-**Not yet deployed:** fix (3) is committed to source but the Cloudflare Worker has not been
-redeployed with the new `worker.ts` / `wrangler.jsonc` since it was written. Until
-`npm run deploy` (or the next push to `main` through the connected Cloudflare build) ships it,
-production is still serving the cross-origin build and login will still appear to fail this way.
+3. **The session cookie broke across origins, twice, before settling.** First fix: a same-origin
+   Cloudflare Worker proxy (`worker.ts`) — correct, but added ~1.2s/request with no Smart
+   Placement convergence at this app's traffic level. Second fix (current): the Worker proxy was
+   removed, `API_BASE` points straight at Cloud Run again, and the cookie is `SameSite=None`.
+   **This is a stated trade-off, not a resolved fix** — Safari and strict Firefox
+   tracking-protection modes block `SameSite=None` by default. Acceptable only because current
+   usage is a single test account; revisit before real multi-browser traffic (options: move
+   Cloud Run to a domain-mapping-supported region — `asia-south1` is not one of the ten
+   supported — put a load balancer in front of it, or move to a token-based session).
+4. **Neon's pooled endpoint would have broken prepared statements under load.** Caught before
+   shipping: `postgres.js` defaults to server-side prepared statements, which don't survive
+   PgBouncer's transaction-pooling mode. Fixed with `prepare: false` in `src/db/client.ts`,
+   verified against the full suite before the pooled `DATABASE_URL` went anywhere near
+   production.
+5. **Cloud Run `minScale=0`.** The service cold-starts fully (container boot + the startup
+   migration check) after any idle period — this is very likely the worst-case "page load"
+   moments a real user hits. **Deliberately left as-is**: fixing it (`minScale=1`) trades a
+   real, unverified-from-here recurring cost for eliminating cold starts, and the call was made
+   to accept cold starts while this is single-user testing. Revisit if real usage begins.
+6. Unrelated, free improvement identified but **not implemented**: the Dockerfile's startup
+   migration check runs on every cold start, even when nothing is pending — real cost only when
+   the container is cold, worth moving to a separate deploy-time step rather than the container
+   entrypoint. Left alone this session since it touches the deliberate design in `mistakes.md`
+   (migrations run separately so a migration failure cannot block the server from starting).
 
 ## Blocked on the user
 
