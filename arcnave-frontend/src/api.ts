@@ -17,7 +17,7 @@
  */
 
 /** Same-origin by default; `vite.config.ts` proxies `/v1` to the backend in development. */
-export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/v1";
+export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1";
 
 /* -------------------------------------------------------------------------- errors */
 
