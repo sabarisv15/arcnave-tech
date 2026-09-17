@@ -62,6 +62,8 @@ const envSchema = z.object({
   SESSION_COOKIE_SECURE: bool(false),
   /** Signs the cookie so tampering is detectable. Required in production. */
   COOKIE_SECRET: optionalStr,
+  /** Off closes POST /auth/register with a typed error. Default on; flip off for single-account testing. */
+  REGISTRATION_ENABLED: bool(true),
 
   // --- Database -----------------------------------------------------------
   DATABASE_URL: z.string().default('postgres://arcnave:arcnave@localhost:5432/arcnave'),

@@ -19,6 +19,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
 import type { Config } from '../config.js';
+import { ApiError } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import type { AppInstance } from '../types.js';
 
@@ -61,6 +62,7 @@ export async function authRoutes(app: AppInstance): Promise<void> {
       config: { rateLimit: { max: app.services.cfg.RATE_LIMIT_AUTH_PER_MINUTE, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
+      if (!request.services.cfg.REGISTRATION_ENABLED) throw new ApiError('registration_closed');
       const { email, password, name } = request.body;
       const result = await request.services.auth.register(email, password, name);
       setSessionCookie(reply, request.services.cfg, result.token, result.expiresAt);

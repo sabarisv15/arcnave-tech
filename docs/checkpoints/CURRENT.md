@@ -302,6 +302,7 @@ Names only — **never commit values**. See `.env.example` (to be written).
 | `COOKIE_SECRET` | Required in production, min 32 chars |
 | `SESSION_COOKIE_SECURE` | Must be true in production |
 | `CORS_ORIGINS` | Comma-separated; cannot be `*` in production |
+| `REGISTRATION_ENABLED` | Default `true`. Set `false` to close `POST /auth/register` (`registration_closed`, 403) while only the existing test account should be able to sign in — set on the live Cloud Run service 2026-09-17. |
 | `PRICING_TABLE` | JSON. Absent ⇒ cost reported as `null`, never `0` |
 | `STORAGE_BACKEND` | `local` or `gcs` |
 

@@ -60,6 +60,11 @@ export const ERROR_CATALOG = {
     title: 'Choose a longer password',
     detail: 'Passwords must be at least 12 characters.',
   },
+  registration_closed: {
+    status: 403,
+    title: 'Registration is closed',
+    detail: 'New accounts are not being accepted right now.',
+  },
   payload_too_large: {
     status: 413,
     title: 'That file is too large',
