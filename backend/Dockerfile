@@ -61,6 +61,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["dumb-init", "--"]
-# Migrations run in the same container before the server starts, and a failure stops the boot
-# rather than leaving a half-migrated database serving traffic.
-CMD ["sh", "-c", "node dist/db/migrate.js && exec node dist/index.js"]
+# Cloud Run must bind to $PORT promptly. Database migrations are run separately so a migration
+# failure cannot prevent the HTTP process from starting and exposing useful health diagnostics.
+CMD ["node", "dist/index.js"]
