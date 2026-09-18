@@ -871,8 +871,7 @@ export function ArtifactsPage() {
       <Modal
         open={creating}
         onClose={() => setCreating(false)}
-        title="Create with ArcNave"
-        description="Describe what you want. ArcNave will generate it, save it as an editable artifact, and keep the source conversation."
+        title="New artifact"
       >
         <div className="artifact-ai-create">
           <Composer compact artifactIntent />

@@ -322,7 +322,7 @@ export default function Composer({
           <div className="composer-context">
             <PanelsTopLeft size={14} />
             {artifactIntent
-              ? "ArcNave will create an artifact from this response"
+              ? "Create an artifact with AI"
               : "Save the response as an artifact"}
             {!artifactIntent && (
               <button
