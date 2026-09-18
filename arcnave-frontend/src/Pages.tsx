@@ -802,13 +802,10 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
 }
 
 export function ArtifactsPage() {
-  const { artifacts, refreshArtifacts, setPanel, toast } = useWorkspace();
+  const { artifacts } = useWorkspace();
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All"),
-    [creating, setCreating] = useState(false),
-    [busy, setBusy] = useState(false),
-    [title, setTitle] = useState(""),
-    [kind, setKind] = useState<Artifact["kind"]>("document");
+    [creating, setCreating] = useState(false);
   const list = artifacts.filter(
     (a) =>
       (filter === "All" || a.kind === filter) &&
@@ -874,67 +871,12 @@ export function ArtifactsPage() {
       <Modal
         open={creating}
         onClose={() => setCreating(false)}
-        title="Create an artifact"
+        title="Create with ArcNave"
+        description="Describe what you want. ArcNave will generate it, save it as an editable artifact, and keep the source conversation."
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (busy) return;
-            setBusy(true);
-            const content =
-              kind === "document"
-                ? `# ${title}\n\nYour next idea starts here.`
-                : kind === "code"
-                  ? "// Your code starts here.\n"
-                  : '<!doctype html><html><head><meta charset="UTF-8"></head><body><h1>Your next idea starts here.</h1></body></html>';
-            void api.artifacts
-              .create({ title: title.trim(), kind, content })
-              .then(async (created) => {
-                await refreshArtifacts();
-                setCreating(false);
-                setTitle("");
-                setPanel({ kind: "artifact", id: created.id });
-                toast("Artifact created");
-              })
-              .catch(() => toast("The artifact could not be created."))
-              .finally(() => setBusy(false));
-          }}
-        >
-          <label className="field-label">
-            Title
-            <input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              maxLength={200}
-            />
-          </label>
-          <label className="field-label">
-            Format
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as Artifact["kind"])}
-            >
-              <option value="document">Document</option>
-              <option value="code">Code</option>
-              <option value="webpage">Webpage</option>
-            </select>
-          </label>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="button"
-              onClick={() => setCreating(false)}
-            >
-              Cancel
-            </button>
-            <button className="button primary" disabled={!title.trim() || busy}>
-              {busy && <Loader2 size={14} className="spin" />}
-              Create artifact
-            </button>
-          </div>
-        </form>
+        <div className="artifact-ai-create">
+          <Composer compact artifactIntent />
+        </div>
       </Modal>
     </div>
   );

@@ -85,12 +85,14 @@ export default function Composer({
   initialPrompt = "",
   initialMode,
   compact = false,
+  artifactIntent = false,
 }: {
   chatId?: string;
   projectId?: string;
   initialPrompt?: string;
   initialMode?: Mode;
   compact?: boolean;
+  artifactIntent?: boolean;
 }) {
   const {
     preferences,
@@ -107,7 +109,7 @@ export default function Composer({
     [mode, setMode] = useState<Mode>(initialMode || preferences.defaultMode),
     [files, setFiles] = useState<Attachment[]>([]),
     [dragging, setDragging] = useState(false),
-    [artifact, setArtifact] = useState(false);
+    [artifact, setArtifact] = useState(artifactIntent);
   const textarea = useRef<HTMLTextAreaElement>(null),
     input = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -128,6 +130,9 @@ export default function Composer({
   useEffect(() => {
     if (initialMode) setMode(initialMode);
   }, [initialMode]);
+  useEffect(() => {
+    if (artifactIntent) setArtifact(true);
+  }, [artifactIntent]);
   useEffect(() => {
     if (edit && edit.chatId === chatId) {
       setText(edit.text);
@@ -220,10 +225,10 @@ export default function Composer({
     const ready = files.filter(
       (f) => f.status === "ready" || f.status === "unsupported",
     );
-    send(text, mode, ready, chatId, projectId, artifact);
+    send(text, mode, ready, chatId, projectId, artifact || artifactIntent);
     setText("");
     setFiles([]);
-    setArtifact(false);
+    setArtifact(artifactIntent);
   };
 
   const modeIcon =
@@ -316,20 +321,26 @@ export default function Composer({
         {artifact && (
           <div className="composer-context">
             <PanelsTopLeft size={14} />
-            Save the response as an artifact
-            <button
-              aria-label="Cancel artifact creation"
-              onClick={() => setArtifact(false)}
-            >
-              <X size={12} />
-            </button>
+            {artifactIntent
+              ? "ArcNave will create an artifact from this response"
+              : "Save the response as an artifact"}
+            {!artifactIntent && (
+              <button
+                aria-label="Cancel artifact creation"
+                onClick={() => setArtifact(false)}
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
         )}
         <textarea
           ref={textarea}
           aria-label="Your message"
           placeholder={
-            chatId
+            artifactIntent
+              ? "Describe the artifact you want to create…"
+              : chatId
               ? "Keep the thought going…"
               : "Ask a question. Follow a thought."
           }
