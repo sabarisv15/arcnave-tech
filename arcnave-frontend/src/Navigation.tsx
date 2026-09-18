@@ -327,7 +327,6 @@ export default function Sidebar({
                         return next;
                       })
                     }
-                    title={project.title}
                   >
                     <FolderClosed size={16} />
                     <span>{project.title}</span>
@@ -344,7 +343,6 @@ export default function Sidebar({
                           className={`sidebar-child-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
                           key={chat.id}
                           onClick={() => go(`/chat/${chat.id}`)}
-                          title={chat.title}
                         >
                           <MessageCircleMore
                             size={14}
@@ -392,7 +390,6 @@ export default function Sidebar({
               className={`sidebar-standalone-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
               key={chat.id}
               onClick={() => go(`/chat/${chat.id}`)}
-              title={chat.title}
             >
               <MessageCircleMore
                 size={14}

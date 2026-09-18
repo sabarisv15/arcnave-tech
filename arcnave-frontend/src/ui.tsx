@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { Check, X } from "lucide-react";
 export function Tip({
   label,
@@ -10,17 +9,11 @@ export function Tip({
   label: string;
   children: ReactNode;
 }) {
-  return (
-    <Tooltip.Root delayDuration={450}>
-      <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Content className="tooltip" sideOffset={7}>
-          {label}
-          <Tooltip.Arrow className="tooltip-arrow" />
-        </Tooltip.Content>
-      </Tooltip.Portal>
-    </Tooltip.Root>
-  );
+  // Visible hover labels duplicated information already expressed by the control and made the
+  // interface feel noisy. Keep the prop in this shared wrapper so callers retain their
+  // accessible aria-labels, but render no pointer-triggered popup.
+  void label;
+  return <>{children}</>;
 }
 export function IconButton({
   label,

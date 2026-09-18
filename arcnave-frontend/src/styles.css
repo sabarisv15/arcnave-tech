@@ -3753,3 +3753,224 @@ textarea {
   .study-note p { font-size: 13px; }
 }
 @media (max-width: 760px) { .auth-study { display: none; }.auth-welcome { padding: 0; }.auth-layout { width: 100%; } }
+
+/* Editorial workspace pass: one quiet type system, denser reading, and edge-to-edge chat. */
+:root {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+body,
+button,
+input,
+textarea,
+select,
+.markdown,
+[data-font="serif"] .assistant-message > .markdown,
+[data-font="serif"] .assistant-message > .markdown h1,
+[data-font="serif"] .assistant-message > .markdown h2,
+[data-font="serif"] .assistant-message > .markdown h3 {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.markdown code,
+.markdown pre,
+.markdown pre code,
+.code-editor,
+.artifact-code {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+strong,
+.markdown strong,
+.answer-byline,
+.conversation-title,
+.page-heading h1,
+.menu-item[data-highlighted] > span,
+.nav-item.active,
+.sidebar-project-row.active,
+.sidebar-child-chat.active,
+.sidebar-standalone-chat.active {
+  font-weight: 700;
+}
+
+.menu-item > span,
+.dropdown[aria-label="Model selection"] .menu-item > span,
+.quiet-button,
+.model-button,
+.mode-button {
+  font-weight: 400;
+}
+
+/* Mouse selection should not leave the model or mode button looking boxed-in. Keyboard focus
+   remains visible, but uses a light single-pixel ring instead of the previous heavy outline. */
+.composer-toolbar button:focus-visible,
+.dropdown .menu-item:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.composer-toolbar .quiet-button[data-state="open"] {
+  color: var(--ink);
+  background: var(--soft);
+}
+
+.main-area {
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+}
+
+.topbar {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+.topbar-idle {
+  height: 0;
+  min-height: 0;
+}
+
+.messages {
+  max-width: 1120px;
+  width: calc(100% - 48px);
+  padding: 8px 0 14px;
+}
+
+.conversation-project {
+  margin-bottom: 12px;
+}
+
+.user-message {
+  margin: 4px 0 12px;
+}
+
+.user-bubble {
+  max-width: 78%;
+  padding: 8px 13px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.assistant-message {
+  padding-bottom: 8px;
+}
+
+.answer-byline {
+  margin-bottom: 8px;
+}
+
+.markdown {
+  font-size: 15px;
+  line-height: 1.48;
+}
+
+.markdown p {
+  margin-bottom: 8px;
+}
+
+.markdown h1 {
+  font-family: inherit;
+  font-size: 30px;
+  font-weight: 700;
+  margin: 10px 0 16px;
+}
+
+.markdown h2 {
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 700;
+  margin: 14px 0 6px;
+}
+
+.markdown h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 12px 0 6px;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 5px 0 10px;
+}
+
+.markdown li {
+  margin: 3px 0;
+}
+
+.markdown pre {
+  padding: 14px;
+  line-height: 1.5;
+  font-size: 13px;
+  margin-block: 10px;
+}
+
+.table-scroll,
+.source-summary,
+.markdown blockquote {
+  margin-block: 12px;
+}
+
+.assistant-actions {
+  margin-top: 7px;
+}
+
+.conversation-composer {
+  padding: 5px 18px 7px;
+  background: var(--surface);
+  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+
+.conversation-composer > .composer-wrap {
+  max-width: 1120px;
+}
+
+.conversation-composer .composer {
+  padding: 8px 12px 7px;
+  border-radius: 14px;
+  box-shadow: 0 2px 14px #17213208;
+}
+
+.conversation-composer .composer textarea {
+  min-height: 30px;
+  max-height: 150px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.conversation-composer .composer-toolbar {
+  margin-top: 5px;
+}
+
+.conversation-composer .composer-disclaimer {
+  margin-top: 5px;
+}
+
+.dropdown[aria-label="Model selection"] {
+  border-radius: 10px;
+}
+
+@media (max-width: 760px) {
+  .main-area {
+    border-left: 0;
+  }
+
+  .topbar {
+    height: 50px;
+    min-height: 50px;
+  }
+
+  .messages {
+    width: calc(100% - 28px);
+    padding-top: 8px;
+  }
+
+  .conversation-composer {
+    padding: 5px 8px max(7px, env(safe-area-inset-bottom));
+  }
+
+  .markdown {
+    font-size: 15px;
+    line-height: 1.5;
+  }
+}

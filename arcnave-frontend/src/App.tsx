@@ -9,7 +9,6 @@ import {
   useParams,
 } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -80,11 +79,9 @@ class ErrorBoundary extends Component<
 export default function App() {
   return (
     <ErrorBoundary>
-      <Tooltip.Provider>
-        <SessionProvider>
-          <Gate />
-        </SessionProvider>
-      </Tooltip.Provider>
+      <SessionProvider>
+        <Gate />
+      </SessionProvider>
     </ErrorBoundary>
   );
 }
@@ -321,7 +318,11 @@ function Home() {
         <div className="suggestions">
           <button
             disabled={!grounded}
-            title={grounded ? undefined : models?.capabilities.detail}
+            aria-label={
+              grounded
+                ? "Explore a topic"
+                : `Explore a topic unavailable: ${models?.capabilities.detail ?? "Search is unavailable"}`
+            }
             onClick={() => {
               setMode("research");
               setSuggestion(
