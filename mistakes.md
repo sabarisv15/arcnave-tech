@@ -483,6 +483,74 @@ failure mode of this pattern, not a sign it is working.
   `files.integration.test.ts` case uploading a real `.xlsx` buffer as `octet-stream` through
   `POST /files` end to end.
 
+### 2026-09-18 — `z.coerce.boolean()` on a query string is not what it looks like
+
+- **Symptom:** `GET /models?probe=false` — the frontend's own cached-status request — took
+  30.59s in production, hitting the probe abort timeout exactly. The composer was paying for a
+  live provider call to every alias on every login, not just when Settings' "Refresh" was
+  clicked.
+- **Cause:** `probe: z.coerce.boolean().default(true)` in [`models.ts`](backend/src/routes/models.ts).
+  `z.coerce.boolean()` runs `Boolean(value)`, and `Boolean("false")` is `true` — any non-empty
+  query string coerces to `true`, so `probe=false` was silently indistinguishable from
+  `probe=true` or no param at all.
+- **Rule:** **Never use `z.coerce.boolean()` on a query string.** Use an explicit
+  `z.enum(['true', 'false']).transform(v => v === 'true')`, or any coercion that actually
+  branches on the string's content instead of its truthiness.
+- **Verify:** `node -e "require('zod').z.coerce.boolean().parse('false')"` must never print
+  `true`. `src/routes/models.ts`'s querystring schema is the only place this pattern could
+  recur — grepped clean as of this fix.
+
+### 2026-09-18 — `postgres.js` does not understand `pg`'s `?host=` Unix-socket convention
+
+- **Symptom:** Two consecutive production deploys (revisions `00045`, `00046`) never became
+  Ready — Cloud Run's startup TCP probe failed repeatedly, `docker` logs showed the container
+  calling `exit(1)` before ever binding to `$PORT`. Traffic kept serving from the last Ready
+  revision throughout, so nothing looked broken from outside; two full deploys silently did
+  nothing.
+- **Cause:** `DATABASE_URL` was set to a Cloud SQL Unix-socket DSN in `pg`/libpq style —
+  `postgresql://postgres:***@/arcnave?host=/cloudsql/<instance>` — which is a `node-postgres`
+  convention, not one `postgres.js` (the driver this codebase uses) implements at all.
+  `postgres.js`'s `parseUrl` runs a plain `new URL(...)` on the connection string first; an
+  empty host before `/arcnave` is invalid per the WHATWG URL spec for a special scheme, so it
+  throws `ERR_INVALID_URL` synchronously — inside `container.ts`'s eager `getDb()` call, before
+  `app.listen()` ever runs, and separately inside `migrate.ts`'s own independent `postgres()`
+  connection.
+- **Rule:** **A Cloud SQL Unix socket has to be passed as the `host` *option*, never embedded
+  in the connection string.** `postgres.js` detects a `/` in `options.host` and builds
+  `<host>/.s.PGSQL.<port>` itself, then connects on that path directly
+  (`connection.js`: `if (options.path) return socket.connect(options.path)`) — bypassing TCP
+  entirely. `DATABASE_URL` still needs a syntactically valid placeholder hostname (e.g.
+  `localhost`) so `new URL()` doesn't throw before the override is even applied. **Every place
+  that builds its own `postgres()` connection needs this separately** — `db/client.ts`'s pool
+  and `db/migrate.ts`'s dedicated single connection are two different call sites, and fixing
+  one does not fix the other (confirmed live: revision `00048` booted fine after the `client.ts`
+  fix, but `migrate.ts` still failed with `ECONNREFUSED 127.0.0.1:5432` on every instance until
+  it got the same `DB_SOCKET_PATH` override).
+- **Verify:** `gcloud run revisions list` shows the new revision reaching `Ready`, and its logs
+  show `"msg":"migrations applied"` rather than `"msg":"migration failed"`.
+
+### 2026-09-18 — Concurrent cold-start instances raced the same non-idempotent migration
+
+- **Symptom:** After the fix above, most but not all instances of the same revision logged
+  `"migrations applied"`; a few logged `"migration failed"` with
+  `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` on a `CREATE
+  TABLE`.
+- **Cause:** The Dockerfile's entrypoint runs `node dist/db/migrate.js` on every container
+  boot (documented, deliberate — see `docs/checkpoints/CURRENT.md`'s "free improvement…not
+  implemented" note). A deploy that starts several instances at once had several of them run
+  the migrator concurrently against a schema that did not exist yet; Drizzle's migrations are
+  plain `CREATE TABLE`, not `CREATE TABLE IF NOT EXISTS`, so the instance that lost the race on
+  table creation crashed. The `|| true` in the entrypoint means a losing instance still starts
+  the server afterward, so this was not user-visible this time — the schema was already
+  correct from whichever instance won — but it is not something to rely on.
+- **Rule:** **Do not assume a single migration run when several instances can cold-start at
+  once.** This is the same tradeoff the checkpoint already named (migrations run at container
+  boot, not a separate deploy step) — this entry is the concrete failure mode that tradeoff
+  produces under a multi-instance rollout, not a new decision to make here.
+- **Verify:** Not yet fixed. Moving the migration to a separate deploy step (a Cloud Build
+  step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
+  issue in the checkpoint rather than patched under time pressure.
+
 ---
 
 ## Convention and sources
@@ -550,3 +618,12 @@ practice, not canon.
   compounding pre-existing gaps — no MIME fallback for browsers that send `octet-stream` for
   spreadsheets, and no text extractor for spreadsheets at all even when upload succeeded.
   **25 entries, 15 to the cap.**
+- **2026-09-18** — Three more from a live user report of multi-second login and workspace load
+  times, root-caused against real Cloud Run logs rather than the docs (which turned out to be
+  right about Neon at the time, then immediately wrong once two in-flight deploy attempts to
+  migrate to Cloud SQL were discovered mid-investigation): a `z.coerce.boolean()` query-string
+  trap that made `/models` always live-probe regardless of what the frontend asked for, and two
+  entries from actually completing that Cloud SQL cutover — `postgres.js` silently ignoring the
+  `pg`-style `?host=` socket convention in two separate connection call sites, and a migration
+  race under concurrent cold-start instances found only after the first fix was already live.
+  **28 entries, 12 to the cap.**

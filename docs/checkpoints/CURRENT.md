@@ -6,7 +6,11 @@ models verified with real calls; frontend rewired onto the API — no mock data 
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
 session persistence, and a real streamed chat answer all verified live (see
 [Production deployment](#production-deployment-2026-09-17)) — with a stated `SameSite=None`
-cookie trade-off and accepted cold-start latency, both flagged there for revisit. Native
+cookie trade-off, flagged there for revisit. **2026-09-18: the database moved from Neon
+(`us-east-2`) to Cloud SQL in `asia-south1`** — same region as Cloud Run — specifically to kill
+the cross-region latency that "accepted cold-start latency" trade-off was mostly actually
+about; see [Database migration](#database-migration-2026-09-18). Production data was not
+carried over (the prior Neon-backed accounts were test/throwaway). Native
 multimodal file input (images/PDFs seen directly by Claude and Gemini) is code-complete and
 tested, but **live-tested by a human on 2026-09-18 and found broken in production**: local
 attachment storage does not survive Cloud Run's per-instance ephemeral disk across requests.
@@ -300,6 +304,12 @@ passes.
   instance. Horizontal scaling needs shared signalling (Redis pub/sub) first.
 - Message transcripts still return `usage: null` by design; `GET /v1/usage/messages?chatId=`
   supplies it, and the conversation view calls that when it renders the per-message row.
+- **Migrations still run inside the container entrypoint on every cold start, not as a
+  separate deploy step.** Flagged as a "free improvement, not implemented" since 2026-09-17;
+  the 2026-09-18 Cloud SQL cutover hit the concrete failure mode this produces — several
+  instances cold-starting at once during a rollout raced the same non-idempotent migration and
+  some lost (see `mistakes.md`, 2026-09-18). Not user-visible that time because the schema was
+  already correct from whichever instance won, but it is not something to rely on again.
 
 ### Contract gaps the frontend rewiring exposed
 
@@ -367,7 +377,8 @@ Names only — **never commit values**. See `.env.example` (to be written).
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | Postgres connection string |
+| `DATABASE_URL` | Postgres connection string. When pointing at a Cloud SQL Unix socket, this still needs a syntactically valid placeholder hostname (e.g. `postgresql://user:pass@localhost/db`) — the real socket path goes in `DB_SOCKET_PATH`, never in `?host=`. See `mistakes.md`, 2026-09-18. |
+| `DB_SOCKET_PATH` | Optional. Cloud SQL instance connection name as a socket directory, e.g. `/cloudsql/<project>:<region>:<instance>`. Set in production as of 2026-09-18. Unset (Neon, or any TCP Postgres) means DATABASE_URL's own host is used untouched. |
 | `GOOGLE_CLOUD_PROJECT` | Set in production (`project-8bcf740a-a7bd-4aea-974`) as of 2026-09-17. |
 | `VERTEX_LOCATION` | Default `global`. Keep unless data residency demands otherwise. |
 | `GEMINI_LOCATION` | Optional override; Gemini 3.8 Flash is global-only |
@@ -388,11 +399,38 @@ Names only — **never commit values**. See `.env.example` (to be written).
 Credentials use Application Default Credentials (`gcloud auth application-default login`
 locally, workload identity on GCP). **No service-account key is ever committed or pasted.**
 
+## Database migration (2026-09-18)
+
+Moved production off Neon (`us-east-2`) onto Cloud SQL Postgres 16 (`arcnave-db`, same
+`asia-south1` region as Cloud Run) — the earlier "accepted cold-start latency" trade-off in the
+Production deployment section below was largely a cross-continent round trip on every DB query,
+not actually cold-start; a real login burst measured a ~1.1s floor on the simplest single-query
+endpoint and 30.6s on `/models` (a separate coercion bug, fixed alongside this). Full
+investigation and root causes are in `mistakes.md` (three 2026-09-18 entries).
+
+**Two prior deploy attempts at this same migration (revisions `00045`, `00046`) failed
+silently** — `postgres.js` doesn't support the `pg`-style `?host=` Unix-socket DSN, so both
+crash-looped and never went Ready; Cloud Run kept serving the old Neon-backed revision the
+whole time, so nothing looked broken from outside. Fixed by passing the socket path as the
+`host` option instead (`DB_SOCKET_PATH`), in both `db/client.ts` and `db/migrate.ts`
+independently — they build separate connections and the fix does not carry across.
+
+**Production data was not migrated.** The Cloud SQL database started empty; cutting over was a
+deliberate "start fresh" decision (the accounts on the Neon side were test/throwaway —
+`a@example.test`, `gcp-verify@example.test`, etc.) rather than a `pg_dump`/restore. The Neon
+data still exists, just orphaned — nothing pointed at it deleted anything.
+
+Current revision (`arcnave-sandbox-service-00049-52v` at time of writing) is Ready and serving
+100% of traffic; `GET /readyz` (checks the database) responds in ~0.2s versus the old ~1.1s+
+floor. `REGISTRATION_ENABLED=false` in production, so a fresh account has to be created by
+flipping that env var temporarily or applying it directly against Cloud SQL.
+
 ## Production deployment (2026-09-17)
 
 Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets only —
-no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres
-(pooled endpoint), GCP project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
+no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`) — **Postgres backend
+changed 2026-09-18, see above; the rest of this section is otherwise still accurate** — GCP
+project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
 **in a real browser, not just curl**: signup, login persists past the first request
 (cross-origin, `SameSite=None`), a real chat message gets a real streamed answer ("Hello, nice
 to meet you!" from Gemini 3.8 Flash), and all four model aliases report `available: true` from
