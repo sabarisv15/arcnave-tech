@@ -170,6 +170,13 @@ export class ModelRegistry {
    * endpoint on Vertex — Anthropic's Models endpoint is explicitly unsupported there. Results
    * are cached so the composer does not spend quota on every page load, and concurrent callers
    * share a single in-flight probe rather than stampeding.
+   *
+   * `probe: false` means "don't force a refresh", not "never check anything" — a cold instance
+   * (Cloud Run's in-memory cache does not survive a cold start) has nothing cached yet, and
+   * reporting every alias unavailable until someone happens to click Settings' manual refresh
+   * is a worse default than paying for one real probe. Once an alias has been checked at all,
+   * a stale-but-present result is still preferred over a fresh probe when the caller asked not
+   * to force one.
    */
   async status(alias: string, options: { probe?: boolean } = {}): Promise<ModelStatus | undefined> {
     const entry = this.entries.get(alias);
@@ -182,17 +189,7 @@ export class ModelRegistry {
     const cached = this.statuses.get(alias);
     if (cached?.checkedAt != null && Date.now() - cached.checkedAt < ttlMs) return cached;
 
-    if (options.probe === false) {
-      return (
-        cached ?? {
-          entry,
-          available: false,
-          reason: 'unknown',
-          detail: 'Not probed yet.',
-          checkedAt: null,
-        }
-      );
-    }
+    if (options.probe === false && cached) return cached;
 
     const existing = this.inflight.get(alias);
     if (existing) return existing;
