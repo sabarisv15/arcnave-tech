@@ -15,6 +15,14 @@ dependency) but **the live service still needs a human to provision a GCS bucket
 its env vars** — see [Blocked on the user](#blocked-on-the-user). `PRICING_TABLE` now has real
 Vertex rates for all four aliases in `.env.example`, also pending propagation to the live
 service in that same redeploy.
+Native multimodal file input **fixed live 2026-09-18**: a human ran the GCS bucket + IAM +
+`--env-vars-file` redeploy from Cloud Shell (`STORAGE_BACKEND=gcs`,
+`STORAGE_GCS_BUCKET=arcnave-attachments`, `PRICING_TABLE` populated), and confirmed image
+attachments now work in production. Multi-instance carry-forward, scanned-PDF, and
+GPT-OSS-capability-gate re-verification (the other three checks from the original plan) are
+still unconfirmed. **Action needed:** `COOKIE_SECRET`, `SANDBOX_SHARED_SECRET`, and the Neon
+`DATABASE_URL` password were exposed in a chat transcript while building the redeploy file and
+should be rotated — see `mistakes.md`, 2026-09-18.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -453,37 +461,26 @@ verification command for each is in `mistakes.md`; summary:
   `arcnave-pg` running locally (`docker start arcnave-pg`) — or, in a Claude Code web/cloud
   session with no Docker, the native `postgresql-16` cluster (`service postgresql start`); see
   `mistakes.md`.
-- **Multimodal file input was live-tested by a human on 2026-09-18 and found broken in
-  production**, blocked on infrastructure this session cannot touch (no `gcloud`, no GCP
-  credentials, no browser here). What was found and what fixes it:
-  - **Attaching an image to any model (Claude included — checked specifically to rule out a
-    capability gap) returned the generic `not_found` card instead of a description.** Root
-    cause and full detail in `mistakes.md`'s 2026-09-18 entry: `STORAGE_BACKEND=local` writes to
-    Cloud Run's per-instance ephemeral disk, and the upload request and the later
-    generate-that-reads-the-bytes request are not guaranteed to land on the same instance.
-    **Fixed in code this session** — `@google-cloud/storage` is now a real dependency and
-    `GcsObjectStorage` no longer relies on an undeclared dynamic import — **but the live service
-    still needs a human to:**
-    1. Create a GCS bucket (any name; `us-central1` or `asia-south1` to match existing
-       infrastructure, no strong requirement either way since this is small-object storage, not
-       compute-adjacent).
-    2. Grant the Cloud Run service's runtime identity `roles/storage.objectAdmin` on that
-       bucket.
-    3. Restate the **complete** production env var set via `--env-vars-file` (per the existing
-       `--set-env-vars` entry in `mistakes.md`) adding `STORAGE_BACKEND=gcs` and
-       `STORAGE_GCS_BUCKET=<bucket name>`.
-    4. Re-run the four checks below.
-  - Once storage is fixed, re-verify:
-    1. Attach a real photo to a chat message on Claude or Gemini; confirm the reply actually
-       describes its content (not "I cannot see images", not `not_found`).
-    2. Ask a follow-up two turns later with no re-attachment; confirm the model still references
-       the photo (proves `loadHistory`'s carry-forward survives an instance change too).
-    3. Attach a real scanned (image-only) PDF; confirm it's read rather than rejected as "no
-       selectable text."
-    4. Pin the model to "GPT-OSS 120B" and attach a photo; confirm the response is the typed
-       `capability_unavailable` error, not a hang or a 500.
-- **`PRICING_TABLE` is populated in `.env.example` with real rates but not yet set on the live
-  Cloud Run service** (`arcnave-sandbox-service`, `asia-south1`). Fold this into the same
-  `--env-vars-file` restatement as the storage fix above, rather than a second separate deploy.
-  Until this is done, `GET /v1/usage/messages` and the per-message cost row in the UI will keep
-  showing `cost not priced` against real production traffic, even though the code path is ready.
+- **Multimodal file input — storage fix deployed and confirmed 2026-09-18.** GCS bucket
+  (`gs://arcnave-attachments`), IAM (`roles/storage.objectAdmin` for the Cloud Run runtime SA),
+  and `STORAGE_BACKEND=gcs`/`STORAGE_GCS_BUCKET` were all set via one `--env-vars-file`
+  redeploy, run by a human from Cloud Shell (this session still has no `gcloud`/credentials).
+  Image attachment confirmed working live. Still needs a human to re-verify, same as the
+  original plan:
+  1. ~~Attach a real photo; confirm the reply describes it.~~ **Done, confirmed 2026-09-18.**
+  2. Ask a follow-up two turns later with no re-attachment; confirm the model still references
+     the photo (proves `loadHistory`'s carry-forward survives an instance change too).
+  3. Attach a real scanned (image-only) PDF; confirm it's read rather than rejected as "no
+     selectable text."
+  4. Pin the model to "GPT-OSS 120B" and attach a photo; confirm the response is the typed
+     `capability_unavailable` error, not a hang or a 500. (Also confirm `GPT_OSS_LOCATION` is
+     actually set on the live service — it was added in the same redeploy but not independently
+     verified.)
+- **`PRICING_TABLE` set on the live Cloud Run service in the same redeploy as the storage fix,
+  2026-09-18.** Not yet independently confirmed that `GET /v1/usage/messages` now shows a real
+  cost instead of "cost not priced" against real traffic — check on next live pass.
+- **Secrets exposed in chat, 2026-09-18 — rotation still needed.** Building the `--env-vars-file`
+  required reading back the live service's full env var set, which put `COOKIE_SECRET`,
+  `SANDBOX_SHARED_SECRET`, and the Neon `DATABASE_URL` password in plaintext into a chat
+  transcript. None of the three have been confirmed rotated. See `mistakes.md`, 2026-09-18, for
+  the rule this should have followed instead.

@@ -445,12 +445,16 @@ failure mode of this pattern, not a sign it is working.
   `dependencies` entry (`backend/package.json`) — it was previously a comment telling whoever
   enabled this path to install it themselves, which nobody had reason to do until this feature
   made the path load-bearing for the first time.
-- **Verify:** Not yet possible from this session (no `gcloud`, no GCP credentials — see
-  `docs/checkpoints/CURRENT.md`'s "Blocked on the user"). Once a human sets `STORAGE_BACKEND=gcs`
-  and `STORAGE_GCS_BUCKET` on the live service and grants the service's identity
-  `roles/storage.objectAdmin` on that bucket: attach an image, ask a follow-up two turns later
-  with no re-attachment, confirm both turns succeed regardless of which Cloud Run instance
-  serves each request.
+- **Closed 2026-09-18:** a human ran the fix from Cloud Shell (this session has no `gcloud`) —
+  created `gs://arcnave-attachments`, granted the Cloud Run runtime service account
+  (`<PROJECT_NUMBER>-compute@developer.gserviceaccount.com`, the project's default, since no
+  dedicated identity was ever set) `roles/storage.objectAdmin`, and redeployed with
+  `STORAGE_BACKEND=gcs`, `STORAGE_GCS_BUCKET=arcnave-attachments`, and `PRICING_TABLE` all
+  present via one `--env-vars-file` restatement (never `--update-env-vars`, per the 2026-09-17
+  entry above). Confirmed live: attaching an image now works. Multi-instance carry-forward
+  (follow-up turn, no re-attachment) and the scanned-PDF/GPT-OSS-pin checks from the original
+  checkpoint plan are still unverified — next session should do those before calling this fully
+  closed.
 
 ### 2026-09-18 — `.xlsx` uploads failed with "unsupported media type"
 
@@ -482,6 +486,33 @@ failure mode of this pattern, not a sign it is working.
   `exceljs`, labels multiple sheets, rejects an empty one) plus one full-stack
   `files.integration.test.ts` case uploading a real `.xlsx` buffer as `octet-stream` through
   `POST /files` end to end.
+
+### 2026-09-18 — Walking a user through `gcloud describe` for env vars put live secrets in the chat transcript
+
+- **Symptom:** To build a safe `--env-vars-file` restatement (per the 2026-09-17 entry on
+  `--set-env-vars` clobbering config), the user was asked to run `gcloud run services describe
+  ... --format="yaml(...env)"` and paste the output back. That output — and the file built from
+  it — contained `DATABASE_URL` with the Neon password, `COOKIE_SECRET`, and
+  `SANDBOX_SHARED_SECRET` in plaintext, now sitting in this session's transcript.
+- **Cause:** There is no way to restate a Cloud Run service's complete env var set without
+  reading the complete current set first (`--update-env-vars` alone would have avoided this, but
+  the 2026-09-17 entry rules that out — it does not remove keys the file doesn't mention, which
+  is fine for adding but was never actually the constraint; the real reason to prefer
+  `--env-vars-file` here was reviewability before applying, not just merging). Asking for the
+  full describe output was the direct cause of exposing every secret at once, chosen for
+  convenience over exposure.
+- **Rule:** **Never ask a user to paste the output of a command that dumps live secrets into a
+  chat session, when a narrower command would answer the same question.** For a redeploy that
+  only needs to *add* keys without dropping existing ones, prefer `--update-env-vars
+  NEW_KEY=value,...` (it does not touch unmentioned keys) over reading-and-restating the whole
+  set. If a full restate is genuinely required, redact known-secret key names
+  (`*_SECRET`, `*_TOKEN`, `DATABASE_URL`, anything with a credential in the value) before it is
+  echoed back, or have the user write the file directly on their machine without relaying its
+  contents. **Any secret that does end up in a chat transcript must be treated as compromised —
+  rotate it, don't just note it.**
+- **Verify:** None yet — the immediate mitigation (rotate `COOKIE_SECRET`,
+  `SANDBOX_SHARED_SECRET`, and the Neon `DATABASE_URL` password) was told to the user but not
+  confirmed done. Next session should check whether these were rotated before trusting them.
 
 ---
 
@@ -550,3 +581,9 @@ practice, not canon.
   compounding pre-existing gaps — no MIME fallback for browsers that send `octet-stream` for
   spreadsheets, and no text extractor for spreadsheets at all even when upload succeeded.
   **25 entries, 15 to the cap.**
+- **2026-09-18** — Closed the image-attachment `not_found` entry: a human ran the GCS bucket +
+  IAM + `--env-vars-file` fix from Cloud Shell and confirmed image attachments work in
+  production. One new entry from that same walkthrough: asking for a full `gcloud ... describe
+  ...env` dump to build the redeploy file put live secrets (DB password, cookie secret, sandbox
+  shared secret) into the chat transcript — rotation was requested but not yet confirmed.
+  **26 entries, 14 to the cap.**
