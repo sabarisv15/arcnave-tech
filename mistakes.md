@@ -522,6 +522,23 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `documents.test.ts`'s "gives each table its own sheet" test, which specifically
   exercises two tables so a false-positive single-table match cannot hide behind it.
 
+### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
+
+- **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
+  ("Requires `@google-cloud/storage`, which is not a declared dependency") while preparing to
+  deploy, then checking the live Cloud Run service's env vars and finding
+  `STORAGE_BACKEND=gcs` / `STORAGE_GCS_BUCKET=arcnave-attachments` already set.
+- **Cause:** `GcsObjectStorage.getBucket()` dynamically imports `@google-cloud/storage`, which
+  was never added to `package.json`. `npm ci --omit=dev` in the Dockerfile would not have
+  installed it, so the first real upload/download on the deployed revision would throw at the
+  dynamic `import()` — silent until that exact code path ran.
+- **Rule:** **A backend value in production config (`STORAGE_BACKEND=gcs`) is a claim that the
+  code path it selects actually works. Trace every env-driven branch to what it imports before
+  trusting that a deploy exercises it.**
+- **Verify:** `npm install @google-cloud/storage`; `docker build` the backend image, then
+  `docker run --rm <image> node -e "import('@google-cloud/storage').then(...)"` resolves
+  inside the real runtime image, not just locally where dev dependencies are also present.
+
 ---
 
 ## Convention and sources
