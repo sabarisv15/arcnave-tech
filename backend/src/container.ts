@@ -31,6 +31,12 @@ export interface Services {
   storage: ObjectStorage;
   retriever: Retriever;
   /**
+   * The provider used for OCR and audio/video transcription during project-file indexing
+   * (`retrieval.ts`'s `describeMedia` calls) — always the Gemini adapter, since it is the only
+   * one with a `describeMedia` implementation on Vertex today. See ADR-0004, items 3 and 5.
+   */
+  visionProvider: Provider;
+  /**
    * Active generation runs, keyed by chat id.
    *
    * Lets `POST /chats/:id/stop` abort a stream that a different HTTP connection is driving,
@@ -72,6 +78,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     generation,
     storage,
     retriever,
+    visionProvider: providers.google!,
     activeRuns: new Map(),
   };
 }

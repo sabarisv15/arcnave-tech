@@ -401,6 +401,127 @@ failure mode of this pattern, not a sign it is working.
   reasoned from the diff, not asserted by a test — adding one means introducing that dependency,
   which is a bigger decision than this fix.
 
+### 2026-09-18 — `z.coerce.boolean()` on a query string is not what it looks like
+
+- **Symptom:** `GET /models?probe=false` — the frontend's own cached-status request — took
+  30.59s in production, hitting the probe abort timeout exactly. The composer was paying for a
+  live provider call to every alias on every login, not just when Settings' "Refresh" was
+  clicked.
+- **Cause:** `probe: z.coerce.boolean().default(true)` in [`models.ts`](backend/src/routes/models.ts).
+  `z.coerce.boolean()` runs `Boolean(value)`, and `Boolean("false")` is `true` — any non-empty
+  query string coerces to `true`, so `probe=false` was silently indistinguishable from
+  `probe=true` or no param at all.
+- **Rule:** **Never use `z.coerce.boolean()` on a query string.** Use an explicit
+  `z.enum(['true', 'false']).transform(v => v === 'true')`, or any coercion that actually
+  branches on the string's content instead of its truthiness.
+- **Verify:** `node -e "require('zod').z.coerce.boolean().parse('false')"` must never print
+  `true`. `src/routes/models.ts`'s querystring schema is the only place this pattern could
+  recur — grepped clean as of this fix.
+
+### 2026-09-18 — `postgres.js` does not understand `pg`'s `?host=` Unix-socket convention
+
+- **Symptom:** Two consecutive production deploys (revisions `00045`, `00046`) never became
+  Ready — Cloud Run's startup TCP probe failed repeatedly, `docker` logs showed the container
+  calling `exit(1)` before ever binding to `$PORT`. Traffic kept serving from the last Ready
+  revision throughout, so nothing looked broken from outside; two full deploys silently did
+  nothing.
+- **Cause:** `DATABASE_URL` was set to a Cloud SQL Unix-socket DSN in `pg`/libpq style —
+  `postgresql://postgres:***@/arcnave?host=/cloudsql/<instance>` — which is a `node-postgres`
+  convention, not one `postgres.js` (the driver this codebase uses) implements at all.
+  `postgres.js`'s `parseUrl` runs a plain `new URL(...)` on the connection string first; an
+  empty host before `/arcnave` is invalid per the WHATWG URL spec for a special scheme, so it
+  throws `ERR_INVALID_URL` synchronously — inside `container.ts`'s eager `getDb()` call, before
+  `app.listen()` ever runs, and separately inside `migrate.ts`'s own independent `postgres()`
+  connection.
+- **Rule:** **A Cloud SQL Unix socket has to be passed as the `host` *option*, never embedded
+  in the connection string.** `postgres.js` detects a `/` in `options.host` and builds
+  `<host>/.s.PGSQL.<port>` itself, then connects on that path directly
+  (`connection.js`: `if (options.path) return socket.connect(options.path)`) — bypassing TCP
+  entirely. `DATABASE_URL` still needs a syntactically valid placeholder hostname (e.g.
+  `localhost`) so `new URL()` doesn't throw before the override is even applied. **Every place
+  that builds its own `postgres()` connection needs this separately** — `db/client.ts`'s pool
+  and `db/migrate.ts`'s dedicated single connection are two different call sites, and fixing
+  one does not fix the other (confirmed live: revision `00048` booted fine after the `client.ts`
+  fix, but `migrate.ts` still failed with `ECONNREFUSED 127.0.0.1:5432` on every instance until
+  it got the same `DB_SOCKET_PATH` override).
+- **Verify:** `gcloud run revisions list` shows the new revision reaching `Ready`, and its logs
+  show `"msg":"migrations applied"` rather than `"msg":"migration failed"`.
+
+### 2026-09-18 — Concurrent cold-start instances raced the same non-idempotent migration
+
+- **Symptom:** After the fix above, most but not all instances of the same revision logged
+  `"migrations applied"`; a few logged `"migration failed"` with
+  `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` on a `CREATE
+  TABLE`.
+- **Cause:** The Dockerfile's entrypoint runs `node dist/db/migrate.js` on every container
+  boot (documented, deliberate — see `docs/checkpoints/CURRENT.md`'s "free improvement…not
+  implemented" note). A deploy that starts several instances at once had several of them run
+  the migrator concurrently against a schema that did not exist yet; Drizzle's migrations are
+  plain `CREATE TABLE`, not `CREATE TABLE IF NOT EXISTS`, so the instance that lost the race on
+  table creation crashed. The `|| true` in the entrypoint means a losing instance still starts
+  the server afterward, so this was not user-visible this time — the schema was already
+  correct from whichever instance won — but it is not something to rely on.
+- **Rule:** **Do not assume a single migration run when several instances can cold-start at
+  once.** This is the same tradeoff the checkpoint already named (migrations run at container
+  boot, not a separate deploy step) — this entry is the concrete failure mode that tradeoff
+  produces under a multi-instance rollout, not a new decision to make here.
+- **Verify:** Not yet fixed. Moving the migration to a separate deploy step (a Cloud Build
+  step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
+  issue in the checkpoint rather than patched under time pressure.
+
+### 2026-09-18 — `pdf-parse`'s concatenated `.text` is never truly empty, even for a blank page
+
+- **Symptom:** A scanned (image-only) PDF's OCR fallback never triggered — `extractPdf`'s
+  `text.trim() === ''` check was always false, even against a hand-built PDF with zero real
+  content.
+- **Cause:** `PDFParse.getText()`'s top-level `.text` is the per-page strings joined with a
+  `-- N of M --` separator — inserted even when every page is blank, so the concatenated string
+  is never actually empty. Only `result.pages[i].text` is.
+- **Rule:** **Test "is there real text" against `result.pages[].text`, never the concatenated
+  `.text`.** Any pdf-parse boilerplate lives in the join, not the per-page values.
+- **Verify:** `extractText` on a hand-built blank-page PDF (no `/Contents`) with no vision
+  provider configured rejects with the OCR-unavailable message — see
+  `retrieval.test.ts`'s "fails with a typed reason rather than silently skipping OCR".
+
+### 2026-09-18 — Two third-party `.d.ts` files lied about their own exports under this tsconfig
+
+- **Symptom:** `new ExcelJS.Workbook()` compiled fine, but `workbook.xlsx.load(buffer)` refused
+  a real `Buffer` — "Buffer is not assignable to Buffer". Separately, `new PptxGenJS()` refused
+  to compile at all: "has no construct signatures" — on both a value import and a type-only one.
+- **Cause:** `exceljs`'s `index.d.ts` shadows the global `Buffer` with its own
+  `interface Buffer extends ArrayBuffer {}` (a pre-`@types/node`-generics-era workaround), so
+  `Buffer` inside that file's own signatures means something structurally different from ours.
+  `pptxgenjs` is CommonJS with an ESM-authored `.d.ts`; under this project's
+  `NodeNext` + `verbatimModuleSyntax`, its `export default` does not narrow past the whole
+  module namespace on import — confirmed on both a value and a type-only import, so it is the
+  declaration file's interaction with our tsconfig, not our import style.
+- **Rule:** **When a `.d.ts` and its own package disagree with reality, don't fight the types
+  into submission with guesses.** Confirm the actual runtime shape first (a quick
+  `node -e` script bypassing TS entirely), then either a narrow, commented `as any` at the one
+  call site (exceljs) or pull the *value* via `createRequire`/`require` typed against a small
+  local interface covering only what's actually called (pptxgenjs) — never loosen the type
+  everywhere just to make one broken declaration compile.
+- **Verify:** `npx tsc --noEmit` clean; `retrieval.ts`'s `extractXlsx` and
+  `projects.integration.test.ts`'s pptx-deck test both pass against real generated files.
+
+### 2026-09-18 — A hand-written GFM table-separator regex was wrong for the common case
+
+- **Symptom:** `markdownToSpreadsheetSpec`'s own unit test failed on a second, differently
+  named table in the same document — `parseMarkdownTables` had found zero tables where there
+  were two.
+- **Cause:** `isSeparatorRow` tried to validate the whole `| --- | --- |` row with one regex
+  built from a repeating `(...\|)+` group. That group is greedy and consumes every column's
+  trailing pipe, including the last one, leaving nothing for the pattern's own mandatory
+  "final column" segment written after the group — so it only ever matched by accident, not by
+  correct construction, and a debug trace showed it failing even on the ordinary two-column
+  case once you stopped assuming the first passing test proved the regex right.
+- **Rule:** **Do not describe "N repeated things" with one regex that also needs to describe
+  "the last of the N things" separately.** Split the row into cells with the same logic that
+  parses a real row, then validate each cell independently — same shape as tokenizing before
+  scoring, not a monolithic pattern doing both jobs at once.
+- **Verify:** `documents.test.ts`'s "gives each table its own sheet" test, which specifically
+  exercises two tables so a false-positive single-table match cannot hide behind it.
+
 ---
 
 ## Convention and sources
@@ -459,3 +580,20 @@ practice, not canon.
   trip before clearing local state, so the UI sat frozen long enough to look broken. Found by
   reproducing in a real browser session against production, not by reading the code first.
   **22 entries, 18 to the cap.**
+- **2026-09-18** — Three entries from a live user report of multi-second login and workspace
+  load times, root-caused against real Cloud Run logs rather than the docs (which turned out to
+  be right about Neon at the time, then immediately wrong once two in-flight deploy attempts to
+  migrate to Cloud SQL were discovered mid-investigation): a `z.coerce.boolean()` query-string
+  trap that made `/models` always live-probe regardless of what the frontend asked for, and two
+  entries from actually completing that Cloud SQL cutover — `postgres.js` silently ignoring the
+  `pg`-style `?host=` socket convention in two separate connection call sites, and a migration
+  race under concurrent cold-start instances found only after the first fix was already live.
+  **25 entries, 15 to the cap.**
+- **2026-09-18** — Three entries from building the file-handling parity work (ADR-0004, items
+  1-8: spreadsheet/PowerPoint extraction, OCR, docx tables, audio/video transcription, page
+  citations, Gemini code execution, and deterministic Markdown-to-Office export), all caught by
+  writing real tests against real generated files rather than trusting the library docs or a
+  hand-trace: `pdf-parse`'s concatenated `.text` masking a genuinely empty scanned page, two
+  third-party `.d.ts` files that disagreed with their own runtime shape under this project's
+  `NodeNext` + `verbatimModuleSyntax` config, and a hand-written GFM table-separator regex that
+  only looked correct until a second table exposed it. **28 entries, 12 to the cap.**

@@ -13,6 +13,7 @@ import { and, eq } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
 import { fileChunks, projectFiles } from '../db/schema.js';
+import type { Provider } from '../providers/types.js';
 
 export const CHUNK_TARGET_CHARS = 1400;
 export const CHUNK_OVERLAP_CHARS = 180;
@@ -28,17 +29,34 @@ export class ExtractionUnsupported extends Error {
 
 /* -------------------------------------------------------------------------- extraction */
 
+/**
+ * @param visionProvider Used for OCR (scanned PDFs) and audio/video transcription. Optional —
+ *   when absent, those two branches fail with a typed reason instead of silently skipping the
+ *   content, per Invariant 1. See ADR-0004, items 3 and 5.
+ */
 export async function extractText(
   data: Buffer,
   mimeType: string,
   filename: string,
+  visionProvider?: Provider,
 ): Promise<string> {
   const lower = filename.toLowerCase();
 
-  if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) return extractPdf(data);
-  if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) return extractDocx(data);
+  if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) {
+    return extractPdf(data, visionProvider);
+  }
+  if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) {
+    return extractWithOfficeParser(data, 'This Word file');
+  }
+  if (lower.endsWith('.pptx') || mimeType.includes('presentationml')) {
+    return extractWithOfficeParser(data, 'This PowerPoint file');
+  }
+  if (lower.endsWith('.xlsx') || mimeType.includes('spreadsheetml')) return extractXlsx(data);
   if (mimeType.startsWith('text/') || TEXT_MIMES.has(mimeType)) {
     return data.toString('utf8');
+  }
+  if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) {
+    return extractAudioVideo(data, mimeType, visionProvider);
   }
   if (mimeType.startsWith('image/')) {
     throw new ExtractionUnsupported(
@@ -50,6 +68,24 @@ export async function extractText(
   );
 }
 
+/**
+ * Like `extractText`, but keeps page boundaries where the format has them (currently just PDF
+ * with a text layer) so `indexFile` can chunk per page and a citation can name one. Everything
+ * else comes back as a single page-less entry — see ADR-0004, item 6.
+ */
+export async function extractPages(
+  data: Buffer,
+  mimeType: string,
+  filename: string,
+  visionProvider?: Provider,
+): Promise<ExtractedPage[]> {
+  const lower = filename.toLowerCase();
+  if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) {
+    return extractPdfPages(data, visionProvider);
+  }
+  return [{ num: null, text: await extractText(data, mimeType, filename, visionProvider) }];
+}
+
 const TEXT_MIMES = new Set([
   'application/json',
   'application/xml',
@@ -58,39 +94,157 @@ const TEXT_MIMES = new Set([
   'video/mp2t',
 ]);
 
-async function extractPdf(data: Buffer): Promise<string> {
-  let text: string;
+const OCR_PROMPT =
+  'Transcribe every word of visible text on these scanned document pages, verbatim, in ' +
+  'reading order. Output only the transcribed text, nothing else.';
+
+/** A page of extracted text. `num` is null when the format has no pages, or OCR combined them. */
+export interface ExtractedPage {
+  num: number | null;
+  text: string;
+}
+
+async function extractPdf(data: Buffer, visionProvider?: Provider): Promise<string> {
+  const pages = await extractPdfPages(data, visionProvider);
+  const text = pages.map((p) => p.text).join('\n\n');
+  if (text.trim() === '') {
+    throw new ExtractionUnsupported('No text could be read from this PDF, even with OCR.');
+  }
+  return text;
+}
+
+/**
+ * Real per-page text when the PDF has a text layer, so a retrieved chunk can cite the page it
+ * came from (see ADR-0004, item 6) rather than just the filename.
+ *
+ * A scanned PDF has no per-page attribution: OCR transcribes every rasterized page in one
+ * vision call (one call per page would multiply Gemini cost by page count), so its result is a
+ * single page-less block — file-level citation only, not page-accurate. That trade-off is
+ * deliberate, not an oversight.
+ */
+async function extractPdfPages(data: Buffer, visionProvider?: Provider): Promise<ExtractedPage[]> {
   // pdf-parse v2 is class-based (v1's default-export function is gone) and holds a pdf.js
   // document open until destroyed, so the parser is disposed in a finally.
   const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data });
   try {
     const result = await parser.getText();
-    text = result.text ?? '';
+    // pdf-parse always inlines a `-- N of M --` page separator into the concatenated `.text`,
+    // even for a page with zero real content, so that string is never actually empty for a
+    // scanned PDF — only the per-page text is. Checked here, not against the whole-document
+    // string, or a scanned PDF would silently skip the OCR branch below.
+    const hasSelectableText = result.pages.some((page) => page.text.trim() !== '');
+    if (hasSelectableText) {
+      return result.pages
+        .filter((page) => page.text.trim() !== '')
+        .map((page) => ({ num: page.num, text: page.text }));
+    }
+
+    // No selectable text: this is a scanned PDF. Rasterize pages and let Gemini read them —
+    // never a bundled OCR engine, so this capability comes and goes with the same
+    // configuration as every other Gemini-backed feature. See ADR-0004, item 3.
+    if (!visionProvider?.describeMedia) {
+      throw new ExtractionUnsupported(
+        'No selectable text found. This looks like a scanned PDF; OCR needs a configured ' +
+          'Gemini provider, which is not available.',
+      );
+    }
+    const screenshots = await parser.getScreenshot();
+    const parts = screenshots.pages.map((page) => ({
+      mimeType: 'image/png',
+      base64: Buffer.from(page.data).toString('base64'),
+    }));
+    const text = await visionProvider.describeMedia(parts, OCR_PROMPT, new AbortController().signal);
+    return [{ num: null, text }];
   } catch (err) {
+    if (err instanceof ExtractionUnsupported) throw err;
     throw new ExtractionUnsupported(`This PDF could not be read: ${String(err)}`);
   } finally {
     await parser.destroy().catch(() => undefined);
   }
-  if (text.trim() === '') {
+}
+
+async function extractAudioVideo(
+  data: Buffer,
+  mimeType: string,
+  visionProvider?: Provider,
+): Promise<string> {
+  if (!visionProvider?.describeMedia) {
     throw new ExtractionUnsupported(
-      'No selectable text found. This looks like a scanned PDF; OCR is not configured.',
+      'Transcribing audio/video needs a configured Gemini provider, which is not available. ' +
+        'The file is stored but not indexed.',
     );
+  }
+  let text: string;
+  try {
+    text = await visionProvider.describeMedia(
+      [{ mimeType, base64: data.toString('base64') }],
+      'Transcribe this recording verbatim. If it is not speech, describe what it contains ' +
+        'instead. Output only the transcript or description, nothing else.',
+      new AbortController().signal,
+    );
+  } catch (err) {
+    throw new ExtractionUnsupported(`This file could not be transcribed: ${String(err)}`);
+  }
+  if (text.trim() === '') {
+    throw new ExtractionUnsupported('Transcription returned no text for this file.');
   }
   return text;
 }
 
-async function extractDocx(data: Buffer): Promise<string> {
+/**
+ * `.docx` and `.pptx` share a parser: officeParser renders both into an AST and can emit
+ * Markdown, which is what keeps a `.docx` table intact as pipe rows instead of the word soup
+ * `extractRawText`-style extraction produces when it drops cell boundaries.
+ */
+async function extractWithOfficeParser(data: Buffer, label: string): Promise<string> {
   let text: string;
   try {
-    const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ buffer: data });
-    text = result.value ?? '';
+    const { parseOffice } = await import('officeparser');
+    const ast = await parseOffice(data, { ocr: false });
+    text = (await ast.to('md')).value ?? '';
   } catch (err) {
-    throw new ExtractionUnsupported(`This Word file could not be read: ${String(err)}`);
+    throw new ExtractionUnsupported(`${label} could not be read: ${String(err)}`);
   }
   if (text.trim() === '') {
-    throw new ExtractionUnsupported('This Word file contains no extractable text.');
+    throw new ExtractionUnsupported(`${label} contains no extractable text.`);
+  }
+  return text;
+}
+
+/** Each worksheet becomes a pipe-delimited grid, one line per row, so cell adjacency survives. */
+async function extractXlsx(data: Buffer): Promise<string> {
+  let workbook: import('exceljs').Workbook;
+  try {
+    const ExcelJS = await import('exceljs');
+    workbook = new ExcelJS.Workbook();
+    // exceljs/index.d.ts shadows the global `Buffer` with its own local
+    // `interface Buffer extends ArrayBuffer {}`, which Node's real Buffer does not structurally
+    // satisfy (`.slice()` returns Uint8Array, not ArrayBuffer). That local type is not
+    // constructible from outside the module, so this is a real Buffer with a narrow, targeted
+    // `any` around a broken third-party ambient declaration, not a loosened contract of ours.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await workbook.xlsx.load(data as any);
+  } catch (err) {
+    throw new ExtractionUnsupported(`This spreadsheet could not be read: ${String(err)}`);
+  }
+
+  const sheets: string[] = [];
+  for (const sheet of workbook.worksheets) {
+    const rows: string[] = [];
+    sheet.eachRow({ includeEmpty: false }, (row) => {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cells.push(String(cell.text ?? '').trim());
+      });
+      if (cells.some((c) => c !== '')) rows.push(cells.join(' | '));
+    });
+    if (rows.length > 0) sheets.push(`--- ${sheet.name} ---\n${rows.join('\n')}`);
+  }
+
+  const text = sheets.join('\n\n');
+  if (text.trim() === '') {
+    throw new ExtractionUnsupported('This spreadsheet has no cells with data on any sheet.');
   }
   return text;
 }
@@ -163,6 +317,8 @@ export interface RetrievedChunk {
   ordinal: number;
   text: string;
   score: number;
+  /** 1-based source page, when known. Null means "not paginated", never 0. */
+  page: number | null;
 }
 
 export interface Retriever {
@@ -198,6 +354,7 @@ export class LexicalRetriever implements Retriever {
         fileId: fileChunks.projectFileId,
         ordinal: fileChunks.ordinal,
         text: fileChunks.text,
+        page: fileChunks.page,
         filename: projectFiles.filename,
       })
       .from(fileChunks)
@@ -211,6 +368,7 @@ export class LexicalRetriever implements Retriever {
         filename: r.filename,
         ordinal: r.ordinal,
         text: r.text,
+        page: r.page,
       })),
       terms,
       limit,
@@ -228,6 +386,7 @@ interface ScorableChunk {
   filename: string;
   ordinal: number;
   text: string;
+  page: number | null;
 }
 
 /** Exported separately so ranking can be tested without a database. */
@@ -288,7 +447,8 @@ export function formatContext(chunks: RetrievedChunk[], maxChars: number): strin
   const parts: string[] = [];
   let used = 0;
   for (const chunk of chunks) {
-    const block = `--- ${chunk.filename} (part ${chunk.ordinal + 1}) ---\n${chunk.text}`;
+    const location = chunk.page != null ? `p. ${chunk.page}` : `part ${chunk.ordinal + 1}`;
+    const block = `--- ${chunk.filename} (${location}) ---\n${chunk.text}`;
     if (used + block.length > maxChars) break;
     parts.push(block);
     used += block.length;
@@ -319,12 +479,13 @@ export async function indexFile(
   db: Database,
   file: { id: string; projectId: string; mimeType: string; filename: string },
   data: Buffer,
+  visionProvider?: Provider,
 ): Promise<IndexResult> {
   await db.delete(fileChunks).where(eq(fileChunks.projectFileId, file.id));
 
-  let text: string;
+  let pages: ExtractedPage[];
   try {
-    text = await extractText(data, file.mimeType, file.filename);
+    pages = await extractPages(data, file.mimeType, file.filename, visionProvider);
   } catch (err) {
     if (err instanceof ExtractionUnsupported) {
       return { chunkCount: 0, status: 'unsupported', error: err.message };
@@ -332,7 +493,16 @@ export async function indexFile(
     throw err;
   }
 
-  const pieces = chunkText(text);
+  // Chunked per page, so a chunk never straddles a page boundary and a citation can name one
+  // — the reason `extractPages` exists instead of a flat string. `ordinal` still counts across
+  // the whole file, because `uq_chunk_ordinal` is unique per file, not per page.
+  const rows: Array<{ text: string; page: number | null; charCount: number }> = [];
+  for (const page of pages) {
+    for (const piece of chunkText(page.text)) {
+      rows.push({ text: piece, page: page.num, charCount: piece.length });
+    }
+  }
+  const pieces = rows.slice(0, MAX_CHUNKS_PER_FILE);
   if (pieces.length === 0) {
     return {
       chunkCount: 0,
@@ -346,8 +516,9 @@ export async function indexFile(
       projectFileId: file.id,
       projectId: file.projectId,
       ordinal,
-      text: piece,
-      charCount: piece.length,
+      text: piece.text,
+      charCount: piece.charCount,
+      page: piece.page,
     })),
   );
 

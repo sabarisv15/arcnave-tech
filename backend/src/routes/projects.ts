@@ -565,6 +565,8 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
                 ordinal: z.number(),
                 text: z.string(),
                 score: z.number(),
+                /** 1-based source page, when the file is paginated (PDF). Null otherwise. */
+                page: z.number().nullable(),
               }),
             ),
           }),
@@ -781,11 +783,11 @@ async function runIndex(
   file: ProjectFileRow,
   data: Buffer,
 ): Promise<ProjectFileRow> {
-  const { db } = request.services;
+  const { db, visionProvider } = request.services;
   let patch: Partial<ProjectFileRow>;
 
   try {
-    const result = await indexFile(db, file, data);
+    const result = await indexFile(db, file, data, visionProvider);
     patch = {
       status: result.status,
       error: result.error,

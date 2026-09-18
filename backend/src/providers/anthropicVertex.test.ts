@@ -21,6 +21,7 @@ function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequ
     maxOutputTokens: 1024,
     providerModelId: 'claude-sonnet-5',
     grounded: false,
+    codeExecution: false,
     signal: new AbortController().signal,
     ...overrides,
   };

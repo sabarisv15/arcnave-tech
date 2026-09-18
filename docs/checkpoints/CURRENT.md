@@ -1,12 +1,21 @@
 # ArcNave — current checkpoint
 
-**Last updated:** 2026-09-17
+**Last updated:** 2026-09-18
 **Status:** backend API surface complete (38 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
 session persistence, and a real streamed chat answer all verified live (see
 [Production deployment](#production-deployment-2026-09-17)) — with a stated `SameSite=None`
-cookie trade-off and accepted cold-start latency, both flagged there for revisit.
+cookie trade-off, both flagged there for revisit. **2026-09-18: the database moved from Neon
+(`us-east-2`) to Cloud SQL in `asia-south1`** — same region as Cloud Run — specifically to kill
+the cross-region latency that accepted trade-off was about; see
+[Database migration](#database-migration-2026-09-18). Production data was not carried over
+(the prior Neon-backed accounts were test/throwaway; see that section for why).
+**2026-09-18: file-handling parity with Claude.ai/ChatGPT (ADR-0004), items 1-8, backend
+complete and tested** — spreadsheet/PowerPoint extraction, OCR, docx tables, audio/video
+transcription, page-level citations, Gemini code execution, deterministic Markdown-to-Office
+export — see [File-handling parity](#file-handling-parity-adr-0004--items-1-8-2026-09-18).
+**Item 9 (tool-use/agent framework) is explicitly deferred**, per the user's own instruction.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -103,6 +112,68 @@ test runs against `FakeProvider`, per the existing testing invariant.
    verification against real Vertex credentials (cannot be scripted — a human with
    `GOOGLE_CLOUD_PROJECT` configured has to actually attach a photo and confirm the model
    describes it); update this checkpoint with the live-verification results; push (see below).
+
+### File-handling parity (ADR-0004) — items 1-8, 2026-09-18
+
+A gap analysis against Claude.ai/ChatGPT (research-verified, not assumed — see
+[ADR-0004](../decisions/0004-file-handling-parity.md) for citations) found eight things
+ArcNave lacked. Built and verified in this session; a ninth gap (a general tool-use/agent
+framework) is explicitly deferred per the user's instruction — items 1-8 deliberately avoid
+building a one-off version of that framework to get there sooner.
+
+**Backend done, `tsc`/`vitest` green at every step (226/226 passing), `openapi.json`
+regenerated for the schema changes:**
+
+1. **Spreadsheet extraction** — `.xlsx` via `exceljs`, each sheet rendered as a pipe-delimited
+   text grid so BM25 can index cell values.
+2. **PowerPoint extraction** — `.pptx` via `officeparser`, previously unsupported entirely.
+3. **OCR for scanned PDFs** — `pdf-parse`'s own `getScreenshot()` rasterizes pages (no new
+   dependency); a new `Provider.describeMedia` capability (Gemini only) transcribes them.
+   Capability-gated like grounding: no configured Gemini provider means a typed
+   `ExtractionUnsupported`, never a silent skip.
+4. **`.docx` tables** — switched from `mammoth` (dropped as a dependency) to `officeparser`'s
+   Markdown output, which keeps table cells as pipe rows instead of flattening them to prose.
+5. **Audio/video** — native Gemini `inlineData` for message attachments (mirrors the existing
+   image/PDF vision path) plus a `describeMedia`-backed transcription branch for project-file
+   indexing. New MIME types in `ALLOWED` (backend) and the frontend's `allowed` regex.
+6. **Page-level citations** — `fileChunks` gained a nullable `page` column (migration
+   `0002_amazing_sir_ram.sql`); PDFs chunk per page instead of over flattened text, using
+   `pdf-parse`'s own per-page `TextResult.pages` (previously computed, previously discarded).
+   `formatContext` cites `(p. 4)` instead of `(part 3)` when a page number is known. OCR'd
+   (scanned) pages stay file-level citation only — one combined vision call per document, not
+   one per page, which would multiply cost.
+7. **Gemini code execution** — the SDK's built-in `code_execution` tool
+   (`ENABLE_GEMINI_CODE_EXECUTION`), wired the same way as `googleSearch` grounding already was.
+   **Confirmed Claude has no code-execution tool on Vertex** (only the direct Anthropic API and
+   Azure) — requesting it against a Claude-routed turn returns `capability_unavailable`,
+   matching the existing grounding-refusal pattern; Auto-routing does not override an explicit
+   model pin to satisfy it.
+8. **Generated file output** — `POST /artifacts/:id/export` deterministically parses an
+   artifact version's existing Markdown (tables, headings, bullet lists — no new prompting
+   contract, no dependence on either provider's sandbox) into `.xlsx` (`exceljs`), `.docx`
+   (`docx`), or `.pptx` (`pptxgenjs`), stores the bytes via the existing `ObjectStorage`
+   abstraction, and files it as a new binary `artifactVersions` row (migration
+   `0003_broken_ego.sql`: `format`/`storageKey`/`mimeType`/`sizeBytes` columns). An export never
+   moves `artifacts.currentVersion` — it is filed into history and downloadable at
+   `GET /artifacts/:id/versions/:version/download`, but the editor still shows the markdown
+   draft by default. Refuses with a typed `export_unsupported` when the source has nothing of
+   the shape the target needs (no table for a spreadsheet, no heading for slides).
+
+**New dependencies:** `exceljs`, `officeparser`, `docx` (runtime); `pdf-lib` (dev, test
+fixtures only). `pptxgenjs` was added but its own `export default` does not type-check under
+this project's `NodeNext` + `verbatimModuleSyntax` config (see `mistakes.md`, 2026-09-18) — its
+runtime value is pulled via `createRequire` typed against a small local interface everywhere
+it's used, not through a normal import. `mammoth` was dropped (superseded by `officeparser`).
+
+**Explicitly not done — frontend UI:** the composer's file-picker `accept` list and the
+frontend's own `allowed` extension regex were updated so the new file types can be chosen and
+pass client-side validation, and `tsc`/`vitest`/`vite build` are all verified clean on the
+frontend after those edits — but nothing renders a code-execution "ran code" block, an export
+button on an artifact, or a download affordance for a binary artifact version. The backend
+capability is real and tested end-to-end via the API; a human has not yet driven it through a
+browser. This is the same shape of gap the original multimodal-file-input plan's Task 7/8
+called out — a capability wired at the API layer with the UI surface as a separate, visible
+follow-up, not silently claimed as finished.
 
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`
@@ -271,6 +342,12 @@ passes.
   instance. Horizontal scaling needs shared signalling (Redis pub/sub) first.
 - Message transcripts still return `usage: null` by design; `GET /v1/usage/messages?chatId=`
   supplies it, and the conversation view calls that when it renders the per-message row.
+- **Migrations still run inside the container entrypoint on every cold start, not as a
+  separate deploy step.** Flagged as a "free improvement, not implemented" since 2026-09-17;
+  the 2026-09-18 Cloud SQL cutover hit the concrete failure mode this produces — several
+  instances cold-starting at once during a rollout raced the same non-idempotent migration and
+  some lost (see `mistakes.md`, 2026-09-18). Not user-visible that time because the schema was
+  already correct from whichever instance won, but it is not something to rely on again.
 
 ### Contract gaps the frontend rewiring exposed
 
@@ -338,7 +415,8 @@ Names only — **never commit values**. See `.env.example` (to be written).
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | Postgres connection string |
+| `DATABASE_URL` | Postgres connection string. When pointing at a Cloud SQL Unix socket, this still needs a syntactically valid placeholder hostname (e.g. `postgresql://user:pass@localhost/db`) — the real socket path goes in `DB_SOCKET_PATH`, never in `?host=`. See `mistakes.md`, 2026-09-18. |
+| `DB_SOCKET_PATH` | Optional. Cloud SQL instance connection name as a socket directory, e.g. `/cloudsql/<project>:<region>:<instance>`. Set in production as of 2026-09-18. Unset (Neon, or any TCP Postgres) means DATABASE_URL's own host is used untouched. |
 | `GOOGLE_CLOUD_PROJECT` | Set in production (`project-8bcf740a-a7bd-4aea-974`) as of 2026-09-17. |
 | `VERTEX_LOCATION` | Default `global`. Keep unless data residency demands otherwise. |
 | `GEMINI_LOCATION` | Optional override; Gemini 3.8 Flash is global-only |
@@ -358,11 +436,38 @@ Names only — **never commit values**. See `.env.example` (to be written).
 Credentials use Application Default Credentials (`gcloud auth application-default login`
 locally, workload identity on GCP). **No service-account key is ever committed or pasted.**
 
+## Database migration (2026-09-18)
+
+Moved production off Neon (`us-east-2`) onto Cloud SQL Postgres 16 (`arcnave-db`, same
+`asia-south1` region as Cloud Run) — the earlier "accepted cold-start latency" trade-off in the
+Production deployment section below was largely a cross-continent round trip on every DB query,
+not actually cold-start; a real login burst measured a ~1.1s floor on the simplest single-query
+endpoint and 30.6s on `/models` (a separate coercion bug, fixed alongside this). Full
+investigation and root causes are in `mistakes.md` (three 2026-09-18 entries).
+
+**Two prior deploy attempts at this same migration (revisions `00045`, `00046`) failed
+silently** — `postgres.js` doesn't support the `pg`-style `?host=` Unix-socket DSN, so both
+crash-looped and never went Ready; Cloud Run kept serving the old Neon-backed revision the
+whole time, so nothing looked broken from outside. Fixed by passing the socket path as the
+`host` option instead (`DB_SOCKET_PATH`), in both `db/client.ts` and `db/migrate.ts`
+independently — they build separate connections and the fix does not carry across.
+
+**Production data was not migrated.** The Cloud SQL database started empty; cutting over was a
+deliberate "start fresh" decision (the accounts on the Neon side were test/throwaway —
+`a@example.test`, `gcp-verify@example.test`, etc.) rather than a `pg_dump`/restore. The Neon
+data still exists, just orphaned — nothing pointed at it deleted anything.
+
+Current revision (`arcnave-sandbox-service-00049-52v` at time of writing) is Ready and serving
+100% of traffic; `GET /readyz` (checks the database) responds in ~0.2s versus the old ~1.1s+
+floor. `REGISTRATION_ENABLED=false` in production, so a fresh account has to be created by
+flipping that env var temporarily or applying it directly against Cloud SQL.
+
 ## Production deployment (2026-09-17)
 
 Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets only —
-no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres
-(pooled endpoint), GCP project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
+no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`) — **Postgres backend
+changed 2026-09-18, see above; the rest of this section is otherwise still accurate** — GCP
+project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
 **in a real browser, not just curl**: signup, login persists past the first request
 (cross-origin, `SameSite=None`), a real chat message gets a real streamed answer ("Hello, nice
 to meet you!" from Gemini 3.8 Flash), and all four model aliases report `available: true` from

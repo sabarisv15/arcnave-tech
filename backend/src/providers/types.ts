@@ -67,6 +67,7 @@ export type ProviderEvent =
   | { type: 'delta'; text: string }
   | { type: 'sources'; sources: ProviderSource[]; searchEntryPoint?: string }
   | { type: 'progress'; stage: Stage; label: string; detail: string }
+  | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
 /** An image or PDF, ready to hand a provider as a native content block. */
@@ -95,6 +96,8 @@ export interface GenerationRequest {
   /** Set by the service from the resolved registry entry. Never inferred by an adapter. */
   providerModelId: string;
   grounded: boolean;
+  /** Whether Gemini's `code_execution` tool is enabled for this turn. See ADR-0004, item 7. */
+  codeExecution: boolean;
   signal: AbortSignal;
 }
 
@@ -148,9 +151,22 @@ export class ModelNotFoundError extends ProviderError {
 export interface Provider {
   readonly name: string;
   supportsGrounding(): boolean;
+  /** Server-side code-execution sandbox. Optional: only Gemini has one on Vertex — see ADR-0004. */
+  supportsCodeExecution?(): boolean;
   stream(request: GenerationRequest): AsyncGenerator<ProviderEvent>;
   /** The cheapest possible real call. Throws ProviderError when the model is unusable. */
   probe(providerModelId: string, signal: AbortSignal): Promise<void>;
+  /**
+   * Ask the model to describe/transcribe binary content it can see natively — scanned PDF
+   * pages, audio, video. Optional: only a vision/multimodal-capable provider implements this.
+   * Callers (retrieval's OCR and audio/video extraction) must treat a missing implementation
+   * as `capability_unavailable`, never silently skip the content it would have covered.
+   */
+  describeMedia?(
+    parts: AttachmentBlock[],
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string>;
 }
 
 /** True when an error is an abort rather than a genuine failure. */

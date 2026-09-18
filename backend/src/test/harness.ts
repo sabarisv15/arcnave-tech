@@ -27,6 +27,7 @@ import type { Database } from '../db/client.js';
 import { setDb } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import type {
+  AttachmentBlock,
   GenerationRequest,
   Provider,
   ProviderEvent,
@@ -67,15 +68,29 @@ export class FakeProvider implements Provider {
 
   gapMs = 0;
   grounding = true;
+  codeExecutionSupported = false;
   /** Set to make `stream` throw before emitting anything. */
   streamError: Error | null = null;
   /** Set to make `probe` throw, which the registry reports as `probe_failed`. */
   probeError: Error | null = null;
   /** Every request this provider was asked to serve, for asserting on what was sent. */
   readonly seen: GenerationRequest[] = [];
+  /** What `describeMedia` (OCR / audio-video transcription) returns. Empty means unsupported. */
+  mediaDescription = 'The fake provider read this content.';
+  /** Every `describeMedia` call this provider was asked to serve. */
+  readonly mediaSeen: Array<{ parts: AttachmentBlock[]; prompt: string }> = [];
 
   supportsGrounding(): boolean {
     return this.grounding;
+  }
+
+  supportsCodeExecution(): boolean {
+    return this.codeExecutionSupported;
+  }
+
+  async describeMedia(parts: AttachmentBlock[], prompt: string): Promise<string> {
+    this.mediaSeen.push({ parts, prompt });
+    return this.mediaDescription;
   }
 
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {

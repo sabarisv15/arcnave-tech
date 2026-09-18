@@ -28,6 +28,7 @@ afterEach(() => {
   ctx.provider.streamError = null;
   ctx.provider.probeError = null;
   ctx.provider.grounding = true;
+  ctx.provider.codeExecutionSupported = false;
 });
 
 afterAll(async () => {
@@ -181,6 +182,51 @@ describe('streaming generation', () => {
     const lastRequest = ctx.provider.seen.at(-1)!;
     expect(lastRequest.prompt).toBe('second question');
     expect(lastRequest.history.map((t) => t.text)).toContain('first question');
+  });
+});
+
+/* -------------------------------------------------------------------------- code execution */
+
+describe('code execution', () => {
+  it('refuses when the resolved provider has no code-execution tool, rather than silently skipping it', async () => {
+    ctx.provider.codeExecutionSupported = false;
+    const chatId = await newChat();
+    const frames = parseSse((await generate(chatId, { codeExecution: true })).body);
+
+    // The response is already committed as 200 text/event-stream by the time this is thrown.
+    expect(frames.at(-1)).toMatchObject({
+      event: 'error',
+      data: { code: 'capability_unavailable' },
+    });
+  });
+
+  it('passes the flag to the provider and forwards its code events as SSE frames', async () => {
+    ctx.provider.codeExecutionSupported = true;
+    ctx.provider.script = [
+      { type: 'code', code: 'print(2 + 2)', output: '4' },
+      { type: 'delta', text: 'The answer is 4.' },
+      {
+        type: 'completed',
+        usage: { inputTokens: 5, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true },
+        finishReason: 'stop',
+      },
+    ];
+    const chatId = await newChat();
+    const frames = parseSse((await generate(chatId, { codeExecution: true })).body);
+
+    expect(frames.find((f) => f.event === 'code')?.data).toMatchObject({
+      code: 'print(2 + 2)',
+      output: '4',
+    });
+    expect(ctx.provider.seen.at(-1)!.codeExecution).toBe(true);
+  });
+
+  it('never enables it unasked, even when the provider supports it', async () => {
+    ctx.provider.codeExecutionSupported = true;
+    const chatId = await newChat();
+    await generate(chatId);
+
+    expect(ctx.provider.seen.at(-1)!.codeExecution).toBe(false);
   });
 });
 

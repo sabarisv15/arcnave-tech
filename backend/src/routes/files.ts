@@ -61,7 +61,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, cfg, storage } = request.services;
+      const { db, cfg, storage, visionProvider } = request.services;
 
       const part = await request.file();
       if (!part) {
@@ -81,7 +81,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       let status = 'ready';
       let error = '';
       try {
-        const text = await extractText(data, check.mimeType, part.filename);
+        const text = await extractText(data, check.mimeType, part.filename, visionProvider);
         extractedText = text.slice(0, MAX_EXTRACTED_CHARS);
         if (text.length > MAX_EXTRACTED_CHARS) {
           error =

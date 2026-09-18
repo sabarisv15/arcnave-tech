@@ -11,7 +11,13 @@ import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import type { GeminiGroundingMetadata } from './grounding.js';
 import { sourcesFromGeminiMetadata } from './grounding.js';
-import type { GenerationRequest, Provider, ProviderEvent, ProviderUsage } from './types.js';
+import type {
+  AttachmentBlock,
+  GenerationRequest,
+  Provider,
+  ProviderEvent,
+  ProviderUsage,
+} from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 
 const log = logger.child({ module: 'provider:gemini' });
@@ -89,6 +95,53 @@ export class GeminiProvider implements Provider {
     return this.cfg.ENABLE_GOOGLE_SEARCH_GROUNDING;
   }
 
+  supportsCodeExecution(): boolean {
+    return this.cfg.ENABLE_GEMINI_CODE_EXECUTION;
+  }
+
+  /**
+   * A single, non-streaming call used for OCR (scanned PDF pages rendered as images) and
+   * audio/video transcription during project-file indexing — not the chat streaming path.
+   */
+  async describeMedia(
+    parts: AttachmentBlock[],
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    if (!this.cfg.MODEL_GEMINI_FLASH) {
+      throw new ProviderError('MODEL_GEMINI_FLASH is not configured', {
+        code: 'model_unavailable',
+      });
+    }
+    try {
+      const response = await this.getClient().models.generateContent({
+        model: this.cfg.MODEL_GEMINI_FLASH,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              ...parts.map((p) => ({ inlineData: { mimeType: p.mimeType, data: p.base64 } })),
+              { text: prompt },
+            ],
+          },
+        ],
+        config: {
+          abortSignal: signal,
+          httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS },
+        },
+      });
+      return response.text ?? '';
+    } catch (err) {
+      if (isAbort(err) || signal.aborted) throw err;
+      if (isNotFound(err)) {
+        throw new ModelNotFoundError(this.cfg.MODEL_GEMINI_FLASH, this.cfg.geminiLocation);
+      }
+      throw new ProviderError(`Gemini media description failed: ${String(err)}`, {
+        retryable: isRetryable(err),
+      });
+    }
+  }
+
   /** Lazy: the app must boot without credentials so unconfigured aliases report cleanly. */
   private getClient(): GoogleGenAI {
     if (!this.client) {
@@ -106,6 +159,7 @@ export class GeminiProvider implements Provider {
 
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     const grounded = request.grounded && this.supportsGrounding();
+    const codeExecution = request.codeExecution && this.supportsCodeExecution();
 
     if (grounded) {
       yield {
@@ -128,7 +182,14 @@ export class GeminiProvider implements Provider {
         config: {
           ...(request.systemInstruction ? { systemInstruction: request.systemInstruction } : {}),
           maxOutputTokens: request.maxOutputTokens,
-          ...(grounded ? { tools: [{ googleSearch: {} }] } : {}),
+          ...(grounded || codeExecution
+            ? {
+                tools: [
+                  ...(grounded ? [{ googleSearch: {} }] : []),
+                  ...(codeExecution ? [{ codeExecution: {} }] : []),
+                ],
+              }
+            : {}),
           // The SDK aborts the underlying HTTP request on this signal, which is what makes
           // client cancellation actually stop provider work rather than just stop reading it.
           abortSignal: request.signal,
@@ -143,6 +204,14 @@ export class GeminiProvider implements Provider {
         if (text) {
           accumulated.push(text);
           yield { type: 'delta', text };
+        }
+
+        if (codeExecution && (chunk.executableCode || chunk.codeExecutionResult)) {
+          yield {
+            type: 'code',
+            ...(chunk.executableCode ? { code: chunk.executableCode } : {}),
+            ...(chunk.codeExecutionResult ? { output: chunk.codeExecutionResult } : {}),
+          };
         }
 
         const chunkUsage = usageFrom(chunk.usageMetadata);

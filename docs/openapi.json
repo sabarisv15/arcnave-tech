@@ -435,8 +435,12 @@
         "parameters": [
           {
             "schema": {
-              "default": true,
-              "type": "boolean"
+              "default": "true",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
             },
             "in": "query",
             "name": "probe",
@@ -1352,6 +1356,10 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "codeExecution": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -2594,6 +2602,10 @@
                           },
                           "score": {
                             "type": "number"
+                          },
+                          "page": {
+                            "nullable": true,
+                            "type": "number"
                           }
                         },
                         "required": [
@@ -2602,7 +2614,8 @@
                           "filename",
                           "ordinal",
                           "text",
-                          "score"
+                          "score",
+                          "page"
                         ],
                         "additionalProperties": false
                       }
@@ -3522,12 +3535,16 @@
                           },
                           "charCount": {
                             "type": "number"
+                          },
+                          "format": {
+                            "type": "string"
                           }
                         },
                         "required": [
                           "version",
                           "createdAt",
-                          "charCount"
+                          "charCount",
+                          "format"
                         ],
                         "additionalProperties": false
                       }
@@ -3648,6 +3665,128 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/artifacts/{id}/export": {
+      "post": {
+        "summary": "Export a markdown version as a real .xlsx/.docx/.pptx file",
+        "tags": [
+          "artifacts"
+        ],
+        "description": "Deterministic: parses the tables, headings, and bullet lists already in the source version's Markdown — it does not ask a model to produce anything new. See ADR-0004, item 8. Filed into history as a new binary version, downloadable at GET /artifacts/:id/versions/:version/download — it never becomes the artifact’s current (editable) version, which stays on the markdown draft it was derived from.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "xlsx",
+                      "docx",
+                      "pptx"
+                    ]
+                  },
+                  "fromVersion": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "format"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number"
+                    },
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "xlsx",
+                        "docx",
+                        "pptx"
+                      ]
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "format",
+                    "sizeBytes",
+                    "filename"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/artifacts/{id}/versions/{version}/download": {
+      "get": {
+        "summary": "Download the bytes of a binary (exported) version",
+        "tags": [
+          "artifacts"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "version",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

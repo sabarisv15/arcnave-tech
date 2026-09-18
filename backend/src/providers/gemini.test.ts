@@ -21,6 +21,7 @@ function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequ
     maxOutputTokens: 1024,
     providerModelId: 'gemini-3.8-flash',
     grounded: false,
+    codeExecution: false,
     signal: new AbortController().signal,
     ...overrides,
   };
