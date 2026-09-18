@@ -514,6 +514,22 @@ failure mode of this pattern, not a sign it is working.
   `SANDBOX_SHARED_SECRET`, and the Neon `DATABASE_URL` password) was told to the user but not
   confirmed done. Next session should check whether these were rotated before trusting them.
 
+### 2026-09-18 — `gcloud sql instances create` rejected `db-custom-*` with an edition error
+
+- **Symptom:** `gcloud sql instances create arcnave-db --tier=db-custom-1-3840 ...` failed:
+  `Invalid Tier (db-custom-1-3840) for (ENTERPRISE_PLUS) Edition. Use a predefined Tier like
+  db-perf-optimized-N-* instead.`
+- **Cause:** This project's Cloud SQL instances default to the `ENTERPRISE_PLUS` edition when no
+  edition is specified, and that edition only accepts `db-perf-optimized-N-*` tiers — the
+  classic `db-custom-*`/`db-f1-micro`/`db-g1-small` tiers this project's docs and most public
+  Cloud SQL examples assume belong to the plain `ENTERPRISE` edition.
+- **Rule:** **Always pass `--edition=ENTERPRISE` explicitly when creating a Cloud SQL instance in
+  this project**, unless Enterprise Plus's extra features (near-zero-downtime failover, data
+  cache) are specifically wanted — in which case use a `db-perf-optimized-N-*` tier instead of
+  guessing at a `db-custom-*` one.
+- **Verify:** `gcloud sql instances describe <name> --format="value(settings.edition)"` reports
+  `ENTERPRISE`, not `ENTERPRISE_PLUS`, for a cost-sized testing instance.
+
 ---
 
 ## Convention and sources
@@ -587,3 +603,9 @@ practice, not canon.
   ...env` dump to build the redeploy file put live secrets (DB password, cookie secret, sandbox
   shared secret) into the chat transcript — rotation was requested but not yet confirmed.
   **26 entries, 14 to the cap.**
+- **2026-09-18** — Moved production Postgres off Neon onto Cloud SQL (clean cut, no data
+  migrated — agreed acceptable, still testing). One new entry: this project's Cloud SQL
+  instances default to `ENTERPRISE_PLUS` edition, which rejects the `db-custom-*` tier most
+  docs assume; `--edition=ENTERPRISE` fixes it. The password for the new instance was set
+  directly in the env-vars file by the user rather than relayed through chat, applying the
+  lesson from the entry right above it. **27 entries, 13 to the cap.**

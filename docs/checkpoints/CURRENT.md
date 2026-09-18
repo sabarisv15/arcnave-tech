@@ -399,8 +399,10 @@ locally, workload identity on GCP). **No service-account key is ever committed o
 ## Production deployment (2026-09-17)
 
 Live at [www.arcnave.tech](https://www.arcnave.tech) (Cloudflare Worker, static assets only —
-no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`), Neon Postgres
-(pooled endpoint), GCP project `project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
+no `/v1` proxy) and `arcnave-sandbox-service` on Cloud Run (`asia-south1`), Cloud SQL for
+PostgreSQL (`arcnave-db`, `asia-south1`, moved off Neon 2026-09-18 — see
+[Postgres moved to Cloud SQL](#postgres-moved-to-cloud-sql-2026-09-18)), GCP project
+`project-8bcf740a-a7bd-4aea-974`. Confirmed working end to end
 **in a real browser, not just curl**: signup, login persists past the first request
 (cross-origin, `SameSite=None`), a real chat message gets a real streamed answer ("Hello, nice
 to meet you!" from Gemini 3.8 Flash), and all four model aliases report `available: true` from
@@ -454,6 +456,36 @@ verification command for each is in `mistakes.md`; summary:
    on this list actually confirmed working via a real browser session, not just curl** — a
    distinction worth preserving: everything else above was verified against the API directly,
    which is necessary but was not sufficient to catch this one.
+
+### Postgres moved to Cloud SQL (2026-09-18)
+
+Moved production off Neon onto Cloud SQL for PostgreSQL, both to bring the last non-GCP piece
+of infrastructure in-house and to unblock the `--add-cloudsql-instances` unix-socket connection
+path (no VPC connector, so the 2026-09-17 VPC/NAT outage trap does not apply here). Run by a
+human from Cloud Shell — this session still has no `gcloud`/credentials.
+
+- Instance `arcnave-db` (`asia-south1`, `POSTGRES_16`, `--edition=ENTERPRISE
+  --tier=db-g1-small` — the project defaults new Cloud SQL instances to Enterprise Plus, which
+  rejects `db-custom-*` tiers; Enterprise accepts them), database `arcnave`, `postgres` user
+  password set directly in `env-vars.yaml` by the user rather than pasted into chat (see the
+  2026-09-18 secrets-in-chat entry in `mistakes.md` — this time done right).
+- Cloud Run runtime SA (`756927892291-compute@developer.gserviceaccount.com`) granted
+  `roles/cloudsql.client` at the project level.
+- `DATABASE_URL` repointed to the unix-socket form `postgresql://postgres:<pw>@/arcnave?host=/cloudsql/project-8bcf740a-a7bd-4aea-974:asia-south1:arcnave-db`,
+  redeployed together with `--add-cloudsql-instances=project-8bcf740a-a7bd-4aea-974:asia-south1:arcnave-db`
+  in the same `gcloud run services update`.
+- **This was a deliberate clean cut, not a migration** — no `pg_dump`/`pg_restore` was run.
+  Explicitly agreed acceptable because the project is still in testing (the only rows were the
+  throwaway accounts noted in this checkpoint's earlier sessions). `postgres.js`'s existing
+  `prepare: false` (see the Neon pooled-endpoint entry in `mistakes.md`) is not required for
+  Cloud SQL's connector but is harmless left on.
+- Verified via `GET /readyz` → `{"status":"ready","checks":{"database":true,...}}` against the
+  new instance — the Dockerfile's startup migration step (`node dist/db/migrate.js || true`)
+  ran automatically on the redeploy and created all 17 tables with no manual migration command.
+- **Not yet verified:** an actual signup/login/chat pass against the new database in a real
+  browser (only `/readyz` has been checked so far). Do that before trusting this fully.
+- Neon is no longer referenced by the live service; the account can be deleted once this is
+  confirmed stable, but nothing here has deleted it yet.
 
 ## Blocked on the user
 
