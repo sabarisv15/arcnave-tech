@@ -5,6 +5,7 @@
  * states are "uploaded but unclaimed" and "claimed by a sent message" — the first is garbage
  * to collect, the second must not be deletable.
  */
+import { Workbook } from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 
@@ -71,6 +72,20 @@ describe('upload and extraction', () => {
   it('marks a plain text file as not viewable', async () => {
     const { body } = await upload('notes.txt', 'the budget is due friday');
     expect(body).toMatchObject({ viewable: false, hasText: true });
+  });
+
+  it('accepts and extracts a real .xlsx workbook even when the browser sends octet-stream', async () => {
+    // The most common real-world case: many browsers don't have the Office Open XML MIME type
+    // registered and send application/octet-stream instead, indistinguishable at that point
+    // from any other unknown binary — only the .xlsx extension says what this actually is.
+    const workbook = new Workbook();
+    workbook.addWorksheet('Sheet1').addRow(['Widgets', 42]);
+    const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const { statusCode, body } = await upload('report.xlsx', xlsx, 'application/octet-stream');
+
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ status: 'ready', hasText: true, viewable: false });
   });
 
   it('refuses a file type the workspace does not accept', async () => {

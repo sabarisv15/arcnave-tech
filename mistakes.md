@@ -452,6 +452,37 @@ failure mode of this pattern, not a sign it is working.
   with no re-attachment, confirm both turns succeed regardless of which Cloud Run instance
   serves each request.
 
+### 2026-09-18 — `.xlsx` uploads failed with "unsupported media type"
+
+- **Symptom:** Live user report: uploading a spreadsheet (`.xlsx`) failed outright at upload
+  time, not silently — a real `415` from `POST /files` (and the same route logic under
+  `POST /projects/:id/files`).
+- **Cause:** Two separate gaps, both pre-existing (neither introduced this session):
+  1. `checkUpload` only accepted `.xlsx` when the browser's claimed MIME type matched the exact
+     canonical string (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
+     Many real browsers — reliably on Linux, inconsistently elsewhere — have no Office MIME type
+     registered at the OS level and send `application/octet-stream` or an empty type instead,
+     which is exactly the case `TEXTUAL_EXTENSIONS`' fallback already existed to handle, but
+     only for code/text files. `.xlsx` and `.docx` had no equivalent fallback.
+  2. Even had upload succeeded, `extractText()` had no branch for spreadsheets at all —
+     `mammoth` (docx) and `pdf-parse` (pdf) were wired in, nothing was for `.xlsx`. It would
+     have stored the file but thrown `ExtractionUnsupported` on every attempt to read it.
+  Neither gap was caught by the existing suite because nothing in it ever exercised a real
+  `.xlsx` byte stream — `checkUpload`'s tests covered the MIME/extension logic in the abstract,
+  and no test called `extractText` with real spreadsheet bytes.
+- **Rule:** **A file type "supported" in the upload allow-list is not supported until something
+  can also extract its text.** Adding a MIME type to `ALLOWED` without a matching `extractText`
+  branch is a promise the upload accepts that the rest of the system cannot keep — the same
+  "traced to its consumer" principle `CLAUDE.md` already states for enums applies here.
+  **And a MIME-fallback list needs every extension the ALLOWED table promises to accept**, not
+  only the ones covered when it was first written.
+- **Verify:** `src/services/storage.test.ts` (`checkUpload` accepts `.xlsx` via octet-stream,
+  empty claim, and the canonical type; rejects an active `text/*` claim on it) and
+  `src/services/retrieval.test.ts` (`extractText` round-trips a real workbook built with
+  `exceljs`, labels multiple sheets, rejects an empty one) plus one full-stack
+  `files.integration.test.ts` case uploading a real `.xlsx` buffer as `octet-stream` through
+  `POST /files` end to end.
+
 ---
 
 ## Convention and sources
@@ -510,3 +541,12 @@ practice, not canon.
   trip before clearing local state, so the UI sat frozen long enough to look broken. Found by
   reproducing in a real browser session against production, not by reading the code first.
   **22 entries, 18 to the cap.**
+- **2026-09-18** — Two more: `docker start arcnave-pg` doesn't work in a Claude Code web/cloud
+  sandbox (no Docker daemon; the native `postgresql-16` cluster is there instead), and a live
+  production report — attaching an image returned "not found" for every model because
+  `STORAGE_BACKEND=local` doesn't survive Cloud Run routing the upload and the later generate
+  request to different instances. **24 entries, 16 to the cap.**
+- **2026-09-18** — One more from a live user report: `.xlsx` uploads failed outright, from two
+  compounding pre-existing gaps — no MIME fallback for browsers that send `octet-stream` for
+  spreadsheets, and no text extractor for spreadsheets at all even when upload succeeded.
+  **25 entries, 15 to the cap.**

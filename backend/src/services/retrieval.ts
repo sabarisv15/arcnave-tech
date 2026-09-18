@@ -37,6 +37,7 @@ export async function extractText(
 
   if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) return extractPdf(data);
   if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) return extractDocx(data);
+  if (lower.endsWith('.xlsx') || mimeType.includes('spreadsheetml')) return extractXlsx(data);
   if (mimeType.startsWith('text/') || TEXT_MIMES.has(mimeType)) {
     return data.toString('utf8');
   }
@@ -91,6 +92,35 @@ async function extractDocx(data: Buffer): Promise<string> {
   }
   if (text.trim() === '') {
     throw new ExtractionUnsupported('This Word file contains no extractable text.');
+  }
+  return text;
+}
+
+async function extractXlsx(data: Buffer): Promise<string> {
+  let text: string;
+  try {
+    const { Workbook } = await import('exceljs');
+    const workbook = new Workbook();
+    // exceljs@4's bundled .d.ts declares its own `Buffer` param type that no longer structurally
+    // matches @types/node's, regardless of which Buffer variant is passed — a known upstream
+    // type-declaration bug (the runtime value is a plain, real Node Buffer either way).
+    await workbook.xlsx.load(data as never);
+    const sheets: string[] = [];
+    workbook.eachSheet((sheet) => {
+      const rows: string[] = [];
+      sheet.eachRow({ includeEmpty: false }, (row) => {
+        const cells: string[] = [];
+        row.eachCell({ includeEmpty: false }, (cell) => cells.push(cell.text));
+        if (cells.some((c) => c.trim() !== '')) rows.push(cells.join('\t'));
+      });
+      if (rows.length > 0) sheets.push(`--- ${sheet.name} ---\n${rows.join('\n')}`);
+    });
+    text = sheets.join('\n\n');
+  } catch (err) {
+    throw new ExtractionUnsupported(`This spreadsheet could not be read: ${String(err)}`);
+  }
+  if (text.trim() === '') {
+    throw new ExtractionUnsupported('This spreadsheet contains no readable cells.');
   }
   return text;
 }

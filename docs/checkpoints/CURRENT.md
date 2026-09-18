@@ -63,6 +63,29 @@ adapter aborts the real HTTP request.
 
 ## Completed work
 
+### `.xlsx` upload and extraction fixed — 2026-09-18
+Live user report: spreadsheet uploads failed outright (`415 unsupported_media_type`). Two
+compounding pre-existing gaps, neither new: `checkUpload` only accepted `.xlsx` when the
+browser sent the exact canonical Office Open XML MIME type — real browsers (reliably on Linux)
+commonly send `application/octet-stream` instead, and `.xlsx`/`.docx` had no extension-based
+fallback the way code/text files already did. Separately, `extractText()` had no branch for
+spreadsheets at all — `mammoth` and `pdf-parse` were wired in, nothing was for `.xlsx`, so even
+a successful upload would have thrown `ExtractionUnsupported` on every read.
+
+Fixed: `OFFICE_EXTENSIONS` fallback in `storage.ts` (accepts `.xlsx`/`.docx` via
+octet-stream/empty claim, never via an active `text/*` claim); `extractXlsx()` in
+`retrieval.ts` using `exceljs` (new dependency — `xlsx`/SheetJS's npm-published build carries
+unpatched CVEs, `exceljs` doesn't), reading every sheet's cells via `cell.text` (handles
+formulas/dates/rich text already) into tab-separated rows, one section per sheet.
+`npm audit` now also flags a moderate `uuid` advisory via `exceljs`'s and `gaxios`'s
+transitive dependency — the advisory needs a caller-supplied `buf` argument neither uses
+internally; accepted alongside the existing documented drizzle-kit/esbuild moderate findings.
+
+Covered by `storage.test.ts` (4 new `checkUpload` cases), `retrieval.test.ts` (4 new
+`extractText` cases building a real workbook with `exceljs` itself, round-tripped), and one
+`files.integration.test.ts` case uploading a real `.xlsx` buffer as `octet-stream` through
+`POST /files` end to end. Full detail in `mistakes.md`, 2026-09-18.
+
 ### Native multimodal file input — code complete, 2026-09-17; live verification still pending
 Let Claude and Gemini (not `gpt-oss-120b`, which has no vision) actually see images and
 scanned PDFs attached to a message, instead of the current text-extraction-only path.

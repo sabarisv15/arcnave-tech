@@ -95,6 +95,34 @@ describe('checkUpload', () => {
   it('ignores charset parameters on the content type', () => {
     expect(checkUpload('a.csv', 'text/csv; charset=utf-8', 100, cfg).ok).toBe(true);
   });
+
+  it('accepts a .xlsx upload when the browser sends the canonical MIME type', () => {
+    const result = checkUpload(
+      'report.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      100,
+      cfg,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('falls back to the extension for a .xlsx upload the browser sent as octet-stream', () => {
+    const result = checkUpload('report.xlsx', 'application/octet-stream', 100, cfg);
+    expect(result.ok).toBe(true);
+    expect(result.mimeType).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+  });
+
+  it('falls back to the extension for a .xlsx upload with no claimed type at all', () => {
+    expect(checkUpload('report.xlsx', '', 100, cfg).ok).toBe(true);
+  });
+
+  it('does not extension-fallback a .xlsx upload the browser actively claims is text', () => {
+    // Unlike octet-stream (a browser being vague), an active text/* claim on a binary office
+    // format means the browser is very likely wrong about the file itself, not just its type.
+    expect(checkUpload('report.xlsx', 'text/plain', 100, cfg).ok).toBe(false);
+  });
 });
 
 describe('LocalObjectStorage', () => {

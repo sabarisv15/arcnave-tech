@@ -5,9 +5,10 @@
  * `LexicalRetriever` precisely so ranking behaviour is pinned down here and cannot drift when
  * the storage side changes.
  */
+import { Workbook } from 'exceljs';
 import { describe, expect, it } from 'vitest';
 
-import { chunkText, formatContext, rankBm25, tokenize } from './retrieval.js';
+import { chunkText, ExtractionUnsupported, extractText, formatContext, rankBm25, tokenize } from './retrieval.js';
 
 describe('tokenize', () => {
   it('lowercases, drops stopwords, and drops single characters', () => {
@@ -107,5 +108,48 @@ describe('formatContext', () => {
 
   it('is empty rather than misleading when even one chunk will not fit', () => {
     expect(formatContext([chunk], 10)).toBe('');
+  });
+});
+
+describe('extractText (.xlsx)', () => {
+  async function buildXlsx(rows: (string | number)[][]): Promise<Buffer> {
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet('Sheet1');
+    for (const row of rows) sheet.addRow(row);
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  it('extracts cell text, tab-separated, from a real workbook', async () => {
+    const data = await buildXlsx([
+      ['Name', 'Amount'],
+      ['Widgets', 42],
+    ]);
+    const text = await extractText(data, mime, 'report.xlsx');
+    expect(text).toContain('Name\tAmount');
+    expect(text).toContain('Widgets\t42');
+  });
+
+  it('labels each sheet by name, for a workbook with more than one', async () => {
+    const workbook = new Workbook();
+    workbook.addWorksheet('Revenue').addRow(['Q1', 100]);
+    workbook.addWorksheet('Costs').addRow(['Q1', 40]);
+    const data = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const text = await extractText(data, mime, 'budget.xlsx');
+    expect(text).toContain('--- Revenue ---');
+    expect(text).toContain('--- Costs ---');
+  });
+
+  it('rejects a workbook with no readable cells', async () => {
+    const data = await buildXlsx([]);
+    await expect(extractText(data, mime, 'empty.xlsx')).rejects.toThrow(ExtractionUnsupported);
+  });
+
+  it('is recognised by filename extension even without the canonical MIME type', async () => {
+    const data = await buildXlsx([['x']]);
+    const text = await extractText(data, 'application/octet-stream', 'report.xlsx');
+    expect(text).toContain('x');
   });
 });
