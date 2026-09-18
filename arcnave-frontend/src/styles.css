@@ -1,10 +1,41 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&display=swap");
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cc27851ad-DDVos-BJ.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  font-feature-settings: "dlig" 0;
+}
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c9d3a3a49-CJtkx3-S.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+  font-feature-settings: "dlig" 0;
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c66fc489e-2VcCjn5t.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cc410af59-Dcb-9NUS.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+}
 :root {
   font-family:
-    "DM Sans",
-    -apple-system,
-    BlinkMacSystemFont,
+    "Anthropic Sans",
+    system-ui,
     "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
     sans-serif;
   color: #282b30;
   background: #fafaf8;
@@ -162,7 +193,7 @@ p {
   margin: 0 8px 24px;
 }
 .brand {
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-size: 34px;
   letter-spacing: -1.7px;
   line-height: 1;
@@ -304,7 +335,7 @@ p {
   margin: 22px 0 13px;
 }
 .home h1 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-weight: 400;
   font-size: 42px;
   line-height: 1.2;
@@ -1296,7 +1327,7 @@ textarea {
   margin: 0 0 11px;
 }
 .markdown h1 {
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-size: 34px;
   font-weight: 400;
   line-height: 1.25;
@@ -1418,7 +1449,7 @@ textarea {
   top: -2px;
   justify-content: center;
   align-items: center;
-  font-family: "DM Sans", sans-serif;
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", sans-serif;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 10px;
@@ -1500,7 +1531,7 @@ textarea {
   border: 2px solid var(--surface);
   border-radius: 50%;
   font-style: normal;
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-size: 11px;
   background: #e4ebe3;
   color: #526653;
@@ -1730,7 +1761,7 @@ textarea {
   margin-bottom: 12px;
 }
 .page-heading h1 {
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-size: 37px;
   font-weight: 400;
   line-height: 1.25;
@@ -2082,7 +2113,7 @@ textarea {
   margin-bottom: 20px;
 }
 .artifact-card-preview h3 {
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-weight: 400;
   font-size: 24px;
   line-height: 1.3;
@@ -2342,7 +2373,7 @@ textarea {
   margin-bottom: 16px;
 }
 .research-callout h3 {
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-size: 24px;
   font-weight: 400;
   letter-spacing: -0.4px;
@@ -2995,12 +3026,12 @@ textarea {
   color: #bad1e0;
 }
 [data-font="serif"] .assistant-message > .markdown {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-size: 18px;
   line-height: 1.8;
 }
 [data-font="serif"] .assistant-message .markdown h2 {
-  font-family: Georgia, serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-weight: 600;
 }
 /* Claude-style conversation typography: chat content stays sans-serif even if an older
@@ -3009,7 +3040,7 @@ textarea {
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 [data-motion="reduced"] *,
 [data-motion="reduced"] *::before,
@@ -3755,7 +3786,7 @@ textarea {
 
 /* Claude-inspired workspace pass: quiet sans UI and editorial type only for display moments. */
 :root {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 body,
@@ -3768,7 +3799,7 @@ select,
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 .brand,
@@ -3776,7 +3807,21 @@ select,
 .auth-brand,
 .auth-headline h1,
 .auth-art-copy h2 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+}
+
+.brand {
+  font-weight: 500;
+}
+
+.home h1 {
+  font-weight: 330;
+}
+
+.page-heading h1,
+.auth-headline h1,
+.auth-art-copy h2 {
+  font-weight: 580;
 }
 
 .markdown code,
@@ -3791,9 +3836,8 @@ strong,
 .markdown strong,
 .answer-byline,
 .conversation-title,
-.page-heading h1,
 .menu-item[data-highlighted] > span {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .nav-item.active,
@@ -3899,22 +3943,22 @@ strong,
 }
 
 .markdown h1 {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 30px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 10px 0 16px;
 }
 
 .markdown h2 {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 19px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 14px 0 6px;
 }
 
 .markdown h3 {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 12px 0 6px;
 }
 
