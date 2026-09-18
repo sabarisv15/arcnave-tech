@@ -8,16 +8,19 @@ import {
   Download,
   Ellipsis,
   FolderClosed,
+  FolderKanban,
   FolderInput,
   GitBranch,
   Loader2,
   LogOut,
   MessageCircleMore,
+  MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelsTopLeft,
+  LibraryBig,
   Pin,
   Plus,
+  SquarePen,
   Search,
   Settings,
   Trash2,
@@ -220,8 +223,8 @@ export default function Sidebar({
   const location = useLocation(),
     navigate = useNavigate();
   const nav = [
-    { label: "Projects", icon: FolderClosed, to: "/projects" },
-    { label: "Artifacts", icon: PanelsTopLeft, to: "/artifacts" },
+    { label: "Projects", icon: FolderKanban, to: "/projects" },
+    { label: "Artifacts", icon: LibraryBig, to: "/artifacts" },
   ];
   // The server already orders by pinned then recency; this keeps that order stable if the
   // list is refreshed mid-render.
@@ -277,7 +280,7 @@ export default function Sidebar({
             aria-label="New chat"
             onClick={() => go("/")}
           >
-            <Plus size={18} />
+            <SquarePen size={18} />
             <span>New chat</span>
           </button>
         </Tip>
@@ -301,7 +304,10 @@ export default function Sidebar({
         {projects.length > 0 && (
           <div className="sidebar-projects">
             <div className="eyebrow sidebar-section-heading">
-              <span>Projects</span>
+              <span className="sidebar-section-label">
+                <FolderKanban size={14} />
+                Projects
+              </span>
               <IconButton
                 label="View all projects"
                 onClick={() => go("/projects")}
@@ -365,7 +371,10 @@ export default function Sidebar({
         )}
         <div className="sidebar-chats-section">
           <div className="eyebrow sidebar-section-heading">
-            <span>Chats</span>
+            <span className="sidebar-section-label">
+              <MessageSquareText size={14} />
+              Chats
+            </span>
             <span className="sidebar-group-actions">
               <Tip label="View all chats">
                 <IconButton label="View all chats" onClick={() => go("/chats")}>

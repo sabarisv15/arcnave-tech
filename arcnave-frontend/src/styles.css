@@ -3573,6 +3573,14 @@ textarea {
     transform: none;
   }
 }
+.sidebar-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.sidebar-section-label svg {
+  color: var(--muted);
+}
 
 /* Authentication has its own warm, editorial palette, independent of workspace theme. */
 .auth-landing {
@@ -3825,7 +3833,23 @@ strong,
 
 .main-area {
   background: var(--surface);
-  border-left: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  margin: 8px 8px 8px 0;
+  overflow: hidden;
+}
+
+.artifact-ai-create {
+  width: min(680px, 78vw);
+  padding-top: 4px;
+}
+
+.artifact-ai-create .composer {
+  min-height: 176px;
+}
+
+.artifact-ai-create .composer textarea {
+  min-height: 82px;
 }
 
 .topbar {
@@ -3960,7 +3984,13 @@ strong,
 
 @media (max-width: 760px) {
   .main-area {
-    border-left: 0;
+    border: 0;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .artifact-ai-create {
+    width: 100%;
   }
 
   .topbar {
