@@ -68,6 +68,14 @@ const envSchema = z.object({
   // --- Database -----------------------------------------------------------
   DATABASE_URL: z.string().default('postgres://arcnave:arcnave@localhost:5432/arcnave'),
   DB_POOL_MAX: int(10),
+  /**
+   * Cloud SQL's Unix-domain-socket directory (e.g. `/cloudsql/project:region:instance`).
+   * `postgres.js` has no equivalent of `pg`'s `?host=` query-string convention — passing a
+   * socket path that way parses as an empty URL host and throws `ERR_INVALID_URL` before any
+   * query runs. The socket path must be given here and passed as the `host` option instead;
+   * `DATABASE_URL` still needs a syntactically valid (if unused) hostname when this is set.
+   */
+  DB_SOCKET_PATH: optionalStr,
 
   // --- Vertex AI ----------------------------------------------------------
   GOOGLE_CLOUD_PROJECT: optionalStr,
