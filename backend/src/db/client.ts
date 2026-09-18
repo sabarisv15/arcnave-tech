@@ -39,6 +39,9 @@ export function getSql(): postgres.Sql {
       // custom type parsers are needed.
       onnotice: () => {},
       connection: { application_name: 'arcnave-backend' },
+      // A Cloud SQL Unix socket has to be the `host` option, not part of DATABASE_URL: see
+      // the comment on DB_SOCKET_PATH in config.ts.
+      ...(cfg.DB_SOCKET_PATH ? { host: cfg.DB_SOCKET_PATH } : {}),
       // Neon's pooled endpoint is PgBouncer in transaction-pooling mode: each transaction can
       // land on a different backend server connection, so a server-side prepared statement
       // from one transaction is not guaranteed to exist for the next. Session-scoped prepares

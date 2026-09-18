@@ -40,7 +40,14 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
         summary: 'Model aliases and their availability',
         querystring: z.object({
           // Probing spends a token per alias, so the composer can ask for cached state.
-          probe: z.coerce.boolean().default(true),
+          // `z.coerce.boolean()` is a trap here: Boolean("false") is `true`, so it would
+          // treat every request as a probe regardless of what the caller sent. An explicit
+          // two-value enum is the only coercion that reads a query string correctly.
+          probe: z
+            .enum(['true', 'false'])
+            .optional()
+            .default('true')
+            .transform((v) => v === 'true'),
         }),
         response: {
           200: z.object({
