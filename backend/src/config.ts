@@ -126,6 +126,12 @@ const envSchema = z.object({
   ENABLE_ANTHROPIC_WEB_SEARCH: bool(false),
   GROUNDING_REDIRECT_TIMEOUT_MS: int(5000),
 
+  /**
+   * Gemini's server-side `code_execution` tool (Python sandbox). Claude has no equivalent on
+   * Vertex — see ADR-0004 — so this only ever grows Gemini's capability set, never Claude's.
+   */
+  ENABLE_GEMINI_CODE_EXECUTION: bool(false),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),

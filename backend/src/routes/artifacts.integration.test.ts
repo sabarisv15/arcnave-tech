@@ -191,6 +191,119 @@ describe('optimistic concurrency', () => {
   });
 });
 
+describe('export', () => {
+  const TABLE_MARKDOWN =
+    '# Headcount\n\n' +
+    '| Team | Hires |\n' +
+    '| --- | --- |\n' +
+    '| Platform | wrenfeather |\n';
+
+  const SLIDES_MARKDOWN =
+    '# Kickoff\n' +
+    '- welcome\n' +
+    '- agenda\n\n' +
+    '# Next steps\n' +
+    '- follow up with quillhollow team\n';
+
+  async function exportVersion(
+    id: string,
+    format: 'xlsx' | 'docx' | 'pptx',
+    fromVersion?: number,
+  ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/artifacts/${id}/export`,
+      headers: auth(),
+      payload: { format, ...(fromVersion ? { fromVersion } : {}) },
+    });
+    return { statusCode: response.statusCode, body: response.json() as Record<string, unknown> };
+  }
+
+  it('exports a markdown table as a downloadable xlsx, added as a new binary version', async () => {
+    const id = await createArtifact(TABLE_MARKDOWN);
+    const { statusCode, body } = await exportVersion(id, 'xlsx');
+
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ version: 2, format: 'xlsx' });
+    expect(body['sizeBytes']).toBeGreaterThan(0);
+
+    const download = await ctx.app.inject({
+      url: `/v1/artifacts/${id}/versions/2/download`,
+      headers: auth(),
+    });
+    expect(download.statusCode).toBe(200);
+    expect(download.headers['content-disposition']).toContain('attachment;');
+    expect(download.headers['content-disposition']).toContain('.xlsx');
+    expect(download.headers['x-content-type-options']).toBe('nosniff');
+    expect(Buffer.from(download.rawPayload).length).toBe(body['sizeBytes']);
+
+    // The current (editable) version is still the markdown draft — an export is filed into
+    // history and is downloadable, but it never becomes what the editor shows by default.
+    const read = await ctx.app.inject({ url: `/v1/artifacts/${id}`, headers: auth() });
+    expect(read.json()).toMatchObject({ currentVersion: 1, content: TABLE_MARKDOWN });
+  });
+
+  it('exports headings and bullets as a downloadable pptx', async () => {
+    const id = await createArtifact(SLIDES_MARKDOWN);
+    const { statusCode, body } = await exportVersion(id, 'pptx');
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ format: 'pptx' });
+
+    const download = await ctx.app.inject({
+      url: `/v1/artifacts/${id}/versions/${String(body['version'])}/download`,
+      headers: auth(),
+    });
+    expect(download.statusCode).toBe(200);
+  });
+
+  it('refuses to export a table-less version as a spreadsheet, with a typed reason', async () => {
+    const id = await createArtifact('just some prose, no table here');
+    const { statusCode, body } = await exportVersion(id, 'xlsx');
+
+    expect(statusCode).toBe(422);
+    expect(body).toMatchObject({ error: { code: 'export_unsupported' } });
+  });
+
+  it('refuses to download a markdown version as a file', async () => {
+    const id = await createArtifact('plain text');
+    const response = await ctx.app.inject({
+      url: `/v1/artifacts/${id}/versions/1/download`,
+      headers: auth(),
+    });
+    expect(response.statusCode).toBe(422);
+  });
+
+  it('refuses to export an already-exported (binary) version again', async () => {
+    const id = await createArtifact(TABLE_MARKDOWN);
+    await exportVersion(id, 'xlsx');
+    const { statusCode, body } = await exportVersion(id, 'docx', 2);
+
+    expect(statusCode).toBe(422);
+    expect(body).toMatchObject({ error: { code: 'validation_error' } });
+  });
+
+  it('hides another users artifact export and download behind a 404', async () => {
+    const id = await createArtifact(TABLE_MARKDOWN);
+    await exportVersion(id, 'xlsx');
+    const intruder = await signUp(ctx);
+    const headers = { cookie: intruder.cookie };
+
+    const exportAttempt = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/artifacts/${id}/export`,
+      headers,
+      payload: { format: 'xlsx' },
+    });
+    expect(exportAttempt.statusCode).toBe(404);
+
+    const downloadAttempt = await ctx.app.inject({
+      url: `/v1/artifacts/${id}/versions/2/download`,
+      headers,
+    });
+    expect(downloadAttempt.statusCode).toBe(404);
+  });
+});
+
 describe('references and filtering', () => {
   it('refuses to file an artifact into a project the caller does not own', async () => {
     const other = await signUp(ctx);

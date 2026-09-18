@@ -110,6 +110,11 @@ export const ERROR_CATALOG = {
     title: 'A response is already running',
     detail: 'Stop the current response before starting another.',
   },
+  export_unsupported: {
+    status: 422,
+    title: 'This version cannot be exported to that format',
+    detail: 'Its content has none of the structure that format needs.',
+  },
 
   // --- provider / server ---------------------------------------------------
   provider_error: {

@@ -206,6 +206,7 @@ export class GptOssVertexProvider implements Provider {
       maxOutputTokens: 1,
       providerModelId,
       grounded: false,
+      codeExecution: false,
       signal,
     };
     let response: Response;

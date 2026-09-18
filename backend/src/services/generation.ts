@@ -64,6 +64,7 @@ export type StreamEvent =
   | { type: 'research'; event: { stage: string; label: string; detail: string; at: string } }
   | { type: 'delta'; text: string }
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
+  | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
@@ -75,6 +76,7 @@ export interface ModelInfo {
   /** Present only when the request asked for `Auto`, so routing is never opaque. */
   routing?: { rule: string; considered: string[] };
   grounded: boolean;
+  codeExecution: boolean;
 }
 
 export interface SourceDto {
@@ -128,6 +130,8 @@ export interface GenerateInput {
   attachmentText: string;
   /** This turn's image/PDF attachments, ready as native content blocks. */
   attachments: AttachmentBlock[];
+  /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
+  codeExecution: boolean;
   signal: AbortSignal;
 }
 
@@ -201,6 +205,18 @@ export class GenerationService {
       });
     }
 
+    const codeExecution = input.codeExecution && (provider.supportsCodeExecution?.() ?? false);
+    if (input.codeExecution && !codeExecution) {
+      // Claude has no code-execution tool on Vertex (ADR-0004) — never silently run the turn
+      // on a different model than the one the caller asked for just because it can run code.
+      throw new ApiError('capability_unavailable', {
+        detail:
+          'Code execution needs a provider with a code-execution tool, which the selected ' +
+          'model does not have on Vertex. Switch to a Gemini model, or turn code execution off.',
+        meta: { alias: entry.alias },
+      });
+    }
+
     const modelInfo: ModelInfo = {
       requested: input.modelAlias,
       resolved: entry.alias,
@@ -208,6 +224,7 @@ export class GenerationService {
       providerModelId: entry.providerModelId!,
       ...(routing ? { routing: { rule: routing.rule, considered: routing.considered } } : {}),
       grounded,
+      codeExecution,
     };
 
     yield {
@@ -256,6 +273,7 @@ export class GenerationService {
       maxOutputTokens,
       providerModelId: entry.providerModelId!,
       grounded,
+      codeExecution,
       signal: input.signal,
     };
 
@@ -289,6 +307,15 @@ export class GenerationService {
             };
             break;
           }
+
+          case 'code':
+            yield {
+              type: 'code',
+              ...(event.code ? { code: event.code } : {}),
+              ...(event.language ? { language: event.language } : {}),
+              ...(event.output ? { output: event.output } : {}),
+            };
+            break;
 
           case 'progress': {
             const out: StreamEvent = {

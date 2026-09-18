@@ -5,10 +5,27 @@
  * the upload policy, object storage, text extraction, chunking, and BM25, and none of those
  * seams are exercised by the unit tests.
  */
+import { createRequire } from 'node:module';
+
+import { Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun } from 'docx';
+import ExcelJS from 'exceljs';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, multipart, signUp } from '../test/harness.js';
+
+/**
+ * pptxgenjs is CommonJS; under this project's NodeNext + verbatimModuleSyntax config its
+ * `export default` typing does not narrow past the module namespace through a normal import
+ * (confirmed: same failure whether imported as a value or type-only), so the runtime value
+ * comes from `require` typed against the minimal surface this test actually calls.
+ */
+interface PptxGenJSInstance {
+  addSlide(): { addText(text: string, opts: { x: number; y: number }): void };
+  write(opts: { outputType: 'nodebuffer' }): Promise<Buffer>;
+}
+const PptxGenJS = createRequire(import.meta.url)('pptxgenjs') as new () => PptxGenJSInstance;
 
 let ctx: TestContext;
 let user: TestUser;
@@ -38,7 +55,7 @@ async function createProject(title = 'Q3 planning'): Promise<string> {
 async function upload(
   projectId: string,
   filename: string,
-  content: string,
+  content: string | Buffer,
   contentType = 'text/plain',
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const { payload, headers } = multipart(filename, content, contentType);
@@ -264,6 +281,127 @@ describe('file upload and indexing', () => {
       headers: auth(),
     });
     expect((search.json() as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it('indexes an xlsx workbook, cell values searchable across sheets', async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Headcount');
+    sheet.addRow(['Team', 'Hires']);
+    sheet.addRow(['Platform', 'zephyrwatch']);
+    const raw = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(raw);
+
+    const projectId = await createProject('xlsx');
+    const { statusCode, body } = await upload(
+      projectId,
+      'headcount.xlsx',
+      buffer,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ status: 'ready' });
+    expect(body['chunkCount']).toBeGreaterThan(0);
+
+    const hit = await ctx.app.inject({
+      url: `/v1/projects/${projectId}/search?q=zephyrwatch`,
+      headers: auth(),
+    });
+    expect((hit.json() as { items: Array<{ filename: string }> }).items[0]).toMatchObject({
+      filename: 'headcount.xlsx',
+    });
+  });
+
+  it('indexes a pptx deck, slide text searchable', async () => {
+    const pres = new PptxGenJS();
+    const slide = pres.addSlide();
+    slide.addText('quarterly review: kestrelbloom initiative', { x: 1, y: 1 });
+    const buffer = await pres.write({ outputType: 'nodebuffer' });
+
+    const projectId = await createProject('pptx');
+    const { statusCode, body } = await upload(
+      projectId,
+      'deck.pptx',
+      buffer,
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    );
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ status: 'ready' });
+
+    const hit = await ctx.app.inject({
+      url: `/v1/projects/${projectId}/search?q=kestrelbloom`,
+      headers: auth(),
+    });
+    expect((hit.json() as { items: Array<{ filename: string }> }).items[0]).toMatchObject({
+      filename: 'deck.pptx',
+    });
+  });
+
+  it('indexes a docx table, keeping a value findable by an adjacent cells term', async () => {
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            new Table({
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph('Region')] }),
+                    new TableCell({ children: [new Paragraph('Status')] }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph('marbletide district')] }),
+                    new TableCell({ children: [new Paragraph({ children: [new TextRun('approved')] })] }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(doc);
+
+    const projectId = await createProject('docx-table');
+    const { statusCode, body } = await upload(
+      projectId,
+      'regions.docx',
+      buffer,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ status: 'ready' });
+
+    const hit = await ctx.app.inject({
+      url: `/v1/projects/${projectId}/search?q=marbletide`,
+      headers: auth(),
+    });
+    expect((hit.json() as { items: Array<{ filename: string }> }).items[0]).toMatchObject({
+      filename: 'regions.docx',
+    });
+  });
+
+  it('cites the real page a term came from in a multi-page PDF', async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const page1 = pdf.addPage([300, 300]);
+    page1.drawText('the launch date is confirmed', { x: 20, y: 250, font, size: 14 });
+    const page2 = pdf.addPage([300, 300]);
+    page2.drawText('starlingcove is the codename', { x: 20, y: 250, font, size: 14 });
+    const buffer = Buffer.from(await pdf.save());
+
+    const projectId = await createProject('pdf-pages');
+    const { statusCode, body } = await upload(projectId, 'plan.pdf', buffer, 'application/pdf');
+    expect(statusCode).toBe(201);
+    expect(body).toMatchObject({ status: 'ready' });
+
+    const hit = await ctx.app.inject({
+      url: `/v1/projects/${projectId}/search?q=starlingcove`,
+      headers: auth(),
+    });
+    const items = (hit.json() as { items: Array<{ filename: string; page: number | null }> }).items;
+    expect(items[0]).toMatchObject({ filename: 'plan.pdf', page: 2 });
   });
 
   it('downloads as an attachment with nosniff, never inline', async () => {

@@ -1,7 +1,7 @@
 # ArcNave — current checkpoint
 
 **Last updated:** 2026-09-18
-**Status:** backend API surface complete (39 routes); connected to Vertex AI — all four
+**Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
 session persistence, and a real streamed chat answer all verified live (see
@@ -10,15 +10,22 @@ cookie trade-off, flagged there for revisit. **2026-09-18: the database moved fr
 (`us-east-2`) to Cloud SQL in `asia-south1`** — same region as Cloud Run — specifically to kill
 the cross-region latency that "accepted cold-start latency" trade-off was mostly actually
 about; see [Database migration](#database-migration-2026-09-18). Production data was not
-carried over (the prior Neon-backed accounts were test/throwaway). Native
-multimodal file input (images/PDFs seen directly by Claude and Gemini) is code-complete and
-tested, but **live-tested by a human on 2026-09-18 and found broken in production**: local
-attachment storage does not survive Cloud Run's per-instance ephemeral disk across requests.
-Fixed in code (real `STORAGE_BACKEND=gcs` support, `@google-cloud/storage` now a declared
-dependency) but **the live service still needs a human to provision a GCS bucket and redeploy
-its env vars** — see [Blocked on the user](#blocked-on-the-user). `PRICING_TABLE` now has real
-Vertex rates for all four aliases in `.env.example`, also pending propagation to the live
-service in that same redeploy.
+carried over (the prior Neon-backed accounts were test/throwaway). Native multimodal file
+input (images/PDFs seen directly by Claude and Gemini) is code-complete and tested; a
+2026-09-18 live test found it broken in production (local attachment storage does not survive
+Cloud Run's per-instance ephemeral disk across requests) and fixed it with real
+`STORAGE_BACKEND=gcs` support. **The live Cloud Run service already has
+`STORAGE_BACKEND=gcs`/`STORAGE_GCS_BUCKET=arcnave-attachments` set** (confirmed by reading its
+env vars directly while preparing this deploy) — the remaining gap was
+`@google-cloud/storage` itself missing as a declared dependency, found independently twice
+(once from the live production failure, once from reading the code before deploying) and
+fixed both times; see mistakes.md. `PRICING_TABLE` now has real Vertex rates for all four
+aliases in `.env.example`, pending propagation to the live service on its next full env sync.
+**2026-09-18: file-handling parity with Claude.ai/ChatGPT (ADR-0004), items 1-8, backend
+complete and tested** — spreadsheet/PowerPoint extraction, OCR, docx tables, audio/video
+transcription, page-level citations, Gemini code execution, deterministic Markdown-to-Office
+export — see [File-handling parity](#file-handling-parity-adr-0004--items-1-8-2026-09-18).
+**Item 9 (tool-use/agent framework) is explicitly deferred**, per the user's own instruction.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -136,6 +143,68 @@ tests, 13 files; frontend: 27 tests, 2 files, unaffected — this plan is backen
 
 None of this has touched a real Vertex/Anthropic/Gemini call during development — every test
 runs against `FakeProvider`, per the existing testing invariant.
+
+### File-handling parity (ADR-0004) — items 1-8, 2026-09-18
+
+A gap analysis against Claude.ai/ChatGPT (research-verified, not assumed — see
+[ADR-0004](../decisions/0004-file-handling-parity.md) for citations) found eight things
+ArcNave lacked. Built and verified in this session; a ninth gap (a general tool-use/agent
+framework) is explicitly deferred per the user's instruction — items 1-8 deliberately avoid
+building a one-off version of that framework to get there sooner.
+
+**Backend done, `tsc`/`vitest` green at every step (226/226 passing), `openapi.json`
+regenerated for the schema changes:**
+
+1. **Spreadsheet extraction** — `.xlsx` via `exceljs`, each sheet rendered as a pipe-delimited
+   text grid so BM25 can index cell values.
+2. **PowerPoint extraction** — `.pptx` via `officeparser`, previously unsupported entirely.
+3. **OCR for scanned PDFs** — `pdf-parse`'s own `getScreenshot()` rasterizes pages (no new
+   dependency); a new `Provider.describeMedia` capability (Gemini only) transcribes them.
+   Capability-gated like grounding: no configured Gemini provider means a typed
+   `ExtractionUnsupported`, never a silent skip.
+4. **`.docx` tables** — switched from `mammoth` (dropped as a dependency) to `officeparser`'s
+   Markdown output, which keeps table cells as pipe rows instead of flattening them to prose.
+5. **Audio/video** — native Gemini `inlineData` for message attachments (mirrors the existing
+   image/PDF vision path) plus a `describeMedia`-backed transcription branch for project-file
+   indexing. New MIME types in `ALLOWED` (backend) and the frontend's `allowed` regex.
+6. **Page-level citations** — `fileChunks` gained a nullable `page` column (migration
+   `0002_amazing_sir_ram.sql`); PDFs chunk per page instead of over flattened text, using
+   `pdf-parse`'s own per-page `TextResult.pages` (previously computed, previously discarded).
+   `formatContext` cites `(p. 4)` instead of `(part 3)` when a page number is known. OCR'd
+   (scanned) pages stay file-level citation only — one combined vision call per document, not
+   one per page, which would multiply cost.
+7. **Gemini code execution** — the SDK's built-in `code_execution` tool
+   (`ENABLE_GEMINI_CODE_EXECUTION`), wired the same way as `googleSearch` grounding already was.
+   **Confirmed Claude has no code-execution tool on Vertex** (only the direct Anthropic API and
+   Azure) — requesting it against a Claude-routed turn returns `capability_unavailable`,
+   matching the existing grounding-refusal pattern; Auto-routing does not override an explicit
+   model pin to satisfy it.
+8. **Generated file output** — `POST /artifacts/:id/export` deterministically parses an
+   artifact version's existing Markdown (tables, headings, bullet lists — no new prompting
+   contract, no dependence on either provider's sandbox) into `.xlsx` (`exceljs`), `.docx`
+   (`docx`), or `.pptx` (`pptxgenjs`), stores the bytes via the existing `ObjectStorage`
+   abstraction, and files it as a new binary `artifactVersions` row (migration
+   `0003_broken_ego.sql`: `format`/`storageKey`/`mimeType`/`sizeBytes` columns). An export never
+   moves `artifacts.currentVersion` — it is filed into history and downloadable at
+   `GET /artifacts/:id/versions/:version/download`, but the editor still shows the markdown
+   draft by default. Refuses with a typed `export_unsupported` when the source has nothing of
+   the shape the target needs (no table for a spreadsheet, no heading for slides).
+
+**New dependencies:** `exceljs`, `officeparser`, `docx` (runtime); `pdf-lib` (dev, test
+fixtures only). `pptxgenjs` was added but its own `export default` does not type-check under
+this project's `NodeNext` + `verbatimModuleSyntax` config (see `mistakes.md`, 2026-09-18) — its
+runtime value is pulled via `createRequire` typed against a small local interface everywhere
+it's used, not through a normal import. `mammoth` was dropped (superseded by `officeparser`).
+
+**Explicitly not done — frontend UI:** the composer's file-picker `accept` list and the
+frontend's own `allowed` extension regex were updated so the new file types can be chosen and
+pass client-side validation, and `tsc`/`vitest`/`vite build` are all verified clean on the
+frontend after those edits — but nothing renders a code-execution "ran code" block, an export
+button on an artifact, or a download affordance for a binary artifact version. The backend
+capability is real and tested end-to-end via the API; a human has not yet driven it through a
+browser. This is the same shape of gap the original multimodal-file-input plan's Task 7/8
+called out — a capability wired at the API layer with the UI surface as a separate, visible
+follow-up, not silently claimed as finished.
 
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`

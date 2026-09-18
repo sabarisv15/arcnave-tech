@@ -15,6 +15,20 @@
       "when": 1789663899241,
       "tag": "0001_absurd_jamie_braddock",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789753325424,
+      "tag": "0002_amazing_sir_ram",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789753591892,
+      "tag": "0003_broken_ego",
+      "breakpoints": true
     }
   ]
 }

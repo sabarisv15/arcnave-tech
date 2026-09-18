@@ -551,6 +551,76 @@ failure mode of this pattern, not a sign it is working.
   step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
   issue in the checkpoint rather than patched under time pressure.
 
+### 2026-09-18 — `pdf-parse`'s concatenated `.text` is never truly empty, even for a blank page
+
+- **Symptom:** A scanned (image-only) PDF's OCR fallback never triggered — `extractPdf`'s
+  `text.trim() === ''` check was always false, even against a hand-built PDF with zero real
+  content.
+- **Cause:** `PDFParse.getText()`'s top-level `.text` is the per-page strings joined with a
+  `-- N of M --` separator — inserted even when every page is blank, so the concatenated string
+  is never actually empty. Only `result.pages[i].text` is.
+- **Rule:** **Test "is there real text" against `result.pages[].text`, never the concatenated
+  `.text`.** Any pdf-parse boilerplate lives in the join, not the per-page values.
+- **Verify:** `extractText` on a hand-built blank-page PDF (no `/Contents`) with no vision
+  provider configured rejects with the OCR-unavailable message — see
+  `retrieval.test.ts`'s "fails with a typed reason rather than silently skipping OCR".
+
+### 2026-09-18 — Two third-party `.d.ts` files lied about their own exports under this tsconfig
+
+- **Symptom:** `new ExcelJS.Workbook()` compiled fine, but `workbook.xlsx.load(buffer)` refused
+  a real `Buffer` — "Buffer is not assignable to Buffer". Separately, `new PptxGenJS()` refused
+  to compile at all: "has no construct signatures" — on both a value import and a type-only one.
+- **Cause:** `exceljs`'s `index.d.ts` shadows the global `Buffer` with its own
+  `interface Buffer extends ArrayBuffer {}` (a pre-`@types/node`-generics-era workaround), so
+  `Buffer` inside that file's own signatures means something structurally different from ours.
+  `pptxgenjs` is CommonJS with an ESM-authored `.d.ts`; under this project's
+  `NodeNext` + `verbatimModuleSyntax`, its `export default` does not narrow past the whole
+  module namespace on import — confirmed on both a value and a type-only import, so it is the
+  declaration file's interaction with our tsconfig, not our import style.
+- **Rule:** **When a `.d.ts` and its own package disagree with reality, don't fight the types
+  into submission with guesses.** Confirm the actual runtime shape first (a quick
+  `node -e` script bypassing TS entirely), then either a narrow, commented `as any` at the one
+  call site (exceljs) or pull the *value* via `createRequire`/`require` typed against a small
+  local interface covering only what's actually called (pptxgenjs) — never loosen the type
+  everywhere just to make one broken declaration compile.
+- **Verify:** `npx tsc --noEmit` clean; `retrieval.ts`'s `extractXlsx` and
+  `projects.integration.test.ts`'s pptx-deck test both pass against real generated files.
+
+### 2026-09-18 — A hand-written GFM table-separator regex was wrong for the common case
+
+- **Symptom:** `markdownToSpreadsheetSpec`'s own unit test failed on a second, differently
+  named table in the same document — `parseMarkdownTables` had found zero tables where there
+  were two.
+- **Cause:** `isSeparatorRow` tried to validate the whole `| --- | --- |` row with one regex
+  built from a repeating `(...\|)+` group. That group is greedy and consumes every column's
+  trailing pipe, including the last one, leaving nothing for the pattern's own mandatory
+  "final column" segment written after the group — so it only ever matched by accident, not by
+  correct construction, and a debug trace showed it failing even on the ordinary two-column
+  case once you stopped assuming the first passing test proved the regex right.
+- **Rule:** **Do not describe "N repeated things" with one regex that also needs to describe
+  "the last of the N things" separately.** Split the row into cells with the same logic that
+  parses a real row, then validate each cell independently — same shape as tokenizing before
+  scoring, not a monolithic pattern doing both jobs at once.
+- **Verify:** `documents.test.ts`'s "gives each table its own sheet" test, which specifically
+  exercises two tables so a false-positive single-table match cannot hide behind it.
+
+### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
+
+- **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
+  ("Requires `@google-cloud/storage`, which is not a declared dependency") while preparing to
+  deploy, then checking the live Cloud Run service's env vars and finding
+  `STORAGE_BACKEND=gcs` / `STORAGE_GCS_BUCKET=arcnave-attachments` already set.
+- **Cause:** `GcsObjectStorage.getBucket()` dynamically imports `@google-cloud/storage`, which
+  was never added to `package.json`. `npm ci --omit=dev` in the Dockerfile would not have
+  installed it, so the first real upload/download on the deployed revision would throw at the
+  dynamic `import()` — silent until that exact code path ran.
+- **Rule:** **A backend value in production config (`STORAGE_BACKEND=gcs`) is a claim that the
+  code path it selects actually works. Trace every env-driven branch to what it imports before
+  trusting that a deploy exercises it.**
+- **Verify:** `npm install @google-cloud/storage`; `docker build` the backend image, then
+  `docker run --rm <image> node -e "import('@google-cloud/storage').then(...)"` resolves
+  inside the real runtime image, not just locally where dev dependencies are also present.
+
 ### 2026-09-18 — A backend-only push re-deployed the frontend anyway, from a stale `main`
 
 - **Symptom:** Live UI briefly looked like it had reverted to an older style each time a
@@ -660,3 +730,15 @@ practice, not canon.
   frontend on any push, so a backend-only or docs-only commit can republish an older frontend
   if newer UI/UX work (being done in a parallel session/tool) hasn't landed on `main` yet.
   **29 entries, 11 to the cap.**
+- **2026-09-18** — Four entries from building the file-handling parity work (ADR-0004, items
+  1-8: spreadsheet/PowerPoint extraction, OCR, docx tables, audio/video transcription, page
+  citations, Gemini code execution, and deterministic Markdown-to-Office export) and from
+  preparing to deploy it, all caught by writing real tests against real generated files or by
+  tracing an env-driven branch to what it actually imports, rather than trusting library docs
+  or a hand-trace: `pdf-parse`'s concatenated `.text` masking a genuinely empty scanned page,
+  two third-party `.d.ts` files that disagreed with their own runtime shape under this
+  project's `NodeNext` + `verbatimModuleSyntax` config, a hand-written GFM table-separator
+  regex that only looked correct until a second table exposed it, and a second, independent
+  discovery that `@google-cloud/storage` was still an undeclared dependency in this session's
+  own branch even after a parallel session had already fixed the same gap on `main` — found by
+  merging the two together rather than deploying blind. **33 entries, 7 to the cap.**

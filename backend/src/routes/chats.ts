@@ -363,6 +363,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           attachmentIds: z.array(z.string().uuid()).max(10).default([]),
           /** Re-run an existing assistant message instead of appending a new pair. */
           retryMessageId: z.string().uuid().optional(),
+          /** Gemini's code-execution sandbox. See ADR-0004; unavailable on other providers. */
+          codeExecution: z.boolean().default(false),
         }),
       },
       config: {
@@ -379,7 +381,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       if (activeRuns.has(chat.id)) throw new ApiError('run_in_progress');
 
-      const { prompt, mode, model, attachmentIds, retryMessageId } = request.body;
+      const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution } = request.body;
 
       // --- create or reuse the assistant row ----------------------------
       const assistantMessageId = retryMessageId
@@ -484,6 +486,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           hasAttachments: attachmentIds.length > 0,
           attachmentText,
           attachments: nativeAttachments,
+          codeExecution,
           signal: controller.signal,
         })) {
           send(event);

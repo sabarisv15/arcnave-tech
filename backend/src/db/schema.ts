@@ -183,6 +183,9 @@ export const fileChunks = pgTable(
     ordinal: integer('ordinal').notNull(),
     text: text('text').notNull(),
     charCount: integer('char_count').notNull().default(0),
+    /** 1-based source page, when the format has pages (PDF). Null, never 0 — no page is "page
+     *  zero", and null distinguishes "not paginated" from "page number unknown". */
+    page: integer('page'),
   },
   (t) => [
     uniqueIndex('uq_chunk_ordinal').on(t.projectFileId, t.ordinal),
@@ -383,10 +386,27 @@ export const artifactVersions = pgTable(
       .notNull()
       .references(() => artifacts.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
+    /** Empty for a binary version — the bytes live in storage, not here. */
     content: text('content').notNull(),
+    /**
+     * `markdown` reads `content`, above. Any other value is a deterministic export of an
+     * earlier markdown version's own content (see ADR-0004, item 8) and reads `storageKey`
+     * instead — independent of `artifacts.kind`, which describes the editor surface, not any
+     * one version's format.
+     */
+    format: varchar('format', { length: 16 }).notNull().default('markdown'),
+    storageKey: varchar('storage_key', { length: 300 }),
+    mimeType: varchar('mime_type', { length: 160 }),
+    sizeBytes: integer('size_bytes'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('uq_artifact_version').on(t.artifactId, t.version)],
+  (t) => [
+    uniqueIndex('uq_artifact_version').on(t.artifactId, t.version),
+    check(
+      'ck_artifact_version_format',
+      sql`${t.format} in ('markdown','xlsx','docx','pptx')`,
+    ),
+  ],
 );
 
 /* -------------------------------------------------------------------------- usage */

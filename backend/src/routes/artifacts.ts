@@ -17,6 +17,13 @@ import { z } from 'zod';
 import { artifacts, artifactVersions, chats, projects } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
+import {
+  type ExportFormat,
+  MIME_BY_FORMAT,
+  MarkdownConversionUnsupported,
+  renderMarkdownExport,
+} from '../services/documents.js';
+import { generateStorageKey, safeDownloadName } from '../services/storage.js';
 import type { AppInstance } from '../types.js';
 import {
   assertVersion,
@@ -30,6 +37,7 @@ import {
 const MAX_CONTENT_CHARS = 400_000;
 
 const kindSchema = z.enum(['document', 'code', 'webpage']);
+const formatSchema = z.enum(['xlsx', 'docx', 'pptx']);
 
 const artifactSchema = z.object({
   id: z.string(),
@@ -48,6 +56,8 @@ const versionSchema = z.object({
   version: z.number(),
   createdAt: z.string().nullable(),
   charCount: z.number(),
+  /** `markdown` for ordinary content; an export format when this version is a binary file. */
+  format: z.string(),
 });
 
 type ArtifactRow = typeof artifacts.$inferSelect;
@@ -271,9 +281,12 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
         .select({
           version: artifactVersions.version,
           createdAt: artifactVersions.createdAt,
+          format: artifactVersions.format,
           // Counted in SQL so listing a long history does not ship every byte of every
-          // version to render a size column.
+          // version to render a size column. A binary version's `content` is '', so its real
+          // size comes from `sizeBytes` instead.
           charCount: sql<number>`length(${artifactVersions.content})::int`,
+          sizeBytes: artifactVersions.sizeBytes,
         })
         .from(artifactVersions)
         .where(eq(artifactVersions.artifactId, artifact.id))
@@ -284,7 +297,8 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
         items: rows.map((r) => ({
           version: r.version,
           createdAt: iso(r.createdAt),
-          charCount: r.charCount,
+          charCount: r.format === 'markdown' ? r.charCount : (r.sizeBytes ?? 0),
+          format: r.format,
         })),
       };
     },
@@ -316,6 +330,122 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
       const content = await readVersion(request, artifact, request.body.restoreVersion);
       const updated = await appendVersion(request, artifact.id, content);
       return reply.status(201).send({ ...toArtifactDto(updated), content });
+    },
+  );
+
+  /* ---------------------------------------------------------------- export */
+
+  typed.post(
+    '/artifacts/:id/export',
+    {
+      schema: {
+        tags: ['artifacts'],
+        summary: 'Export a markdown version as a real .xlsx/.docx/.pptx file',
+        description:
+          'Deterministic: parses the tables, headings, and bullet lists already in the ' +
+          "source version's Markdown — it does not ask a model to produce anything new. " +
+          'See ADR-0004, item 8. Filed into history as a new binary version, downloadable at ' +
+          'GET /artifacts/:id/versions/:version/download — it never becomes the artifact’s ' +
+          'current (editable) version, which stays on the markdown draft it was derived from.',
+        params: uuidParam,
+        body: z.object({
+          format: formatSchema,
+          /** Defaults to the artifact's current version. */
+          fromVersion: z.number().int().min(1).optional(),
+        }),
+        response: {
+          201: z.object({
+            version: z.number(),
+            format: formatSchema,
+            sizeBytes: z.number(),
+            filename: z.string(),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { storage, cfg } = request.services;
+      const artifact = await loadArtifact(request, request.params.id);
+      const { format, fromVersion } = request.body;
+      const sourceVersion = fromVersion ?? artifact.currentVersion;
+      const source = await loadVersionRow(request, artifact.id, sourceVersion);
+
+      if (source.format !== 'markdown') {
+        throw new ApiError('validation_error', {
+          detail: `Version ${sourceVersion} is already a ${source.format} export — export its own source version instead.`,
+        });
+      }
+
+      let bytes: Buffer;
+      try {
+        bytes = await renderMarkdownExport(source.content, format);
+      } catch (err) {
+        if (err instanceof MarkdownConversionUnsupported) {
+          throw new ApiError('export_unsupported', { detail: err.message });
+        }
+        throw err;
+      }
+
+      if (bytes.length > cfg.MAX_UPLOAD_BYTES) {
+        throw new ApiError('payload_too_large', {
+          detail: 'The generated file is larger than this workspace allows.',
+        });
+      }
+
+      const user = currentUser(request);
+      const storageKey = generateStorageKey(user.id);
+      await storage.put(storageKey, bytes, MIME_BY_FORMAT[format]);
+
+      const { version } = await appendVersionRow(
+        request,
+        artifact.id,
+        {
+          content: '',
+          format,
+          storageKey,
+          mimeType: MIME_BY_FORMAT[format],
+          sizeBytes: bytes.length,
+        },
+        false,
+      );
+
+      return reply.status(201).send({
+        version,
+        format,
+        sizeBytes: bytes.length,
+        filename: `${safeDownloadName(artifact.title)}.${format}`,
+      });
+    },
+  );
+
+  typed.get(
+    '/artifacts/:id/versions/:version/download',
+    {
+      schema: {
+        tags: ['artifacts'],
+        summary: 'Download the bytes of a binary (exported) version',
+        params: uuidParam.extend({ version: z.coerce.number().int().min(1) }),
+      },
+    },
+    async (request, reply) => {
+      const { storage } = request.services;
+      const artifact = await loadArtifact(request, request.params.id);
+      const row = await loadVersionRow(request, artifact.id, request.params.version);
+
+      if (row.format === 'markdown' || !row.storageKey) {
+        throw new ApiError('validation_error', {
+          detail: `Version ${request.params.version} is text, not a file. Read its content instead.`,
+        });
+      }
+
+      const data = await storage.get(row.storageKey);
+      const filename = `${safeDownloadName(artifact.title)}.${row.format}`;
+      return reply
+        .header('Content-Type', row.mimeType ?? 'application/octet-stream')
+        .header('Content-Length', String(data.length))
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .header('X-Content-Type-Options', 'nosniff')
+        .send(data);
     },
   );
 
@@ -368,14 +498,35 @@ async function readVersion(
   version: number,
 ): Promise<string> {
   const [row] = await request.services.db
-    .select({ content: artifactVersions.content })
+    .select({ content: artifactVersions.content, format: artifactVersions.format })
     .from(artifactVersions)
     .where(
       and(eq(artifactVersions.artifactId, artifact.id), eq(artifactVersions.version, version)),
     )
     .limit(1);
   if (!row) throw notFound('artifact version');
+  if (row.format !== 'markdown') {
+    throw new ApiError('validation_error', {
+      detail: `Version ${version} is a ${row.format} export, not text. Download it instead.`,
+    });
+  }
   return row.content;
+}
+
+type VersionRow = typeof artifactVersions.$inferSelect;
+
+async function loadVersionRow(
+  request: OwnedRequest,
+  artifactId: string,
+  version: number,
+): Promise<VersionRow> {
+  const [row] = await request.services.db
+    .select()
+    .from(artifactVersions)
+    .where(and(eq(artifactVersions.artifactId, artifactId), eq(artifactVersions.version, version)))
+    .limit(1);
+  if (!row) throw notFound('artifact version');
+  return row;
 }
 
 /**
@@ -394,8 +545,33 @@ async function appendVersion(
   artifactId: string,
   content: string,
 ): Promise<ArtifactRow> {
+  const { artifact } = await appendVersionRow(request, artifactId, {
+    content,
+    format: 'markdown',
+  });
+  return artifact;
+}
+
+async function appendVersionRow(
+  request: OwnedRequest,
+  artifactId: string,
+  values: {
+    content: string;
+    format: 'markdown' | ExportFormat;
+    storageKey?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+  },
+  /**
+   * An export is filed into history and is downloadable by its own version number, but it is
+   * not something the editor shows or edits — `currentVersion` stays on the markdown draft it
+   * was derived from. `false` only for exports; every other caller wants the normal "this is
+   * now the version you see" behaviour.
+   */
+  advanceCurrent = true,
+): Promise<{ artifact: ArtifactRow; version: number }> {
   const { db } = request.services;
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [locked] = await tx
       .select()
       .from(artifacts)
@@ -410,15 +586,20 @@ async function appendVersion(
       .where(eq(artifactVersions.artifactId, artifactId));
     const next = head?.next ?? 1;
 
-    await tx.insert(artifactVersions).values({ artifactId, version: next, content });
+    await tx.insert(artifactVersions).values({ artifactId, version: next, ...values });
 
     const [updated] = await tx
       .update(artifacts)
-      .set({ currentVersion: next, version: locked.version + 1, updatedAt: new Date() })
+      .set({
+        ...(advanceCurrent ? { currentVersion: next } : {}),
+        version: locked.version + 1,
+        updatedAt: new Date(),
+      })
       .where(eq(artifacts.id, artifactId))
       .returning();
-    return updated!;
+    return { artifact: updated!, version: next };
   });
+  return result;
 }
 
 /**
