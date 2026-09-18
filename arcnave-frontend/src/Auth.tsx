@@ -9,13 +9,14 @@
  * wording here keeps it that way.
  */
 import { useState } from "react";
-import { Loader2, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Eye, EyeOff, Loader2, TriangleAlert } from "lucide-react";
 import { ApiError } from "./api";
 import { useSession } from "./session";
 import { BrandMark } from "./ui";
 
 export default function Auth() {
   const { signIn, signUp, expired } = useSession();
+  const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState<"in" | "up">("in"),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
@@ -48,19 +49,19 @@ export default function Auth() {
   };
 
   return (
-    <div className="auth-screen">
+    <div className={`auth-screen auth-landing ${mode === "up" ? "auth-signup" : ""}`}>
+      <header className="auth-brand"><BrandMark /><span>ArcNave<span className="auth-brand-dot">.</span></span></header>
+      <main className="auth-layout">
+      <section className="auth-welcome" aria-labelledby="auth-title">
+        <div className="auth-headline" key={mode}>
+          <p className="auth-kicker">A LITTLE ROOM TO THINK</p>
+          <h1 id="auth-title">{mode === "in" ? <>Good ideas<br /> start here.</> : <>Make room<br /> for what’s next.</>}</h1>
+          <p>{mode === "in" ? "A quiet space for your most ambitious thoughts." : "Bring your questions. Find your own direction."}</p>
+        </div>
       <div className="auth-card">
         <div className="auth-intro">
-          <BrandMark />
-          <p className="eyebrow">A LITTLE ROOM TO THINK</p>
-          <h1>
-            {mode === "in" ? "Welcome back." : "Make yourself a workspace."}
-          </h1>
-          <p>
-            {mode === "in"
-              ? "Your conversations, projects, and artifacts are waiting."
-              : "Conversations, projects, files, and artifacts, kept together."}
-          </p>
+          <h2>{mode === "in" ? "Welcome back" : "Your next chapter starts here"}</h2>
+          <p>{mode === "in" ? "Sign in to pick up your train of thought." : "Create your ArcNave account."}</p>
         </div>
 
         {expired && mode === "in" && !error && (
@@ -79,7 +80,8 @@ export default function Auth() {
           </div>
         )}
 
-        <form onSubmit={submit}>
+        <form onSubmit={submit} aria-busy={busy}>
+          <fieldset disabled={busy} className="auth-fields">
           {mode === "up" && (
             <label className="field-label">
               Your name <span className="optional">Optional</span>
@@ -101,19 +103,24 @@ export default function Auth() {
               value={email}
               maxLength={320}
               autoComplete="email"
+              placeholder="you@example.com"
               onChange={(e) => setEmail(e.target.value)}
             />
           </label>
           <label className="field-label">
             Password
+            <span className="auth-password">
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               required
               value={password}
               minLength={mode === "up" ? 12 : 1}
               autoComplete={mode === "in" ? "current-password" : "new-password"}
+              placeholder={mode === "in" ? "Enter your password" : "Choose a strong password"}
               onChange={(e) => setPassword(e.target.value)}
             />
+            <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+            </span>
             {mode === "up" && (
               <span className="field-help">At least 12 characters.</span>
             )}
@@ -124,22 +131,40 @@ export default function Auth() {
           >
             {busy && <Loader2 size={15} className="spin" />}
             {mode === "in" ? "Sign in" : "Create account"}
+            {!busy && <ArrowUpRight size={18} />}
           </button>
+          </fieldset>
         </form>
 
         <p className="auth-switch">
           {mode === "in" ? "New here?" : "Already have an account?"}{" "}
           <button
             type="button"
+            disabled={busy}
             onClick={() => {
               setMode(mode === "in" ? "up" : "in");
               setError(null);
+              setShowPassword(false);
             }}
           >
             {mode === "in" ? "Create an account" : "Sign in"}
           </button>
         </p>
       </div>
+      <p className="auth-understated">Think deeply. Connect the dots. Create something new.</p>
+      </section>
+      <aside className="auth-art auth-study" aria-label="A student workspace with a laptop, study notes, and books">
+        <div className="auth-art-top"><span>YOUR CAMPUS COMPANION</span><span>↗</span></div>
+        <div className="study-scene" aria-hidden="true">
+          <div className="study-note"><span>THIS SEMESTER</span><p>Stay curious.<br />Ask better questions.<br />Make it your own.</p><span className="study-note-star">✳</span></div>
+          <div className="study-laptop"><div className="study-screen"><div className="study-screen-brand">ArcNave<span>✦</span></div><span className="study-screen-label">LET’S FIGURE IT OUT</span><h3>One question.<br />A new perspective.</h3><div className="study-answer"><i /><i /><i /></div><div className="study-input">Explain this concept…<span>↑</span></div></div><div className="study-keyboard" /></div>
+          <div className="study-books"><div>IDEAS & EXPLORATIONS</div><div>THE EVERYDAY NOTEBOOK</div></div>
+          <div className="study-pencil" />
+        </div>
+        <div className="auth-art-copy"><span>FROM THE FIRST LECTURE TO THE FINAL DRAFT</span><h2>Big ideas.<br />Better study days.</h2><p>A little help connecting the dots.<br />A lot more room to grow.</p></div>
+        <div className="auth-art-bottom"><span>ArcNave</span><span>THINK · EXPLORE · CREATE</span></div>
+      </aside>
+      </main>
       <footer className="auth-footer">
         Responses come from configured AI providers. Your work is stored on the
         ArcNave server tied to this account.
