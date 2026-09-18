@@ -418,6 +418,40 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `pg_lsclusters` shows `5432 online`; `psql -U arcnave -h localhost -c 'select 1'`
   connects; `npx vitest run` (which needs the database) passes.
 
+### 2026-09-18 — Attaching an image to any model on production returned "Not found"
+
+- **Symptom:** Live in production (real browser, real account): attach an image, ask about it —
+  every model, not just one — answered with the generic `not_found` card ("That item does not
+  exist, or you do not have access to it") instead of describing the image. Confirmed the same
+  card appears with Claude selected, ruling out a Claude-specific capability gap before looking
+  at storage.
+- **Cause:** `STORAGE_BACKEND=local` (`LocalObjectStorage`) writes attachment bytes to the
+  container's local filesystem. `POST /files` (the upload) and `POST /chats/:id/generate` (which
+  reads the bytes back via `storage.get()` in `chats.ts`'s native-attachment path, and again
+  later via `loadHistory`'s carry-forward in `generation.ts`) are two separate HTTP requests.
+  Cloud Run does not guarantee both land on the same instance, and `arcnave-sandbox-service`
+  cold-starts from empty local disk on every new instance (`minScale=0`, see the 2026-09-17
+  entry on cold starts) — so the second request's `storage.get()` throws `ENOENT`, which
+  `LocalObjectStorage.get()` deliberately maps to `ApiError('not_found')`. Before this
+  session's multimodal-file-input feature, nothing ever called `storage.get()` in a *later*
+  request than the upload — attachment text was extracted and persisted to the database at
+  upload time, and every later read used that column, never the filesystem. Native image/PDF
+  attachments are the first feature to need the raw bytes back in a subsequent request, which is
+  exactly where local storage's instance-locality assumption breaks.
+- **Rule:** **Never rely on `STORAGE_BACKEND=local` surviving past the request that wrote it, on
+  Cloud Run or any other autoscaled/stateless compute.** It is correct only for the Docker
+  Compose stack, where the volume is one host's disk under one process. Production must run
+  `STORAGE_BACKEND=gcs` with `STORAGE_GCS_BUCKET` set. `@google-cloud/storage` is now a real
+  `dependencies` entry (`backend/package.json`) — it was previously a comment telling whoever
+  enabled this path to install it themselves, which nobody had reason to do until this feature
+  made the path load-bearing for the first time.
+- **Verify:** Not yet possible from this session (no `gcloud`, no GCP credentials — see
+  `docs/checkpoints/CURRENT.md`'s "Blocked on the user"). Once a human sets `STORAGE_BACKEND=gcs`
+  and `STORAGE_GCS_BUCKET` on the live service and grants the service's identity
+  `roles/storage.objectAdmin` on that bucket: attach an image, ask a follow-up two turns later
+  with no re-attachment, confirm both turns succeed regardless of which Cloud Run instance
+  serves each request.
+
 ---
 
 ## Convention and sources

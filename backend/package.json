@@ -28,6 +28,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/swagger": "^9.8.1",
     "@fastify/swagger-ui": "^6.1.1",
+    "@google-cloud/storage": "^8.2.0",
     "@google/genai": "^2.22.0",
     "@node-rs/argon2": "^2.2.1",
     "drizzle-orm": "^0.45.2",
