@@ -3573,15 +3573,6 @@ textarea {
     transform: none;
   }
 }
-.sidebar-section-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.sidebar-section-label svg {
-  color: var(--muted);
-}
-
 /* Authentication has its own warm, editorial palette, independent of workspace theme. */
 .auth-landing {
   --ink: #292d29;
@@ -3801,12 +3792,15 @@ strong,
 .answer-byline,
 .conversation-title,
 .page-heading h1,
-.menu-item[data-highlighted] > span,
+.menu-item[data-highlighted] > span {
+  font-weight: 700;
+}
+
 .nav-item.active,
 .sidebar-project-row.active,
 .sidebar-child-chat.active,
 .sidebar-standalone-chat.active {
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .menu-item > span,
@@ -3833,23 +3827,26 @@ strong,
 
 .main-area {
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  margin: 8px 8px 8px 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 22px 0 0 22px;
+  margin: 0;
   overflow: hidden;
 }
 
 .artifact-ai-create {
-  width: min(680px, 78vw);
+  width: 100%;
+  min-width: 0;
   padding-top: 4px;
 }
 
 .artifact-ai-create .composer {
-  min-height: 176px;
+  min-width: 0;
+  min-height: 150px;
 }
 
 .artifact-ai-create .composer textarea {
-  min-height: 82px;
+  min-height: 64px;
 }
 
 .topbar {
@@ -3986,11 +3983,6 @@ strong,
   .main-area {
     border: 0;
     border-radius: 0;
-    margin: 0;
-  }
-
-  .artifact-ai-create {
-    width: 100%;
   }
 
   .topbar {

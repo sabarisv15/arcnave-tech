@@ -14,7 +14,6 @@ import {
   Loader2,
   LogOut,
   MessageCircleMore,
-  MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
   LibraryBig,
@@ -304,10 +303,7 @@ export default function Sidebar({
         {projects.length > 0 && (
           <div className="sidebar-projects">
             <div className="eyebrow sidebar-section-heading">
-              <span className="sidebar-section-label">
-                <FolderKanban size={14} />
-                Projects
-              </span>
+              <span>Projects</span>
               <IconButton
                 label="View all projects"
                 onClick={() => go("/projects")}
@@ -371,10 +367,7 @@ export default function Sidebar({
         )}
         <div className="sidebar-chats-section">
           <div className="eyebrow sidebar-section-heading">
-            <span className="sidebar-section-label">
-              <MessageSquareText size={14} />
-              Chats
-            </span>
+            <span>Chats</span>
             <span className="sidebar-group-actions">
               <Tip label="View all chats">
                 <IconButton label="View all chats" onClick={() => go("/chats")}>
