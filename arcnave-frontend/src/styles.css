@@ -3754,9 +3754,9 @@ textarea {
 }
 @media (max-width: 760px) { .auth-study { display: none; }.auth-welcome { padding: 0; }.auth-layout { width: 100%; } }
 
-/* Editorial workspace pass: one quiet type system, denser reading, and edge-to-edge chat. */
+/* Claude-inspired workspace pass: quiet sans UI and editorial type only for display moments. */
 :root {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body,
@@ -3769,6 +3769,14 @@ select,
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.brand,
+.home h1,
+.auth-brand,
+.auth-headline h1,
+.auth-art-copy h2 {
   font-family: Georgia, "Times New Roman", serif;
 }
 
@@ -3832,8 +3840,8 @@ strong,
 }
 
 .messages {
-  max-width: 1120px;
-  width: calc(100% - 48px);
+  max-width: 860px;
+  width: calc(100% - 80px);
   padding: 8px 0 14px;
 }
 
@@ -3870,14 +3878,14 @@ strong,
 }
 
 .markdown h1 {
-  font-family: inherit;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 30px;
   font-weight: 700;
   margin: 10px 0 16px;
 }
 
 .markdown h2 {
-  font-family: inherit;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 19px;
   font-weight: 700;
   margin: 14px 0 6px;
@@ -3922,7 +3930,7 @@ strong,
 }
 
 .conversation-composer > .composer-wrap {
-  max-width: 1120px;
+  max-width: 860px;
 }
 
 .conversation-composer .composer {
