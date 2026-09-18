@@ -551,6 +551,34 @@ failure mode of this pattern, not a sign it is working.
   step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
   issue in the checkpoint rather than patched under time pressure.
 
+### 2026-09-18 — A backend-only push re-deployed the frontend anyway, from a stale `main`
+
+- **Symptom:** Live UI briefly looked like it had reverted to an older style each time a
+  backend-only fix (this session's Cloud SQL / probe work, none of it touching
+  `arcnave-frontend/`) was merged and pushed to `main`.
+- **Cause:** This repo has a Cloudflare Workers Build hooked to `main` (visible as the "Workers
+  Builds: site" check on any PR) with no path filter, as far as this session could see — no
+  build config in `arcnave-frontend/wrangler.jsonc` scopes it, and no ignore-paths setting is
+  visible from the repo side (Cloudflare project build settings live outside this repo and
+  weren't checked directly). It rebuilds and redeploys the frontend from whatever
+  `arcnave-frontend/` looks like on `main` *at that push*, regardless of which files the push
+  actually changed. If newer UI/UX work is sitting uncommitted, on another branch, or deployed
+  some other way outside `main` (a parallel session, e.g. Codex, working the frontend), any
+  unrelated push to `main` — even a one-line backend fix or a docs-only commit — re-triggers
+  that build and republishes the older frontend `main` still has, overwriting whatever newer
+  version was live a moment before.
+- **Rule:** **A push to `main` redeploys the whole site, not just what changed.** When backend
+  and frontend work are happening in parallel across different sessions/tools, the frontend
+  side has to actually be merged into `main` to stay live — deploying it some other way (direct
+  `wrangler deploy`, a local preview, a different branch) will not survive the next unrelated
+  push to `main`. A backend-only session should not need to reason about this — the fix belongs
+  in the Cloudflare Workers Build config (path-based ignore rules, or split into separate
+  frontend/backend Pages projects) — but until that exists, know that it doesn't exist.
+- **Verify:** Check the Cloudflare dashboard's build settings for this project for a "Build
+  configuration" / "Path" filter; none was found from inside this repo. Until one exists,
+  coordinate: land frontend work on `main` before or immediately after any backend push, not
+  in a separate long-lived deploy.
+
 ---
 
 ## Convention and sources
@@ -627,3 +655,8 @@ practice, not canon.
   `pg`-style `?host=` socket convention in two separate connection call sites, and a migration
   race under concurrent cold-start instances found only after the first fix was already live.
   **28 entries, 12 to the cap.**
+- **2026-09-18** — One more, from a live user report of the deployed UI looking reverted: a
+  Cloudflare Workers Build hooked to `main` with no visible path filter redeploys the whole
+  frontend on any push, so a backend-only or docs-only commit can republish an older frontend
+  if newer UI/UX work (being done in a parallel session/tool) hasn't landed on `main` yet.
+  **29 entries, 11 to the cap.**
