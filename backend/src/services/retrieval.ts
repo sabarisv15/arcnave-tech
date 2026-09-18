@@ -10,6 +10,7 @@
  * crowding out every other source of context.
  */
 import { and, eq } from 'drizzle-orm';
+import ExcelJS from 'exceljs';
 
 import type { Database } from '../db/client.js';
 import { fileChunks, projectFiles } from '../db/schema.js';
@@ -216,7 +217,6 @@ async function extractWithOfficeParser(data: Buffer, label: string): Promise<str
 async function extractXlsx(data: Buffer): Promise<string> {
   let workbook: import('exceljs').Workbook;
   try {
-    const ExcelJS = await import('exceljs');
     workbook = new ExcelJS.Workbook();
     // exceljs/index.d.ts shadows the global `Buffer` with its own local
     // `interface Buffer extends ArrayBuffer {}`, which Node's real Buffer does not structurally

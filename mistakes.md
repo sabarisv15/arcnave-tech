@@ -651,6 +651,19 @@ failure mode of this pattern, not a sign it is working.
 
 ---
 
+### 2026-09-19 — Vitest hid a CommonJS dynamic-import failure in production ESM
+
+- **Symptom:** A deployed `.xlsx` upload failed with `ExcelJS.Workbook is not a constructor`
+  even though every spreadsheet unit and integration test passed.
+- **Cause:** `await import('exceljs')` returns a Node ESM namespace whose CommonJS export lives
+  under `default`; Vitest's transform exposed named exports and made `new ExcelJS.Workbook()`
+  appear valid in tests, while compiled Node returned `Workbook === undefined`.
+- **Rule:** **Never trust a test runner's CommonJS interop shape for production ESM.** Import a
+  CommonJS package through its documented default export, and inspect the built/runtime import
+  shape with plain `node --input-type=module` whenever code uses dynamic `import()`.
+- **Verify:** `node --input-type=module -e "import ExcelJS from 'exceljs'; new ExcelJS.Workbook();"`
+  exits successfully, and an actual deployed `.xlsx` upload reaches `ready` with extracted text.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
