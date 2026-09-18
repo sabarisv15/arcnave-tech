@@ -485,17 +485,11 @@ export default function Composer({
           }}
         />
       </div>
-      {(chatId || unusable) && (
+      {(pending || unusable) && (
         <p className="composer-disclaimer">
           {pending
             ? "Waiting for uploads to finish…"
-            : unusable
-              ? "Files marked with a warning are sent without their text."
-              : `ArcNave can make mistakes · ${
-                  preferences.enterToSend
-                    ? "Shift + Enter for a new line"
-                    : "Ctrl + Enter to send"
-                }`}
+            : "Files marked with a warning are sent without their text."}
         </p>
       )}
     </div>

@@ -3924,9 +3924,9 @@ strong,
 }
 
 .conversation-composer {
-  padding: 5px 18px 7px;
+  padding: 0 18px 10px;
   background: var(--surface);
-  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  border-top: 0;
 }
 
 .conversation-composer > .composer-wrap {
