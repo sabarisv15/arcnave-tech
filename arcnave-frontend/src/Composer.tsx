@@ -375,7 +375,7 @@ export default function Composer({
                 onSelect: () => {
                   if (input.current)
                     input.current.accept =
-                      ".pdf,.docx,.xlsx,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.yml,.yaml,.xml,.sql,.png,.jpg,.jpeg,.webp,.gif";
+                      ".pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.yml,.yaml,.xml,.sql,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.ogg,.flac,.aac,.mp4,.webm,.mov";
                   input.current?.click();
                 },
               },

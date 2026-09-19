@@ -43,7 +43,7 @@ export function clearLocal(key: string): void {
 
 /** Extensions the backend accepts, by name. Keep in step with `ALLOWED` on the server. */
 export const allowed =
-  /\.(pdf|docx|xlsx|txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini|png|jpe?g|webp|gif)$/i;
+  /\.(pdf|docx|pptx|xlsx|txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini|png|jpe?g|webp|gif|mp3|wav|ogg|flac|aac|mp4|webm|mov)$/i;
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
