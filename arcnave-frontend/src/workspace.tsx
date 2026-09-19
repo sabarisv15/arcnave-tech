@@ -420,6 +420,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ],
               researchStage: event.event.stage,
             }));
+          if (event.type === "tool_use")
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              status: "generating",
+              toolCalls: [
+                ...(m.toolCalls ?? []),
+                {
+                  toolCallId: event.toolCallId,
+                  name: event.name,
+                  input: event.input,
+                },
+              ],
+            }));
+          if (event.type === "tool_result")
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              toolCalls: (m.toolCalls ?? []).map((t) =>
+                t.toolCallId === event.toolCallId
+                  ? { ...t, ok: event.ok, preview: event.preview }
+                  : t,
+              ),
+            }));
           if (event.type === "done") {
             completed = true;
             outcome = "complete";

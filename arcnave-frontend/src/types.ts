@@ -18,6 +18,8 @@ import type {
   ResearchEventDto,
   SavedSourceDto,
   SourceDto,
+  ToolCallDto,
+  ToolContentDto,
   UsageDto,
 } from "./api";
 
@@ -80,6 +82,21 @@ export interface ResearchEvent {
   at: string | null;
 }
 
+export interface ToolCall {
+  toolCallId: string;
+  name: string;
+  input: unknown;
+  /** Absent while the call is still in flight — the live SSE stream shows a `tool_use` frame
+   *  before the matching `tool_result` arrives; a reloaded transcript never sees this state. */
+  ok?: boolean;
+  /** The full result, only present once a reload re-fetches the persisted transcript. */
+  content?: ToolContentDto[];
+  /** The short wire preview from the live SSE `tool_result` frame — present as soon as the
+   *  call finishes, before any reload; superseded by `content` once one happens. */
+  preview?: string;
+  at?: string | null;
+}
+
 export interface MessageUsage {
   inputTokens: number;
   outputTokens: number;
@@ -100,6 +117,7 @@ export interface Message {
   status: RunStatus;
   sources?: Source[];
   events?: ResearchEvent[];
+  toolCalls?: ToolCall[];
   researchStage?: ResearchStage;
   questions?: string[];
   artifactId?: string;
@@ -204,6 +222,17 @@ export function toResearchEvent(dto: ResearchEventDto): ResearchEvent {
   return { stage: dto.stage, label: dto.label, detail: dto.detail, at: dto.at };
 }
 
+export function toToolCall(dto: ToolCallDto): ToolCall {
+  return {
+    toolCallId: dto.toolCallId,
+    name: dto.name,
+    input: dto.input,
+    ok: dto.ok,
+    content: dto.content,
+    at: dto.at,
+  };
+}
+
 export function toUsage(dto: UsageDto): MessageUsage {
   return {
     inputTokens: dto.inputTokens,
@@ -265,6 +294,7 @@ export function toMessage(dto: MessageDto): Message {
     status: dto.status as RunStatus,
     ...(dto.sources.length ? { sources: dto.sources.map(toSource) } : {}),
     ...(dto.events.length ? { events: dto.events.map(toResearchEvent) } : {}),
+    ...(dto.toolCalls.length ? { toolCalls: dto.toolCalls.map(toToolCall) } : {}),
     ...(dto.researchStage ? { researchStage: dto.researchStage } : {}),
     ...(dto.questions.length ? { questions: dto.questions } : {}),
     ...(dto.artifactId ? { artifactId: dto.artifactId } : {}),

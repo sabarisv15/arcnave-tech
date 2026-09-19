@@ -74,6 +74,14 @@ interface Transcript {
     errorCode: string | null;
     modelAlias: string | null;
     finishReason: string | null;
+    toolCalls: Array<{
+      toolCallId: string;
+      name: string;
+      input: unknown;
+      ok: boolean;
+      content: unknown[];
+      at: string | null;
+    }>;
   }>;
 }
 
@@ -736,6 +744,20 @@ describe('tool use', () => {
     // The DB keeps the full result, not the wire preview.
     expect(rows[0]!.content).toEqual([{ type: 'text', text: longText }]);
     expect(rows[0]!.input).toEqual({ query: 'x' });
+
+    // GET /chats/:id (the transcript a reload re-fetches) carries the same tool call, full
+    // content included — not just the live SSE stream.
+    const assistantMessage = t.messages[t.messages.length - 1]!;
+    expect(assistantMessage.toolCalls).toEqual([
+      {
+        toolCallId: 'call-1',
+        name: 'search_project_files',
+        input: { query: 'x' },
+        ok: true,
+        content: [{ type: 'text', text: longText }],
+        at: expect.any(String),
+      },
+    ]);
   });
 
   it('persists {} for input, never null, when a tool call carries no input', async () => {

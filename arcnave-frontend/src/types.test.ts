@@ -42,6 +42,7 @@ const message = (patch: Partial<MessageDto> = {}): MessageDto => ({
   completedAt: null,
   sources: [],
   events: [],
+  toolCalls: [],
   attachments: [],
   usage: null,
   ...patch,

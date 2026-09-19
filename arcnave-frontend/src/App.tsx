@@ -29,9 +29,11 @@ import {
   RotateCcw,
   Share2,
   Telescope,
+  Terminal,
   ThumbsDown,
   ThumbsUp,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { WorkspaceProvider, useWorkspace } from "./workspace";
 import { SessionProvider, useSession } from "./session";
@@ -43,7 +45,7 @@ import Settings from "./Settings";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { readLocal, writeLocal } from "./storage";
-import type { Message, MessageUsage, Mode } from "./types";
+import type { Message, MessageUsage, Mode, ToolCall } from "./types";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -656,6 +658,9 @@ function MessageView({
           />
         </Suspense>
       )}
+      {m.toolCalls && m.toolCalls.length > 0 && (
+        <ToolCallList calls={m.toolCalls} />
+      )}
       <div className="generation-status" role="status" aria-live="polite">
         {loading && (
           <span className="loading-line">
@@ -803,6 +808,68 @@ function MessageView({
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * The `tool_use`/`tool_result` frames the backend streams for item 9's tool-calling loop —
+ * previously invisible in the UI even though the backend ran them end to end. A call is
+ * "running" once its `tool_use` frame arrives and has no `ok` yet; the matching `tool_result`
+ * fills in `ok` and either a live wire `preview` or, after a reload, the full persisted
+ * `content`.
+ */
+function ToolCallList({ calls }: { calls: ToolCall[] }) {
+  return (
+    <div className="tool-call-list">
+      {calls.map((call, i) => (
+        <ToolCallRow key={`${call.toolCallId}-${i}`} call={call} />
+      ))}
+    </div>
+  );
+}
+
+function ToolCallRow({ call }: { call: ToolCall }) {
+  const [open, setOpen] = useState(false);
+  const running = call.ok === undefined;
+  const detail =
+    call.content
+      ?.map((c) => (c.type === "text" ? c.text : JSON.stringify(c.data)))
+      .join("\n") ??
+    call.preview ??
+    "";
+
+  return (
+    <div className={`tool-call-row ${call.ok === false ? "tool-call-failed" : ""}`}>
+      <button
+        className="tool-call-summary"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {running ? (
+          <Loader2 size={14} className="spin" />
+        ) : call.ok ? (
+          <Terminal size={14} />
+        ) : (
+          <X size={14} />
+        )}
+        <code>{call.name}</code>
+        <span className="tool-call-status">
+          {running ? "Running…" : call.ok ? "Done" : "Failed"}
+        </span>
+        <ChevronRight
+          size={13}
+          className={open ? "tool-call-chevron open" : "tool-call-chevron"}
+        />
+      </button>
+      {open && (
+        <div className="tool-call-detail">
+          {call.input !== undefined && (
+            <pre>{JSON.stringify(call.input, null, 2)}</pre>
+          )}
+          {detail && <pre>{detail}</pre>}
+        </div>
+      )}
+    </div>
   );
 }
 

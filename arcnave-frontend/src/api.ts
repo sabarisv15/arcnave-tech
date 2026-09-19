@@ -330,6 +330,19 @@ export interface ResearchEventDto {
   at: string | null;
 }
 
+export type ToolContentDto =
+  | { type: "text"; text: string }
+  | { type: "json"; data: unknown };
+
+export interface ToolCallDto {
+  toolCallId: string;
+  name: string;
+  input: unknown;
+  ok: boolean;
+  content: ToolContentDto[];
+  at: string | null;
+}
+
 export interface MessageAttachmentDto {
   id: string;
   filename: string;
@@ -370,6 +383,7 @@ export interface MessageDto {
   completedAt: string | null;
   sources: SourceDto[];
   events: ResearchEventDto[];
+  toolCalls: ToolCallDto[];
   attachments: MessageAttachmentDto[];
   usage: UsageDto | null;
 }

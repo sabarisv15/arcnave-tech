@@ -21,6 +21,7 @@ import {
   messageSources,
   projects,
   researchEvents,
+  toolCalls as toolCallsTable,
 } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
@@ -57,6 +58,20 @@ const eventSchema = z.object({
   at: z.string().nullable(),
 });
 
+const toolContentSchema = z.union([
+  z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({ type: z.literal('json'), data: z.unknown() }),
+]);
+
+const toolCallSchema = z.object({
+  toolCallId: z.string(),
+  name: z.string(),
+  input: z.unknown(),
+  ok: z.boolean(),
+  content: z.array(toolContentSchema),
+  at: z.string().nullable(),
+});
+
 const attachmentSchema = z.object({
   id: z.string(),
   filename: z.string(),
@@ -86,6 +101,7 @@ const messageSchema = z.object({
   completedAt: z.string().nullable(),
   sources: z.array(sourceSchema),
   events: z.array(eventSchema),
+  toolCalls: z.array(toolCallSchema),
   attachments: z.array(attachmentSchema),
   usage: z
     .object({
@@ -643,11 +659,12 @@ async function loadMessages(
   if (rows.length === 0) return [];
 
   const ids = rows.map((r) => r.id);
-  // Three batched queries rather than N+1 per message.
-  const [sources, events, files] = await Promise.all([
+  // Four batched queries rather than N+1 per message.
+  const [sources, events, files, calls] = await Promise.all([
     db.select().from(messageSources).where(inArray(messageSources.messageId, ids)),
     db.select().from(researchEvents).where(inArray(researchEvents.messageId, ids)),
     db.select().from(attachmentsTable).where(inArray(attachmentsTable.messageId, ids)),
+    db.select().from(toolCallsTable).where(inArray(toolCallsTable.messageId, ids)),
   ]);
 
   const group = <T extends { messageId: string | null }>(items: T[]): Map<string, T[]> => {
@@ -664,6 +681,7 @@ async function loadMessages(
   const sourcesBy = group(sources);
   const eventsBy = group(events);
   const filesBy = group(files);
+  const callsBy = group(calls);
 
   return rows.map((m) => ({
     id: m.id,
@@ -699,6 +717,16 @@ async function loadMessages(
     events: (eventsBy.get(m.id) ?? [])
       .sort((a, b) => a.ordinal - b.ordinal)
       .map((e) => ({ stage: e.stage, label: e.label, detail: e.detail, at: iso(e.at) })),
+    toolCalls: (callsBy.get(m.id) ?? [])
+      .sort((a, b) => a.ordinal - b.ordinal)
+      .map((c) => ({
+        toolCallId: c.toolCallId,
+        name: c.name,
+        input: c.input,
+        ok: c.ok,
+        content: c.content as z.infer<typeof toolContentSchema>[],
+        at: iso(c.at),
+      })),
     attachments: (filesBy.get(m.id) ?? []).map((f) => ({
       id: f.id,
       filename: f.filename,

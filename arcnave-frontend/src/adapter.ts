@@ -39,6 +39,14 @@ export type StreamEvent =
   | { type: "research"; event: ResearchEvent }
   | { type: "delta"; text: string }
   | { type: "sources"; sources: SourceDto[]; searchEntryPoint?: string }
+  | { type: "tool_use"; toolCallId: string; name: string; input: unknown }
+  | {
+      type: "tool_result";
+      toolCallId: string;
+      name: string;
+      ok: boolean;
+      preview: string;
+    }
   | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
   | {
       type: "error";
