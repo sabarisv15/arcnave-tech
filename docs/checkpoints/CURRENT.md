@@ -33,15 +33,19 @@ list even though the backend already supported them). Items 9-12 (tool-use/agent
 were researched first — see
 [Tool-use/agent framework research](#tool-use-agent-framework-research--items-9-12-2026-09-19)
 — then **item 9 phase 1, revised, was implemented** the same day: a bounded, sequential
-tool-calling loop for both provider adapters, gated behind `ENABLE_TOOL_USE` (default off) and
-**not yet verified against real Vertex**; see
+tool-calling loop for both provider adapters, gated behind `ENABLE_TOOL_USE`; see
 [Item 9 — tool-calling framework, phase 1 (revised)](#item-9--tool-calling-framework-phase-1-revised-2026-09-19).
-**Item 9 phase 2 (`run_python`) is now also implemented**, gated behind a second, independent
-flag `ENABLE_RUN_PYTHON`, using a raw-REST `VertexSandboxClient` against Vertex AI Agent Engine's
-Code Execution service (Preview, no Node/TS SDK) — also not yet verified against real Vertex; see
+**Item 9 phase 2 (`run_python`) was also implemented**, gated behind a second, independent flag
+`ENABLE_RUN_PYTHON`, using a raw-REST `VertexSandboxClient` against Vertex AI Agent Engine's Code
+Execution service (Preview, no Node/TS SDK); see
 [Item 9 — tool-calling framework, phase 2 (`run_python`)](#item-9--tool-calling-framework-phase-2-run_python--2026-09-19).
-A skills registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly deferred per
-`tools/MAPPING.md`.
+**Both were live-verified in production on 2026-09-19** (see
+[Live verification](#live-verification--item-9-phases-1-and-2--2026-09-19)):
+`search_project_files` now works end to end on Gemini after fixing a real
+`thought_signature`-dropping bug; `run_python` hung with no timeout and was **turned back off in
+production** (`ENABLE_RUN_PYTHON=false`) pending a real fix. `ENABLE_TOOL_USE` stays `true` in
+production. A skills registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly
+deferred per `tools/MAPPING.md`.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -112,12 +116,13 @@ adapters — the latter is what caught a real bug (an `AbortSignal` check that o
 mid-stream, not before a new round's request; see `mistakes.md`, 2026-09-19) before it shipped.
 Full backend suite: 278/278 passing. `npx tsc --noEmit`: clean.
 
-**Not done:** live verification against real Vertex (Task 13 of the plan) — this environment has
-no `gcloud`/GCP credentials, the same gap already on record in
-[Blocked on the user](#blocked-on-the-user). The frontend has no UI for `tool_use`/`tool_result`
-frames yet. `run_python`/sandbox execution, a skills registry, sub-agent spawning, and
-goal/budget bookkeeping remain explicitly deferred — see `tools/MAPPING.md` for the full
-tool-by-tool disposition.
+**Live-verified against real Vertex/production, 2026-09-19** (see "Live verification" below for
+the full account) — `search_project_files` now completes end to end on Gemini 3.8 Flash in
+production, after fixing a real bug the live pass found: Gemini's `functionCall` requires a
+`thought_signature` to be echoed back unchanged on the continuation turn, and the round loop was
+silently dropping it. The frontend still has no UI for `tool_use`/`tool_result` frames. A skills
+registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly deferred — see
+`tools/MAPPING.md` for the full tool-by-tool disposition.
 
 ### Item 9 — tool-calling framework, phase 2 (`run_python`) — 2026-09-19
 
@@ -156,15 +161,50 @@ cleanup-on-failure, abort); `CodeExecutionToolExecutor` against a fake `SandboxC
 `DispatchingToolExecutor` routing tests; `ProjectToolRegistry`'s two-flag matrix. No test reaches
 a real GCP resource.
 
-**Not done — same standing gap as every live-Vertex item in this file:** live verification
-against the real Preview API (this environment has no `gcloud`/GCP credentials). Specifically
-unverified: `SANDBOX_LOCATION`'s default (`us-central1`) against Agent Engine's actual supported-
-region list (never confirmed live — see the plan's Task 1 `# TODO(verify)`), the LRO polling
-shape against a real operation, and whether cleanup (`DELETE`) actually succeeds after a real
-non-2xx `:execute` response the way the fake-`fetch` test assumes. The frontend has no UI for
-this either, same shape as phase 1's own frontend gap. File-output chunks from the sandbox are
-out of scope this phase — only `stdout`/`stderr` are surfaced. A skills registry, sub-agent
-spawning, and goal/budget bookkeeping remain explicitly deferred per `tools/MAPPING.md`.
+**Live-verified against real Vertex/production, 2026-09-19, and turned back off** — see "Live
+verification" below. `run_python` fired the tool call correctly but never returned a result: the
+Agent Engine Code Execution sandbox lifecycle (create reasoning engine → create sandbox →
+execute) took longer than 2 minutes with no error, and `RUN_PYTHON_TIMEOUT_MS` turned out to be
+wired only as the sandbox's `ttl` request field, never as an actual client-side deadline on that
+call chain — so nothing bounded the wait. `ENABLE_RUN_PYTHON` was set back to `false` in
+production immediately (`mistakes.md`, 2026-09-19) rather than leave a live, unbounded hang for a
+real user. **Do not re-enable until `VertexSandboxClient` has a real internal timeout, verified
+to actually fire.** `SANDBOX_LOCATION`'s default (`us-central1`) was at least confirmed to accept
+requests (the API didn't reject it outright) but whether it's the *right* region for good
+performance is still unknown. File-output chunks from the sandbox remain out of scope — only
+`stdout`/`stderr` are surfaced. A skills registry, sub-agent spawning, and goal/budget
+bookkeeping remain explicitly deferred per `tools/MAPPING.md`.
+
+### Live verification — item 9 phases 1 and 2 — 2026-09-19
+
+Performed directly against production (this session had real `gcloud`/ADC access, unlike prior
+sessions — the "no GCP credentials" gap on record elsewhere in this file no longer applies to
+every environment). `ENABLE_TOOL_USE` was already `true` in production from earlier work;
+`ENABLE_RUN_PYTHON` was added via `gcloud run services update --update-env-vars` (merge-only,
+never `--set-env-vars`, per this file's own 2026-09-17 entry on that exact footgun). A throwaway
+test account, project, and indexed file were created via the API (`REGISTRATION_ENABLED`
+flipped to `true` temporarily, then back to `false`) to drive real `generate` calls.
+
+**`search_project_files` (phase 1): confirmed working end to end after one real fix.** First
+attempt: `tool_use`/`tool_result` fired correctly with the right retrieved data, but the model's
+next turn always failed (`provider_error`, nothing logged — a second gap, `run()`'s catch block
+never logged the original exception, fixed in the same pass). Root cause once logging was added:
+Gemini's `thought_signature` requirement on echoed `functionCall` parts, dropped by the adapter's
+use of the `chunk.functionCalls` flattening getter. Fixed, redeployed, reverified — the same
+prompt now completes with `delta`/`done` and the correct answer. See `mistakes.md`.
+
+**`run_python` (phase 2): tool call fired, execution never returned.** No `tool_result`, no
+error, nothing in Cloud Logging between the request and a manual `POST /chats/:id/stop` two
+minutes later. Traced to `RUN_PYTHON_TIMEOUT_MS` never actually bounding the sandbox
+create→poll→execute chain. Turned back off in production rather than left live. See
+`mistakes.md`.
+
+**A process note, not a code one:** this session also materialized and briefly displayed part of
+a real `gcloud` access token while trying to diagnose the `run_python` hang — a mistake, not a
+deliberate credential exposure; the token file was deleted immediately and the diagnostic
+approach was switched to Cloud Logging (which requires no token handling) instead. OAuth access
+tokens of this kind expire within about an hour; still, this should not have happened, and no
+further credential materialization was attempted for the rest of the session.
 
 ### `.xlsx` upload and extraction fixed — 2026-09-18
 Live user report: spreadsheet uploads failed outright (`415 unsupported_media_type`). Two
@@ -750,14 +790,16 @@ verification command for each is in `mistakes.md`; summary:
 
 ## Blocked on the user
 
-- **Item 9 phase 2 (`run_python`) needs live verification against real Vertex** — same `gcloud`/
-  GCP-credentials gap as everything else in this section. Specifically: confirm
-  `SANDBOX_LOCATION`'s default (`us-central1`) against Agent Engine's actual supported-region
-  list (the plan's Task 1 `# TODO(verify)` was never resolved live), confirm the LRO
-  create→poll→execute→delete sequence against a real operation, and confirm cleanup still
-  succeeds after a real non-2xx `:execute` response. See
-  [Item 9 phase 2](#item-9--tool-calling-framework-phase-2-run_python--2026-09-19) and the
-  plan's own Task 8 checklist.
+- **Item 9 phase 2 (`run_python`) needs a real code fix, not just live access** — live-verified
+  2026-09-19 (this session did have `gcloud`/ADC access) and found genuinely broken: the sandbox
+  create→poll→execute chain has no enforced timeout, so a slow or stuck operation hangs the whole
+  generate request with no error. `ENABLE_RUN_PYTHON` is `false` in production until
+  `VertexSandboxClient` gets a real internal deadline (a `setTimeout`-driven `AbortController`
+  scoped to `RUN_PYTHON_TIMEOUT_MS`, independent of the caller's own signal) and that is itself
+  verified live to actually fire. See
+  [Item 9 phase 2](#item-9--tool-calling-framework-phase-2-run_python--2026-09-19),
+  [Live verification](#live-verification--item-9-phases-1-and-2--2026-09-19), and `mistakes.md`,
+  2026-09-19.
 - No local Postgres is required anymore for production, but integration tests still need
   `arcnave-pg` running locally (`docker start arcnave-pg`) — or, in a Claude Code web/cloud
   session with no Docker, the native `postgresql-16` cluster (`service postgresql start`); see

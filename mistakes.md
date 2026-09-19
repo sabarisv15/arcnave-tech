@@ -54,16 +54,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-16 — Drizzle wraps driver errors, so `err.code` is empty
-
-- **Symptom:** Registering with an email already in use returned `internal_error` instead of
-  `email_taken`. The unique index was doing its job; the handler could not tell.
-- **Cause:** Drizzle wraps the underlying `postgres` error. The SQLSTATE lives on `err.cause`,
-  sometimes nested more than one level deep — never on the top-level `err.code`.
-- **Rule:** **Never read a driver error code off the thrown object directly.** Walk the cause
-  chain (`isUniqueViolation()` in [`src/services/auth.ts`](backend/src/services/auth.ts)).
-- **Verify:** Register the same email twice; the second must be `409 email_taken`.
-
 ### 2026-09-16 — A `preHandler` guard cannot see state set in `onRequest`
 
 - **Symptom:** Every authenticated route returned 401, including with a valid session cookie.
@@ -788,6 +778,34 @@ failure mode of this pattern, not a sign it is working.
   fails if the getter-only reading regresses. Live: a `search_project_files` call on Gemini 3.8
   Flash in production now completes with real final text instead of erroring after the tool result.
 
+### 2026-09-19 — `run_python` had no real timeout and hung for minutes against the live sandbox
+
+- **Symptom:** Live in production with `ENABLE_RUN_PYTHON=true`: a `run_python` tool call fired
+  (`tool_use` frame appeared) and then never produced a `tool_result` — no error, no further SSE
+  frames, still running after 2 minutes, until manually stopped via `POST /chats/:id/stop`. Cloud
+  Logging showed nothing between the initial request and the stop; whatever was slow produced no
+  log line of its own.
+- **Cause:** `RUN_PYTHON_TIMEOUT_MS` (Task 2's config) is only used as the sandbox's `ttl` value
+  sent to the Code Execution API — it was never actually wired as a client-side deadline on the
+  create→poll→execute call chain, despite the plan's own text claiming it would be ("enforced
+  client-side (an AbortController on the `:execute` fetch)"). `pollUntilDone` loops with no
+  attempt cap or elapsed-time check beyond the caller's own (unrelated) `AbortSignal`, so a slow
+  or stalled Preview-API operation blocks the whole generate request indefinitely instead of
+  failing fast with a typed result the model could react to.
+- **Rule:** **A documented timeout config value that is only read in one place (here: as a
+  request payload field) is not the same as an enforced deadline — grep every place a "timeout"
+  config is actually consumed before trusting it bounds anything.** A polling loop against an
+  external LRO needs its own elapsed-time or attempt-count cap independent of whatever
+  `AbortSignal` the caller happens to pass in.
+- **Rule:** **Turned back off in production** (`ENABLE_RUN_PYTHON=false`) immediately on finding
+  this — an unbounded hang on a live user request is worse than the feature being unavailable.
+  Do not re-enable until `VertexSandboxClient` wraps its own internal calls in a real deadline
+  (a `setTimeout`-driven `AbortController` scoped to `RUN_PYTHON_TIMEOUT_MS`, independent of the
+  request's own signal) and that is verified live to actually fire.
+- **Verify:** Not yet — this is the concrete next step before `run_python` can be re-enabled. A
+  unit test asserting `VertexSandboxClient.runPython` rejects once `RUN_PYTHON_TIMEOUT_MS`
+  elapses, even when the fake `fetch`/poll never resolves, would catch a regression of the fix.
+
 ### 2026-09-19 — A Python-SDK quickstart is not a REST contract
 
 - **Symptom:** The checkpoint named "Vertex AI Agent Engine's Code Execution service" as the
@@ -936,5 +954,12 @@ practice, not canon.
   `chunk.functionCalls` getter silently drops that field (it lives on the sibling `Part`, not on
   `FunctionCall`). Also fixed in the same pass: `run()`'s catch block never logged the original
   error before mapping it to a generic code, which is why this took a redeploy with real logging
-  added before the cause was visible at all. **40 entries, at the cap — prune before the next
-  entry.**
+  added before the cause was visible at all. **40 entries, at the cap.**
+- **2026-09-19** — Retired the oldest entry (`Drizzle wraps driver errors, so err.code is empty`)
+  — fully covered by `isUniqueViolation()` plus its own regression test, per the pruning policy's
+  first criterion. One more added from continuing the same live-verification pass: `run_python`
+  hung for minutes on a real request with no error, because `RUN_PYTHON_TIMEOUT_MS` was only ever
+  read as the sandbox's `ttl`, never actually wired as a client-side deadline on the
+  create→poll→execute chain — turned back off in production (`ENABLE_RUN_PYTHON=false`)
+  immediately rather than leaving a live hang for the next real user. **40 entries, at the cap —
+  prune before the next entry.**
