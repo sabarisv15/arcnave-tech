@@ -757,6 +757,31 @@ failure mode of this pattern, not a sign it is working.
   when the signal fires during tool execution, for both `gemini.ts` and `anthropic.ts`'s tool
   loops — not just that the call under test eventually rejects.
 
+### 2026-09-19 — A Python-SDK quickstart is not a REST contract
+
+- **Symptom:** The checkpoint named "Vertex AI Agent Engine's Code Execution service" as the
+  planned sandbox for item 9 phase 2's `run_python`, but the only documentation on record was a
+  Python-SDK quickstart (`client.sandboxes.create/execute_code/delete`). This codebase's backend
+  is Node/TypeScript, and a live check found the JS/TS SDK has **no support for this resource at
+  all** (`googleapis/js-genai#2185`, open) — so the quickstart could not be translated into code
+  without guessing HTTP paths and body shapes.
+- **Cause:** A language-specific SDK quickstart documents *a client library's* call shape, not
+  *the service's* wire contract — the same category of gap as reading a captured system prompt
+  as API documentation (this file, `A captured system prompt was read as if it were API
+  documentation`), just one layer earlier: an SDK sample is still real documentation, but it is
+  documentation of the wrong layer for a language that SDK doesn't cover.
+- **Rule:** **When the only available documentation for an external API is another language's
+  SDK, find the REST reference before writing an HTTP client against it — do not infer the wire
+  shape from the SDK sample.** For Google Cloud APIs this is
+  `docs.cloud.google.com/.../reference/rest/...`; the resource, method, and field names there are
+  normative even when no code sample exists for your language.
+- **Verify:** `VertexSandboxClient`'s request/response shapes in
+  [`vertexSandboxClient.ts`](backend/src/tools/sandbox/vertexSandboxClient.ts) cite the REST
+  reference pages read for each one (`reasoningEngines.create`,
+  `sandboxEnvironments.create`/`execute`/`delete`), not the Python quickstart — and its tests
+  assert those exact request shapes against a fake `fetch`, so a shape drift fails a test instead
+  of only failing a real, unverifiable-in-this-environment live call.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -868,3 +893,8 @@ practice, not canon.
   asserting the provider call count, not just that the loop eventually threw, and fixed
   proactively in the Anthropic adapter before it shipped the same way. **38 entries, 2 to the
   cap.**
+- **2026-09-19** — One more starting item 9 phase 2 (`run_python`): the checkpoint named "Vertex
+  AI Agent Engine's Code Execution service" but only a Python-SDK quickstart was on record, and
+  the JS/TS SDK turned out to have no support for that resource at all. Caught before writing
+  `VertexSandboxClient` by finding the actual REST reference pages instead of inferring the wire
+  shape from the Python samples. **39 entries, 1 to the cap — prune before the next entry.**

@@ -36,8 +36,12 @@ were researched first — see
 tool-calling loop for both provider adapters, gated behind `ENABLE_TOOL_USE` (default off) and
 **not yet verified against real Vertex**; see
 [Item 9 — tool-calling framework, phase 1 (revised)](#item-9--tool-calling-framework-phase-1-revised-2026-09-19).
-`run_python`/sandbox, a skills registry, sub-agent spawning, and goal/budget bookkeeping remain
-explicitly deferred per `tools/MAPPING.md`.
+**Item 9 phase 2 (`run_python`) is now also implemented**, gated behind a second, independent
+flag `ENABLE_RUN_PYTHON`, using a raw-REST `VertexSandboxClient` against Vertex AI Agent Engine's
+Code Execution service (Preview, no Node/TS SDK) — also not yet verified against real Vertex; see
+[Item 9 — tool-calling framework, phase 2 (`run_python`)](#item-9--tool-calling-framework-phase-2-run_python--2026-09-19).
+A skills registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly deferred per
+`tools/MAPPING.md`.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -114,6 +118,53 @@ no `gcloud`/GCP credentials, the same gap already on record in
 frames yet. `run_python`/sandbox execution, a skills registry, sub-agent spawning, and
 goal/budget bookkeeping remain explicitly deferred — see `tools/MAPPING.md` for the full
 tool-by-tool disposition.
+
+### Item 9 — tool-calling framework, phase 2 (`run_python`) — 2026-09-19
+
+Built on phase 1 without changing its loop, persistence, or adapter shape — `run_python` is a
+second `ToolExecutor` registered alongside `ProjectToolExecutor`'s two tools, composed behind a
+new `DispatchingToolExecutor` that routes by tool name. Plan:
+[`docs/superpowers/plans/2026-09-19-item9-phase2-run-python.md`](../superpowers/plans/2026-09-19-item9-phase2-run-python.md).
+
+**Design validated, not assumed, before writing code:** Anthropic's own current agent-design
+guidance (promote to a dedicated tool when an action needs a security boundary — code execution
+is exactly that) and today's platform-availability check (server-side `code_execution` still
+"No" on Vertex, client-side Bash still "Yes") both confirm the `tools/MAPPING.md` §9.9
+recommendation — a custom `run_python` declaration for both providers, not Anthropic's
+schema-locked Bash tool — is still correct.
+
+**A real blocker was found and resolved before implementation:** the sandbox backend named in
+this checkpoint, Vertex AI Agent Engine's Code Execution service, is Preview-only with **no
+Node/TS SDK** (`googleapis/js-genai#2185`, open) — only a Python SDK, whose quickstart shows no
+REST shape. The actual REST contract was found directly in Google's reference docs
+(`projects.locations.reasoningEngines.sandboxEnvironments`: `create`/`execute`/`delete`, plus
+the parent `reasoningEngines.create`) rather than inferred from the Python samples — see
+`mistakes.md`, 2026-09-19, "A Python-SDK quickstart is not a REST contract".
+
+**What's implemented:** `VertexSandboxClient` (raw REST over ADC, the same `google-auth-library`
+pattern `gptOssVertex.ts` already uses for a Vertex surface with no first-class SDK) behind a
+`SandboxClient` interface; `CodeExecutionToolExecutor` (bounded output, abort-aware, never
+throws — a sandbox failure becomes a typed `ok: false` result); `DispatchingToolExecutor`
+composing it with `ProjectToolExecutor`; a second, independent flag `ENABLE_RUN_PYTHON` on top of
+`ENABLE_TOOL_USE` (arbitrary code execution is a materially larger blast radius than read-only
+search, so it is separately toggleable); wired into `GenerationService`/`container.ts`, a real
+`VertexSandboxClient` constructed only when `GOOGLE_CLOUD_PROJECT` is set. Full backend suite:
+293/293 passing. `npx tsc --noEmit`: clean.
+
+**Coverage:** `VertexSandboxClient` against a fake `fetch` (request shapes, LRO polling,
+cleanup-on-failure, abort); `CodeExecutionToolExecutor` against a fake `SandboxClient`;
+`DispatchingToolExecutor` routing tests; `ProjectToolRegistry`'s two-flag matrix. No test reaches
+a real GCP resource.
+
+**Not done — same standing gap as every live-Vertex item in this file:** live verification
+against the real Preview API (this environment has no `gcloud`/GCP credentials). Specifically
+unverified: `SANDBOX_LOCATION`'s default (`us-central1`) against Agent Engine's actual supported-
+region list (never confirmed live — see the plan's Task 1 `# TODO(verify)`), the LRO polling
+shape against a real operation, and whether cleanup (`DELETE`) actually succeeds after a real
+non-2xx `:execute` response the way the fake-`fetch` test assumes. The frontend has no UI for
+this either, same shape as phase 1's own frontend gap. File-output chunks from the sandbox are
+out of scope this phase — only `stdout`/`stderr` are surfaced. A skills registry, sub-agent
+spawning, and goal/budget bookkeeping remain explicitly deferred per `tools/MAPPING.md`.
 
 ### `.xlsx` upload and extraction fixed — 2026-09-18
 Live user report: spreadsheet uploads failed outright (`415 unsupported_media_type`). Two
@@ -699,6 +750,14 @@ verification command for each is in `mistakes.md`; summary:
 
 ## Blocked on the user
 
+- **Item 9 phase 2 (`run_python`) needs live verification against real Vertex** — same `gcloud`/
+  GCP-credentials gap as everything else in this section. Specifically: confirm
+  `SANDBOX_LOCATION`'s default (`us-central1`) against Agent Engine's actual supported-region
+  list (the plan's Task 1 `# TODO(verify)` was never resolved live), confirm the LRO
+  create→poll→execute→delete sequence against a real operation, and confirm cleanup still
+  succeeds after a real non-2xx `:execute` response. See
+  [Item 9 phase 2](#item-9--tool-calling-framework-phase-2-run_python--2026-09-19) and the
+  plan's own Task 8 checklist.
 - No local Postgres is required anymore for production, but integration tests still need
   `arcnave-pg` running locally (`docker start arcnave-pg`) — or, in a Claude Code web/cloud
   session with no Docker, the native `postgresql-16` cluster (`service postgresql start`); see
