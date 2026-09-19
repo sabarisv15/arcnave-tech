@@ -420,6 +420,7 @@ export class GenerationService {
         status = 'error';
         const mapped = mapProviderError(err);
         errorCode = mapped.code;
+        log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
         await this.finalise(input, {
           text: collectedText.join(''),
           sources: collectedSources,
