@@ -353,8 +353,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         tags: ['chats'],
         summary: 'Stream an assistant reply over SSE',
         description:
-          'Returns text/event-stream. Frames: start, research, delta, sources, done, error. ' +
-          'Disconnecting cancels the underlying provider call.',
+          'Returns text/event-stream. Frames: start, research, delta, sources, tool_use, ' +
+          'tool_result, done, error. Disconnecting cancels the underlying provider call.',
         params: uuidParam,
         body: z.object({
           prompt: z.string().min(1).max(100_000),

@@ -1315,7 +1315,7 @@
         "tags": [
           "chats"
         ],
-        "description": "Returns text/event-stream. Frames: start, research, delta, sources, done, error. Disconnecting cancels the underlying provider call.",
+        "description": "Returns text/event-stream. Frames: start, research, delta, sources, tool_use, tool_result, done, error. Disconnecting cancels the underlying provider call.",
         "requestBody": {
           "required": true,
           "content": {
