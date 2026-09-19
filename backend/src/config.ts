@@ -148,6 +148,25 @@ const envSchema = z.object({
    *  the UI's budget only. */
   TOOL_RESULT_PREVIEW_CHARS: int(300),
 
+  /**
+   * Second, independent gate on top of ENABLE_TOOL_USE — arbitrary code execution is a
+   * materially larger blast radius than read-only project-file search, and must be
+   * independently toggleable. Both must be true for run_python to appear in the tool list.
+   */
+  ENABLE_RUN_PYTHON: bool(false),
+  /** Region for the Agent Engine / sandboxEnvironments REST calls, confirmed separately from
+   *  VERTEX_LOCATION/GEMINI_LOCATION (which cover only the two model APIs) — Agent Engine's
+   *  supported-region list was not confirmed live in this environment. */
+  SANDBOX_LOCATION: z.string().default('us-central1'), // TODO(verify): confirm against Agent Engine's region list
+  /** Hard wall-clock cap on one run_python execution, enforced client-side — the sandbox
+   *  :execute call has no documented request-level timeout parameter, so this is ours to
+   *  enforce, not the server's. */
+  RUN_PYTHON_TIMEOUT_MS: int(30_000),
+  /** Same three-tier shape as READ_PROJECT_FILE_MAX_CHARS/TOOL_RESULT_PREVIEW_CHARS above: this
+   *  bounds what the model receives and what is persisted; the SSE preview is bounded again by
+   *  TOOL_RESULT_PREVIEW_CHARS, unchanged. */
+  RUN_PYTHON_MAX_OUTPUT_CHARS: int(8000),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),
