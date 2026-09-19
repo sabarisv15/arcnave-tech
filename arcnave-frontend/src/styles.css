@@ -141,8 +141,9 @@ a:focus-visible,
 textarea:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  /* Keep keyboard focus perceptible without turning every clicked control into a box. */
+  outline: 1px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  outline-offset: 1px;
 }
 button {
   transition:
@@ -3835,8 +3836,7 @@ select,
 strong,
 .markdown strong,
 .answer-byline,
-.conversation-title,
-.menu-item[data-highlighted] > span {
+.conversation-title {
   font-weight: 600;
 }
 
@@ -3873,9 +3873,33 @@ strong,
   background: var(--surface);
   border: 0;
   border-left: 1px solid var(--line);
-  border-radius: 22px 0 0 22px;
+  border-radius: 0;
   margin: 0;
   overflow: hidden;
+}
+
+/* Menus should select quietly: a soft background is enough, like the model chooser.
+   The selected state remains available through aria-current/checkmarks, not heavier type
+   or a focus rectangle. */
+.menu-item[data-highlighted],
+.settings-layout > nav > button:hover,
+.settings-layout > nav > button:focus-visible {
+  background: var(--hover);
+  outline: none;
+  box-shadow: none;
+}
+
+.menu-item[data-highlighted] > span {
+  font-weight: 400;
+}
+
+/* Text fields retain a clear but single-line focus treatment instead of an outer ring. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  box-shadow: none;
 }
 
 .artifact-ai-create {

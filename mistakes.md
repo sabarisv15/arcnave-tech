@@ -664,6 +664,21 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `node --input-type=module -e "import ExcelJS from 'exceljs'; new ExcelJS.Workbook();"`
   exits successfully, and an actual deployed `.xlsx` upload reaches `ready` with extracted text.
 
+---
+
+### 2026-09-19 — A single heavy focus rule changed the visual language of unrelated controls
+
+- **Symptom:** Clicking ordinary text fields, Settings items, and menu choices drew a thick,
+  offset rectangle and menu hover states became bold, while the model picker remained quiet.
+- **Cause:** A global `:focus-visible` rule applied a two-pixel outline with a three-pixel
+  offset to every interactive element. A later typography override also made every highlighted
+  menu label semibold, so the same interaction state looked materially different by component.
+- **Rule:** **Do not use one high-emphasis focus treatment as a catch-all UI style.** Keep a
+  visible but single-line keyboard indicator, and let ordinary menus use the same soft
+  background selection state as the model picker unless a control needs a stronger state.
+- **Verify:** Click and keyboard-tab through text fields, Settings, sidebar navigation, and
+  mode menus: no thick outer box or weight jump appears; keyboard focus remains distinguishable.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
