@@ -831,6 +831,19 @@ failure mode of this pattern, not a sign it is working.
   assert those exact request shapes against a fake `fetch`, so a shape drift fails a test instead
   of only failing a real, unverifiable-in-this-environment live call.
 
+### 2026-09-19 — `compact` did not mean the same thing on every composer surface
+
+- **Symptom:** The chat reply composer still occupied a large empty block even though its caller
+  passed `compact`; shrinking the shared rule would also have cramped project and artifact work.
+- **Cause:** `compact` covered placement for three different surfaces, but the shared textarea
+  effect imposed a 46px minimum everywhere. A live reply has different intent from a project or
+  artifact prompt, so one generic minimum encoded the wrong product decision.
+- **Rule:** **Scope visual compaction to the interaction intent, not a reused boolean prop.** A
+  conversation reply may begin at one line and auto-grow within a bounded portion of the
+  viewport; project and artifact prompts retain their writing space.
+- **Verify:** A blank chat reply is 34px and grows to at most 42% of the viewport; project and
+  artifact composers retain their existing minimum heights.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding

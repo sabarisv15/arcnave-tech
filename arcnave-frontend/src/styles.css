@@ -4043,6 +4043,49 @@ select:focus-visible {
   margin-top: 5px;
 }
 
+/* A live conversation starts as a reply field, not a large blank writing canvas. It grows
+   naturally while someone writes, then reserves the majority of the viewport for the
+   conversation. Project and artifact composers deliberately do not inherit this treatment. */
+.conversation-composer {
+  padding-bottom: 8px;
+}
+
+.conversation-composer .composer.composer-inline {
+  padding: 6px 10px;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px #17213206;
+}
+
+.conversation-composer .composer-inline textarea {
+  min-height: 34px;
+  max-height: 42dvh;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-y: auto;
+}
+
+.conversation-composer .composer-inline .composer-toolbar {
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.conversation-composer .composer-inline .icon-button,
+.conversation-composer .composer-inline .send-button {
+  width: 30px;
+  height: 30px;
+}
+
+.conversation-composer .composer-inline .quiet-button {
+  gap: 6px;
+  padding: 6px 7px;
+}
+
+.conversation-composer .composer-inline .send-button {
+  margin-left: 4px;
+  border-radius: 8px;
+}
+
 .dropdown[aria-label="Model selection"] {
   border-radius: 10px;
 }

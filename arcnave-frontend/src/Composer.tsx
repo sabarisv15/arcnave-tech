@@ -114,6 +114,9 @@ export default function Composer({
     input = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const mounted = useRef(true);
+  // Only a live conversation is an inline reply surface. Project and artifact composers keep
+  // their room for longer prompts even though they also use the compact prop for placement.
+  const inlineReply = compact && Boolean(chatId);
 
   useEffect(() => {
     mounted.current = true;
@@ -144,11 +147,13 @@ export default function Composer({
       textarea.current.style.height = "auto";
       textarea.current.style.height =
         Math.min(
-          240,
-          Math.max(compact ? 46 : 70, textarea.current.scrollHeight),
+          inlineReply
+            ? Math.min(480, Math.round(window.innerHeight * 0.42))
+            : 240,
+          Math.max(inlineReply ? 34 : compact ? 46 : 70, textarea.current.scrollHeight),
         ) + "px";
     }
-  }, [text, compact]);
+  }, [text, compact, inlineReply]);
 
   const busy = !!activeRun;
   const ownRun = activeRun === chatId;
@@ -283,7 +288,7 @@ export default function Composer({
         </div>
       )}
       <div
-        className={`composer ${dragging ? "dragging" : ""}`}
+        className={`composer ${inlineReply ? "composer-inline" : ""} ${dragging ? "dragging" : ""}`}
         onDragEnter={(e) => {
           e.preventDefault();
           dragDepth.current++;
