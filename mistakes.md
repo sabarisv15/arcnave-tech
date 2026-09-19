@@ -943,7 +943,8 @@ failure mode of this pattern, not a sign it is working.
   conversation reply may begin at one line and auto-grow within a bounded portion of the
   viewport; project and artifact prompts retain their writing space.
 - **Verify:** A blank chat reply is 34px and grows to at most 42% of the viewport; project and
-  artifact composers retain their existing minimum heights.
+  artifact composers retain their existing minimum heights. The chat reply wrapper stays
+  centered at a 760px maximum width so it does not consume nearly the full conversation pane.
 
 ## Convention and sources
 
