@@ -291,10 +291,7 @@ export class AnthropicVertexProvider implements Provider {
         );
         if (!useTools || toolUseBlocks.length === 0) break;
 
-        messages = [
-          ...messages,
-          { role: 'assistant', content: final.content as unknown as Anthropic.ContentBlockParam[] },
-        ];
+        messages = [...messages, { role: 'assistant', content: final.content }];
 
         // disable_parallel_tool_use should make this length 1, but the request is honest about
         // what the SDK actually returned rather than assuming: only the first is executed,
