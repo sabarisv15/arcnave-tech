@@ -132,6 +132,22 @@ const envSchema = z.object({
    */
   ENABLE_GEMINI_CODE_EXECUTION: bool(false),
 
+  /**
+   * Master gate for the item-9 tool-calling loop. Off by default: a deployment gains nothing
+   * from it without a project, and it changes both adapters' wire shape.
+   */
+  ENABLE_TOOL_USE: bool(false),
+  /** One round = one provider request + at most one tool execution. The loop answers with
+   *  `finishReason: 'tool_limit'` rather than looping forever once this is hit. */
+  TOOL_MAX_ROUNDS: int(8),
+  /** Hard server-side cap on `read_project_file`'s returned text, regardless of what `maxChars`
+   *  the model requests. Keeps one large document from ever being handed over whole. */
+  READ_PROJECT_FILE_MAX_CHARS: int(6000),
+  /** Length of the `tool_result` SSE preview string. Independent of what the model receives
+   *  (the full bounded result) and what is persisted (the same full bounded result) — this is
+   *  the UI's budget only. */
+  TOOL_RESULT_PREVIEW_CHARS: int(300),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),
