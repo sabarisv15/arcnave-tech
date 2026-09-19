@@ -63,3 +63,30 @@ export const READ_PROJECT_FILE: ToolDefinition = {
 };
 
 export const PROJECT_TOOL_DEFINITIONS: ToolDefinition[] = [SEARCH_PROJECT_FILES, READ_PROJECT_FILE];
+
+/**
+ * Item 9 phase 2. Gated separately from the two tools above (ENABLE_RUN_PYTHON, not just
+ * ENABLE_TOOL_USE) — arbitrary code execution is a materially larger blast radius than
+ * read-only project-file search. The description says "no persisted state between calls"
+ * deliberately: this phase always creates a fresh sandbox per call rather than reusing one
+ * across a chat, unlike the Vertex Agent Engine quickstart's same-sandbox-reuse example — if a
+ * future phase adds session-scoped reuse, this description has to change in the same commit, or
+ * the model is told something false.
+ */
+export const RUN_PYTHON: ToolDefinition = {
+  name: 'run_python',
+  description:
+    'Runs Python code in an isolated, single-use sandbox with no network access and no access ' +
+    "to this project's files or any other tool's data. Use it for computation — arithmetic, " +
+    'data transformation, verifying a calculation — not for anything that needs project ' +
+    'context; combine with search_project_files/read_project_file first if the code needs data ' +
+    'from the project. Output is captured stdout/stderr, truncated if large. The sandbox has ' +
+    'no persisted state between calls — each call starts fresh.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      code: { type: 'string', description: 'Python source to execute.' },
+    },
+    required: ['code'],
+  },
+};
