@@ -98,18 +98,6 @@ failure mode of this pattern, not a sign it is working.
   text was left unedited on purpose — an ADR records what was decided, and rewriting this one
   would erase the fact that the stack was chosen, argued for, and then reversed.
 
-### 2026-09-17 — An npm script pointed at a file that was never written
-
-- **Symptom:** `npm run openapi` failed: `src/openapi.ts` did not exist. It had been in
-  `package.json` since the first backend commit.
-- **Cause:** The script was added while scaffolding, in anticipation of the file. Nothing runs
-  scripts in CI, so nothing noticed for two commits.
-- **Rule:** **Never add an npm script before the thing it runs.** A script in `package.json` is
-  a promise that it works.
-- **Verify:** Every entry in `scripts` runs to completion, or is removed.
-- **Fixed:** [`backend/src/openapi.ts`](backend/src/openapi.ts) now exists and emits
-  `docs/openapi.json`. It doubles as a database-free check that all 38 routes register.
-
 ### 2026-09-17 — Test expectations asserted from memory instead of computation
 
 - **Symptom:** Two brand-new tests failed on first run — a DST boundary expected
@@ -347,6 +335,20 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `curl -D - <backend-url>/v1/auth/login ... | grep -i set-cookie` shows
   `SameSite=None; Secure`. Test login in Safari specifically before trusting this for anyone
   but the single test account this was built against.
+- **2026-09-19 addendum:** the same trade-off silently breaks **local browser QA against
+  `npm run dev`**, not just Safari/Firefox in production. `sameSite: 'none'` requires `secure:
+  true` per spec; `SESSION_COOKIE_SECURE` defaults `false` locally (plain `http://localhost`,
+  no TLS), so Chrome accepts the `Set-Cookie` response but silently drops the cookie — `POST
+  /auth/login` returns 200, the very next `GET /auth/me` says `{"user":null}`, and the UI bounces
+  back to the sign-in screen with no error. `curl` never sees this (it doesn't enforce cookie
+  policy), which is exactly why it went unnoticed through every prior session's local testing.
+  Cost real time chasing a phantom "login is broken" before checking the console for the CORS/
+  cookie warning. **Rule:** when a browser-only auth flow "loses" the session right after a
+  successful login locally, check the console for a dropped-cookie warning before suspecting the
+  session logic itself — `curl` cannot reproduce this class of bug at all. To actually drive the
+  local dev UI through a real login, temporarily flip `sameSite` to `'lax'` in
+  `routes/auth.ts` for that session only — never commit it, `SameSite=None` is a real,
+  considered production decision, not a bug to "fix" here.
 
 ### 2026-09-17 — The SSE generate endpoint had no CORS headers, only visible once cross-origin
 
@@ -802,9 +804,98 @@ failure mode of this pattern, not a sign it is working.
   Do not re-enable until `VertexSandboxClient` wraps its own internal calls in a real deadline
   (a `setTimeout`-driven `AbortController` scoped to `RUN_PYTHON_TIMEOUT_MS`, independent of the
   request's own signal) and that is verified live to actually fire.
-- **Verify:** Not yet — this is the concrete next step before `run_python` can be re-enabled. A
-  unit test asserting `VertexSandboxClient.runPython` rejects once `RUN_PYTHON_TIMEOUT_MS`
-  elapses, even when the fake `fetch`/poll never resolves, would catch a regression of the fix.
+- **Verify:** **Fixed and confirmed 2026-09-19.** `VertexSandboxClient.runPython` now starts its
+  own `setTimeout`-driven `AbortController` combined with the caller's signal via
+  `AbortSignal.any`; a fake-timers unit test proves the deadline fires without waiting in real
+  time. Live-verified locally against the real Preview API (not production): a `run_python` call
+  returned in ~9-37s with a real (if wrong-shaped, see the next entry) API error — no hang, no
+  2-minute stall. Still `ENABLE_RUN_PYTHON=false` in production, now blocked on the next entry
+  instead.
+
+### 2026-09-19 — The `execute` REST call was against the wrong resource entirely
+
+- **Symptom:** With the timeout fix confirmed (previous entry) and a real local test run against
+  the actual Preview API (`GOOGLE_CLOUD_PROJECT` + ADC, not production), `run_python` no longer
+  hung — but every attempt failed fast with `400 INVALID_ARGUMENT: Request contains an invalid
+  argument` from `POST .../reasoningEngines/{id}/sandboxEnvironments/{id}:execute`. Reasoning
+  engine creation and sandbox creation both succeeded (real resource names came back); only the
+  execute call was rejected.
+- **Cause:** The previous entry's own fix (finding the REST reference instead of inferring from
+  the Python SDK) still landed on the wrong method. `sandboxEnvironments` does not expose a plain
+  `execute` — only `bidiExecute` (a streaming/bidirectional method) and lifecycle methods
+  (`create`/`list`/`resume`/`delete`). The actual stateless single-call entry point is a
+  **different resource path**: `reasoningEngines.executeCode`, called as
+  `POST {reasoningEngineName}:executeCode` directly on the reasoning engine — not on a
+  separately-created sandbox at all. A `sandboxEnvironments`-shaped URL with a nonexistent
+  `:execute` suffix still routes far enough to return a generic `INVALID_ARGUMENT` rather than a
+  clean 404, which is why the failure looked like a malformed body instead of a wrong endpoint.
+- **Rule:** **Finding *a* REST reference page is not the same as finding the *right* one.**
+  Preview APIs can have near-identical sibling resources (`sandboxEnvironments` vs
+  `reasoningEngines`, `execute` vs `executeCode` vs `bidiExecute`) that differ in exactly the
+  field that matters. Confirm the method name and its parent resource against the reference
+  page's own method list before writing the client, and treat a `400` from a plausible-looking
+  URL as "maybe the wrong endpoint," not only "maybe the wrong body."
+- **Verify:** **Rewritten and live-tested 2026-09-19 — still broken, one layer deeper.**
+  `VertexSandboxClient` now creates a bare reasoning engine and calls
+  `{reasoningEngineName}:executeCode` directly, no `sandboxEnvironments` involved. Live test
+  against the real Preview API: reasoning-engine creation succeeds every time (a real resource
+  name comes back), but `executeCode` still 400s with the same generic `INVALID_ARGUMENT` as
+  before. One targeted follow-up was tried and also failed cleanly: adding
+  `spec: { codeExecutionEnvironment: { codeLanguage: 'LANGUAGE_PYTHON' } }` to the reasoning
+  engine's own creation body (guessing the code-execution capability belongs on the engine, not
+  a separate sandbox) got a *more specific* error — `Unknown name "codeExecutionEnvironment" at
+  'reasoning_engine...'` — proving that field name is wrong too, and reverted. Web research
+  during this session turned up `ReasoningEngineSpec`'s real fields
+  (`agentFramework`/`packageSpec`/`deploymentSpec`/`sourceCodeSpec`) — all shaped around
+  deploying an actual agent package, not declaring "this engine can run arbitrary code." **Open
+  question this session could not resolve:** whether `executeCode` works on a bare reasoning
+  engine at all, or whether it requires one deployed with a real `packageSpec`/`deploymentSpec` —
+  which would make "point ADC at a REST endpoint" a materially bigger lift than planned.
+- **A fourth shape was found and tried, 2026-09-19, using an actual working example rather than
+  a reference page:** Google's own quickstart notebook
+  (`GoogleCloudPlatform/generative-ai/.../tutorial_get_started_with_code_execution.ipynb`) and
+  its Python SDK show `client.agent_engines.sandboxes.execute_code(name=sandbox_name,
+  input_data={"code": python_code})` — a **sandbox**-targeted call (not the reasoning engine)
+  with an `{"code": ...}` body (not `Chunk`-shaped `inputs[]`). Rewrote `VertexSandboxClient` to
+  match: create reasoning engine → create sandbox (`spec.codeExecutionEnvironment`, which had
+  already worked back when the first shape was tried) → `POST {sandboxName}:executeCode` with
+  `{ inputData: { code } }`. Live-tested: reasoning engine and sandbox creation both still
+  succeed, but `executeCode` on the sandbox now returns a clean **`404`, empty body** — a
+  different failure signature from every prior attempt, meaning the URL itself doesn't route to
+  anything, not just a malformed body.
+- **Conclusion — Google's own documentation is internally inconsistent here, not just sparse.**
+  Three real, distinct request shapes have now been tried against the live Preview API, each
+  grounded in an actual Google source (a stable-`v1` REST reference page, a Python-SDK quickstart
+  notebook, and a targeted field guess), and each failed differently (400 opaque, 400 specific,
+  404 empty). The REST reference page and the product's own official quickstart disagree about
+  which *resource* `executeCode` even targets (`reasoningEngines` vs `sandboxEnvironments`) — this
+  is not a case of "read more carefully," it's the vendor's documentation contradicting itself for
+  a Preview feature. **Rule: past a certain point, further live-testing against undocumented or
+  contradictorily-documented behavior stops being useful and starts being expensive random
+  search — three grounded, distinct attempts is the point to stop and report the contradiction,
+  not keep guessing a fourth and fifth combination.** The code was left on the shape backed by
+  the only stable (non-`v1beta1`) REST reference page found, since that is the best-evidenced of
+  the three, but it is **not confirmed working** — `ENABLE_RUN_PYTHON` stays `false` everywhere.
+  Unblocking this for real needs either a Google support ticket or someone who has this specific
+  Preview API working already; it is not a research-harder problem from here.
+- **A fifth shape came from the user pasting an externally-generated answer** (an AI-written
+  response to the support-question doc this session wrote — `docs/support/2026-09-19-vertex-code-
+  execution-question.md`) claiming `sandboxEnvironments.execute` (not `executeCode`) with an
+  `{ inputData: { code } }` body was the fix. **Tested rather than trusted** — live result:
+  `400`, `"Invalid JSON payload received. Unknown name 'inputData'"`. That specific claim was
+  wrong, but the error shape is informative: Google's validator names the exact unknown field
+  when one is wrong (it did the same for `codeExecutionEnvironment` two entries up), and it did
+  **not** do that for `inputs` back in the very first shape tried (`sandboxEnvironments:execute`
+  with `{ inputs: [Chunk] }`, which only got a generic "invalid argument"). That absence of an
+  "Unknown name" complaint is the strongest signal found all session that `inputs` is a real,
+  accepted field on this endpoint — the reverted-to, currently-on-disk shape is `sandboxEnvironments
+  .execute` (not `executeCode`) with `{ inputs: [{ mimeType: 'text/x-python', data: base64(code) }] }`,
+  chosen specifically because it is the only one of five tried shapes where the failure looks
+  like "right field, wrong value" rather than "wrong field entirely." **Still not confirmed
+  working** — `ENABLE_RUN_PYTHON` stays `false`. **Rule, reinforced:** treat a fluent,
+  confident-sounding externally-sourced answer as a hypothesis to verify live, not as ground
+  truth — this one was wrong on the exact point it was most confident about (the body field name)
+  but still moved the investigation forward by producing a new, diagnostic error message.
 
 ### 2026-09-19 — A Python-SDK quickstart is not a REST contract
 
@@ -830,6 +921,47 @@ failure mode of this pattern, not a sign it is working.
   `sandboxEnvironments.create`/`execute`/`delete`), not the Python quickstart — and its tests
   assert those exact request shapes against a fake `fetch`, so a shape drift fails a test instead
   of only failing a real, unverifiable-in-this-environment live call.
+- **2026-09-19 addendum:** `VertexSandboxClient` is retired (design in
+  [ADR-0005](docs/decisions/0005-cloud-run-sandbox.md)), replaced by `CloudRunSandboxClient`
+  (`backend/src/tools/sandbox/cloudRunSandboxClient.ts`) — a self-hosted Cloud Run Job, not
+  another Agent Engine REST guess. This entry and the two above it about the five failed shapes
+  stay as the historical record of why that path was abandoned, per ADR-0005's own instruction not
+  to prune them just because the code is gone. `vertexSandboxClient.ts`/its test are still present
+  and still unwired from `container.ts` — deleted only once `CloudRunSandboxClient` is
+  live-verified against a real deployed Cloud Run Job, not before. One real gap found while
+  building it: `docker build`/`docker run` against `backend/sandbox/Dockerfile` worked and all six
+  integration checks in `run-integration-tests.sh` passed on this machine, but no real Cloud Run
+  Job, IAM role, or service account was created — `CloudRunSandboxClient`'s Operation/Execution/
+  Cloud-Logging shapes are only proven against a fake `fetch`, the same unverified-until-live gap
+  every prior sandbox attempt had. **Do not set `ENABLE_RUN_PYTHON=true` anywhere until a real
+  deployed Job answers a real call end to end.**
+- **2026-09-20 addendum:** Closed that exact gap partially, with a real local browser session
+  (`GOOGLE_CLOUD_PROJECT` + ADC, `ENABLE_TOOL_USE`/`ENABLE_RUN_PYTHON` temporarily flipped on in
+  `backend/.env`, reverted after): the model actually called `run_python`, and
+  `CloudRunSandboxClient` correctly built and sent a real, authenticated `jobs:run` POST to
+  `https://run.googleapis.com/v2/projects/<project>/locations/us-central1/jobs/arcnave-python-sandbox:run`
+  with `{"code": "print(17 * 23)"}` as a container override. Google's real answer was a typed
+  `404 NOT_FOUND` ("Resource 'arcnave-python-sandbox' of kind 'JOB' ... does not exist") — expected,
+  since no Job/IAM/service-account setup from `docs/deploy/cloud-run-sandbox-setup.md` was actually
+  run. The failure surfaced as a clean, typed tool result (not a hang, not a crash); the model
+  recovered and answered from its own arithmetic. This proves the client's auth, URL construction,
+  and request shape are correct against the real API — the remaining unverified surface is
+  specifically Operation/Execution/Cloud-Logging polling, which only exercises once a real Job
+  exists to actually run. **Still do not set `ENABLE_RUN_PYTHON=true` in production** — this was a
+  local-only, reverted flag flip, and the Job itself still needs to be deployed first.
+
+### 2026-09-19 — `compact` did not mean the same thing on every composer surface
+
+- **Symptom:** The chat reply composer still occupied a large empty block even though its caller
+  passed `compact`; shrinking the shared rule would also have cramped project and artifact work.
+- **Cause:** `compact` covered placement for three different surfaces, but the shared textarea
+  effect imposed a 46px minimum everywhere. A live reply has different intent from a project or
+  artifact prompt, so one generic minimum encoded the wrong product decision.
+- **Rule:** **Scope visual compaction to the interaction intent, not a reused boolean prop.** A
+  conversation reply may begin at one line and auto-grow within a bounded portion of the
+  viewport; project and artifact prompts retain their writing space.
+- **Verify:** A blank chat reply is 34px and grows to at most 42% of the viewport; project and
+  artifact composers retain their existing minimum heights.
 
 ## Convention and sources
 
@@ -961,5 +1093,36 @@ practice, not canon.
   hung for minutes on a real request with no error, because `RUN_PYTHON_TIMEOUT_MS` was only ever
   read as the sandbox's `ttl`, never actually wired as a client-side deadline on the
   create→poll→execute chain — turned back off in production (`ENABLE_RUN_PYTHON=false`)
-  immediately rather than leaving a live hang for the next real user. **40 entries, at the cap —
+  immediately rather than leaving a live hang for the next real user. **Fixed 2026-09-19**:
+  `VertexSandboxClient.runPython` now starts its own `setTimeout`-driven `AbortController` scoped
+  to `timeoutMs` (wired from `RUN_PYTHON_TIMEOUT_MS` via `withAdc`) and combines it with the
+  caller's signal via `AbortSignal.any`, so the deadline fires even when nothing else aborts;
+  verified with a fake-timers test that never waits in real time
+  (`vertexSandboxClient.test.ts`). Still not re-verified against the real Preview API — do not
+  flip `ENABLE_RUN_PYTHON` back on until that live check happens. **40 entries, at the cap —
   prune before the next entry.**
+- **2026-09-19** — Retired one more (`An npm script pointed at a file that was never written`) —
+  the file it warned about (`src/openapi.ts`) has existed and run cleanly for three sessions now;
+  fully covered by the script itself succeeding every time it's invoked, per the pruning policy's
+  first criterion. Added from a real local live test (real `GOOGLE_CLOUD_PROJECT` + ADC, not
+  production) of the timeout fix above: the timeout fix worked — no hang, calls returned in
+  seconds — but every `run_python` call still failed, with a `400 INVALID_ARGUMENT` from the
+  `sandboxEnvironments:execute` endpoint the client calls. Root cause: that endpoint doesn't
+  exist as documented — the real stateless entry point is `reasoningEngines.executeCode`, a
+  different resource path entirely, not a sibling method on the sandbox. The "find the real REST
+  reference" fix from the entry above this one was necessary but not sufficient — it found *a*
+  reference page, not the *right* one. `ENABLE_RUN_PYTHON` stays `false`; `VertexSandboxClient`
+  needs a rewrite against the correct endpoint before this can be revisited. **40 entries, at the
+  cap — prune before the next entry.**
+- **2026-09-19** — No new heading; extended the "Chased the 'proper' same-site fix" entry above
+  with an addendum rather than adding a 41st: the same `SameSite=None`/no-`Secure`-locally
+  combination that's a stated production trade-off also silently drops the session cookie for
+  anyone testing the real UI against a local `npm run dev` backend — `curl` can't see this class
+  of bug at all, which is why it went unnoticed until this session actually drove a browser
+  against it (to verify the new tool-call UI below). Also rewrote `VertexSandboxClient` to call
+  `reasoningEngines.executeCode` directly instead of the nonexistent `sandboxEnvironments:execute`
+  — see that entry above; still broken one layer deeper (creation succeeds, `executeCode` itself
+  still 400s), `ENABLE_RUN_PYTHON` stays `false`. Separately, added `toolCalls` to the message DTO
+  (`GET /chats/:id`) and a live-verified frontend UI for `tool_use`/`tool_result` frames — the
+  gap flagged repeatedly in `docs/checkpoints/CURRENT.md` since item 9 phase 1 shipped. **40
+  entries, at the cap.**

@@ -76,12 +76,12 @@ export const PROJECT_TOOL_DEFINITIONS: ToolDefinition[] = [SEARCH_PROJECT_FILES,
 export const RUN_PYTHON: ToolDefinition = {
   name: 'run_python',
   description:
-    'Runs Python code in an isolated, single-use sandbox with no network access and no access ' +
-    "to this project's files or any other tool's data. Use it for computation — arithmetic, " +
-    'data transformation, verifying a calculation — not for anything that needs project ' +
-    'context; combine with search_project_files/read_project_file first if the code needs data ' +
-    'from the project. Output is captured stdout/stderr, truncated if large. The sandbox has ' +
-    'no persisted state between calls — each call starts fresh.',
+    'Runs Python code in an isolated, single-use sandbox with outbound network access but no ' +
+    "access to this project's files or any other tool's data. Use it for computation — " +
+    'arithmetic, data transformation, verifying a calculation — not for anything that needs ' +
+    'project context; combine with search_project_files/read_project_file first if the code ' +
+    'needs data from the project. Output is captured stdout/stderr, truncated if large. The ' +
+    'sandbox has no persisted state between calls — each call starts fresh.',
   inputSchema: {
     type: 'object',
     properties: {

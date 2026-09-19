@@ -1,7 +1,9 @@
 /**
  * VertexSandboxClient against a fake `fetch` — this is an HTTP client, so its own tests prove
- * request shapes and response parsing, never a real call. Live verification against the real
- * Preview API is tracked separately, blocked on GCP access this environment does not have.
+ * request shapes and response parsing, never a real call. This is the best-evidenced of five
+ * shapes tried live against the real Preview API — `sandboxEnvironments.execute` (not
+ * `executeCode`) with an `{ inputs: [Chunk] }` body — see mistakes.md, 2026-09-19 for the full
+ * account and whether it was ever confirmed actually working.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -26,12 +28,16 @@ function makeClient(fetchMock: typeof fetch): VertexSandboxClient {
 }
 
 describe('VertexSandboxClient.runPython', () => {
-  it('creates a reasoning engine, a sandbox, executes, decodes output, then deletes both', async () => {
-    const calls: { url: string; method: string }[] = [];
+  it('creates a reasoning engine, a sandbox, executes on the sandbox, decodes output, then deletes both', async () => {
+    const calls: { url: string; method: string; body?: unknown }[] = [];
     const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const u = String(url);
       const method = init?.method ?? 'GET';
-      calls.push({ url: u, method });
+      calls.push({
+        url: u,
+        method,
+        ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) as unknown } : {}),
+      });
       if (u.endsWith('/reasoningEngines') && method === 'POST') {
         return jsonResponse({
           name: 'projects/p/locations/us-central1/operations/op1',
@@ -72,10 +78,18 @@ describe('VertexSandboxClient.runPython', () => {
     ]);
     expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(2);
     expect(calls[0]!.url).toContain('reasoningEngines');
-    expect(calls.some((c) => c.url.includes('sandboxEnvironments') && c.method === 'POST')).toBe(true);
+    expect(calls.some((c) => c.url.endsWith('/sandboxEnvironments') && c.method === 'POST')).toBe(
+      true,
+    );
+    const executeCall = calls.find(
+      (c) => c.url.endsWith(':execute') && !c.url.endsWith(':executeCode') && c.method === 'POST',
+    );
+    expect(executeCall?.body).toEqual({
+      inputs: [{ mimeType: 'text/x-python', data: b64('print("hello")') }],
+    });
   });
 
-  it('still deletes the reasoning engine and sandbox when execute fails', async () => {
+  it('still deletes the sandbox and reasoning engine when execute fails', async () => {
     let deletes = 0;
     const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const u = String(url);
@@ -114,6 +128,36 @@ describe('VertexSandboxClient.runPython', () => {
     controller.abort();
     await expect(client.runPython('x', controller.signal)).rejects.toThrow();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts and throws once the internal timeout elapses, even with no signal from the caller', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn((url: string | URL, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        });
+      });
+
+      const client = new VertexSandboxClient(
+        {
+          project: 'p',
+          location: 'us-central1',
+          getAccessToken: async () => 'fake-token',
+          timeoutMs: 5_000,
+        },
+        fetchMock as unknown as typeof fetch,
+      );
+
+      const resultPromise = client.runPython('while True: pass', new AbortController().signal);
+      const assertion = expect(resultPromise).rejects.toThrow(/5000ms deadline/);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('surfaces a non-2xx reasoning-engine creation failure without calling execute', async () => {

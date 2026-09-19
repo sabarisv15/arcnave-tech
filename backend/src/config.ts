@@ -154,14 +154,26 @@ const envSchema = z.object({
    * independently toggleable. Both must be true for run_python to appear in the tool list.
    */
   ENABLE_RUN_PYTHON: bool(false),
-  /** Region for the Agent Engine / sandboxEnvironments REST calls, confirmed separately from
-   *  VERTEX_LOCATION/GEMINI_LOCATION (which cover only the two model APIs) — Agent Engine's
-   *  supported-region list was not confirmed live in this environment. */
-  SANDBOX_LOCATION: z.string().default('us-central1'), // TODO(verify): confirm against Agent Engine's region list
-  /** Hard wall-clock cap on one run_python execution, enforced client-side — the sandbox
-   *  :execute call has no documented request-level timeout parameter, so this is ours to
-   *  enforce, not the server's. */
-  RUN_PYTHON_TIMEOUT_MS: int(30_000),
+  /** Region for the arcnave-python-sandbox Cloud Run Job, independent of VERTEX_LOCATION/
+   *  GEMINI_LOCATION (which cover only the two model APIs). See docs/decisions/0005-cloud-run-sandbox.md. */
+  SANDBOX_LOCATION: z.string().default('us-central1'),
+  /** Name of the Cloud Run Job resource run_python launches a fresh execution of per call. */
+  SANDBOX_JOB_NAME: z.string().default('arcnave-python-sandbox'),
+  /** Raw UTF-8 byte ceiling on submitted code, enforced client-side before any network call.
+   *  Cloud Run caps a single env-var value at 32,768 bytes and base64 expands by ~33%, so the
+   *  real ceiling is ~24.5 KiB; this stays comfortably under that. */
+  MAX_CODE_BYTES: int(20 * 1024),
+  /** In-container deadline (passed as RUN_PYTHON_CODE_TIMEOUT_MS) bounding only the user's
+   *  Python subprocess — never reused as the client-side orchestration deadline below. */
+  RUN_PYTHON_CODE_TIMEOUT_MS: int(10_000),
+  /** Client-side deadline covering the entire jobs:run -> Operation -> Execution -> Cloud
+   *  Logging round trip. Must stay comfortably larger than RUN_PYTHON_CODE_TIMEOUT_MS plus
+   *  realistic Cloud Run scheduling and Cloud Logging indexing lag. */
+  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: int(45_000),
+  /** Streaming-capture cap enforced by the in-container runner as it reads each pipe — not a
+   *  post-hoc slice, so an unbounded print loop can't OOM the container before this applies. */
+  MAX_STDOUT_BYTES: int(64 * 1024),
+  MAX_STDERR_BYTES: int(64 * 1024),
   /** Same three-tier shape as READ_PROJECT_FILE_MAX_CHARS/TOOL_RESULT_PREVIEW_CHARS above: this
    *  bounds what the model receives and what is persisted; the SSE preview is bounded again by
    *  TOOL_RESULT_PREVIEW_CHARS, unchanged. */

@@ -43,8 +43,25 @@ Execution service (Preview, no Node/TS SDK); see
 [Live verification](#live-verification--item-9-phases-1-and-2--2026-09-19)):
 `search_project_files` now works end to end on Gemini after fixing a real
 `thought_signature`-dropping bug; `run_python` hung with no timeout and was **turned back off in
-production** (`ENABLE_RUN_PYTHON=false`) pending a real fix. `ENABLE_TOOL_USE` stays `true` in
-production. A skills registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly
+production** (`ENABLE_RUN_PYTHON=false`) pending a real fix. **The timeout is fixed and
+live-confirmed** (no more hangs). **The sandbox call itself remains unresolved after five
+distinct, real attempts, each grounded in an actual source** — two stable-`v1` REST reference
+pages, the product's own quickstart notebook/Python SDK, one targeted field guess, and one
+externally-sourced answer (tested, not trusted) — each rejected differently. The clearest signal
+so far: two of the five got an explicit "Unknown name ..." for their wrong field; the very first
+shape tried did not, for `inputs` — suggesting that field name is real and the bug is in its
+contents, not its name. The REST reference and the official quickstart still disagree about
+which *resource* `executeCode` even targets (`reasoningEngines` vs `sandboxEnvironments`); this
+is vendor documentation genuinely contradicting itself for a Preview feature, not a case of
+needing to search harder — see
+[Blocked on the user](#blocked-on-the-user) and `mistakes.md`, 2026-09-19, for the full account
+of all three shapes. **`VertexSandboxClient` was retired the same day**, replaced by
+`CloudRunSandboxClient` — a self-hosted Cloud Run Job instead of another Agent Engine REST guess;
+see [ADR-0005](../decisions/0005-cloud-run-sandbox.md) and
+[the section below](#item-9--tool-calling-framework-phase-2-run_python-self-hosted-cloud-run-sandbox--2026-09-19).
+`ENABLE_RUN_PYTHON` now stays `false` pending live verification of that Cloud Run Job against a
+real deployed project (no Google support ticket needed for this path). `ENABLE_TOOL_USE` stays
+`true` in production. A skills registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly
 deferred per `tools/MAPPING.md`.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
@@ -120,9 +137,37 @@ Full backend suite: 278/278 passing. `npx tsc --noEmit`: clean.
 the full account) — `search_project_files` now completes end to end on Gemini 3.8 Flash in
 production, after fixing a real bug the live pass found: Gemini's `functionCall` requires a
 `thought_signature` to be echoed back unchanged on the continuation turn, and the round loop was
-silently dropping it. The frontend still has no UI for `tool_use`/`tool_result` frames. A skills
+silently dropping it. **The frontend UI gap is closed as of 2026-09-19 — see below.** A skills
 registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly deferred — see
 `tools/MAPPING.md` for the full tool-by-tool disposition.
+
+### Item 9 — frontend UI for tool calls — 2026-09-19
+
+Closed the one remaining gap flagged every time item 9 phase 1 was mentioned above: the backend
+ran `tool_use`/`tool_result` end to end, but nothing rendered them and a reload lost all trace of
+them (`GET /chats/:id` never included the persisted `tool_calls` table at all).
+
+**Backend:** `MessageDto` (`backend/src/routes/chats.ts`) gained a `toolCalls` array — the same
+batched-query pattern as `sources`/`events`/`attachments`, sourced from the existing `tool_calls`
+table (which item 9 phase 1 already wrote to; only the read side was missing). Covered by a new
+assertion in the existing tool-use integration test: a reload's `GET /chats/:id` now returns the
+same tool call, full `content` included, that the live SSE stream showed.
+
+**Frontend:** `StreamEvent` gained `tool_use`/`tool_result` (`adapter.ts`); `Message` gained a
+`toolCalls` array, live-updated the same way `events`/`research` already are in `workspace.tsx`'s
+`run()` loop — a `tool_use` frame appends a running call, the matching `tool_result` fills in
+`ok`/`preview`. A reload replaces the wire `preview` with the full persisted `content` via the
+new DTO field. Rendered as a small expandable row per call (`ToolCallList`/`ToolCallRow` in
+`App.tsx`) between the assistant's answer text and its status line — collapsed by default,
+shows the tool name and a running/done/failed state, expands to the input and result.
+
+**Live-verified in a real browser** (not just `tsc`/`vitest`/`vite build`, all clean) against a
+chat with two real (failed) `run_python` tool calls persisted from earlier live-testing of the
+phase 2 rewrite above: both rendered as red "Failed" rows, and expanding one showed the exact
+input code and the full persisted error text, round-tripped correctly from Postgres through the
+new endpoint into the UI. Getting a real browser login working locally required a temporary,
+reverted-before-commit `sameSite: 'lax'` override — see `mistakes.md`, 2026-09-19, the
+"same-site fix" entry's addendum, for why `curl`-only testing had never caught this.
 
 ### Item 9 — tool-calling framework, phase 2 (`run_python`) — 2026-09-19
 
@@ -174,6 +219,88 @@ requests (the API didn't reject it outright) but whether it's the *right* region
 performance is still unknown. File-output chunks from the sandbox remain out of scope — only
 `stdout`/`stderr` are surfaced. A skills registry, sub-agent spawning, and goal/budget
 bookkeeping remain explicitly deferred per `tools/MAPPING.md`.
+
+### Item 9 — tool-calling framework, phase 2 (`run_python`), self-hosted Cloud Run sandbox — 2026-09-19
+
+Replaced `VertexSandboxClient` (Vertex AI Agent Engine Code Execution — stayed blocked, Preview-
+only with self-contradicting REST docs across five tried shapes, see the entry above) with
+`CloudRunSandboxClient`: `run_python` now launches a fresh Cloud Run Job execution
+(`arcnave-python-sandbox`) per call. See [ADR-0005](../decisions/0005-cloud-run-sandbox.md) for
+the full design; this entry records what actually landed.
+
+**Implemented:** `CloudRunSandboxClient` (`backend/src/tools/sandbox/cloudRunSandboxClient.ts`)
+behind the existing `SandboxClient` interface — `CodeExecutionToolExecutor` needed zero changes.
+Lifecycle: `jobs:run` (Cloud Run Admin API v2) → resolve the returned long-running Operation to an
+Execution name (never assuming the POST response is already one) → poll the Execution to a
+terminal state using its real v2 fields (`completionTime` + `succeededCount`/`failedCount`/
+`cancelledCount` + `conditions[]` — there is no `status` enum on this resource) → poll Cloud
+Logging for the runner's single `ARCNAVE_SANDBOX_RESULT:` line, correlated on **both** the real
+Cloud Run execution identity (job name + execution name) and an embedded
+`RUN_PYTHON_EXECUTION_ID` (never the UUID text match alone), with a bounded retry window for log-
+indexing lag. Two independent timeouts replace the single timeout that was previously wired only
+as an unenforced sandbox `ttl` field: `RUN_PYTHON_CODE_TIMEOUT_MS` (in-container, bounds only the
+user's Python subprocess) and `RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS` (client-side, via an internal
+`AbortController` combined with the caller's signal through `AbortSignal.any`, covering the whole
+round trip). `MAX_CODE_BYTES` (20 KiB default) is enforced before any network call.
+
+The sandbox image (`backend/sandbox/Dockerfile` + `runner.py`) runs as a non-root user; kills the
+whole process group on an in-container timeout via `os.killpg` (not just the immediate child, so
+code that spawns its own subprocess can't outlive the timeout); and streams-and-caps stdout/stderr
+with a dedicated reader thread per pipe as it reads, never `communicate()`-then-slice, so an
+unbounded print loop can't OOM the container before the cap applies. `run_python`'s tool
+description (`backend/src/tools/definitions.ts`) was also fixed — it previously told the model the
+sandbox has "no network access", which was never true of this design (ADR-0005 allows egress); it
+now says so accurately.
+
+**Config:** `container.ts` swaps `VertexSandboxClient` for `CloudRunSandboxClient` behind the same
+`GOOGLE_CLOUD_PROJECT` conditional and the same `sandboxClient?: SandboxClient` test seam. New
+`Config` keys: `SANDBOX_JOB_NAME`, `MAX_CODE_BYTES`, `RUN_PYTHON_CODE_TIMEOUT_MS`,
+`RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS`, `MAX_STDOUT_BYTES`, `MAX_STDERR_BYTES`. The old single
+`RUN_PYTHON_TIMEOUT_MS` is gone; `SANDBOX_LOCATION` is kept (still `us-central1` default, now
+documented as the Job's region rather than an unconfirmed Agent Engine region guess).
+`ENABLE_RUN_PYTHON` is unchanged as the sole feature gate.
+
+**Test coverage:** `cloudRunSandboxClient.test.ts` — 20 cases against a fake `fetch`: the size
+guard (rejects over-limit code with zero network calls, accepts exactly at the limit), job launch
+request shape (asserts `overrides` is always present — the IAM permission regression guard),
+Operation resolution (direct response, polled metadata, no-name failure), Execution polling to
+terminal state and outcome mapping for all three real v2 count fields plus `conditions[]`
+diagnostics, the full `runPython` flow (success, late-arriving log line, two-part correlation
+rejecting a mismatched `executionId`, no-result-in-time failure, malformed-JSON-line skip,
+execution-failure short-circuit that never polls logs), and both timeouts (orchestration deadline
+firing independently of, and not derived from, the code timeout). Full backend suite: 315/315
+passing. `npx tsc --noEmit`: clean.
+
+**Also locally verified against a real container this session** (not just a fake `fetch`):
+`docker build` on `backend/sandbox/` succeeds, and the new
+`backend/sandbox/test/run-integration-tests.sh` — a Docker-based check deliberately kept outside
+`npx vitest run` — ran the actual image via `docker run` and passed all six cases: success,
+exception (`ValueError` reaches `stderr`), in-container timeout, **process-group cleanup on
+timeout** (a detached grandchild via `subprocess.Popen` inside the sandboxed code did not outlive
+the container — proving `killpg` reaps the whole group, not just the top-level process), streaming
+stdout capture under a 128 MB memory cap while printing far past `MAX_STDOUT_BYTES` in a tight loop
+(proving stream-and-discard rather than buffer-then-slice), and non-root execution (`id -u` != 0).
+
+**Partially live-verified, 2026-09-20, in a local browser session** (`GOOGLE_CLOUD_PROJECT` + ADC,
+`ENABLE_TOOL_USE`/`ENABLE_RUN_PYTHON` temporarily flipped on in `backend/.env`, reverted
+immediately after): the model called `run_python`, and `CloudRunSandboxClient` sent a real,
+correctly-authenticated `jobs:run` POST to
+`https://run.googleapis.com/v2/projects/<project>/locations/us-central1/jobs/arcnave-python-sandbox:run`
+with the right container-override shape. Google answered with a real, typed `404 NOT_FOUND` (the
+Job doesn't exist yet — expected, nothing was deployed) and the failure surfaced cleanly, without a
+hang, exactly like `CodeExecutionToolExecutor` is supposed to handle it. This confirms the client's
+auth, URL construction, and request shape are correct against the live API.
+
+**Not yet done — deferred to a follow-up session:** live verification against a real deployed
+Cloud Run Job — the one thing the check above could not exercise, since no Job exists. The IAM
+custom role, the Job resource, and the two service accounts are documented in
+`docs/deploy/cloud-run-sandbox-setup.md` (with `backend/sandbox/verify-deployment-config.sh` to
+check the deployed shape once they exist) but nothing was actually created in the GCP project — no
+`gcloud` calls were made. `ENABLE_RUN_PYTHON` stays `false` in production until a real Job answers
+a real call end to end (Operation/Execution/Cloud-Logging polling is still only proven against a
+fake `fetch`), same bar item 9 phase 1/2's original live-verification used. `vertexSandboxClient.ts`
+and its test are **not deleted yet** — per ADR-0005, that happens only once `CloudRunSandboxClient`
+is confirmed working against real Cloud Run, not before.
 
 ### Live verification — item 9 phases 1 and 2 — 2026-09-19
 
@@ -790,13 +917,34 @@ verification command for each is in `mistakes.md`; summary:
 
 ## Blocked on the user
 
-- **Item 9 phase 2 (`run_python`) needs a real code fix, not just live access** — live-verified
-  2026-09-19 (this session did have `gcloud`/ADC access) and found genuinely broken: the sandbox
-  create→poll→execute chain has no enforced timeout, so a slow or stuck operation hangs the whole
-  generate request with no error. `ENABLE_RUN_PYTHON` is `false` in production until
-  `VertexSandboxClient` gets a real internal deadline (a `setTimeout`-driven `AbortController`
-  scoped to `RUN_PYTHON_TIMEOUT_MS`, independent of the caller's own signal) and that is itself
-  verified live to actually fire. See
+- **Item 9 phase 2 (`run_python`) — the timeout is fixed and live-confirmed; the sandbox call
+  itself has five distinct, real attempts behind it and none has worked.** `VertexSandboxClient
+  .runPython`'s `setTimeout`-driven `AbortController` (scoped to `timeoutMs`, combined with the
+  caller's signal via `AbortSignal.any`) is done and live-confirmed: no hang, calls return in
+  seconds either way, regardless of what the sandbox call itself does. **The sandbox call is not
+  done.** Five shapes tried live against the real Preview API, each grounded in a real source,
+  each rejected differently:
+  1. `sandboxEnvironments:execute` + `{ inputs: [Chunk] }` (a stable REST reference page) —
+     `400`, generic `INVALID_ARGUMENT`.
+  2. `reasoningEngines.executeCode` + `{ inputs: [Chunk] }` (a different stable-`v1` REST
+     reference page) — `400`, generic `INVALID_ARGUMENT` again.
+  3. `sandboxEnvironments.executeCode` + `{ inputData: { code } }`, matching Google's own
+     quickstart notebook/Python SDK exactly — `404`, empty body.
+  4. `reasoningEngines` creation with `spec.codeExecutionEnvironment` added (a guess) — `400`,
+     `"Unknown name codeExecutionEnvironment"`.
+  5. `sandboxEnvironments:execute` + `{ inputData: { code } }`, from an externally-sourced answer
+     (an AI's response to `docs/support/2026-09-19-vertex-code-execution-question.md`, tested
+     rather than trusted) — `400`, `"Unknown name 'inputData'"`.
+  **The "Unknown name ..." pattern in shapes 4 and 5 versus the generic "invalid argument" in
+  shape 1 is the strongest signal found all session:** Google's validator names the exact wrong
+  field when a field name itself is the problem, and it did not do that for `inputs` in shape 1 —
+  meaning `inputs` is very likely a real, accepted field, and the actual bug is in what's inside
+  it (`mimeType`, encoding), not the field name. **Code currently on disk uses shape 1** (the
+  best-evidenced of the five) but this is **still not confirmed working** — nothing has actually
+  returned a real execution result yet. `ENABLE_RUN_PYTHON=false` everywhere. Google's REST
+  reference and their own product quickstart still disagree with each other about which resource
+  `executeCode` targets, which is why shapes 2 and 3 exist at all — this remains a documentation
+  contradiction, not a research gap. See
   [Item 9 phase 2](#item-9--tool-calling-framework-phase-2-run_python--2026-09-19),
   [Live verification](#live-verification--item-9-phases-1-and-2--2026-09-19), and `mistakes.md`,
   2026-09-19.
@@ -838,12 +986,13 @@ verification command for each is in `mistakes.md`; summary:
   `--env-vars-file` restatement as the storage fix above, rather than a second separate deploy.
   Until this is done, `GET /v1/usage/messages` and the per-message cost row in the UI will keep
   showing `cost not priced` against real production traffic, even though the code path is ready.
-- **The item 9 (revised) tool-calling framework (2026-09-19) has not been verified against real
-  Vertex** — Task 13 of its plan, blocked on the same missing `gcloud`/GCP credentials as every
-  other live-verification item on this list. Code is complete, gated behind `ENABLE_TOOL_USE`
-  (default off), and covered by fake-SDK-client-boundary adapter-loop tests for both providers —
-  but nothing in this session has actually made a live Anthropic-or-Gemini-via-Vertex tool call.
-  Once credentials exist: set `ENABLE_TOOL_USE=true`, ask a question that needs
-  `search_project_files`/`read_project_file` against a real project, and confirm the model
-  actually calls the tool and incorporates the result, for both the Anthropic and Gemini model
-  aliases.
+- ~~**The item 9 (revised) tool-calling framework has not been verified against real
+  Vertex**~~ — **stale as of 2026-09-19.** This was written before this session got real
+  `gcloud`/ADC access; it has since been live-verified against production — see
+  [Live verification](#live-verification--item-9-phases-1-and-2--2026-09-19).
+  `search_project_files` completes end to end on Gemini in production (`ENABLE_TOOL_USE=true`,
+  now the live setting) after fixing the `thought_signature` bug recorded there. Not yet
+  live-verified: the Anthropic-adapter side of the same loop (only Gemini was exercised so far —
+  though `run_python`'s later live tests, above, did exercise Anthropic/Sonnet 5, just not
+  `search_project_files` specifically). **The frontend UI gap is closed** — see
+  [Item 9 — frontend UI for tool calls](#item-9--frontend-ui-for-tool-calls--2026-09-19).

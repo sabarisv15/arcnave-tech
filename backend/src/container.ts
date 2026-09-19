@@ -20,8 +20,8 @@ import { LexicalRetriever } from './services/retrieval.js';
 import type { ObjectStorage } from './services/storage.js';
 import { buildStorage } from './services/storage.js';
 import { UsageService } from './services/usage.js';
+import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
 import type { SandboxClient } from './tools/sandbox/client.js';
-import { VertexSandboxClient } from './tools/sandbox/vertexSandboxClient.js';
 
 export interface Services {
   cfg: Config;
@@ -54,7 +54,7 @@ export interface BuildOptions {
   providers?: Partial<Record<'google' | 'anthropic' | 'openai-oss', Provider>>;
   storage?: ObjectStorage;
   retriever?: Retriever;
-  /** Test seam — a real `VertexSandboxClient` is never constructed unless a GCP project is
+  /** Test seam — a real `CloudRunSandboxClient` is never constructed unless a GCP project is
    *  configured, mirroring how the provider adapters lazily construct their own Vertex clients. */
   sandboxClient?: SandboxClient;
 }
@@ -75,7 +75,13 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const sandboxClient =
     options.sandboxClient ??
     (cfg.GOOGLE_CLOUD_PROJECT
-      ? VertexSandboxClient.withAdc(cfg.GOOGLE_CLOUD_PROJECT, cfg.SANDBOX_LOCATION, cfg.RUN_PYTHON_TIMEOUT_MS)
+      ? CloudRunSandboxClient.withAdc(cfg.GOOGLE_CLOUD_PROJECT, cfg.SANDBOX_LOCATION, cfg.SANDBOX_JOB_NAME, {
+          maxCodeBytes: cfg.MAX_CODE_BYTES,
+          codeTimeoutMs: cfg.RUN_PYTHON_CODE_TIMEOUT_MS,
+          orchestrationTimeoutMs: cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS,
+          maxStdoutBytes: cfg.MAX_STDOUT_BYTES,
+          maxStderrBytes: cfg.MAX_STDERR_BYTES,
+        })
       : undefined);
   const generation = new GenerationService(db, cfg, registry, usage, retriever, storage, sandboxClient);
 

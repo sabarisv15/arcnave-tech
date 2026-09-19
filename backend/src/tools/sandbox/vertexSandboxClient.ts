@@ -1,16 +1,22 @@
 /**
  * Runs Python in a fresh, single-use Vertex AI Agent Engine "Code Execution" sandbox over raw
- * REST — this resource (`reasoningEngines`/`sandboxEnvironments`) has no Node/TypeScript SDK as
- * of this writing (only a Python SDK; see `googleapis/js-genai#2185`), so this follows the same
- * pattern `gptOssVertex.ts` already uses for a Vertex surface with no first-class client: ADC
- * via `google-auth-library`, plain `fetch`, and the documented REST shape.
+ * REST — this resource has no Node/TypeScript SDK as of this writing (only a Python SDK; see
+ * `googleapis/js-genai#2185`), so this follows the same pattern `gptOssVertex.ts` already uses
+ * for a Vertex surface with no first-class client: ADC via `google-auth-library`, plain `fetch`,
+ * and the documented REST shape.
  *
- * Lifecycle per call: create reasoning engine → create sandbox → execute → delete sandbox →
- * delete reasoning engine. Both deletes run in a `finally` so a failed execution never leaks a
- * running sandbox. This is Preview infrastructure — the REST shape here was read directly from
- * Google's own reference docs (`projects.locations.reasoningEngines.sandboxEnvironments`), not
- * inferred from the Python-SDK quickstart, but Preview APIs are more likely to drift than GA
- * ones; a real call verifying this shape is still outstanding (see docs/checkpoints/CURRENT.md).
+ * Lifecycle per call: create reasoning engine → create sandbox (`spec.codeExecutionEnvironment`)
+ * → `sandboxEnvironments.execute` (NOT `executeCode` — that suffix belongs to the separate,
+ * differently-shaped `reasoningEngines.executeCode` stateless method, confirmed not to work
+ * either) with an `{ inputs: [Chunk] }` body → delete sandbox → delete reasoning engine.
+ *
+ * This is the best-evidenced of five distinct shapes tried live — see `mistakes.md`, 2026-09-19,
+ * for the full account. It is the only one where Google's own error response implies the field
+ * *name* is accepted (a generic "invalid argument" rather than an explicit "Unknown name ..."
+ * the other four shapes all got for their wrong field). It is still **not confirmed working** —
+ * `ENABLE_RUN_PYTHON` must stay `false` until an actual successful execution is observed, not
+ * just a more plausible-looking rejection. Delete runs in a `finally` so a failed execution
+ * never leaks a running sandbox.
  */
 import { GoogleAuth } from 'google-auth-library';
 
@@ -28,10 +34,10 @@ interface VertexSandboxClientDeps {
   project: string;
   location: string;
   getAccessToken: AccessTokenSource['getAccessToken'];
-  /** Sandbox `ttl`, in milliseconds — the expiration the sandbox itself enforces if our own
-   *  cleanup somehow never runs. Independent of RUN_PYTHON_TIMEOUT_MS's client-side execute
-   *  deadline, though callers typically pass the same value for both. */
-  ttlMs?: number;
+  /** Client-side deadline on the whole create -> execute round trip, enforced by an internal
+   *  `AbortController` combined with the caller's own signal — the only deadline in this path,
+   *  since `executeCode` is stateless and has no server-side `ttl` of its own. */
+  timeoutMs?: number;
 }
 
 interface Operation {
@@ -67,12 +73,12 @@ export class VertexSandboxClient implements SandboxClient {
     this.fetchImpl = fetchImpl;
   }
 
-  static withAdc(project: string, location: string, ttlMs: number): VertexSandboxClient {
+  static withAdc(project: string, location: string, timeoutMs: number): VertexSandboxClient {
     const auth = new GoogleAuth({ scopes: [SCOPE] });
     return new VertexSandboxClient({
       project,
       location,
-      ttlMs,
+      timeoutMs,
       getAccessToken: async () => {
         const token = await auth.getAccessToken();
         if (!token) throw new Error('Application Default Credentials returned no access token');
@@ -88,15 +94,36 @@ export class VertexSandboxClient implements SandboxClient {
       });
     }
 
-    const reasoningEngineName = await this.createReasoningEngine(signal);
-    let sandboxName: string | undefined;
+    // The caller's signal alone never bounds this call: nothing else in the request chain
+    // enforces a deadline on the create -> execute round trip, so a slow or stuck Preview API
+    // hangs the whole generate request indefinitely (see mistakes.md, 2026-09-19).
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => {
+      timeoutController.abort();
+    }, this.timeoutMs());
+    const combined = AbortSignal.any([signal, timeoutController.signal]);
+
     try {
-      sandboxName = await this.createSandbox(reasoningEngineName, signal);
-      const outputs = await this.execute(sandboxName, code, signal);
-      return { outputs };
+      const reasoningEngineName = await this.createReasoningEngine(combined);
+      let sandboxName: string | undefined;
+      try {
+        sandboxName = await this.createSandbox(reasoningEngineName, combined);
+        const outputs = await this.execute(sandboxName, code, combined);
+        return { outputs };
+      } finally {
+        if (sandboxName) await this.deleteQuietly(sandboxName);
+        await this.deleteQuietly(reasoningEngineName);
+      }
+    } catch (err) {
+      if (timeoutController.signal.aborted && !signal.aborted) {
+        throw new ProviderError(
+          `Sandbox execution exceeded its ${String(this.timeoutMs())}ms deadline.`,
+          { code: 'provider_error' },
+        );
+      }
+      throw err;
     } finally {
-      if (sandboxName) await this.deleteQuietly(sandboxName);
-      await this.deleteQuietly(reasoningEngineName);
+      clearTimeout(timer);
     }
   }
 
@@ -114,14 +141,9 @@ export class VertexSandboxClient implements SandboxClient {
 
   private async createSandbox(reasoningEngineName: string, signal: AbortSignal): Promise<string> {
     const url = `${this.host}/v1/${reasoningEngineName}/sandboxEnvironments`;
-    const ttlSeconds = Math.ceil(this.ttlMs() / 1000);
     const op = await this.postForOperation(
       url,
-      {
-        displayName: 'arcnave-run-python',
-        spec: { codeExecutionEnvironment: { codeLanguage: 'LANGUAGE_PYTHON' } },
-        ttl: `${String(ttlSeconds)}s`,
-      },
+      { spec: { codeExecutionEnvironment: { codeLanguage: 'LANGUAGE_PYTHON' } } },
       signal,
     );
     const name = op.response?.name;
@@ -153,8 +175,8 @@ export class VertexSandboxClient implements SandboxClient {
     try {
       await this.request(`${this.host}/v1/${name}`, 'DELETE', undefined, new AbortController().signal);
     } catch {
-      // Best-effort cleanup: a failed delete leaks a Preview-tier sandbox that expires on its
-      // own `ttl`, but must never mask the caller's real execute error — see runPython's finally.
+      // Best-effort cleanup: a failed delete leaks a Preview-tier reasoning engine, but must
+      // never mask the caller's real execute error — see runPython's finally.
     }
   }
 
@@ -220,7 +242,7 @@ export class VertexSandboxClient implements SandboxClient {
     return res;
   }
 
-  private ttlMs(): number {
-    return this.deps.ttlMs ?? 60_000;
+  private timeoutMs(): number {
+    return this.deps.timeoutMs ?? 60_000;
   }
 }
