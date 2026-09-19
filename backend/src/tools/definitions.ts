@@ -49,7 +49,8 @@ export const READ_PROJECT_FILE: ToolDefinition = {
       },
       cursor: {
         type: 'integer',
-        description: 'Chunk ordinal to resume from. Omit to start from the beginning.',
+        description:
+          "Opaque cursor from a previous call's nextCursor. Omit to start from the beginning.",
       },
       maxChars: {
         type: 'integer',
