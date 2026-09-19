@@ -25,9 +25,16 @@ aliases in `.env.example`, pending propagation to the live service on its next f
 complete and tested** — spreadsheet/PowerPoint extraction, OCR, docx tables, audio/video
 transcription, page-level citations, Gemini code execution, deterministic Markdown-to-Office
 export — see [File-handling parity](#file-handling-parity-adr-0004--items-1-8-2026-09-18).
-**2026-09-19: item 9 (tool-use/agent framework) phase 1, revised, is implemented** — a bounded,
-sequential tool-calling loop for both provider adapters, gated behind `ENABLE_TOOL_USE` (default
-off) and **not yet verified against real Vertex**; see
+**2026-09-19: reconciled a 3-way branch divergence** (a parallel session had independently
+pushed the same ADR-0004 work plus its own fixes directly to `main`) and **deployed live** —
+Cloud Build succeeded, new Cloud Run revision confirmed at 100% traffic via `/readyz`, plus a
+small frontend fix (`.pptx`/audio/video hadn't been added to the upload picker's `accept`
+list even though the backend already supported them). Items 9-12 (tool-use/agent framework)
+were researched first — see
+[Tool-use/agent framework research](#tool-use-agent-framework-research--items-9-12-2026-09-19)
+— then **item 9 phase 1, revised, was implemented** the same day: a bounded, sequential
+tool-calling loop for both provider adapters, gated behind `ENABLE_TOOL_USE` (default off) and
+**not yet verified against real Vertex**; see
 [Item 9 — tool-calling framework, phase 1 (revised)](#item-9--tool-calling-framework-phase-1-revised-2026-09-19).
 `run_python`/sandbox, a skills registry, sub-agent spawning, and goal/budget bookkeeping remain
 explicitly deferred per `tools/MAPPING.md`.
@@ -186,7 +193,8 @@ ArcNave lacked. Built and verified in this session; a ninth gap (a general tool-
 framework) is explicitly deferred per the user's instruction — items 1-8 deliberately avoid
 building a one-off version of that framework to get there sooner.
 
-**Backend done, `tsc`/`vitest` green at every step (226/226 passing), `openapi.json`
+**Backend done, `tsc`/`vitest` green at every step (226/226 passing at the time; 241/241 after
+the 2026-09-19 merge folded in a parallel session's independent fixes — see below), `openapi.json`
 regenerated for the schema changes:**
 
 1. **Spreadsheet extraction** — `.xlsx` via `exceljs`, each sheet rendered as a pipe-delimited
@@ -239,6 +247,107 @@ capability is real and tested end-to-end via the API; a human has not yet driven
 browser. This is the same shape of gap the original multimodal-file-input plan's Task 7/8
 called out — a capability wired at the API layer with the UI surface as a separate, visible
 follow-up, not silently claimed as finished.
+
+### Tool-use/agent framework research — items 9-12, 2026-09-19
+
+**Recap, items 1-8 (full detail immediately above this section):** all shipped, tested, and
+live in production as of 2026-09-18/19 —
+1. spreadsheet (`.xlsx`) extraction, 2. PowerPoint (`.pptx`) extraction, 3. OCR for scanned
+PDFs via Gemini vision, 4. `.docx` tables (via `officeparser`, replacing `mammoth`),
+5. audio/video transcription (native Gemini input + `describeMedia`), 6. page-level citations
+(`fileChunks.page`), 7. Gemini code execution (`ENABLE_GEMINI_CODE_EXECUTION`; Claude
+confirmed to have no equivalent on Vertex), 8. deterministic Markdown-to-Office export
+(`POST /artifacts/:id/export` → `.xlsx`/`.docx`/`.pptx`). Only gap left open: no frontend UI
+for a "ran code" block or an export/download button — the backend capability is real and
+tested, nothing renders it yet.
+
+The original gap analysis (see [ADR-0004](../decisions/0004-file-handling-parity.md)) named a
+ninth gap — a general tool-use/agent framework — and deferred it pending explicit
+instruction. That instruction came this session, scoped into four sub-items. **Research is
+done; nothing is implemented in `backend/src/` yet.** Reference material collected under
+`tools/` at the repo root (git-tracked; not wired into the app):
+
+```
+tools/
+├── MAPPING.md                           — system prompt ↔ tools ↔ skills, all 3; full
+│                                          inventories, per-item pick, ArcNave gap (2026-09-19).
+│                                          §10 checks every load-bearing claim against vendor
+│                                          docs + the Vertex availability table — 4 corrections;
+│                                          read §10 before designing anything from §§1-9
+├── Anthropic/
+│   ├── claude-fable-5.1.md              — Claude's current flagship system prompt (full tool set)
+│   └── skills/{docx,pptx,pdf,xlsx}/SKILL.md   — from github.com/anthropics/skills (public, source-available not OSS)
+├── Google/
+│   └── gemini-3.8-flash.md              — Gemini's current flagship system prompt
+├── OpenAI/
+│   ├── Codex/gpt-6-astra.md             — GPT-6-Astra system prompt (has the only real multi-agent block)
+│   ├── Codex/{computer-use,control-chrome,control-in-app-browser}.md
+│   └── skills/{imagegen,openai-docs,skill-creator,plugin-creator,skill-installer,pdf,jupyter-notebook}/SKILL.md
+│                                          — from github.com/openai/skills (public)
+└── shortlist/
+    ├── item-9-tool-framework/    — tool schemas + mechanics, all 3 companies
+    ├── item-10-agent-loop/       — Fable + Astra only (Gemini has no multi-step loop in this prompt)
+    ├── item-11-skills/           — Fable + Astra only (Gemini has no skills system)
+    └── item-12-browser-computer-use/  — Fable + Astra only (Gemini has neither)
+```
+
+**Item 9 — Tool-use / function-calling framework.** ArcNave has no tool-calling loop today;
+`buildSystemInstruction` in `generation.ts` only assembles static text (user/project
+instructions, retrieved BM25 context, mode hint) — no `tool_use`/`tool_result` round trip
+exists. Key finding: Claude's native `code_execution` server tool is **not available on
+Vertex AI** (confirmed against Anthropic's own docs — "Features not supported: Server-side
+tools (code execution, web fetch, advisor)"), but Claude's **Bash client tool** (schema
+published by Anthropic, execution happens on *our* infrastructure) **is** available on Vertex.
+That reframes the Claude code-execution gap: it isn't unfixable, it just needs us to run the
+sandbox ourselves (e.g. Vertex AI Agent Engine's Code Execution service, a Google-native,
+model-agnostic sandbox reachable via ADC — no Anthropic API key, satisfies Invariant 6) and
+expose it as a standard tool to both providers, rather than depending on either vendor's
+server-side tool.
+
+**Item 10 — Agent loop (multi-step, autonomous tool-calling until done).** Only GPT-6-Astra's
+prompt has a real mechanism for this (`<multi_agent_role>`: `spawn_agent`, `followup_task`,
+`send_message`, `wait_agent`, `interrupt_agent`, `list_agents`, all sub-agents sharing the
+same tool access as the parent). Fable 5.1 has lighter signals (`reply_after_tool_calls`,
+`suggest_research`, context-window checkpointing) but no spawn/fork mechanism. Gemini 3.8
+Flash has neither. Best-practice research (Anthropic's own engineering blog, current as of
+2026) says **don't build the system prompt and the tool schemas in isolation from each
+other** — sketch both together, minimally, then iterate using evals; a prompt written before
+any tool exists ends up flowchart-shaped and brittle.
+
+**Item 11 — Skills system.** GPT-6-Astra has the richest example: skills are `SKILL.md` files
+under versioned "roots" (`~/.codex/skills/...`), each with a name/description pair the model
+reads to decide relevance, discovered via `skills.list`/`skills.read` for
+orchestrator-managed ones. Claude's own skill mechanism (this very session's `SessionStart`
+skill list is an instance of it) works the same way conceptually. Fable 5.1's *product*-level
+skills (docx/pptx/pdf/xlsx authoring guidance) are real and public
+(`anthropics/skills` — source-available, not OSS for those four) and now sit under
+`tools/Anthropic/skills/`.
+
+**Item 12 — Browser use / computer use agent.** Deliberately **out of scope for ArcNave** —
+explicit user instruction ("native browser vendam"), reconfirmed when the token-cost research
+showed *why*: a computer-use loop re-sends a fresh screenshot every step, and unlike text,
+image tokens can't be cached across turns — a single Opus-tier screenshot runs ~$0.0135, more
+than 4× the cost of the entire cached toolset definition it travels with. Reference material
+was still collected (GPT-6-Astra's `browser:control-in-app-browser`,
+`chrome:control-chrome`, `computer-use:computer-use` skill files; Fable 5.1's short
+high-level explanation) in case this is revisited, but nothing here should be built.
+
+**Live-verified 2026-09-19 against the real Vertex project**, before any code: Vertex accepts
+custom `functionDeclarations` alongside the `googleSearch` grounding and `codeExecution` ArcNave
+already ships (`gemini-3.8-flash`, all combinations, model called the tool every time), and one
+neutral tool definition does serialise to both the Gemini and the Anthropic adapter. Two costs
+measured: enabling `googleSearch` beside a custom tool is **+24 input tokens**, declaring
+Anthropic's `web_search_20250305` beside one is **+2,440**. Two traps found and logged in
+`mistakes.md`: `@google/genai` mutates the caller's schema object (so each adapter must clone),
+and Claude emits parallel `tool_use` blocks by default. Full detail and the corrections to the
+research below — four of its claims were wrong — in `tools/MAPPING.md` §10.
+
+**Recommended build order, not yet started:** (1) a code-execution sandbox tool usable by
+both Claude (via Bash) and Gemini (via native `code_execution`), closing item 9's biggest gap
+and the ADR-0004 item 7 Claude/Vertex asymmetry in one move; (2) wire ArcNave's existing BM25
+search as a formal tool rather than always-injected context, the smallest possible step
+toward item 9's general contract; (3) item 10's loop and item 11's skills registry, once a
+tool actually exists to loop over.
 
 ### Verified running against local Postgres
 - Register / login / logout / session resolution / `me`

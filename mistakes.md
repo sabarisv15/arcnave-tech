@@ -666,6 +666,63 @@ failure mode of this pattern, not a sign it is working.
 
 ---
 
+### 2026-09-19 — A captured system prompt was read as if it were API documentation
+
+- **Symptom:** The items 9–12 design in `tools/MAPPING.md` recommended adopting Gemini's
+  `retriever:expand_tools` as ArcNave's lazy tool-loading mechanism, stated the tool-name
+  ceiling as 64 because "Anthropic caps at 64", and presented "build our own skills system"
+  as a design preference. All three were written from the captured vendor system prompts under
+  `tools/`, before any vendor documentation was checked.
+- **Cause:** A captured system prompt shows what a **product** does internally. It is not
+  evidence about what an **API** exposes to us, and it says nothing about what a **partner
+  platform** like Vertex supports. `retriever:expand_tools` is an in-product mechanism inside
+  the Gemini app — the Gemini API has no `defer_loading` and no tool search at all (open request:
+  `googleapis/python-genai#2185`). The real version of that feature is Anthropic's `tool_search`,
+  which *is* available on Vertex. Anthropic's name regex is `^[a-zA-Z0-9_-]{1,128}$` — 128, not
+  64; Gemini and OpenAI are what bind it to 64, and only Gemini requires a leading letter.
+  Building our own skills registry is not a preference but a hard constraint: Anthropic's native
+  Agent Skills needs the code-execution tool and is listed **unsupported on Vertex**, alongside
+  programmatic tool calling, the MCP connector, the Files API and `task_budget`.
+- **Rule:** **A leaked or captured system prompt is a design reference, never a capability
+  claim.** Before designing against any provider feature, check (1) the vendor's own API docs for
+  the feature's existence and exact constraints, and (2) the **platform availability table** for
+  whether it works on the platform we actually call — for Anthropic that is
+  `shared/platform-availability.md` in the `claude-api` skill, which states it is the single
+  source of truth and must not be inferred from elsewhere. This is Invariant 1 turned inward: do
+  not silently substitute one vendor's mechanism for another's and present it as available.
+- **Verify:** Every capability named in a design doc cites a vendor doc URL or the availability
+  table, and each says explicitly whether it works **on Vertex**. `tools/MAPPING.md` §10 is the
+  worked example. The still-unverified item is logged there as N1 — whether Vertex accepts custom
+  `function_declarations` alongside the `googleSearch` grounding ArcNave already ships (it used to
+  400 with "multiple tools are supported only when they are all search tools"); confirm with one
+  live call to `gemini-3.8-flash` before building on it.
+
+---
+
+### 2026-09-19 — `@google/genai` rewrote a shared tool schema in place, breaking the other provider
+
+- **Symptom:** A live probe sent one tool definition to Gemini (4 calls, all fine) and then the
+  same definition to Claude on Vertex, which returned
+  `400 tools.0.custom.input_schema.type: Input should be 'object'` — even though the object was
+  written with `type: 'object'`.
+- **Cause:** `@google/genai` normalises the JSON Schema it is handed into Vertex's proto enum
+  form **by mutating the caller's object**, not a copy: `"object"` → `"OBJECT"`,
+  `"string"` → `"STRING"`, `"integer"` → `"INTEGER"`. Claude's API requires lowercase, so the
+  second provider received a schema the first had already rewritten. Printing the object before
+  and after the Gemini call showed the flip. (A first attempt to reproduce it with the
+  declaration built inline for a single call did *not* show mutation, so it is not reliably
+  visible from a one-shot check — do not conclude "no mutation" from one call.)
+- **Rule:** **Treat any object handed to a provider SDK as owned by that SDK.** For anything
+  shared across adapters — tool schemas above all — keep one neutral internal type and have each
+  adapter build its wire payload from its own `structuredClone`. This is what makes "one
+  `ToolDefinition`, two serialisers" actually true rather than true-looking; the shared-reference
+  version passes a single-provider test and fails the moment both providers run in one process.
+- **Verify:** `JSON.stringify(schema)` immediately before and after a Gemini call is unchanged;
+  and a probe that calls Gemini and then Claude with the same `ToolDefinition` gets
+  `stop_reason: tool_use` from both rather than a 400.
+
+---
+
 ### 2026-09-19 — A single heavy focus rule changed the visual language of unrelated controls
 
 - **Symptom:** Clicking ordinary text fields, Settings items, and menu choices drew a thick,
@@ -791,9 +848,23 @@ practice, not canon.
   discovery that `@google-cloud/storage` was still an undeclared dependency in this session's
   own branch even after a parallel session had already fixed the same gap on `main` — found by
   merging the two together rather than deploying blind. **33 entries, 7 to the cap.**
+- **2026-09-19** — One more, and the first from design work rather than from code: the items
+  9-12 tool-use/skills plan was written from the captured vendor system prompts under `tools/`
+  and asserted three capabilities that vendor documentation contradicts — a Gemini lazy-tool-
+  loading API that does not exist, a tool-name ceiling attributed to the wrong provider, and a
+  "we'll build our own skills system" choice that is actually a hard Vertex constraint. Caught
+  by checking the docs *before* writing code, on the user's instruction, rather than after a
+  failed deploy. **34 entries, 6 to the cap.**
+- **2026-09-19** — One more, from actually running the live probe those doc checks called for:
+  `@google/genai` normalises a tool's JSON Schema by mutating the caller's object (lowercase
+  `type` → Vertex's uppercase proto enum), so the one shared `ToolDefinition` the items 9-12
+  design is built on corrupted Claude's copy the moment both providers ran in one process. The
+  good news from the same run: Vertex does accept custom `functionDeclarations` alongside
+  `googleSearch` and `codeExecution` on `gemini-3.8-flash`, so the item-9 design is not blocked.
+  **35 entries, 5 to the cap.**
 - **2026-09-19** — One more from building the item 9 (revised) tool-calling framework: the
   Gemini adapter's tool loop checked `AbortSignal` only inside the chunk-consuming loop, missing
   an abort that fired between rounds while a tool was executing — caught by an adapter-loop test
   asserting the provider call count, not just that the loop eventually threw, and fixed
-  proactively in the Anthropic adapter before it shipped the same way. **36 entries, 4 to the
+  proactively in the Anthropic adapter before it shipped the same way. **38 entries, 2 to the
   cap.**
