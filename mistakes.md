@@ -679,6 +679,27 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** Click and keyboard-tab through text fields, Settings, sidebar navigation, and
   mode menus: no thick outer box or weight jump appears; keyboard focus remains distinguishable.
 
+### 2026-09-19 — A Gemini tool loop only checked `AbortSignal` mid-stream, not before the next round's request
+
+- **Symptom:** Caught in Task 8's own adapter-loop test, never shipped — "stops issuing provider
+  requests once the signal is aborted" failed by asserting `client.calls.length`, not just that
+  the generator eventually threw.
+- **Cause:** The Gemini tool loop (Task 7) checked `request.signal.aborted` inside the
+  chunk-consuming loop, i.e. only while a stream was actively being read. An abort that fired
+  while `await request.toolExecutor!.execute(...)` was in flight — between rounds, with no
+  stream open to check anything against — was invisible to that check, so the loop went on to
+  issue one more `generateContentStream()` call before anything noticed the abort. A test that
+  only asserts "the generator throws eventually" cannot tell an immediate abort from one that
+  waited for a spurious extra round trip; asserting the call count can.
+- **Rule:** **A bounded, multi-round provider loop must check `signal.aborted` at the top of
+  *every* round, before issuing that round's request — not only inside the loop that consumes an
+  already-open stream.** Between-round work (a tool execution, a delay) is exactly where a
+  mid-stream-only check goes blind. The same gap was checked for and fixed proactively in the
+  Anthropic adapter (Task 9) before it ever shipped, once this pattern was known.
+- **Verify:** The adapter-loop test asserts `client.calls.length` stays at the pre-abort count
+  when the signal fires during tool execution, for both `gemini.ts` and `anthropic.ts`'s tool
+  loops — not just that the call under test eventually rejects.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -770,3 +791,9 @@ practice, not canon.
   discovery that `@google-cloud/storage` was still an undeclared dependency in this session's
   own branch even after a parallel session had already fixed the same gap on `main` — found by
   merging the two together rather than deploying blind. **33 entries, 7 to the cap.**
+- **2026-09-19** — One more from building the item 9 (revised) tool-calling framework: the
+  Gemini adapter's tool loop checked `AbortSignal` only inside the chunk-consuming loop, missing
+  an abort that fired between rounds while a tool was executing — caught by an adapter-loop test
+  asserting the provider call count, not just that the loop eventually threw, and fixed
+  proactively in the Anthropic adapter before it shipped the same way. **36 entries, 4 to the
+  cap.**

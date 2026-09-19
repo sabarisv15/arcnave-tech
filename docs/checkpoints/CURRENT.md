@@ -1,6 +1,6 @@
 # ArcNave — current checkpoint
 
-**Last updated:** 2026-09-18
+**Last updated:** 2026-09-19
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
@@ -25,7 +25,12 @@ aliases in `.env.example`, pending propagation to the live service on its next f
 complete and tested** — spreadsheet/PowerPoint extraction, OCR, docx tables, audio/video
 transcription, page-level citations, Gemini code execution, deterministic Markdown-to-Office
 export — see [File-handling parity](#file-handling-parity-adr-0004--items-1-8-2026-09-18).
-**Item 9 (tool-use/agent framework) is explicitly deferred**, per the user's own instruction.
+**2026-09-19: item 9 (tool-use/agent framework) phase 1, revised, is implemented** — a bounded,
+sequential tool-calling loop for both provider adapters, gated behind `ENABLE_TOOL_USE` (default
+off) and **not yet verified against real Vertex**; see
+[Item 9 — tool-calling framework, phase 1 (revised)](#item-9--tool-calling-framework-phase-1-revised-2026-09-19).
+`run_python`/sandbox, a skills registry, sub-agent spawning, and goal/budget bookkeeping remain
+explicitly deferred per `tools/MAPPING.md`.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
@@ -73,6 +78,35 @@ Postgres. Cancellation flows the other way: socket close → `AbortController` �
 adapter aborts the real HTTP request.
 
 ## Completed work
+
+### Item 9 — tool-calling framework, phase 1 (revised) — 2026-09-19
+
+Item 9 (tool-use/agent framework) was explicitly deferred when items 1-8 of the file-handling
+parity work shipped on 2026-09-18. This session implemented phase 1 of it, against a revised
+plan ([`docs/superpowers/plans/2026-09-19-item9-tool-framework-v2.md`](../superpowers/plans/2026-09-19-item9-tool-framework-v2.md);
+the original plan is superseded in place, not rewritten, per this repo's ADR rule — see
+[`docs/superpowers/plans/2026-09-19-item9-tool-framework.md`](../superpowers/plans/2026-09-19-item9-tool-framework.md)).
+
+**What's implemented:** a bounded, sequential tool-calling loop reachable from both provider
+adapters via a `ToolRegistry` seam, structured `ToolResult` content (text/json, not a bare
+string), an `AbortSignal`-aware `ToolExecutor`, and a paginated `read_project_file` tool so a
+large file cannot exhaust a round on its own. The loop lives inside each `Provider.stream()`
+implementation, the same place the plan always intended, and is wired into `GenerationService`
+behind `ENABLE_TOOL_USE` (default off, so no existing behavior changes until a deployment turns
+it on deliberately).
+
+**Coverage:** unit tests for `ToolRegistry` and `ProjectToolExecutor`, real-Postgres executor
+tests, and new fake-SDK-client-boundary adapter-loop tests for both the Gemini and Anthropic
+adapters — the latter is what caught a real bug (an `AbortSignal` check that only ran
+mid-stream, not before a new round's request; see `mistakes.md`, 2026-09-19) before it shipped.
+Full backend suite: 278/278 passing. `npx tsc --noEmit`: clean.
+
+**Not done:** live verification against real Vertex (Task 13 of the plan) — this environment has
+no `gcloud`/GCP credentials, the same gap already on record in
+[Blocked on the user](#blocked-on-the-user). The frontend has no UI for `tool_use`/`tool_result`
+frames yet. `run_python`/sandbox execution, a skills registry, sub-agent spawning, and
+goal/budget bookkeeping remain explicitly deferred — see `tools/MAPPING.md` for the full
+tool-by-tool disposition.
 
 ### `.xlsx` upload and extraction fixed — 2026-09-18
 Live user report: spreadsheet uploads failed outright (`415 unsupported_media_type`). Two
@@ -594,3 +628,12 @@ verification command for each is in `mistakes.md`; summary:
   `--env-vars-file` restatement as the storage fix above, rather than a second separate deploy.
   Until this is done, `GET /v1/usage/messages` and the per-message cost row in the UI will keep
   showing `cost not priced` against real production traffic, even though the code path is ready.
+- **The item 9 (revised) tool-calling framework (2026-09-19) has not been verified against real
+  Vertex** — Task 13 of its plan, blocked on the same missing `gcloud`/GCP credentials as every
+  other live-verification item on this list. Code is complete, gated behind `ENABLE_TOOL_USE`
+  (default off), and covered by fake-SDK-client-boundary adapter-loop tests for both providers —
+  but nothing in this session has actually made a live Anthropic-or-Gemini-via-Vertex tool call.
+  Once credentials exist: set `ENABLE_TOOL_USE=true`, ask a question that needs
+  `search_project_files`/`read_project_file` against a real project, and confirm the model
+  actually calls the tool and incorporates the result, for both the Anthropic and Gemini model
+  aliases.

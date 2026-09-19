@@ -63,11 +63,68 @@ export function totalTokens(usage: ProviderUsage): number {
   return usage.inputTokens + usage.outputTokens;
 }
 
+/**
+ * The shape of one piece of a tool's result. `text` is the common case; `json` is for tools
+ * whose natural output is structured (search hits, a paginated read, and — later — attendance
+ * rows, assessment scores, timetable entries). Provider adapters flatten this into their own
+ * wire format; nothing in this type is provider-specific.
+ */
+export type ToolContent = { type: 'text'; text: string } | { type: 'json'; data: unknown };
+
+/** A tool the model may call. `inputSchema` is provider-neutral JSON Schema; each adapter clones
+ *  it before handing it to its own SDK — `@google/genai` rewrites a schema object in place
+ *  (uppercasing `type` values), so sharing one object between two adapters would corrupt
+ *  whichever one runs second. */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+/** `ok: false` means the tool ran and failed, or its input was invalid — never thrown, always
+ *  fed back to the model as a real result so it can react, per Invariant 1. `content` is already
+ *  bounded by the tool implementation before it reaches here — this type does not itself impose
+ *  a limit. */
+export interface ToolResult {
+  toolCallId: string;
+  ok: boolean;
+  content: ToolContent[];
+}
+
+/**
+ * The seam between a provider adapter's loop and ArcNave's actual tool implementations.
+ * Constructed fresh per request (it is bound to one project), never shared across requests.
+ * `signal` is the same `AbortSignal` the provider request carries: a tool whose backing store
+ * cannot truly interrupt an in-flight operation (e.g. a single Postgres query) still checks it
+ * at its own entry/exit boundaries, so cancellation propagates as far as is honestly possible —
+ * this interface does not promise mid-operation interruption for every implementation.
+ */
+export interface ToolExecutor {
+  execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult>;
+}
+
+/** Flatten a `ToolResult` into a short string for an SSE preview frame — never the value stored
+ *  in the database or sent back to the model, both of which keep the full bounded content. */
+export function toolResultPreview(result: ToolResult, maxChars: number): string {
+  const flat = result.content
+    .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c.data)))
+    .join(' ');
+  return flat.length > maxChars ? `${flat.slice(0, maxChars)}…` : flat;
+}
+
 export type ProviderEvent =
   | { type: 'delta'; text: string }
   | { type: 'sources'; sources: ProviderSource[]; searchEntryPoint?: string }
   | { type: 'progress'; stage: Stage; label: string; detail: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
+  | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
 /** An image or PDF, ready to hand a provider as a native content block. */
@@ -98,6 +155,10 @@ export interface GenerationRequest {
   grounded: boolean;
   /** Whether Gemini's `code_execution` tool is enabled for this turn. See ADR-0004, item 7. */
   codeExecution: boolean;
+  /** Tool schemas available this turn. Absent or empty means no tool-calling loop runs. */
+  tools?: ToolDefinition[];
+  /** Required when `tools` is non-empty; absent otherwise. */
+  toolExecutor?: ToolExecutor;
   signal: AbortSignal;
 }
 

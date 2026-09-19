@@ -26,6 +26,7 @@ import {
   projectFiles,
   projects,
   researchEvents,
+  toolCalls,
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
@@ -40,9 +41,19 @@ import type {
   ProviderEvent,
   ProviderSource,
   ProviderUsage,
+  ToolResult,
   Turn,
 } from '../providers/types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError, totalTokens } from '../providers/types.js';
+import {
+  EMPTY_USAGE,
+  isAbort,
+  ModelNotFoundError,
+  ProviderError,
+  toolResultPreview,
+  totalTokens,
+} from '../providers/types.js';
+import { ProjectToolExecutor } from '../tools/executor.js';
+import { ProjectToolRegistry } from '../tools/registry.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext } from './retrieval.js';
@@ -65,6 +76,8 @@ export type StreamEvent =
   | { type: 'delta'; text: string }
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
+  | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
@@ -264,6 +277,13 @@ export class GenerationService {
       });
     };
 
+    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE);
+    const availableTools = toolRegistry.getAvailableTools({ projectId: project?.id ?? null });
+    const toolExecutor =
+      availableTools.length > 0
+        ? new ProjectToolExecutor(this.db, this.retriever, project!.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
+        : undefined;
+
     const request: GenerationRequest = {
       prompt: input.prompt,
       history,
@@ -274,6 +294,8 @@ export class GenerationService {
       providerModelId: entry.providerModelId!,
       grounded,
       codeExecution,
+      ...(availableTools.length > 0 ? { tools: availableTools } : {}),
+      ...(toolExecutor ? { toolExecutor } : {}),
       signal: input.signal,
     };
 
@@ -285,6 +307,7 @@ export class GenerationService {
     const collectedSources: ProviderSource[] = [];
     let searchEntryPoint: string | undefined;
     let eventOrdinal = contextEvents.length;
+    const pendingToolInputs = new Map<string, unknown>();
 
     try {
       const stream = this.streamWithRetry(provider.stream.bind(provider), request);
@@ -316,6 +339,32 @@ export class GenerationService {
               ...(event.output ? { output: event.output } : {}),
             };
             break;
+
+          case 'tool_use': {
+            pendingToolInputs.set(event.toolCallId, event.input);
+            yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
+            break;
+          }
+
+          case 'tool_result': {
+            const preview = toolResultPreview(event.result, this.cfg.TOOL_RESULT_PREVIEW_CHARS);
+            yield {
+              type: 'tool_result',
+              toolCallId: event.toolCallId,
+              name: event.name,
+              ok: event.result.ok,
+              preview,
+            };
+            await this.persistToolCall(
+              input.messageId,
+              event.toolCallId,
+              event.name,
+              pendingToolInputs.get(event.toolCallId),
+              event.result,
+              eventOrdinal++,
+            );
+            break;
+          }
 
           case 'progress': {
             const out: StreamEvent = {
@@ -736,6 +785,33 @@ export class GenerationService {
         label: event.event.label.slice(0, 300),
         detail: event.event.detail,
         at: new Date(event.event.at),
+      })
+      .onConflictDoNothing();
+  }
+
+  /**
+   * Persists the full bounded `ToolResult` the model actually received — not the SSE preview,
+   * and never a further-truncated copy. `input` always becomes `{}` when the provider reported
+   * none, so this insert can never contradict the column's `NOT NULL` constraint.
+   */
+  private async persistToolCall(
+    messageId: string,
+    toolCallId: string,
+    name: string,
+    input: unknown,
+    result: ToolResult,
+    ordinal: number,
+  ): Promise<void> {
+    await this.db
+      .insert(toolCalls)
+      .values({
+        messageId,
+        ordinal,
+        toolCallId,
+        name,
+        input: input ?? {},
+        content: result.content,
+        ok: result.ok,
       })
       .onConflictDoNothing();
   }

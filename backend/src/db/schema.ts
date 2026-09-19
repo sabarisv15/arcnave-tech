@@ -319,6 +319,36 @@ export const researchEvents = pgTable(
   (t) => [uniqueIndex('uq_event_ordinal').on(t.messageId, t.ordinal)],
 );
 
+/**
+ * One row per tool call/result pair the model made while answering a message. `input` and
+ * `content` are `jsonb` and `NOT NULL` — the insert always supplies `input ?? {}`, never `null`,
+ * so the column constraint and the write path can never contradict each other. No separate
+ * requested/running state: execution here is one synchronous `await`, with no externally
+ * observable "running" window to record (same reasoning as `researchEvents`, which also
+ * persists only after the fact). Revisit if a future tool is genuinely long-running/async.
+ */
+export const toolCalls = pgTable(
+  'tool_calls',
+  {
+    id: id(),
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    /** The provider's own id for this call (Anthropic's `tool_use.id`, Gemini's `FunctionCall.id`
+     *  when present, or a synthesised id when the provider did not supply one). */
+    toolCallId: varchar('tool_call_id', { length: 128 }).notNull(),
+    name: varchar('name', { length: 64 }).notNull(),
+    input: jsonb('input').notNull(),
+    /** The full bounded `ToolResult.content` the model actually received — not a further-
+     *  truncated copy. See generation.ts's three-tier persist/preview split. */
+    content: jsonb('content').notNull(),
+    ok: boolean('ok').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('uq_tool_call_ordinal').on(t.messageId, t.ordinal)],
+);
+
 /** A file attached to a single message, as opposed to durable project knowledge. */
 export const attachments = pgTable(
   'attachments',
@@ -527,6 +557,7 @@ export const messagesRelations = relations(messages, ({ one, many }) => ({
   chat: one(chats, { fields: [messages.chatId], references: [chats.id] }),
   sources: many(messageSources),
   events: many(researchEvents),
+  toolCalls: many(toolCalls),
   attachments: many(attachments),
 }));
 
@@ -536,6 +567,10 @@ export const messageSourcesRelations = relations(messageSources, ({ one }) => ({
 
 export const researchEventsRelations = relations(researchEvents, ({ one }) => ({
   message: one(messages, { fields: [researchEvents.messageId], references: [messages.id] }),
+}));
+
+export const toolCallsRelations = relations(toolCalls, ({ one }) => ({
+  message: one(messages, { fields: [toolCalls.messageId], references: [messages.id] }),
 }));
 
 export const attachmentsRelations = relations(attachments, ({ one }) => ({
@@ -564,6 +599,7 @@ export type Chat = typeof chats.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type MessageSource = typeof messageSources.$inferSelect;
 export type ResearchEvent = typeof researchEvents.$inferSelect;
+export type ToolCallRow = typeof toolCalls.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
 export type Artifact = typeof artifacts.$inferSelect;
 export type ArtifactVersion = typeof artifactVersions.$inferSelect;

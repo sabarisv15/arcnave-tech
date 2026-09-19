@@ -7,8 +7,10 @@
  * reach the provider rather than merely stop the writer, and a usage record that must be
  * written even when the run failed.
  */
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { toolCalls } from '../db/schema.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp, sleep, sseText } from '../test/harness.js';
 
@@ -672,5 +674,106 @@ describe('attachments carried across turns', () => {
     const secondRequest = ctx.provider.seen[ctx.provider.seen.length - 1]!;
     const carried = secondRequest.history.find((t) => (t.attachments?.length ?? 0) > 0);
     expect(carried?.attachments?.[0]).toMatchObject({ mimeType: 'image/png' });
+  });
+});
+
+describe('tool use', () => {
+  it('streams tool_use/tool_result frames, persists the full result, and previews it on the wire', async () => {
+    const project = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/projects',
+      headers: auth(),
+      payload: { title: 'Tooling fixture' },
+    });
+    const projectId = (project.json() as { id: string }).id;
+    const chatId = await newChat({ ...auth() });
+    await ctx.app.inject({
+      method: 'PATCH',
+      url: `/v1/chats/${chatId}`,
+      headers: auth(),
+      payload: { projectId },
+    });
+
+    const longText = 'x'.repeat(500);
+    ctx.provider.script = [
+      {
+        type: 'tool_use',
+        toolCallId: 'call-1',
+        name: 'search_project_files',
+        input: { query: 'x' },
+      },
+      {
+        type: 'tool_result',
+        toolCallId: 'call-1',
+        name: 'search_project_files',
+        result: { toolCallId: 'call-1', ok: true, content: [{ type: 'text', text: longText }] },
+      },
+      { type: 'delta', text: 'Based on that, here is the answer.' },
+      {
+        type: 'completed',
+        usage: { inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true },
+        finishReason: 'stop',
+      },
+    ];
+
+    const response = await generate(chatId);
+    expect(response.statusCode).toBe(200);
+    const frames = parseSse(response.body);
+
+    const toolUse = frames.find((f) => f.event === 'tool_use');
+    const toolResult = frames.find((f) => f.event === 'tool_result');
+    expect(toolUse?.data['name']).toBe('search_project_files');
+    // The wire preview is short — never the full 500-char result.
+    expect((toolResult?.data['preview'] as string).length).toBeLessThanOrEqual(301);
+    expect(toolResult?.data['ok']).toBe(true);
+
+    const t = await transcript(chatId);
+    const assistantMessageId = t.messages[t.messages.length - 1]!.id;
+    const rows = await ctx.db.select().from(toolCalls).where(eq(toolCalls.messageId, assistantMessageId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.name).toBe('search_project_files');
+    expect(rows[0]!.ok).toBe(true);
+    // The DB keeps the full result, not the wire preview.
+    expect(rows[0]!.content).toEqual([{ type: 'text', text: longText }]);
+    expect(rows[0]!.input).toEqual({ query: 'x' });
+  });
+
+  it('persists {} for input, never null, when a tool call carries no input', async () => {
+    const project = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/projects',
+      headers: auth(),
+      payload: { title: 'Tooling fixture 2' },
+    });
+    const projectId = (project.json() as { id: string }).id;
+    const chatId = await newChat({ ...auth() });
+    await ctx.app.inject({
+      method: 'PATCH',
+      url: `/v1/chats/${chatId}`,
+      headers: auth(),
+      payload: { projectId },
+    });
+
+    ctx.provider.script = [
+      { type: 'tool_use', toolCallId: 'call-1', name: 'search_project_files', input: undefined },
+      {
+        type: 'tool_result',
+        toolCallId: 'call-1',
+        name: 'search_project_files',
+        result: { toolCallId: 'call-1', ok: true, content: [{ type: 'text', text: 'ok' }] },
+      },
+      { type: 'delta', text: 'ok' },
+      {
+        type: 'completed',
+        usage: { inputTokens: 5, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true },
+        finishReason: 'stop',
+      },
+    ];
+    const response = await generate(chatId);
+    const t = await transcript(chatId);
+    const assistantMessageId = t.messages[t.messages.length - 1]!.id;
+    const rows = await ctx.db.select().from(toolCalls).where(eq(toolCalls.messageId, assistantMessageId));
+    expect(response.statusCode).toBe(200);
+    expect(rows[0]!.input).toEqual({});
   });
 });

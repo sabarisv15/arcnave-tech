@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildAnthropicMessages } from './anthropicVertex.js';
+import { buildAnthropicMessages, toAnthropicTool, toAnthropicToolResultBlock } from './anthropicVertex.js';
 import type { GenerationRequest } from './types.js';
 
 function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequest {
@@ -109,5 +109,61 @@ describe('buildAnthropicMessages', () => {
     const messages = buildAnthropicMessages(baseRequest());
     expect(messages).toHaveLength(1);
     expect(messages[0]!.content).toBe('What is this?');
+  });
+});
+
+describe('toAnthropicTool', () => {
+  it('maps name/description/input_schema', () => {
+    const tool = toAnthropicTool({
+      name: 'search_project_files',
+      description: 'Lexical keyword search.',
+      inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+    });
+    expect(tool).toEqual({
+      name: 'search_project_files',
+      description: 'Lexical keyword search.',
+      input_schema: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+      },
+    });
+  });
+
+  it('deep-clones the input schema', () => {
+    const original = { type: 'object', properties: { query: { type: 'string' } } };
+    const tool = toAnthropicTool({ name: 'x', description: 'x', inputSchema: original });
+    (tool.input_schema as Record<string, unknown>)['type'] = 'MUTATED';
+    expect(original['type']).toBe('object');
+  });
+});
+
+describe('toAnthropicToolResultBlock', () => {
+  it('serialises a successful structured result as JSON text, is_error unset', () => {
+    const block = toAnthropicToolResultBlock('call-1', {
+      toolCallId: 'call-1',
+      ok: true,
+      content: [{ type: 'json', data: { results: [] } }],
+    });
+    expect(block).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'call-1',
+      content: JSON.stringify({ results: [] }),
+      is_error: false,
+    });
+  });
+
+  it('serialises a failed result as plain text with is_error true', () => {
+    const block = toAnthropicToolResultBlock('call-2', {
+      toolCallId: 'call-2',
+      ok: false,
+      content: [{ type: 'text', text: 'No indexed file with that id.' }],
+    });
+    expect(block).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'call-2',
+      content: 'No indexed file with that id.',
+      is_error: true,
+    });
   });
 });

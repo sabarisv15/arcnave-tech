@@ -14,8 +14,16 @@ import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import { sourcesFromAnthropicBlocks } from './grounding.js';
-import type { GenerationRequest, Provider, ProviderEvent, ProviderUsage } from './types.js';
+import type {
+  GenerationRequest,
+  Provider,
+  ProviderEvent,
+  ProviderUsage,
+  ToolDefinition,
+  ToolResult,
+} from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
+import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -23,6 +31,26 @@ const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 /** The tool version string is part of the API contract, not a date to be freshened casually. */
 const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as const;
+
+export function toAnthropicTool(def: ToolDefinition): Anthropic.Tool {
+  return {
+    name: def.name,
+    description: def.description,
+    input_schema: structuredClone(def.inputSchema) as Anthropic.Tool.InputSchema,
+  };
+}
+
+/** A `json` block round-trips as a JSON string in `content` — Anthropic's tool_result content is
+ *  text or a content-block array, never a structured object, so this is the one place a
+ *  structured `ToolResult` becomes a string for this provider specifically. */
+export function toAnthropicToolResultBlock(
+  toolUseId: string,
+  result: ToolResult,
+): Anthropic.ToolResultBlockParam {
+  const block = result.content[0];
+  const content = block === undefined ? '' : block.type === 'json' ? JSON.stringify(block.data) : block.text;
+  return { type: 'tool_result', tool_use_id: toolUseId, content, is_error: !result.ok };
+}
 
 function statusOf(err: unknown): number | undefined {
   if (typeof err !== 'object' || err === null) return undefined;
@@ -152,15 +180,19 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
 
 export class AnthropicVertexProvider implements Provider {
   readonly name = 'anthropic';
-  private client: AnthropicVertex | undefined;
+  private client: Pick<AnthropicVertex, 'messages'> | undefined;
 
-  constructor(private readonly cfg: Config) {}
+  constructor(
+    private readonly cfg: Config,
+    private readonly injectedClient?: Pick<AnthropicVertex, 'messages'>,
+  ) {}
 
   supportsGrounding(): boolean {
     return this.cfg.ENABLE_ANTHROPIC_WEB_SEARCH;
   }
 
-  private getClient(): AnthropicVertex {
+  private getClient(): Pick<AnthropicVertex, 'messages'> {
+    if (this.injectedClient) return this.injectedClient;
     if (!this.client) {
       if (!this.cfg.GOOGLE_CLOUD_PROJECT) {
         throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });
@@ -179,6 +211,8 @@ export class AnthropicVertexProvider implements Provider {
 
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     const grounded = request.grounded && this.supportsGrounding();
+    const toolDefs = request.tools ?? [];
+    const useTools = toolDefs.length > 0 && Boolean(request.toolExecutor);
 
     if (grounded) {
       yield {
@@ -192,52 +226,93 @@ export class AnthropicVertexProvider implements Provider {
     let usage = EMPTY_USAGE;
     let finishReason = 'stop';
     const searchBlocks: SearchResultBlock[] = [];
+    let messages = buildAnthropicMessages(request);
+    const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
+
+    const tools = [
+      ...(grounded ? [WEB_SEARCH_TOOL] : []),
+      ...(useTools ? toolDefs.map(toAnthropicTool) : []),
+    ];
 
     try {
-      const stream = this.getClient().messages.stream(
-        {
-          model: request.providerModelId,
-          max_tokens: request.maxOutputTokens,
-          messages: buildAnthropicMessages(request),
-          ...(request.systemInstruction ? { system: request.systemInstruction } : {}),
-          ...(grounded ? { tools: [WEB_SEARCH_TOOL] } : {}),
-        },
-        { signal: request.signal },
-      );
+      roundLoop: for (let round = 0; round < maxRounds; round += 1) {
+        // A round boundary is the one place abort can fire with no request in flight yet (e.g.
+        // during tool execution, between this round's response and the next round's request).
+        // The SDK's `signal` option only stops a request already underway; without this check,
+        // an abort here would still issue one more provider call. See Task 7/8's equivalent gap
+        // in the Gemini adapter, caught only by an abort-mid-loop test.
+        if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const stream = this.getClient().messages.stream(
+          {
+            model: request.providerModelId,
+            max_tokens: request.maxOutputTokens,
+            messages,
+            ...(request.systemInstruction ? { system: request.systemInstruction } : {}),
+            ...(tools.length > 0 ? { tools } : {}),
+            ...(useTools ? { tool_choice: { type: 'auto', disable_parallel_tool_use: true } } : {}),
+          },
+          { signal: request.signal },
+        );
 
-      for await (const event of stream) {
-        if (request.signal.aborted) break;
-        switch (event.type) {
-          case 'content_block_delta': {
-            const delta = event.delta;
-            if (delta.type === 'text_delta' && delta.text) {
-              yield { type: 'delta', text: delta.text };
+        for await (const event of stream) {
+          if (request.signal.aborted) break roundLoop;
+          switch (event.type) {
+            case 'content_block_delta': {
+              const delta = event.delta;
+              if (delta.type === 'text_delta' && delta.text) {
+                yield { type: 'delta', text: delta.text };
+              }
+              break;
             }
-            break;
+            case 'message_start':
+              usage = merge(usage, usageFrom(event.message.usage as AnthropicUsage));
+              break;
+            case 'message_delta': {
+              usage = merge(usage, usageFrom(event.usage as AnthropicUsage));
+              if (event.delta.stop_reason) finishReason = String(event.delta.stop_reason);
+              break;
+            }
+            case 'content_block_start':
+              // Search results arrive complete in the block-start event; `content_block_stop`
+              // carries only the index, so this is the streaming-time hook for them.
+              searchBlocks.push(...collectSearchResults(event.content_block));
+              break;
+            default:
+              break;
           }
-          case 'message_start':
-            usage = merge(usage, usageFrom(event.message.usage as AnthropicUsage));
-            break;
-          case 'message_delta': {
-            usage = merge(usage, usageFrom(event.usage as AnthropicUsage));
-            if (event.delta.stop_reason) finishReason = String(event.delta.stop_reason);
-            break;
-          }
-          case 'content_block_start':
-            // Search results arrive complete in the block-start event; `content_block_stop`
-            // carries only the index, so this is the streaming-time hook for them.
-            searchBlocks.push(...collectSearchResults(event.content_block));
-            break;
-          default:
-            break;
         }
-      }
 
-      if (!request.signal.aborted) {
         const final = await stream.finalMessage();
         usage = merge(usage, usageFrom(final.usage as AnthropicUsage));
         if (final.stop_reason) finishReason = String(final.stop_reason);
         for (const block of final.content ?? []) searchBlocks.push(...collectSearchResults(block));
+
+        const toolUseBlocks = (final.content ?? []).filter(
+          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+        );
+        if (!useTools || toolUseBlocks.length === 0) break;
+
+        messages = [...messages, { role: 'assistant', content: final.content }];
+
+        // disable_parallel_tool_use should make this length 1, but the request is honest about
+        // what the SDK actually returned rather than assuming: only the first is executed,
+        // matching Gemini's Task 7 policy exactly.
+        const [primary, ...rest] = toolUseBlocks;
+        const resultBlocks: Anthropic.ToolResultBlockParam[] = [];
+
+        if (primary) {
+          const call = { id: primary.id, name: primary.name, input: primary.input };
+          yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
+          const result = await request.toolExecutor!.execute(call, request.signal);
+          yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
+          resultBlocks.push(toAnthropicToolResultBlock(call.id, result));
+        }
+        for (const extra of rest) {
+          resultBlocks.push(toAnthropicToolResultBlock(extra.id, deferredCallResult(extra.id)));
+        }
+        messages = [...messages, { role: 'user', content: resultBlocks }];
+
+        if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (isAbort(err) || request.signal.aborted) throw err;
