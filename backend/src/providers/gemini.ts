@@ -5,7 +5,7 @@
  * See docs/backend-research.md section 1.
  */
 import { GoogleGenAI } from '@google/genai';
-import type { Content, Part, Blob as GeminiBlob } from '@google/genai';
+import type { Content, FunctionDeclaration, Part, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
@@ -17,6 +17,8 @@ import type {
   Provider,
   ProviderEvent,
   ProviderUsage,
+  ToolDefinition,
+  ToolResult,
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 
@@ -27,6 +29,39 @@ function attachmentParts(attachments: GenerationRequest['attachments']): Part[] 
   return attachments.map((a): Part => ({
     inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
   }));
+}
+
+/**
+ * `parametersJsonSchema` (not `parameters`) deliberately — the typed `parameters: Schema` field
+ * is what `@google/genai` rewrites in place (uppercasing every `type` value), and doing that to
+ * a `ToolDefinition` shared with the Anthropic adapter would corrupt whichever adapter runs
+ * second. `parametersJsonSchema` accepts plain JSON Schema and is documented as mutually
+ * exclusive with `parameters`, so this sidesteps the mutation risk instead of cloning around it.
+ */
+export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclaration {
+  return {
+    name: def.name,
+    description: def.description,
+    parametersJsonSchema: structuredClone(def.inputSchema),
+  };
+}
+
+/**
+ * Flattens a provider-neutral `ToolResult` into Gemini's `functionResponse` shape. A `json`
+ * content block goes straight into `response.output`/`response.error`; a `text` block is passed
+ * through as a string in the same slot — Gemini does not require the response value to be an
+ * object shape beyond `Record<string, unknown>`'s outer wrapper.
+ */
+export function toGeminiFunctionResponsePart(name: string, id: string, result: ToolResult): Part {
+  const block = result.content[0];
+  const value = block === undefined ? '' : block.type === 'json' ? block.data : block.text;
+  return {
+    functionResponse: {
+      id,
+      name,
+      response: result.ok ? { output: value } : { error: value },
+    },
+  };
 }
 
 /**
@@ -164,6 +199,8 @@ export class GeminiProvider implements Provider {
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     const grounded = request.grounded && this.supportsGrounding();
     const codeExecution = request.codeExecution && this.supportsCodeExecution();
+    const toolDefs = request.tools ?? [];
+    const useTools = toolDefs.length > 0 && Boolean(request.toolExecutor);
 
     if (grounded) {
       yield {
@@ -178,56 +215,118 @@ export class GeminiProvider implements Provider {
     let finishReason = 'stop';
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
+    let contents = buildGeminiContents(request);
+    const maxRounds = useTools ? Math.max(1, this.cfg.TOOL_MAX_ROUNDS) : 1;
 
     try {
-      const stream = await this.getClient().models.generateContentStream({
-        model: request.providerModelId,
-        contents: buildGeminiContents(request),
-        config: {
-          ...(request.systemInstruction ? { systemInstruction: request.systemInstruction } : {}),
-          maxOutputTokens: request.maxOutputTokens,
-          ...(grounded || codeExecution
-            ? {
-                tools: [
-                  ...(grounded ? [{ googleSearch: {} }] : []),
-                  ...(codeExecution ? [{ codeExecution: {} }] : []),
-                ],
-              }
-            : {}),
-          // The SDK aborts the underlying HTTP request on this signal, which is what makes
-          // client cancellation actually stop provider work rather than just stop reading it.
-          abortSignal: request.signal,
-          httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS },
-        },
-      });
+      roundLoop: for (let round = 0; round < maxRounds; round += 1) {
+        const stream = await this.getClient().models.generateContentStream({
+          model: request.providerModelId,
+          contents,
+          config: {
+            ...(request.systemInstruction ? { systemInstruction: request.systemInstruction } : {}),
+            maxOutputTokens: request.maxOutputTokens,
+            ...(grounded || codeExecution || useTools
+              ? {
+                  tools: [
+                    ...(grounded ? [{ googleSearch: {} }] : []),
+                    ...(codeExecution ? [{ codeExecution: {} }] : []),
+                    ...(useTools
+                      ? [{ functionDeclarations: toolDefs.map(toGeminiFunctionDeclaration) }]
+                      : []),
+                  ],
+                }
+              : {}),
+            // The SDK aborts the underlying HTTP request on this signal, which is what makes
+            // client cancellation actually stop provider work rather than just stop reading it.
+            abortSignal: request.signal,
+            httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS },
+          },
+        });
 
-      for await (const chunk of stream) {
-        if (request.signal.aborted) break;
+        let roundText = '';
+        const roundCalls: { id?: string; name: string; args: Record<string, unknown> }[] = [];
 
-        const text = chunk.text;
-        if (text) {
-          accumulated.push(text);
-          yield { type: 'delta', text };
-        }
+        for await (const chunk of stream) {
+          if (request.signal.aborted) break roundLoop;
 
-        if (codeExecution && (chunk.executableCode || chunk.codeExecutionResult)) {
-          yield {
-            type: 'code',
-            ...(chunk.executableCode ? { code: chunk.executableCode } : {}),
-            ...(chunk.codeExecutionResult ? { output: chunk.codeExecutionResult } : {}),
-          };
-        }
-
-        const chunkUsage = usageFrom(chunk.usageMetadata);
-        // Gemini reports cumulative usage; the last non-empty value is the running total.
-        if (chunkUsage.exact) usage = chunkUsage;
-
-        for (const candidate of chunk.candidates ?? []) {
-          if (candidate.groundingMetadata) {
-            lastMetadata = candidate.groundingMetadata as GeminiGroundingMetadata;
+          const text = chunk.text;
+          if (text) {
+            accumulated.push(text);
+            roundText += text;
+            yield { type: 'delta', text };
           }
-          if (candidate.finishReason) finishReason = String(candidate.finishReason);
+
+          if (codeExecution && (chunk.executableCode || chunk.codeExecutionResult)) {
+            yield {
+              type: 'code',
+              ...(chunk.executableCode ? { code: chunk.executableCode } : {}),
+              ...(chunk.codeExecutionResult ? { output: chunk.codeExecutionResult } : {}),
+            };
+          }
+
+          for (const fc of chunk.functionCalls ?? []) {
+            if (fc.name) roundCalls.push({ ...(fc.id ? { id: fc.id } : {}), name: fc.name, args: fc.args ?? {} });
+          }
+
+          const chunkUsage = usageFrom(chunk.usageMetadata);
+          // Gemini reports cumulative usage; the last non-empty value is the running total.
+          if (chunkUsage.exact) usage = chunkUsage;
+
+          for (const candidate of chunk.candidates ?? []) {
+            if (candidate.groundingMetadata) {
+              lastMetadata = candidate.groundingMetadata as GeminiGroundingMetadata;
+            }
+            if (candidate.finishReason) finishReason = String(candidate.finishReason);
+          }
         }
+
+        if (!useTools || roundCalls.length === 0) break;
+
+        const modelParts: Part[] = [];
+        if (roundText) modelParts.push({ text: roundText });
+        for (const c of roundCalls) {
+          modelParts.push({ functionCall: { ...(c.id ? { id: c.id } : {}), name: c.name, args: c.args } });
+        }
+        contents = [...contents, { role: 'model', parts: modelParts }];
+
+        // Phase 1 executes exactly one ArcNave tool per round, matching Anthropic's
+        // disable_parallel_tool_use semantics. If Gemini returns more than one functionCall in
+        // a single response, only the first is run; the rest get an explicit deferred failure
+        // so the conversation is never left with an orphaned call — the model can re-request an
+        // extra call on a later round instead.
+        const [primary, ...deferred] = roundCalls;
+        const responseParts: Part[] = [];
+
+        if (primary) {
+          const call = {
+            id: primary.id ?? `${primary.name}-${String(round)}-0`,
+            name: primary.name,
+            input: primary.args,
+          };
+          yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
+          const result = await request.toolExecutor!.execute(call, request.signal);
+          yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
+          responseParts.push(toGeminiFunctionResponsePart(call.name, call.id, result));
+        }
+        for (const [i, extra] of deferred.entries()) {
+          const id = extra.id ?? `${extra.name}-${String(round)}-${String(i + 1)}`;
+          const deferredResult: ToolResult = {
+            toolCallId: id,
+            ok: false,
+            content: [
+              {
+                type: 'text',
+                text: 'Only one tool call is processed per round in this phase; call again on ' +
+                  'the next round if this is still needed.',
+              },
+            ],
+          };
+          responseParts.push(toGeminiFunctionResponsePart(extra.name, id, deferredResult));
+        }
+        contents = [...contents, { role: 'user', parts: responseParts }];
+
+        if (round === maxRounds - 1) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (isAbort(err) || request.signal.aborted) throw err;
