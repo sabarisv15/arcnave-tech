@@ -85,13 +85,19 @@ Two separate deadlines, not one:
   - Reads `RUN_PYTHON_CODE_B64`, `RUN_PYTHON_CODE_TIMEOUT_MS`, `RUN_PYTHON_EXECUTION_ID` from
     env.
   - Decodes the code, writes it to a temp file, launches it via `subprocess.Popen([sys.executable,
-    tmpfile], start_new_session=True, ...)` (its own process group, not just its own process) and
-    waits with a deadline of `RUN_PYTHON_CODE_TIMEOUT_MS`. On timeout, `os.killpg(pgid,
-    signal.SIGKILL)` — kills the whole group, not just the immediate child, so code that spawns
-    its own subprocesses can't outlive the timeout by hiding a descendant. This in-container
-    deadline is independent of, and set below, the Cloud Run Job's own task timeout.
-  - Caps captured stdout/stderr at `MAX_STDOUT_BYTES`/`MAX_STDERR_BYTES` (env-configurable,
-    sane defaults e.g. 64 KiB each), setting `stdoutTruncated`/`stderrTruncated` when hit.
+    tmpfile], start_new_session=True, stdout=PIPE, stderr=PIPE, ...)` (its own process group, not
+    just its own process) and waits with a deadline of `RUN_PYTHON_CODE_TIMEOUT_MS`. On timeout,
+    `os.killpg(pgid, signal.SIGKILL)` — kills the whole group, not just the immediate child, so
+    code that spawns its own subprocesses can't outlive the timeout by hiding a descendant. This
+    in-container deadline is independent of, and set below, the Cloud Run Job's own task timeout.
+  - **Must not** use `process.communicate()` and slice the result afterward — that buffers the
+    entire stream in memory first, so `while True: print("X" * 1_000_000)` exhausts container
+    memory before any cap applies. Instead, one reader thread per pipe (stdout, stderr) reads
+    continuously, retaining only the first `MAX_STDOUT_BYTES`/`MAX_STDERR_BYTES` (env-configurable,
+    sane defaults e.g. 64 KiB each) and discarding bytes past that — critically, the thread keeps
+    *draining* the pipe past the cap rather than stopping, since an unread full OS pipe buffer
+    would otherwise block the child instead of letting it exit or be killed. Sets
+    `stdoutTruncated`/`stderrTruncated` when the cap was hit.
   - On a timeout, sets `timedOut: true`, `ok: false`.
   - Always emits exactly one line to its own stdout at the very end:
     `ARCNAVE_SANDBOX_RESULT:` followed by JSON:
@@ -130,16 +136,18 @@ Two separate deadlines, not one:
 
 ### 3. IAM
 
-- Backend Cloud Run service's existing service account gains: `run.jobs.run` **and**
-  `run.jobs.runWithOverrides` scoped to `arcnave-python-sandbox` only — `run.jobs.run` alone is
-  rejected once the call carries `overrides` (which it always does here). Google's predefined
-  `roles/run.jobsExecutorWithOverrides` bundles both plus `run.executions.cancel`; verify at
-  implementation time whether that predefined role or a custom role is the better fit. Also
-  needs `run.executions.get` (or the closest built-in read role) and a logging read permission
-  scoped as narrowly as a built-in role allows. A dedicated Cloud Logging log view restricted to
-  just this job is **not** built in v1 (see ADR-0005) — the spec must not claim tighter
-  isolation than what's actually implemented. Submitted code is execution metadata on this
-  Job's `TaskTemplate`, not secret — another reason `run.executions.get` stays tightly scoped.
+- Backend Cloud Run service's existing service account gains a **custom role** (a predefined
+  role alone isn't sufficient, and a viewer role is broader than necessary) covering:
+  `run.jobs.run`, `run.jobs.runWithOverrides` (both scoped to `arcnave-python-sandbox` only —
+  `run.jobs.run` alone is rejected once the call carries `overrides`, which it always does
+  here), `run.operations.get` (Google's predefined `roles/run.jobsExecutorWithOverrides` bundles
+  `run.jobs.run`/`run.jobs.runWithOverrides`/`run.executions.cancel` but **not**
+  `run.operations.get` — needed separately because `jobs:run` returns a long-running Operation,
+  see step 4 below), and `run.executions.get`. Plus a logging read permission scoped as narrowly
+  as a built-in role allows. A dedicated Cloud Logging log view restricted to just this job is
+  **not** built in v1 (see ADR-0005) — the spec must not claim tighter isolation than what's
+  actually implemented. Submitted code is execution metadata on this Job's `TaskTemplate`, not
+  secret — another reason `run.executions.get` stays tightly scoped.
 - New sandbox runtime service account: created, attached to the Job resource, given no
   bindings beyond what Cloud Run itself requires to run a container.
 
@@ -161,7 +169,13 @@ Two separate deadlines, not one:
      read the Execution name from `Operation.metadata` as soon as populated and switch to
      `executions.get` for richer task-count/condition detail). Do not assume the initial POST
      response is already an Execution.
-  5. Poll the resolved Execution until `Succeeded`/`Failed`/`Cancelled`.
+  5. Poll the resolved Execution (`executions.get`) until terminal — the v2 `Execution`
+     resource has no single `status` enum, so terminal-ness is read from `completionTime`
+     (unset means still running/pending); once set, outcome is read from
+     `succeededCount`/`failedCount`/`cancelledCount` (each is 0 or 1, unambiguous, specifically
+     because this job is `taskCount=1`/`maxRetries=0`), with `conditions[]` (e.g.
+     `CONDITION_SUCCEEDED`/`CONDITION_FAILED`, reasons like `NON_ZERO_EXIT_CODE`/`CANCELLED`)
+     available for diagnostic detail on failure.
   6. If `Failed`/`Cancelled` with no way to recover a result line, return a failure
      `SandboxExecutionResult` (mapped by `CodeExecutionToolExecutor` same as any other failure).
   7. On `Succeeded`, poll Cloud Logging (`entries.list`) filtered by **both** the real Cloud Run
@@ -217,6 +231,9 @@ for the new failure modes this design introduces:
   execution/log polls resolve — distinct from the in-container code-timeout case above.
 - The code timeout does not consume orchestration/log-retrieval budget (assert the two deadlines
   are independent, not derived from one another).
+- Terminal-state reads: `completionTime` unset ⇒ still polling; `completionTime` set with
+  `succeededCount=1` ⇒ success; `failedCount=1`/`cancelledCount=1` ⇒ failure, with the mapped
+  error message pulling from `conditions[]`. No test may assume a `status` string field exists.
 - Execution resource itself reports `Failed`.
 - Execution reports `Succeeded` but the result log only appears after a few polling attempts
   (the log-indexing-lag case) — must succeed, not time out early.
@@ -235,8 +252,11 @@ Docker-based integration check that builds the actual sandbox image and runs it 
 (not Cloud Run) with the same env-var protocol, asserting the exact `ARCNAVE_SANDBOX_RESULT:`
 line for a few real scripts (success, exception, timeout, oversized output, a script that spawns
 a child process and hangs — proving `killpg` reaps the whole group, not just the top-level
-process). Also asserts the container runs as a non-root UID (`docker run ... whoami`/`id -u`
-comparison), not just that the Dockerfile has a `USER` line.
+process; a script that prints far past `MAX_STDOUT_BYTES` in a tight loop, run with a memory
+limit tight enough that buffering the whole stream would OOM — proving the reader threads
+stream-and-discard rather than buffer-then-slice). Also asserts the container runs as a
+non-root UID (`docker run ... whoami`/`id -u` comparison), not just that the Dockerfile has a
+`USER` line.
 
 **Deployment-config check:** `maxRetries=0`, `taskCount=1`, and the runtime SA's empty IAM
 bindings should be asserted somewhere verifiable (e.g. a small script or a documented manual

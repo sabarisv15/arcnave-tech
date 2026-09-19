@@ -43,10 +43,14 @@ Cloud Run distinguishes the *caller* identity (who may launch a job) from the jo
   `arcnave-python-sandbox` job, this account needs **both** `run.jobs.run` and
   `run.jobs.runWithOverrides` — `run.jobs.run` alone is insufficient once the call supplies
   `overrides` (which it always does here, to pass the code/timeout/execution-id env vars).
-  Google's predefined `roles/run.jobsExecutorWithOverrides` already bundles
-  `run.jobs.run`/`run.jobs.runWithOverrides`/`run.executions.cancel`; `run.executions.get` (or
-  the closest built-in read role) and a scoped-down logging read permission are still needed
-  separately. This account never touches user code.
+  Google's predefined `roles/run.jobsExecutorWithOverrides` bundles
+  `run.jobs.run`/`run.jobs.runWithOverrides`/`run.executions.cancel`, but notably **not**
+  `run.operations.get` — needed separately because `jobs:run` returns a long-running Operation
+  (see below), which the client must be able to poll. The backend account therefore needs a
+  custom role (broader than the predefined role alone, narrower than adding a viewer role)
+  covering: `run.jobs.run`, `run.jobs.runWithOverrides`, `run.operations.get`,
+  `run.executions.get`, plus a scoped-down logging read permission. This account never touches
+  user code.
 - **Sandbox job runtime service account** (attached to the Cloud Run Job resource itself): no
   application or project permissions — no Storage, no Cloud SQL/DB access, no Secret Manager, no
   Vertex AI. User Python executing inside the job cannot use its own environment's workload
@@ -117,6 +121,14 @@ detail) rather than assume the initial POST response is already the Execution.
 
 ### Result channel: Cloud Logging, with a bounded second poll and two-part correlation
 
+The v2 `Execution` resource has no single `status` enum field — terminal state is read from
+`completionTime` (unset means still running/pending) plus `succeededCount`/`failedCount`/
+`cancelledCount` (meaningful here specifically because this job is `taskCount=1`/
+`maxRetries=0`, so each count is 0 or 1, never ambiguous), with `conditions[]` (e.g.
+`CONDITION_SUCCEEDED`, `CONDITION_FAILED`, reasons like `NON_ZERO_EXIT_CODE`/`CANCELLED`)
+available for diagnostic detail on failure. `CloudRunSandboxClient` must read these fields
+directly rather than assume a convenience status string exists.
+
 Once the Execution reaches a terminal state, `CloudRunSandboxClient` polls Cloud Logging for the
 runner's result line — because an execution can report `Succeeded` slightly before its log entry
 is queryable, this is a **second bounded poll window**, not a single read. The log filter
@@ -148,6 +160,15 @@ kills the whole group (`os.killpg(..., SIGKILL)`), not just the immediate child,
 submitted code that spawns its own subprocesses must not be able to outlive the timeout by
 hiding a descendant process. The container itself runs as a non-root user (`USER sandbox`),
 one more layer independent of the zero-IAM runtime service account.
+
+stdout/stderr capture must be **streaming and bounded as it reads**, not
+`process.communicate()` followed by a post-hoc slice — `communicate()` buffers the entire
+stream in memory first, so `while True: print("X" * 1_000_000)` would exhaust the container's
+memory before any 64 KiB cap ever applied. The runner uses a reader thread per pipe (stdout,
+stderr) that retains only the first `MAX_STDOUT_BYTES`/`MAX_STDERR_BYTES` and discards the rest
+— critically, it keeps *draining* the pipe past the cap rather than stopping, since an unread,
+full OS pipe buffer would otherwise block the child process instead of letting it exit or be
+killed.
 
 ### Runtime image
 
