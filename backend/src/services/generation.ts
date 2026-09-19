@@ -41,6 +41,7 @@ import type {
   ProviderEvent,
   ProviderSource,
   ProviderUsage,
+  ToolExecutor,
   ToolResult,
   Turn,
 } from '../providers/types.js';
@@ -52,8 +53,11 @@ import {
   toolResultPreview,
   totalTokens,
 } from '../providers/types.js';
+import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
+import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
+import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext } from './retrieval.js';
@@ -168,6 +172,9 @@ export class GenerationService {
     private readonly usage: UsageService,
     private readonly retriever: Retriever,
     private readonly storage: ObjectStorage,
+    /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured — run_python
+     *  is simply never in the available-tools list in that case (see the wiring in `run()`). */
+    private readonly sandboxClient?: SandboxClient,
   ) {}
 
   /**
@@ -277,11 +284,30 @@ export class GenerationService {
       });
     };
 
-    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE);
+    const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
+    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, runPythonEnabled);
     const availableTools = toolRegistry.getAvailableTools({ projectId: project?.id ?? null });
-    const toolExecutor =
+    const projectToolExecutor =
       availableTools.length > 0
         ? new ProjectToolExecutor(this.db, this.retriever, project!.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
+        : undefined;
+    const toolExecutor =
+      availableTools.length > 0
+        ? new DispatchingToolExecutor(
+            new Map<string, ToolExecutor>([
+              ...(['search_project_files', 'read_project_file'] as const).map(
+                (name): [string, ToolExecutor] => [name, projectToolExecutor!],
+              ),
+              ...(runPythonEnabled
+                ? ([
+                    [
+                      'run_python',
+                      new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),
+                    ] as [string, ToolExecutor],
+                  ] satisfies [string, ToolExecutor][])
+                : []),
+            ]),
+          )
         : undefined;
 
     const request: GenerationRequest = {

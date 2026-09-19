@@ -6,7 +6,7 @@
  * `GenerationService.loadProject` scopes by `userId`, so a `projectId` reaching here is already
  * the caller's own project.
  */
-import { PROJECT_TOOL_DEFINITIONS } from './definitions.js';
+import { PROJECT_TOOL_DEFINITIONS, RUN_PYTHON } from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 
 export interface ToolContext {
@@ -18,10 +18,16 @@ export interface ToolRegistry {
 }
 
 export class ProjectToolRegistry implements ToolRegistry {
-  constructor(private readonly enabled: boolean) {}
+  constructor(
+    private readonly enabled: boolean,
+    /** Item 9 phase 2's own gate, independent of `enabled` — arbitrary code execution is a
+     *  materially larger blast radius than read-only project-file search, so it must be
+     *  independently toggleable even when the rest of the tool set is on. */
+    private readonly runPythonEnabled: boolean = false,
+  ) {}
 
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     if (!this.enabled || context.projectId === null) return [];
-    return PROJECT_TOOL_DEFINITIONS;
+    return this.runPythonEnabled ? [...PROJECT_TOOL_DEFINITIONS, RUN_PYTHON] : PROJECT_TOOL_DEFINITIONS;
   }
 }

@@ -20,6 +20,8 @@ import { LexicalRetriever } from './services/retrieval.js';
 import type { ObjectStorage } from './services/storage.js';
 import { buildStorage } from './services/storage.js';
 import { UsageService } from './services/usage.js';
+import type { SandboxClient } from './tools/sandbox/client.js';
+import { VertexSandboxClient } from './tools/sandbox/vertexSandboxClient.js';
 
 export interface Services {
   cfg: Config;
@@ -52,6 +54,9 @@ export interface BuildOptions {
   providers?: Partial<Record<'google' | 'anthropic' | 'openai-oss', Provider>>;
   storage?: ObjectStorage;
   retriever?: Retriever;
+  /** Test seam — a real `VertexSandboxClient` is never constructed unless a GCP project is
+   *  configured, mirroring how the provider adapters lazily construct their own Vertex clients. */
+  sandboxClient?: SandboxClient;
 }
 
 export function buildServices(cfg: Config, options: BuildOptions = {}): Services {
@@ -67,7 +72,12 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const usage = new UsageService(db, cfg);
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
-  const generation = new GenerationService(db, cfg, registry, usage, retriever, storage);
+  const sandboxClient =
+    options.sandboxClient ??
+    (cfg.GOOGLE_CLOUD_PROJECT
+      ? VertexSandboxClient.withAdc(cfg.GOOGLE_CLOUD_PROJECT, cfg.SANDBOX_LOCATION, cfg.RUN_PYTHON_TIMEOUT_MS)
+      : undefined);
+  const generation = new GenerationService(db, cfg, registry, usage, retriever, storage, sandboxClient);
 
   return {
     cfg,
