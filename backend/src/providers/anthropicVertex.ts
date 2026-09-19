@@ -23,6 +23,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
+import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -226,7 +227,7 @@ export class AnthropicVertexProvider implements Provider {
     let finishReason = 'stop';
     const searchBlocks: SearchResultBlock[] = [];
     let messages = buildAnthropicMessages(request);
-    const maxRounds = useTools ? Math.max(1, this.cfg.TOOL_MAX_ROUNDS) : 1;
+    const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
 
     const tools = [
       ...(grounded ? [WEB_SEARCH_TOOL] : []),
@@ -307,23 +308,11 @@ export class AnthropicVertexProvider implements Provider {
           resultBlocks.push(toAnthropicToolResultBlock(call.id, result));
         }
         for (const extra of rest) {
-          resultBlocks.push(
-            toAnthropicToolResultBlock(extra.id, {
-              toolCallId: extra.id,
-              ok: false,
-              content: [
-                {
-                  type: 'text',
-                  text: 'Only one tool call is processed per round in this phase; call again ' +
-                    'on the next round if this is still needed.',
-                },
-              ],
-            }),
-          );
+          resultBlocks.push(toAnthropicToolResultBlock(extra.id, deferredCallResult(extra.id)));
         }
         messages = [...messages, { role: 'user', content: resultBlocks }];
 
-        if (round === maxRounds - 1) finishReason = 'tool_limit';
+        if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (isAbort(err) || request.signal.aborted) throw err;

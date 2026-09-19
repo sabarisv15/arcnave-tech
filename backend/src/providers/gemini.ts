@@ -21,6 +21,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
+import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 
 const log = logger.child({ module: 'provider:gemini' });
 
@@ -216,7 +217,7 @@ export class GeminiProvider implements Provider {
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
     let contents = buildGeminiContents(request);
-    const maxRounds = useTools ? Math.max(1, this.cfg.TOOL_MAX_ROUNDS) : 1;
+    const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
 
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
@@ -316,22 +317,11 @@ export class GeminiProvider implements Provider {
         }
         for (const [i, extra] of deferred.entries()) {
           const id = extra.id ?? `${extra.name}-${String(round)}-${String(i + 1)}`;
-          const deferredResult: ToolResult = {
-            toolCallId: id,
-            ok: false,
-            content: [
-              {
-                type: 'text',
-                text: 'Only one tool call is processed per round in this phase; call again on ' +
-                  'the next round if this is still needed.',
-              },
-            ],
-          };
-          responseParts.push(toGeminiFunctionResponsePart(extra.name, id, deferredResult));
+          responseParts.push(toGeminiFunctionResponsePart(extra.name, id, deferredCallResult(id)));
         }
         contents = [...contents, { role: 'user', parts: responseParts }];
 
-        if (round === maxRounds - 1) finishReason = 'tool_limit';
+        if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (isAbort(err) || request.signal.aborted) throw err;
