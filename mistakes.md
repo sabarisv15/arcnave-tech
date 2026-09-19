@@ -578,24 +578,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `npx tsc --noEmit` clean; `retrieval.ts`'s `extractXlsx` and
   `projects.integration.test.ts`'s pptx-deck test both pass against real generated files.
 
-### 2026-09-18 — A hand-written GFM table-separator regex was wrong for the common case
-
-- **Symptom:** `markdownToSpreadsheetSpec`'s own unit test failed on a second, differently
-  named table in the same document — `parseMarkdownTables` had found zero tables where there
-  were two.
-- **Cause:** `isSeparatorRow` tried to validate the whole `| --- | --- |` row with one regex
-  built from a repeating `(...\|)+` group. That group is greedy and consumes every column's
-  trailing pipe, including the last one, leaving nothing for the pattern's own mandatory
-  "final column" segment written after the group — so it only ever matched by accident, not by
-  correct construction, and a debug trace showed it failing even on the ordinary two-column
-  case once you stopped assuming the first passing test proved the regex right.
-- **Rule:** **Do not describe "N repeated things" with one regex that also needs to describe
-  "the last of the N things" separately.** Split the row into cells with the same logic that
-  parses a real row, then validate each cell independently — same shape as tokenizing before
-  scoring, not a monolithic pattern doing both jobs at once.
-- **Verify:** `documents.test.ts`'s "gives each table its own sheet" test, which specifically
-  exercises two tables so a false-positive single-table match cannot hide behind it.
-
 ### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
 
 - **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
@@ -963,19 +945,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** A blank chat reply is 34px and grows to at most 42% of the viewport; project and
   artifact composers retain their existing minimum heights.
 
-### 2026-09-19 — `compact` did not mean the same thing on every composer surface
-
-- **Symptom:** The chat reply composer still occupied a large empty block even though its caller
-  passed `compact`; shrinking the shared rule would also have cramped project and artifact work.
-- **Cause:** `compact` covered placement for three different surfaces, but the shared textarea
-  effect imposed a 46px minimum everywhere. A live reply has different intent from a project or
-  artifact prompt, so one generic minimum encoded the wrong product decision.
-- **Rule:** **Scope visual compaction to the interaction intent, not a reused boolean prop.** A
-  conversation reply may begin at one line and auto-grow within a bounded portion of the
-  viewport; project and artifact prompts retain their writing space.
-- **Verify:** A blank chat reply is 34px and grows to at most 42% of the viewport; project and
-  artifact composers retain their existing minimum heights.
-
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1000,6 +969,11 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-20** — Retired "A hand-written GFM table-separator regex was wrong for the common
+  case" — `documents.test.ts`'s two-table test already fails if that exact regex bug recurs, per
+  the pruning policy's first criterion. Also de-duplicated an identical "`compact` did not mean
+  the same thing on every composer surface" entry that a merge with a parallel push had
+  introduced twice.
 - **2026-09-17** — File created. Seeded with the four bugs fixed on 2026-09-16 (recorded in
   `docs/checkpoints/CURRENT.md`), the stale-ADR drift, and three mistakes from this session.
   Nothing retired yet.
