@@ -251,7 +251,12 @@ export class GeminiProvider implements Provider {
         });
 
         let roundText = '';
-        const roundCalls: { id?: string; name: string; args: Record<string, unknown> }[] = [];
+        const roundCalls: {
+          id?: string;
+          name: string;
+          args: Record<string, unknown>;
+          thoughtSignature?: string;
+        }[] = [];
 
         for await (const chunk of stream) {
           if (request.signal.aborted) break roundLoop;
@@ -271,9 +276,26 @@ export class GeminiProvider implements Provider {
             };
           }
 
-          for (const fc of chunk.functionCalls ?? []) {
-            if (fc.name) roundCalls.push({ ...(fc.id ? { id: fc.id } : {}), name: fc.name, args: fc.args ?? {} });
-          }
+          // `thoughtSignature` lives on the `Part` that carries the `functionCall`, not on the
+          // `FunctionCall` object itself — `chunk.functionCalls` is a flattening getter that
+          // drops it. Gemini requires the signature to be echoed back unchanged on the
+          // continuation turn's functionCall part or it 400s ("Function call is missing a
+          // thought_signature"); read it from the underlying parts, in the same order
+          // `functionCalls` derives them, so it survives into the next round's request.
+          const functionCallParts =
+            chunk.candidates?.[0]?.content?.parts?.filter((p) => p.functionCall) ?? [];
+          (chunk.functionCalls ?? []).forEach((fc, i) => {
+            if (fc.name) {
+              roundCalls.push({
+                ...(fc.id ? { id: fc.id } : {}),
+                name: fc.name,
+                args: fc.args ?? {},
+                ...(functionCallParts[i]?.thoughtSignature
+                  ? { thoughtSignature: functionCallParts[i]!.thoughtSignature }
+                  : {}),
+              });
+            }
+          });
 
           const chunkUsage = usageFrom(chunk.usageMetadata);
           // Gemini reports cumulative usage; the last non-empty value is the running total.
@@ -292,7 +314,10 @@ export class GeminiProvider implements Provider {
         const modelParts: Part[] = [];
         if (roundText) modelParts.push({ text: roundText });
         for (const c of roundCalls) {
-          modelParts.push({ functionCall: { ...(c.id ? { id: c.id } : {}), name: c.name, args: c.args } });
+          modelParts.push({
+            functionCall: { ...(c.id ? { id: c.id } : {}), name: c.name, args: c.args },
+            ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}),
+          });
         }
         contents = [...contents, { role: 'model', parts: modelParts }];
 

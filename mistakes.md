@@ -757,6 +757,37 @@ failure mode of this pattern, not a sign it is working.
   when the signal fires during tool execution, for both `gemini.ts` and `anthropic.ts`'s tool
   loops — not just that the call under test eventually rejects.
 
+### 2026-09-19 — Gemini's functionCall thought_signature was dropped when echoing a tool call back
+
+- **Symptom:** Live in production, right after turning `ENABLE_TOOL_USE`/`ENABLE_RUN_PYTHON` on:
+  every `search_project_files` call on Gemini 3.8 Flash correctly ran and returned real results
+  (`tool_use`/`tool_result` frames both fired, with the right data), but the *next* round always
+  failed with a generic `provider_error`. Nothing useful was logged — `run()`'s catch block
+  mapped the error to a client-facing code but never logged the original exception (fixed in the
+  same commit as this entry).
+- **Cause:** Once logging was added and the failure reproduced, the real error was
+  `400 INVALID_ARGUMENT: Function call is missing a thought_signature in functionCall parts`.
+  Gemini's `thoughtSignature` is a field on the response `Part` that carries a `functionCall`,
+  not on the `FunctionCall` object itself — but `gemini.ts`'s round loop built `roundCalls` from
+  `chunk.functionCalls`, a flattening SDK getter that returns only `FunctionCall[]` and silently
+  drops the sibling `Part`-level field. Reconstructing the continuation turn's `functionCall`
+  part from that stripped-down shape therefore never echoed the signature Gemini requires back
+  unchanged. Adapter-loop tests never caught this because their fakes constructed chunks with a
+  bare `functionCalls` array, the same shape the buggy code actually read — the fake matched the
+  implementation's assumption instead of the real API's.
+- **Rule:** **When an SDK exposes both a raw response shape and a flattening convenience getter
+  over it, treat the getter as lossy by default — check what it does *not* carry before building
+  a round-trip (echo-back) on top of it,** especially for anything a provider requires to be
+  replayed verbatim (this is the same class of requirement as Claude's "echo thinking blocks
+  back unchanged" rule, just a different vendor). A fake built to match the current
+  implementation's field usage, rather than the real wire shape, cannot catch this — it will
+  agree with a wrong assumption as readily as a right one.
+- **Verify:** `gemini.adapter-loop.test.ts`'s "echoes a functionCall part's thoughtSignature back
+  on the continuation turn" constructs a fake chunk with `candidates[0].content.parts[].
+  thoughtSignature` (the real shape) and asserts the second round's request carries it — this
+  fails if the getter-only reading regresses. Live: a `search_project_files` call on Gemini 3.8
+  Flash in production now completes with real final text instead of erroring after the tool result.
+
 ### 2026-09-19 — A Python-SDK quickstart is not a REST contract
 
 - **Symptom:** The checkpoint named "Vertex AI Agent Engine's Code Execution service" as the
@@ -897,4 +928,13 @@ practice, not canon.
   AI Agent Engine's Code Execution service" but only a Python-SDK quickstart was on record, and
   the JS/TS SDK turned out to have no support for that resource at all. Caught before writing
   `VertexSandboxClient` by finding the actual REST reference pages instead of inferring the wire
-  shape from the Python samples. **39 entries, 1 to the cap — prune before the next entry.**
+  shape from the Python samples. **39 entries, 1 to the cap.**
+- **2026-09-19** — One more, and the first from actually turning phase 1 on in production: right
+  after enabling `ENABLE_TOOL_USE`, a live `search_project_files` call worked (tool ran, real
+  data came back) but the model's follow-up turn always 400'd — Gemini requires a
+  `thought_signature` echoed back on a replayed `functionCall` part, and the round loop's
+  `chunk.functionCalls` getter silently drops that field (it lives on the sibling `Part`, not on
+  `FunctionCall`). Also fixed in the same pass: `run()`'s catch block never logged the original
+  error before mapping it to a generic code, which is why this took a redeploy with real logging
+  added before the cause was visible at all. **40 entries, at the cap — prune before the next
+  entry.**

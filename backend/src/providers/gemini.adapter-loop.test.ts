@@ -18,7 +18,10 @@ interface FakeChunk {
   text?: string;
   functionCalls?: { id?: string; name: string; args?: Record<string, unknown> }[];
   usageMetadata?: { promptTokenCount: number; candidatesTokenCount: number };
-  candidates?: { finishReason?: string }[];
+  candidates?: {
+    finishReason?: string;
+    content?: { parts?: { functionCall?: unknown; thoughtSignature?: string }[] };
+  }[];
 }
 
 function fakeStream(chunks: FakeChunk[]): AsyncIterable<FakeChunk> {
@@ -157,6 +160,44 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(lastContent.parts[0]).toMatchObject({
       functionResponse: { response: { error: 'Invalid input: query is required' } },
     });
+  });
+
+  it('echoes a functionCall part\'s thoughtSignature back on the continuation turn', async () => {
+    // Regression test for a live production failure (2026-09-19): Gemini requires the
+    // thought_signature it returned alongside a functionCall to be echoed back unchanged on the
+    // next round's request, or it 400s with "Function call is missing a thought_signature".
+    // `chunk.functionCalls` is a flattening getter that drops it — it only exists on the sibling
+    // `Part`, in `candidates[0].content.parts`.
+    const client = new FakeGeminiClient();
+    client.responses = [
+      fakeStream([
+        {
+          functionCalls: [{ id: 'c1', name: 'search_project_files', args: { query: 'cooling' } }],
+          candidates: [
+            {
+              content: {
+                parts: [{ functionCall: { id: 'c1' }, thoughtSignature: 'opaque-signature-abc' }],
+              },
+            },
+          ],
+        },
+      ]),
+      fakeStream([{ text: 'Found it.' }, { candidates: [{ finishReason: 'STOP' }] }]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', {
+      toolCallId: 'c1',
+      ok: true,
+      content: [{ type: 'json', data: { results: [] } }],
+    });
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    const provider = new GeminiProvider(cfg, client as never);
+    await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+
+    const secondReq = client.calls[1] as { contents: { role: string; parts: { functionCall?: unknown; thoughtSignature?: string }[] }[] };
+    const modelTurn = secondReq.contents.find((c) => c.role === 'model')!;
+    const functionCallPart = modelTurn.parts.find((p) => p.functionCall);
+    expect(functionCallPart?.thoughtSignature).toBe('opaque-signature-abc');
   });
 
   it('feeds an unknown-tool failure back without throwing', async () => {
