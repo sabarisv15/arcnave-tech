@@ -220,6 +220,11 @@ export class GeminiProvider implements Provider {
 
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
+        // A round boundary is the one place abort can fire with no request in flight yet (e.g.
+        // during tool execution, between this round's response and the next round's request).
+        // The SDK's `abortSignal` config only stops a request already underway; without this
+        // check, an abort here would still issue one more provider call.
+        if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
         const stream = await this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
