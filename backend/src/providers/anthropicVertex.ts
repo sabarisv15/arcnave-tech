@@ -152,15 +152,19 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
 
 export class AnthropicVertexProvider implements Provider {
   readonly name = 'anthropic';
-  private client: AnthropicVertex | undefined;
+  private client: Pick<AnthropicVertex, 'messages'> | undefined;
 
-  constructor(private readonly cfg: Config) {}
+  constructor(
+    private readonly cfg: Config,
+    private readonly injectedClient?: Pick<AnthropicVertex, 'messages'>,
+  ) {}
 
   supportsGrounding(): boolean {
     return this.cfg.ENABLE_ANTHROPIC_WEB_SEARCH;
   }
 
-  private getClient(): AnthropicVertex {
+  private getClient(): Pick<AnthropicVertex, 'messages'> {
+    if (this.injectedClient) return this.injectedClient;
     if (!this.client) {
       if (!this.cfg.GOOGLE_CLOUD_PROJECT) {
         throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });

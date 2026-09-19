@@ -87,9 +87,12 @@ function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage {
 
 export class GeminiProvider implements Provider {
   readonly name = 'google';
-  private client: GoogleGenAI | undefined;
+  private client: Pick<GoogleGenAI, 'models'> | undefined;
 
-  constructor(private readonly cfg: Config) {}
+  constructor(
+    private readonly cfg: Config,
+    private readonly injectedClient?: Pick<GoogleGenAI, 'models'>,
+  ) {}
 
   supportsGrounding(): boolean {
     return this.cfg.ENABLE_GOOGLE_SEARCH_GROUNDING;
@@ -143,7 +146,8 @@ export class GeminiProvider implements Provider {
   }
 
   /** Lazy: the app must boot without credentials so unconfigured aliases report cleanly. */
-  private getClient(): GoogleGenAI {
+  private getClient(): Pick<GoogleGenAI, 'models'> {
+    if (this.injectedClient) return this.injectedClient;
     if (!this.client) {
       if (!this.cfg.GOOGLE_CLOUD_PROJECT) {
         throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });
