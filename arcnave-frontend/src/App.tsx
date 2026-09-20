@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import {
   Link,
   Route,
@@ -429,20 +429,70 @@ function Conversation() {
   const history = (id && messages[id]) || [];
   const usage = useMessageUsage(id, activeRun);
   const scroll = useRef<HTMLDivElement>(null),
-    bottom = useRef<HTMLDivElement>(null);
+    bottom = useRef<HTMLDivElement>(null),
+    messageList = useRef<HTMLDivElement>(null),
+    activeTurn = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
+  const isRunning = activeRun === id;
+  const activeUserId = isRunning
+    ? [...history].reverse().find((message) => message.role === "user")?.id
+    : undefined;
 
   useEffect(() => {
     if (id) openChat(id);
   }, [id, openChat]);
   useEffect(() => {
-    setNearBottom(true);
-    bottom.current?.scrollIntoView();
+    if (!isRunning) {
+      setNearBottom(true);
+      bottom.current?.scrollIntoView();
+    }
   }, [id]);
   const last = history.at(-1);
   useEffect(() => {
-    if (nearBottom) bottom.current?.scrollIntoView({ block: "end" });
-  }, [last?.text, last?.status, nearBottom]);
+    if (!isRunning && nearBottom)
+      bottom.current?.scrollIntoView({ block: "end" });
+  }, [last?.text, last?.status, nearBottom, isRunning]);
+  useEffect(() => {
+    if (!isRunning) return;
+    const el = scroll.current;
+    if (el)
+      setNearBottom(
+        el.scrollHeight - el.scrollTop - el.clientHeight < 120,
+      );
+  }, [last?.text, isRunning]);
+  useEffect(() => {
+    const list = messageList.current;
+    if (!isRunning || !activeUserId) {
+      list?.style.removeProperty("padding-bottom");
+      return;
+    }
+
+    const scroller = scroll.current;
+    const anchor = activeTurn.current;
+    if (!list || !scroller || !anchor) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const roomBelow = scrollerRect.bottom - anchorRect.bottom;
+
+    // Short turns stay in place when there is already useful reading room. Long conversations
+    // get a one-shot Claude-style turn anchor without tying scroll state to token rendering.
+    if (
+      anchorRect.top >= scrollerRect.top &&
+      anchorRect.bottom <= scrollerRect.bottom &&
+      roomBelow >= 260
+    )
+      return;
+
+    list.style.paddingBottom = `${Math.max(320, scroller.clientHeight - 180)}px`;
+    setNearBottom(false);
+    const frame = window.requestAnimationFrame(() => {
+      anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      list.style.removeProperty("padding-bottom");
+    };
+  }, [activeUserId, isRunning]);
 
   if (state === "loading" && !history.length)
     return (
@@ -478,7 +528,7 @@ function Conversation() {
             );
         }}
       >
-        <div className="messages">
+        <div className="messages" ref={messageList}>
           {chat?.projectId && (
             <Link
               className="conversation-project"
@@ -495,6 +545,7 @@ function Conversation() {
               message={m}
               chatId={chat?.id ?? id!}
               usage={m.usage ?? usage[m.id]}
+              turnAnchorRef={m.id === activeUserId ? activeTurn : undefined}
             />
           ))}
           <div ref={bottom} />
@@ -526,6 +577,74 @@ function Conversation() {
 }
 
 const tokens = (value: number) => value.toLocaleString();
+
+const toolActivityLabels: Record<string, { running: string; complete: string }> = {
+  run_python: { running: "Running a calculation", complete: "Calculation finished" },
+  search_project_files: {
+    running: "Searching project files",
+    complete: "Project search finished",
+  },
+  read_project_file: {
+    running: "Reading a project file",
+    complete: "Project file read",
+  },
+  search_skills: { running: "Finding the right workflow", complete: "Workflow found" },
+  read_skill: { running: "Loading workflow guidance", complete: "Workflow loaded" },
+  create_artifact: { running: "Creating the artifact", complete: "Artifact created" },
+  read_artifact: { running: "Reading the artifact", complete: "Artifact read" },
+  update_artifact: { running: "Updating the artifact", complete: "Artifact updated" },
+  web_search: { running: "Searching the web", complete: "Web search finished" },
+};
+
+function toolActivity(name: string, running: boolean) {
+  const known = toolActivityLabels[name];
+  if (known) return running ? known.running : known.complete;
+  const readable = name.replaceAll("_", " ");
+  return running ? `Using ${readable}` : `Finished ${readable}`;
+}
+
+function ResponseActivity({ message: m }: { message: Message }) {
+  const [seconds, setSeconds] = useState(1);
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = window.setInterval(
+      () => setSeconds(Math.max(1, Math.floor((Date.now() - startedAt) / 1000))),
+      500,
+    );
+    return () => window.clearInterval(timer);
+  }, [m.id]);
+
+  const latestResearchEvent = m.events?.at(-1);
+  const activeTool = [...(m.toolCalls ?? [])]
+    .reverse()
+    .find((call) => call.ok === undefined && call.name !== "render_ui");
+  const latestTool = [...(m.toolCalls ?? [])]
+    .reverse()
+    .find((call) => call.name !== "render_ui");
+  const activity = activeTool
+    ? { label: toolActivity(activeTool.name, true), detail: "Tool is running" }
+    : latestResearchEvent && latestResearchEvent.stage !== "complete"
+      ? { label: latestResearchEvent.label || "Researching", detail: latestResearchEvent.detail }
+      : latestTool
+        ? { label: toolActivity(latestTool.name, false), detail: "Reviewing the result" }
+        : m.status === "submitting"
+          ? { label: "Sending request", detail: "Connecting to the model" }
+          : { label: "Waiting for the model", detail: "No tool is running" };
+
+  return (
+    <div className="response-wait" role="status" aria-live="polite">
+      <span className="response-wait-mark" aria-hidden="true">
+        <i />
+        <i />
+      </span>
+      <span className="response-wait-copy">
+        <span>{activity.label}</span>
+        <small>{activity.detail}</small>
+      </span>
+      <time>{seconds}s</time>
+    </div>
+  );
+}
 
 function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: string | null }) {
   const formattedDate = createdAt
@@ -562,10 +681,12 @@ function MessageView({
   message: m,
   chatId,
   usage,
+  turnAnchorRef,
 }: {
   message: Message;
   chatId: string;
   usage?: MessageUsage;
+  turnAnchorRef?: RefObject<HTMLDivElement | null>;
 }) {
   const {
     artifacts,
@@ -617,7 +738,7 @@ function MessageView({
 
   if (m.role === "user")
     return (
-      <div className="user-message">
+      <div className="user-message" ref={turnAnchorRef}>
         <div className="user-bubble">
           {m.attachments?.length ? (
             <div className="attachments">
@@ -650,11 +771,8 @@ function MessageView({
       className={`assistant-message ${loading ? "is-generating" : ""}`}
       aria-label="ArcNave response"
     >
-      <div className="answer-byline">
-        <BrandMark />
-        <span>ArcNave</span>
-        {m.modelAlias && <span className="sample-label">{m.modelAlias}</span>}
-        {m.mode !== "chat" && (
+      {m.mode !== "chat" && (
+        <div className="response-meta">
           <button
             className="research-summary"
             onClick={() =>
@@ -677,8 +795,9 @@ function MessageView({
                     : "Search details"}
             <ChevronRight size={12} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
+      {loading && !m.text && <ResponseActivity message={m} />}
       {m.text && (
         <Suspense fallback={<p className="markdown">{m.text}</p>}>
           <Markdown
@@ -697,16 +816,6 @@ function MessageView({
         <ToolCallList calls={m.toolCalls} />
       )}
       <div className="generation-status" role="status" aria-live="polite">
-        {loading && (
-          <span className="loading-line">
-            <span className="thinking-dots">
-              <i />
-              <i />
-              <i />
-            </span>
-            {m.text ? "" : "Thinking…"}
-          </span>
-        )}
         {m.status === "stopped" && (
           <span className="stopped-label">
             Response stopped

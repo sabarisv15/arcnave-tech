@@ -4004,6 +4004,74 @@ select:focus-visible {
   padding: 8px 0 14px;
 }
 
+.response-meta {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  margin-bottom: 6px;
+}
+
+.response-meta .research-summary {
+  margin-left: 0;
+}
+
+.response-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  color: color-mix(in srgb, var(--ink) 62%, var(--muted));
+  font-size: 13px;
+}
+
+.response-wait-copy {
+  display: grid;
+  gap: 1px;
+  line-height: 1.3;
+}
+
+.response-wait-copy small,
+.response-wait time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.response-wait time {
+  align-self: start;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.response-wait-mark {
+  display: grid;
+  gap: 4px;
+  width: 19px;
+}
+
+.response-wait-mark i {
+  display: block;
+  height: 2px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 220% 100%;
+  animation: response-sweep 1.35s ease-in-out infinite;
+}
+
+.response-wait-mark i:last-child {
+  width: 12px;
+  animation-delay: 140ms;
+}
+
+@keyframes response-sweep {
+  0% { background-position: 100% 0; opacity: 0.42; }
+  50% { opacity: 1; }
+  100% { background-position: -100% 0; opacity: 0.42; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .response-wait-mark i { animation: none; opacity: 0.7; }
+}
+
 .conversation-project {
   margin-bottom: 12px;
 }
@@ -4160,11 +4228,9 @@ select:focus-visible {
    projects, and artifact creation. Several of those containers use --surface themselves, so a
    plain white composer otherwise disappears into its parent. */
 .composer {
-  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  background: var(--surface);
   border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
-  box-shadow:
-    0 1px 2px #1721320a,
-    0 10px 30px #1721320d;
+  box-shadow: 0 1px 3px #17213210;
 }
 
 .composer:hover {
@@ -4173,28 +4239,22 @@ select:focus-visible {
 
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
-    0 12px 34px #17213212;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .conversation-composer {
-  background: var(--bg);
+  background: transparent;
 }
 
 .conversation-composer .composer,
 .conversation-composer .composer.composer-inline {
-  box-shadow:
-    0 1px 2px #1721320a,
-    0 8px 24px #17213210;
+  box-shadow: 0 1px 3px #17213210;
 }
 
 [data-theme="dark"] .composer {
-  background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+  background: var(--surface);
   border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
-  box-shadow:
-    0 1px 2px #00000030,
-    0 12px 32px #00000024;
+  box-shadow: 0 1px 3px #00000030;
 }
 
 [data-theme="dark"] .composer:hover {
@@ -4203,9 +4263,7 @@ select:focus-visible {
 
 [data-theme="dark"] .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 82%, white 8%);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent),
-    0 14px 36px #00000030;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .dropdown[aria-label="Model selection"] {
