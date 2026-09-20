@@ -1,6 +1,6 @@
 # ArcNave — current checkpoint
 
-**Last updated:** 2026-09-19
+**Last updated:** 2026-09-20
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
@@ -314,8 +314,48 @@ worked immediately.
 **`ENABLE_RUN_PYTHON` is deliberately left `true` in production** — `REGISTRATION_ENABLED=false`
 and the user is the only account able to sign in, so the "arbitrary code execution reachable by
 any user" blast radius this flag exists to gate does not currently apply. Revisit this before
-registration reopens. `vertexSandboxClient.ts` and its test are still not deleted — per ADR-0005,
-that cleanup is a separate, deliberate follow-up, not bundled into this live-verification pass.
+registration reopens. `vertexSandboxClient.ts` and its test were deleted per ADR-0005
+in the follow-up cleanup pass.
+
+### `run_python` global concurrency cap — 2026-09-20
+
+Closed a gap found while answering a user question about multi-user scaling: `run_python`
+launches a fresh, isolated Cloud Run Job execution per call (confirmed live — no pooling, no
+sharing between calls or users), but nothing capped how many could run at once. A burst of calls
+could exhaust the project's shared `JobRunPerMinutePerProjectRegion` quota (180/min — the binding
+one; `RunningExecutionsPerProject` is 1000, headroom is not the concern) and start failing
+`jobs:run` for every user, not just the one causing the burst.
+
+**Finding, not assumption:** Cloud Run Jobs has no resource-level field for "max concurrent
+executions" — `--parallelism`/`--tasks` cap concurrency *within* one execution only, and since
+each `run_python` call is its own separate `jobs:run`, neither applied. See `mistakes.md`,
+2026-09-20.
+
+**Implemented:** `SandboxSemaphore` (`backend/src/tools/sandbox/semaphore.ts`) — a Postgres-backed
+semaphore, not in-process, because the backend service autoscales to 8 instances
+(`maxScale: '8'`) and an in-memory counter would only cap per-instance. Claims serialise via
+`pg_advisory_xact_lock` (auto-released on transaction end, even on a crash) and are leased rows
+(`sandbox_claims`, migration `0005_cuddly_talkback.sql`) rather than a bare counter column, so a
+claim a crashed instance never released self-heals once its lease expires instead of leaking
+capacity permanently. `SemaphoreSandboxClient` (`semaphoreSandboxClient.ts`) wraps any
+`SandboxClient` as a decorator — claims before calling the real client, releases in a `finally` —
+so `CloudRunSandboxClient` and `CodeExecutionToolExecutor` needed zero changes, same seam
+discipline as the client swap in the section above. Wired in `container.ts` unconditionally
+wherever a sandbox client exists. New config: `MAX_CONCURRENT_RUN_PYTHON` (default 20, chosen
+well under the 180/min quota), `SANDBOX_CLAIM_LEASE_BUFFER_MS` (default 30s, added on top of
+`RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS` so the lease can never be shorter than a call it's meant to
+cover).
+
+**Coverage:** `semaphore.test.ts` (real Postgres) — grants up to the cap and refuses beyond it,
+releases free a slot for reuse, 10 concurrent racing claims against a cap of 3 grant exactly 3,
+an expired lease self-heals without an explicit release. `semaphoreSandboxClient.test.ts` (fake
+client + fake semaphore) — claims before the inner call, releases on both success and throw,
+never calls the inner client when at capacity. Full backend suite: 323/323 passing (up from
+315). `npx tsc --noEmit`: clean.
+
+Not yet deployed to production — this is code-complete and tested locally against real Postgres,
+not live-verified against the actual Cloud Run deployment. The migration applies automatically on
+the next deploy (`Dockerfile`'s `CMD` runs `node dist/db/migrate.js` before starting the server).
 
 ### Live verification — item 9 phases 1 and 2 — 2026-09-19
 

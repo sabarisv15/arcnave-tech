@@ -36,6 +36,13 @@
       "when": 1789811248042,
       "tag": "0004_curious_forge",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789875429040,
+      "tag": "0005_cuddly_talkback",
+      "breakpoints": true
     }
   ]
 }

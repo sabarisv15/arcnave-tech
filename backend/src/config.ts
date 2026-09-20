@@ -178,6 +178,16 @@ const envSchema = z.object({
    *  bounds what the model receives and what is persisted; the SSE preview is bounded again by
    *  TOOL_RESULT_PREVIEW_CHARS, unchanged. */
   RUN_PYTHON_MAX_OUTPUT_CHARS: int(8000),
+  /** Global cap on concurrent run_python executions, across every backend instance — enforced in
+   *  Postgres (tools/sandbox/semaphore.ts), not per-instance, since the service autoscales.
+   *  Chosen well under the project's Cloud Run quotas (RunningExecutionsPerProject: 1000;
+   *  JobRunPerMinutePerProjectRegion: 180 — the latter is the binding one at this default). */
+  MAX_CONCURRENT_RUN_PYTHON: int(20),
+  /** Extra time added on top of RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS before a claim's lease
+   *  expires and it stops counting against the cap. Must be positive slack, not a separate
+   *  guess — an unreleased claim from a real still-running call must never be reaped as
+   *  abandoned while it's genuinely in flight. */
+  SANDBOX_CLAIM_LEASE_BUFFER_MS: int(30_000),
 
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),

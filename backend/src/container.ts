@@ -22,6 +22,8 @@ import { buildStorage } from './services/storage.js';
 import { UsageService } from './services/usage.js';
 import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
 import type { SandboxClient } from './tools/sandbox/client.js';
+import { SandboxSemaphore } from './tools/sandbox/semaphore.js';
+import { SemaphoreSandboxClient } from './tools/sandbox/semaphoreSandboxClient.js';
 
 export interface Services {
   cfg: Config;
@@ -72,7 +74,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const usage = new UsageService(db, cfg);
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
-  const sandboxClient =
+  const rawSandboxClient =
     options.sandboxClient ??
     (cfg.GOOGLE_CLOUD_PROJECT
       ? CloudRunSandboxClient.withAdc(cfg.GOOGLE_CLOUD_PROJECT, cfg.SANDBOX_LOCATION, cfg.SANDBOX_JOB_NAME, {
@@ -83,6 +85,19 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
           maxStderrBytes: cfg.MAX_STDERR_BYTES,
         })
       : undefined);
+  // Every run_python call, real or test-injected, is capped by the same Postgres-backed
+  // semaphore — the limit protects the project's shared Cloud Run quota, not just the real
+  // client, so it applies uniformly rather than only when GOOGLE_CLOUD_PROJECT is set.
+  const sandboxClient = rawSandboxClient
+    ? new SemaphoreSandboxClient(
+        rawSandboxClient,
+        new SandboxSemaphore(
+          db,
+          cfg.MAX_CONCURRENT_RUN_PYTHON,
+          cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS + cfg.SANDBOX_CLAIM_LEASE_BUFFER_MS,
+        ),
+      )
+    : undefined;
   const generation = new GenerationService(db, cfg, registry, usage, retriever, storage, sandboxClient);
 
   return {

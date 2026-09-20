@@ -529,6 +529,21 @@ export const idempotencyKeys = pgTable(
   (t) => [uniqueIndex('uq_idempotency').on(t.userId, t.key, t.endpoint)],
 );
 
+/**
+ * A global concurrency semaphore for `run_python`, claimed for the duration of one Cloud Run
+ * sandbox execution and released when it finishes. Not user-scoped: the resource being protected
+ * is the project's shared Cloud Run quota (`RunningExecutionsPerProject`,
+ * `JobRunPerMinutePerProjectRegion`), which every user draws from together. A row per claim
+ * (rather than a single counter column) means a claim a crashed backend instance never released
+ * self-heals via `expiresAt` instead of leaking capacity forever — see
+ * `tools/sandbox/semaphore.ts`.
+ */
+export const sandboxClaims = pgTable('sandbox_claims', {
+  id: id(),
+  createdAt: createdAt(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
 /* -------------------------------------------------------------------------- relations */
 
 export const usersRelations = relations(users, ({ one, many }) => ({

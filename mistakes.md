@@ -121,22 +121,6 @@ failure mode of this pattern, not a sign it is working.
   bound to the concrete type verifies the wrong thing and misses interface drift.
 - **Verify:** `npx tsc --noEmit` is clean — tests are typechecked, not only executed.
 
-### 2026-09-17 — A comment asserted a guarantee the code did not provide
-
-- **Symptom:** Two concurrent `POST /artifacts/:id/versions` returned `[500, 201]`. The 500 was
-  a unique-index violation on `(artifact_id, version)`.
-- **Cause:** The handler took the next version from `max(version) + 1` inside a transaction, and
-  a comment claimed that was why concurrent writers could not collide. It is not. Under READ
-  COMMITTED an aggregate takes no lock — both transactions read the same max, both insert it.
-  The fix was a `FOR UPDATE` on the parent artifact row, which is the pattern the usage counters
-  already used three files away.
-- **Rule:** **A transaction is not a lock.** Serialising writers requires `FOR UPDATE`, a unique
-  constraint plus a retry, or `SERIALIZABLE` — never a bare `SELECT max(...)`. And **never let a
-  comment state a guarantee without a test that fails when it stops holding.** The comment here
-  was the most confident sentence in the file and it was wrong.
-- **Verify:** `src/routes/artifacts.integration.test.ts` fires two appends with `Promise.all`
-  and requires `[201, 201]` with history `[3,2,1]`.
-
 ### 2026-09-17 — Invented an enum instead of reading the code that consumes it
 
 - **Symptom:** `PATCH /usage/limits` accepted `routingPreference: "fast"`, stored it, and echoed
@@ -964,6 +948,29 @@ failure mode of this pattern, not a sign it is working.
   artifact composers retain their existing minimum heights. The chat reply wrapper stays
   centered at a 760px maximum width so it does not consume nearly the full conversation pane.
 
+### 2026-09-20 — Cloud Run Jobs has no field for "max concurrent executions"
+
+- **Symptom:** Went looking for a way to cap how many `run_python` sandbox executions
+  (`arcnave-python-sandbox`) could run at once across all users, expecting a job-level setting
+  like a queue's concurrency limit. `gcloud run jobs update --help` only offers `--parallelism`
+  and `--tasks`, which looked like the right knobs at a glance.
+- **Cause:** `--parallelism`/`--tasks` bound concurrency **within one `jobs:run` execution**
+  (how many tasks of *that* execution run together) — not across separate `jobs:run` calls.
+  Since `CloudRunSandboxClient.runPython` issues one `jobs:run` per tool call, that flag never
+  applied here. Cloud Run Jobs, as a GCP resource, simply has no field that limits how many
+  *separate* executions run concurrently; the only ceiling is the project-wide
+  `RunningExecutionsPerProject` quota (1000 in this project) and `JobRunPerMinutePerProjectRegion`
+  (180/min — the one actually reachable by real traffic), both shared with everything else in the
+  region.
+- **Rule:** **Do not look to the job/service resource for a concurrency cap that has to span
+  separate invocations — it has to be enforced in application code**, and since the backend
+  autoscales (`maxScale: 8`), an in-process counter only caps per-instance. Use a shared source of
+  truth (here, a Postgres-backed semaphore, `pg_advisory_xact_lock` plus a leased claim row so a
+  crashed instance's claim self-expires instead of leaking capacity) — see
+  `tools/sandbox/semaphore.ts`.
+- **Verify:** `src/tools/sandbox/semaphore.test.ts` — real Postgres, ten concurrent `claim()`
+  calls against a cap of 3 grant exactly 3; an expired lease is reaped and its slot reused.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -988,6 +995,14 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-20** — Retired "A comment asserted a guarantee the code did not provide" (the
+  `FOR UPDATE`-vs-bare-`max()` concurrency entry) — its rule was promoted into `CLAUDE.md`'s own
+  "Rules for changing this codebase" section verbatim ("A transaction is not a lock...") and its
+  regression test still guards it, satisfying both the first and second pruning criteria at once.
+  Added one entry from adding a Postgres-backed concurrency cap on `run_python`: Cloud Run Jobs
+  has no resource-level field for capping concurrent *executions* (only within-execution
+  parallelism), a platform gap that cost real investigation time before landing on an
+  application-level semaphore.
 - **2026-09-20** — Retired "A hand-written GFM table-separator regex was wrong for the common
   case" — `documents.test.ts`'s two-table test already fails if that exact regex bug recurs, per
   the pruning policy's first criterion. Also de-duplicated an identical "`compact` did not mean
