@@ -19,7 +19,7 @@ import {
   Telescope,
   X,
 } from "lucide-react";
-import { ApiError, api } from "./api";
+import { ApiError, api, url } from "./api";
 import type { ArtifactVersionDto } from "./api";
 import { useWorkspace } from "./workspace";
 import { EmptyState, IconButton } from "./ui";
@@ -436,6 +436,7 @@ function ArtifactPanel({ id }: { id: string }) {
   const [tab, setTab] = useState<"preview" | "edit">("preview");
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [failedPreview, setFailedPreview] = useState(false);
   const draftKey = `artifact-draft:${id}`;
 
@@ -549,6 +550,30 @@ function ArtifactPanel({ id }: { id: string }) {
       .finally(() => setSaving(false));
   };
 
+  const exportAs = (format: "xlsx" | "docx" | "pptx") => {
+    setExporting(true);
+    void api.artifacts
+      .export(id, format)
+      .then(async (exported) => {
+        const response = await fetch(
+          url(`/artifacts/${id}/versions/${exported.version}/download`),
+          { credentials: "include" },
+        );
+        if (!response.ok) throw new Error("download failed");
+        const blob = await response.blob();
+        download(blob, exported.filename);
+        toast(`Exported as ${exported.filename}`);
+      })
+      .catch((error) =>
+        toast(
+          error instanceof ApiError
+            ? error.detail
+            : "This version could not be exported.",
+        ),
+      )
+      .finally(() => setExporting(false));
+  };
+
   return (
     <>
       <div className="artifact-toolbar">
@@ -591,6 +616,26 @@ function ArtifactPanel({ id }: { id: string }) {
         >
           <ArrowDownToLine size={17} />
         </IconButton>
+        {kind === "document" && (
+          <select
+            className="export-format"
+            aria-label="Export as"
+            disabled={exporting}
+            defaultValue=""
+            onChange={(e) => {
+              const format = e.target.value as "xlsx" | "docx" | "pptx";
+              e.target.value = "";
+              if (format) exportAs(format);
+            }}
+          >
+            <option value="" disabled>
+              {exporting ? "Exporting…" : "Export as…"}
+            </option>
+            <option value="docx">Word (.docx)</option>
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="pptx">PowerPoint (.pptx)</option>
+          </select>
+        )}
       </div>
       {viewingOld && (
         <div className="edit-notice">

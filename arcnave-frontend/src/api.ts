@@ -732,6 +732,11 @@ export const api = {
         restoreVersion,
         version,
       }),
+    export: (id: string, format: "xlsx" | "docx" | "pptx") =>
+      post<{ version: number; format: string; sizeBytes: number; filename: string }>(
+        `/artifacts/${id}/export`,
+        { format },
+      ),
   },
 
   files: {
