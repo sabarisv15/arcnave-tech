@@ -971,6 +971,23 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `src/tools/sandbox/semaphore.test.ts` — real Postgres, ten concurrent `claim()`
   calls against a cap of 3 grant exactly 3; an expired lease is reaped and its slot reused.
 
+### 2026-09-20 — Injected turn-specific context had no carry-forward story
+
+- **Symptom:** A file attached to a chat message (text, code, docx, xlsx) was unreadable by the
+  model on the very next turn ("the model forgot what I uploaded"), even though the file was
+  still listed in chat history.
+- **Cause:** `loadHistory` re-attached image/PDF attachment bytes across turns so vision kept
+  seeing them, but had no equivalent branch for text-extracted attachments. That text only ever
+  reached the model on the turn it was uploaded (`attachmentText` in `chats.ts`), and was
+  silently dropped from every subsequent turn.
+- **Rule:** **Anything injected into context "for this turn" needs an explicit carry-forward
+  story, or it silently vanishes one turn later.** If the user expects the model to remember an
+  attachment across a multi-turn conversation, `loadHistory` must re-attach it (bounded by
+  `HISTORY_MAX_ATTACHMENT_TEXT_CHARS`), not only the current turn's prompt assembler.
+- **Verify:** `src/routes/chats.integration.test.ts` (`attachment text across turns`) uploads a
+  text file, asks a question with the attachment, then asks a follow-up with no attachment;
+  asserts the provider's second request still contains the file's text.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -995,6 +1012,8 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-20** — Added entry for the attachment-text carry-forward bug: text-extracted
+  attachments were only injected into the upload turn's system prompt and vanished on turn two.
 - **2026-09-20** — Retired "A comment asserted a guarantee the code did not provide" (the
   `FOR UPDATE`-vs-bare-`max()` concurrency entry) — its rule was promoted into `CLAUDE.md`'s own
   "Rules for changing this codebase" section verbatim ("A transaction is not a lock...") and its

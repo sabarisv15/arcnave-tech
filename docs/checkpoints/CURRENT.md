@@ -114,6 +114,16 @@ adapter aborts the real HTTP request.
 
 ## Completed work
 
+### Cheap wins — attachment text carry-forward, Gemini code UI, artifact export UI — 2026-09-20
+
+Closed three capability-vs-interface gaps across backend and frontend per [`docs/superpowers/plans/2026-09-19-cheap-wins.md`](../superpowers/plans/2026-09-19-cheap-wins.md):
+
+1. **Text-extracted attachment carry-forward:** A non-image/PDF file attached to a chat message was previously forgotten on the next turn because `loadHistory` only re-attached binary bytes for image/PDF vision paths. `GenerationService.loadHistory` now queries and carries forward extracted text for older turns (`attachments.extractedText`), formatted as clear sections and bounded by `HISTORY_MAX_ATTACHMENT_TEXT_CHARS` (default 8,000 chars/turn). Guarded by integration test in `chats.integration.test.ts`.
+2. **Gemini code execution UI:** Gemini's server-side code execution (`code` SSE events) was already emitted by the backend, but dropped by the frontend. Added `code` to `StreamEvent` (`adapter.ts`), `codeBlocks` to `Message` (`types.ts`), and rendered a collapsible "Ran code" block in `App.tsx` displaying the executed code and output. Note: page-reload persistence for code events remains absent (no `codeEvents` table exists, unlike `researchEvents`).
+3. **Artifact export UI:** The backend capability `POST /artifacts/:id/export` (generating `.docx`, `.xlsx`, `.pptx` from Markdown documents) was previously backend-only. Added `api.artifacts.export` in `api.ts` and a dropdown selector in `ArtifactPanel` (`Panels.tsx`) on document artifacts that requests the conversion, fetches the download stream, downloads the file, and displays toast feedback with the server's typed errors if unsupported.
+
+Note: Item 9 (tool-calling loop) and sandbox concurrency work are completely unaffected by and independent of these three fixes.
+
 ### Item 9 — tool-calling framework, phase 1 (revised) — 2026-09-19
 
 Item 9 (tool-use/agent framework) was explicitly deferred when items 1-8 of the file-handling

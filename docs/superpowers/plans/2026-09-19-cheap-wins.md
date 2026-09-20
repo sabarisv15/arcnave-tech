@@ -1,6 +1,6 @@
 # Cheap Wins Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Close three gaps between what ArcNave's backend already does and what a user can
 actually see/use: (1) a real bug where a non-image/PDF file attached to a chat message is
@@ -69,7 +69,7 @@ place that text ever reaches the model is `chats.ts`'s `attachmentText`, built f
 in the request carries that text forward. This is the literal mechanism behind "the model forgot
 what I uploaded."
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `backend/src/routes/chats.integration.test.ts`:
 
@@ -102,13 +102,13 @@ describe('attachment text across turns', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd backend && npx vitest run src/routes/chats.integration.test.ts -t "attachment text across turns"`
 Expected: FAIL — `historyText` does not contain the refund text, because `loadHistory` never
 fetched it.
 
-- [ ] **Step 3: Add the config cap**
+- [x] **Step 3: Add the config cap**
 
 In `backend/src/config.ts`, after `HISTORY_MAX_ATTACHMENT_BYTES` (previously line 122), add:
 
@@ -120,7 +120,7 @@ In `backend/src/config.ts`, after `HISTORY_MAX_ATTACHMENT_BYTES` (previously lin
   HISTORY_MAX_ATTACHMENT_TEXT_CHARS: int(8000),
 ```
 
-- [ ] **Step 4: Implement in `loadHistory`**
+- [x] **Step 4: Implement in `loadHistory`**
 
 In `backend/src/services/generation.ts`, immediately after the existing `attachmentRows` query
 block (previously lines 592-611, the one filtering to `application/pdf`/`image/%`), add a second
@@ -177,19 +177,19 @@ Then change the final `return kept.map(...)` (previously lines 628-634) to fold 
     });
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 Run: `cd backend && npx vitest run src/routes/chats.integration.test.ts -t "attachment text across turns"`
 Expected: PASS.
 
-- [ ] **Step 6: Full backend suite and typecheck**
+- [x] **Step 6: Full backend suite and typecheck**
 
 Run: `cd backend && npx tsc --noEmit && npx vitest run`
 Expected: clean. This changes `Turn.text` for older turns only when they actually have a
 qualifying attachment, so every existing test (none of which attaches a plain-text file and then
 asks a follow-up) is unaffected.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/src/config.ts backend/src/services/generation.ts backend/src/routes/chats.integration.test.ts
@@ -221,7 +221,7 @@ it, exactly like the `sources`/`research` UI already does for anything not in th
 DTOs. Stating this now so it isn't discovered later as a silent gap: closing it means adding a
 persistence table symmetrical to `researchEvents`, deliberately left out of this "cheap win" pass.
 
-- [ ] **Step 1: Add the `code` event type to the frontend's `StreamEvent`**
+- [x] **Step 1: Add the `code` event type to the frontend's `StreamEvent`**
 
 In `arcnave-frontend/src/adapter.ts`, add one member to the union (previously lines 31-49),
 between `sources` and `done`:
@@ -230,7 +230,7 @@ between `sources` and `done`:
   | { type: "code"; code?: string; language?: string; output?: string }
 ```
 
-- [ ] **Step 2: Add `codeBlocks` to `Message`**
+- [x] **Step 2: Add `codeBlocks` to `Message`**
 
 In `arcnave-frontend/src/types.ts`, in the `Message` interface (previously lines 94-103), add
 after `events?: ResearchEvent[];`:
@@ -239,7 +239,7 @@ after `events?: ResearchEvent[];`:
   codeBlocks?: { code?: string; language?: string; output?: string }[];
 ```
 
-- [ ] **Step 3: Handle the event in `workspace.tsx`**
+- [x] **Step 3: Handle the event in `workspace.tsx`**
 
 In `arcnave-frontend/src/workspace.tsx`, immediately after the existing `research` handling block
 (previously lines 413-422), add:
@@ -256,7 +256,7 @@ In `arcnave-frontend/src/workspace.tsx`, immediately after the existing `researc
             }));
 ```
 
-- [ ] **Step 4: Render it in `App.tsx`**
+- [x] **Step 4: Render it in `App.tsx`**
 
 In `arcnave-frontend/src/App.tsx`, immediately after the existing sources-summary block
 (previously ends at line 716, right before the `{m.artifactId && (...)}` block), add:
@@ -282,12 +282,12 @@ In `arcnave-frontend/src/App.tsx`, immediately after the existing sources-summar
 (`Markdown` is already imported in this file — it's used two lines above for the message text
 itself.)
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `cd arcnave-frontend && npx tsc -b`
 Expected: clean.
 
-- [ ] **Step 6: Manual browser verification**
+- [x] **Step 6: Manual browser verification**
 
 This is the project's actual acceptance method for UI work (`CLAUDE.md`: "start the dev server
 and use the feature in a browser"), not a substitute for a test that could exist but wasn't
@@ -304,7 +304,7 @@ written.
 5. Confirm a *reload* of the page loses the block (expected, per the stated scope above) — this
    is a check that the limitation is real and documented, not a check that it's fine.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add arcnave-frontend/src/adapter.ts arcnave-frontend/src/types.ts arcnave-frontend/src/workspace.tsx arcnave-frontend/src/App.tsx
@@ -323,7 +323,7 @@ git commit -m "feat(ui): show Gemini's code execution results in the chat"
 - Consumes: `POST /artifacts/:id/export` (`{ format: 'xlsx'|'docx'|'pptx', fromVersion?: number }` → `{ version, format, sizeBytes, filename }`) and `GET /artifacts/:id/versions/:version/download`, both already implemented and tested on the backend (ADR-0004, item 8).
 - Produces: `api.artifacts.export(id, format)` — a new method other frontend code could call later (e.g. a future "export" entry point outside this panel).
 
-- [ ] **Step 1: Add the client method**
+- [x] **Step 1: Add the client method**
 
 In `arcnave-frontend/src/api.ts`, inside the `artifacts` object (previously lines 673-706), add
 after `restore`:
@@ -336,7 +336,7 @@ after `restore`:
       ),
 ```
 
-- [ ] **Step 2: Add the export control**
+- [x] **Step 2: Add the export control**
 
 In `arcnave-frontend/src/Panels.tsx`, `ArtifactPanel` only exports when the source is markdown —
 the backend itself only accepts that (`artifacts.ts:373`, `source.format !== 'markdown'` throws
@@ -407,12 +407,12 @@ In the toolbar JSX (previously lines 552-594), add after the existing "Download 
         )}
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `cd arcnave-frontend && npx tsc -b`
 Expected: clean.
 
-- [ ] **Step 4: Manual browser verification**
+- [x] **Step 4: Manual browser verification**
 
 1. `cd backend && npm run dev`, `cd arcnave-frontend && npm run dev`.
 2. Open a document artifact that has at least one Markdown table and one heading (the backend
@@ -424,7 +424,7 @@ Expected: clean.
    this task.
 6. Confirm the control does not appear on a `code` or `webpage` kind artifact.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add arcnave-frontend/src/api.ts arcnave-frontend/src/Panels.tsx
@@ -439,7 +439,7 @@ git commit -m "feat(ui): add artifact export to Word/Excel/PowerPoint"
 - Modify: `mistakes.md`
 - Modify: `docs/checkpoints/CURRENT.md`
 
-- [ ] **Step 1: `mistakes.md` entry for Task 1**
+- [x] **Step 1: `mistakes.md` entry for Task 1**
 
 Add an entry in the existing format (symptom, cause, rule, how to verify) for the attachment-text
 bug: symptom — a file attached to a chat message is unreadable by the model on the very next
@@ -448,7 +448,7 @@ text-extracted attachment's content; rule — anything injected into a system pr
 turn" needs an explicit carry-forward story, or it silently vanishes one turn later; verify — the
 `attachment text across turns` test added in Task 1.
 
-- [ ] **Step 2: Update `docs/checkpoints/CURRENT.md`**
+- [x] **Step 2: Update `docs/checkpoints/CURRENT.md`**
 
 Add a dated section stating: three cheap-win gaps closed — (1) text-extracted attachments now
 carry forward across turns in the same chat (`HISTORY_MAX_ATTACHMENT_TEXT_CHARS`, default 8000
@@ -457,7 +457,7 @@ persistence explicitly still missing (no `codeEvents` table exists, unlike `rese
 (3) the already-built `.xlsx`/`.docx`/`.pptx` artifact export now has a UI control. Note explicitly
 that item 9 (tool-calling loop) work is unaffected by and independent of these three fixes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mistakes.md docs/checkpoints/CURRENT.md
