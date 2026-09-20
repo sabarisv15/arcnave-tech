@@ -433,10 +433,12 @@ function Conversation() {
     activeTurn = useRef<HTMLDivElement>(null),
     anchoredTurn = useRef<string | null>(null);
   const [nearBottom, setNearBottom] = useState(true);
+  const [pinnedTurnId, setPinnedTurnId] = useState<string | null>(null);
   const isRunning = activeRun === id;
   const activeUserId = isRunning
     ? [...history].reverse().find((message) => message.role === "user")?.id
     : undefined;
+  const hasPinnedTurn = isRunning && pinnedTurnId === activeUserId;
 
   useEffect(() => {
     if (id) openChat(id);
@@ -449,17 +451,44 @@ function Conversation() {
   }, [id]);
   const last = history.at(-1);
   useEffect(() => {
-    if (!isRunning && nearBottom)
+    if (isRunning && !hasPinnedTurn) {
+      const el = scroll.current;
+      if (el)
+        setNearBottom(
+          el.scrollHeight - el.scrollTop - el.clientHeight < 120,
+        );
+    } else if (!isRunning && nearBottom) {
       bottom.current?.scrollIntoView({ block: "end" });
-  }, [last?.text, last?.status, nearBottom, isRunning]);
+    }
+  }, [last?.text, last?.status, nearBottom, isRunning, hasPinnedTurn]);
   useLayoutEffect(() => {
     if (!isRunning) {
       anchoredTurn.current = null;
+      setPinnedTurnId(null);
       return;
     }
     if (!activeUserId || anchoredTurn.current === activeUserId) return;
 
     anchoredTurn.current = activeUserId;
+    const scroller = scroll.current;
+    const anchor = activeTurn.current;
+    if (!scroller || !anchor) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const roomBelow = scrollerRect.bottom - anchorRect.bottom;
+
+    // Short conversations already have ample room to answer in place. Only create a
+    // Claude-style top-anchored turn when prior content has consumed the viewport.
+    if (
+      anchorRect.top >= scrollerRect.top &&
+      anchorRect.bottom <= scrollerRect.bottom &&
+      roomBelow >= 260
+    ) {
+      setPinnedTurnId(null);
+      return;
+    }
+
+    setPinnedTurnId(activeUserId);
     setNearBottom(false);
     const frame = window.requestAnimationFrame(() => {
       activeTurn.current?.scrollIntoView({
@@ -504,7 +533,7 @@ function Conversation() {
             );
         }}
       >
-        <div className={`messages ${isRunning ? "has-active-turn" : ""}`}>
+        <div className={`messages ${hasPinnedTurn ? "has-active-turn" : ""}`}>
           {chat?.projectId && (
             <Link
               className="conversation-project"
@@ -553,6 +582,31 @@ function Conversation() {
 }
 
 const tokens = (value: number) => value.toLocaleString();
+
+const toolActivityLabels: Record<string, { running: string; complete: string }> = {
+  run_python: { running: "Running a calculation", complete: "Calculation finished" },
+  search_project_files: {
+    running: "Searching project files",
+    complete: "Project search finished",
+  },
+  read_project_file: {
+    running: "Reading a project file",
+    complete: "Project file read",
+  },
+  search_skills: { running: "Finding the right workflow", complete: "Workflow found" },
+  read_skill: { running: "Loading workflow guidance", complete: "Workflow loaded" },
+  create_artifact: { running: "Creating the artifact", complete: "Artifact created" },
+  read_artifact: { running: "Reading the artifact", complete: "Artifact read" },
+  update_artifact: { running: "Updating the artifact", complete: "Artifact updated" },
+  web_search: { running: "Searching the web", complete: "Web search finished" },
+};
+
+function toolActivity(name: string, running: boolean) {
+  const known = toolActivityLabels[name];
+  if (known) return running ? known.running : known.complete;
+  const readable = name.replaceAll("_", " ");
+  return running ? `Using ${readable}` : `Finished ${readable}`;
+}
 
 function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: string | null }) {
   const formattedDate = createdAt
@@ -692,6 +746,28 @@ function MessageView({
     );
 
   const failure = m.status === "error" ? describeError(m.error) : null;
+  const latestResearchEvent = m.events?.at(-1);
+  const activeTool = [...(m.toolCalls ?? [])]
+    .reverse()
+    .find((call) => call.ok === undefined && call.name !== "render_ui");
+  const latestTool = [...(m.toolCalls ?? [])]
+    .reverse()
+    .find((call) => call.name !== "render_ui");
+  const activity = activeTool
+    ? { label: toolActivity(activeTool.name, true), detail: "Tool is running" }
+    : latestResearchEvent && latestResearchEvent.stage !== "complete"
+      ? {
+          label: latestResearchEvent.label || "Researching",
+          detail: latestResearchEvent.detail,
+        }
+      : latestTool
+        ? {
+            label: toolActivity(latestTool.name, false),
+            detail: "Reviewing the result",
+          }
+        : m.status === "submitting"
+          ? { label: "Sending request", detail: "Connecting to the model" }
+          : { label: "Waiting for the model", detail: "No tool is running" };
   return (
     <article
       className={`assistant-message ${loading ? "is-generating" : ""}`}
@@ -729,7 +805,10 @@ function MessageView({
             <i />
             <i />
           </span>
-          <span>Thinking</span>
+          <span className="response-wait-copy">
+            <span>{activity.label}</span>
+            <small>{activity.detail}</small>
+          </span>
           <time>{thinkingSeconds}s</time>
         </div>
       )}

@@ -4034,9 +4034,22 @@ select:focus-visible {
   font-size: 13px;
 }
 
+.response-wait-copy {
+  display: grid;
+  gap: 1px;
+  line-height: 1.3;
+}
+
+.response-wait-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .response-wait time {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  align-self: start;
+  margin-top: 1px;
 }
 
 .response-wait-mark {
