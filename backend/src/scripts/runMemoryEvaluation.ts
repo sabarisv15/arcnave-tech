@@ -144,6 +144,7 @@ async function main() {
   console.log('\n===============================================================');
   console.log('Persistent Memory Live Evaluation: 4/4 SCENARIOS PASSED ✅');
   console.log('===============================================================');
+  process.exit(0);
 }
 
 main().catch((err) => {

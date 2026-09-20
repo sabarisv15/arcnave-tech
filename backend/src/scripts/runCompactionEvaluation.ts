@@ -200,6 +200,7 @@ Return ONLY valid JSON matching this schema with no markdown code fences or comm
   console.log('\n===============================================================');
   console.log('Conversation Compaction Live Evaluation: ALL CHECKS PASSED ✅');
   console.log('===============================================================');
+  process.exit(0);
 }
 
 main().catch((err) => {
