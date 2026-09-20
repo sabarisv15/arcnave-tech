@@ -11,6 +11,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
+import * as XLSX from 'xlsx';
 
 import type { Database } from '../db/client.js';
 import { fileChunks, projectFiles } from '../db/schema.js';
@@ -25,6 +26,7 @@ export class ExtractionUnsupported extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ExtractionUnsupported';
+    Object.setPrototypeOf(this, ExtractionUnsupported.prototype);
   }
 }
 
@@ -52,7 +54,14 @@ export async function extractText(
   if (lower.endsWith('.pptx') || mimeType.includes('presentationml')) {
     return extractWithOfficeParser(data, 'This PowerPoint file');
   }
-  if (lower.endsWith('.xlsx') || mimeType.includes('spreadsheetml')) return extractXlsx(data);
+  if (
+    lower.endsWith('.xlsx') ||
+    lower.endsWith('.xls') ||
+    mimeType.includes('spreadsheetml') ||
+    mimeType.includes('ms-excel')
+  ) {
+    return extractSpreadsheet(data, filename);
+  }
   if (mimeType.startsWith('text/') || TEXT_MIMES.has(mimeType)) {
     return data.toString('utf8');
   }
@@ -213,41 +222,123 @@ async function extractWithOfficeParser(data: Buffer, label: string): Promise<str
   return text;
 }
 
-/** Each worksheet becomes a pipe-delimited grid, one line per row, so cell adjacency survives. */
-async function extractXlsx(data: Buffer): Promise<string> {
-  let workbook: import('exceljs').Workbook;
-  try {
-    workbook = new ExcelJS.Workbook();
-    // exceljs/index.d.ts shadows the global `Buffer` with its own local
-    // `interface Buffer extends ArrayBuffer {}`, which Node's real Buffer does not structurally
-    // satisfy (`.slice()` returns Uint8Array, not ArrayBuffer). That local type is not
-    // constructible from outside the module, so this is a real Buffer with a narrow, targeted
-    // `any` around a broken third-party ambient declaration, not a loosened contract of ours.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await workbook.xlsx.load(data as any);
-  } catch (err) {
-    throw new ExtractionUnsupported(`This spreadsheet could not be read: ${String(err)}`);
-  }
-
-  const sheets: string[] = [];
-  for (const sheet of workbook.worksheets) {
-    const rows: string[] = [];
-    sheet.eachRow({ includeEmpty: false }, (row) => {
-      const cells: string[] = [];
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cells.push(String(cell.text ?? '').trim());
-      });
-      if (cells.some((c) => c !== '')) rows.push(cells.join(' | '));
-    });
-    if (rows.length > 0) sheets.push(`--- ${sheet.name} ---\n${rows.join('\n')}`);
-  }
-
-  const text = sheets.join('\n\n');
-  if (text.trim() === '') {
-    throw new ExtractionUnsupported('This spreadsheet has no cells with data on any sheet.');
-  }
-  return text;
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
+
+function extractHtmlTable(html: string): string {
+  const rows: string[] = [];
+  const trMatches = html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi);
+  for (const tr of trMatches) {
+    const cells: string[] = [];
+    const cellMatches = tr[1]!.matchAll(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi);
+    for (const cell of cellMatches) {
+      const text = decodeHtmlEntities(cell[1]!.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+      cells.push(text);
+    }
+    if (cells.some((c) => c !== '')) rows.push(cells.join(' | '));
+  }
+  return rows.length > 0 ? rows.join('\n') : '';
+}
+
+function extractFromSheetJs(data: Buffer): string {
+  const workbook = XLSX.read(data, { type: 'buffer', cellDates: true });
+  const sheets: string[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+    const rows: string[] = [];
+    for (const row of matrix) {
+      if (!Array.isArray(row)) continue;
+      const cells = row.map((c) => String(c ?? '').trim());
+      if (cells.some((c) => c !== '')) rows.push(cells.join(' | '));
+    }
+    if (rows.length > 0) sheets.push(`--- ${sheetName} ---\n${rows.join('\n')}`);
+  }
+  return sheets.join('\n\n');
+}
+
+/** Each worksheet becomes a pipe-delimited grid, one line per row, so cell adjacency survives. */
+export async function extractSpreadsheet(data: Buffer, _filename?: string): Promise<string> {
+  // 1. If starts with PK\x03\x04 (ZIP archive), try ExcelJS first for standard OpenXML .xlsx
+  const isZip =
+    data.length >= 4 &&
+    data[0] === 0x50 &&
+    data[1] === 0x4b &&
+    data[2] === 0x03 &&
+    data[3] === 0x04;
+
+  if (isZip) {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await workbook.xlsx.load(data as any);
+      const sheets: string[] = [];
+      for (const sheet of workbook.worksheets) {
+        const rows: string[] = [];
+        sheet.eachRow({ includeEmpty: false }, (row) => {
+          const cells: string[] = [];
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            let val = '';
+            try {
+              val = String(cell.text ?? '').trim();
+            } catch {
+              val = String(cell.value ?? '').trim();
+            }
+            cells.push(val);
+          });
+          if (cells.some((c) => c !== '')) rows.push(cells.join(' | '));
+        });
+        if (rows.length > 0) sheets.push(`--- ${sheet.name} ---\n${rows.join('\n')}`);
+      }
+      const text = sheets.join('\n\n');
+      if (text.trim() !== '') return text;
+    } catch {
+      // Fall through to SheetJS below
+    }
+  }
+
+  // 2. Try SheetJS (handles .xlsx, .xls BIFF8/BIFF5, HTML tables, XML Spreadsheet 2003, CSV)
+  try {
+    const text = extractFromSheetJs(data);
+    if (text.trim() !== '') return text;
+  } catch {
+    // Fall through to HTML table / CSV fallback
+  }
+
+  // 3. Fallback for raw HTML table (common with portal exports like AICTE)
+  try {
+    const str = data.toString('utf8');
+    if (str.includes('<table') || str.includes('<html')) {
+      const htmlText = extractHtmlTable(str);
+      if (htmlText.trim() !== '') return htmlText;
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 4. Fallback for raw CSV/text disguised as spreadsheet
+  const rawText = data.toString('utf8').trim();
+  if (
+    rawText &&
+    !rawText.includes('\0') &&
+    (rawText.includes(',') || rawText.includes('\t') || rawText.includes('\n'))
+  ) {
+    return rawText;
+  }
+
+  throw new ExtractionUnsupported('This spreadsheet has no cells with data on any sheet.');
+}
+
+export const extractXlsx = extractSpreadsheet;
 
 /* -------------------------------------------------------------------------- chunking */
 

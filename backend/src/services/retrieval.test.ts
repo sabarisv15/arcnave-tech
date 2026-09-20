@@ -7,6 +7,7 @@
  */
 import { Workbook } from 'exceljs';
 import { describe, expect, it } from 'vitest';
+import * as XLSX from 'xlsx';
 
 import type { AttachmentBlock, Provider } from '../providers/types.js';
 import {
@@ -236,5 +237,45 @@ describe('extractText (.xlsx)', () => {
     const data = await buildXlsx([['x']]);
     const text = await extractText(data, 'application/octet-stream', 'report.xlsx');
     expect(text).toContain('x');
+  });
+
+  it('extracts HTML tables disguised as .xlsx or .xls (e.g. AICTE portal exports)', async () => {
+    const html =
+      '<html><body><table>' +
+      '<tr><th>AICTE ID</th><th>Course</th><th>Intake</th></tr>' +
+      '<tr><td>1-12345</td><td>Computer Science</td><td>120</td></tr>' +
+      '</table></body></html>';
+    const data = Buffer.from(html, 'utf8');
+
+    const textXlsx = await extractText(data, mime, 'AICTE_Intake_Details_Verified.xlsx');
+    expect(textXlsx).toContain('AICTE ID | Course | Intake');
+    expect(textXlsx).toContain('1-12345 | Computer Science | 120');
+
+    const textXls = await extractText(
+      data,
+      'application/vnd.ms-excel',
+      'AICTE_Intake_Details_Verified.xls',
+    );
+    expect(textXls).toContain('AICTE ID | Course | Intake');
+    expect(textXls).toContain('1-12345 | Computer Science | 120');
+  });
+
+  it('extracts binary BIFF8 .xls spreadsheets', async () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Department', 'FacultyCount'],
+      ['Mechanical', 25],
+    ]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Staff');
+    const biff8Buf = XLSX.write(wb, { type: 'buffer', bookType: 'biff8' }) as Buffer;
+
+    const text = await extractText(
+      biff8Buf,
+      'application/vnd.ms-excel',
+      'Department_Staff.xls',
+    );
+    expect(text).toContain('--- Staff ---');
+    expect(text).toContain('Department | FacultyCount');
+    expect(text).toContain('Mechanical | 25');
   });
 });

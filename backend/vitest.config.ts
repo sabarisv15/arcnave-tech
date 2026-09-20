@@ -4,8 +4,7 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
     environment: 'node',
-    // Creates and migrates the test database once, then reuses it.
-    globalSetup: ['src/test/global-setup.ts'],
+    globalSetup: process.env.SKIP_DB === '1' ? [] : ['src/test/global-setup.ts'],
     // Nothing in this suite may reach a provider. Integration tests inject `FakeProvider` for
     // every slot in the service container; there is deliberately no path that spends Vertex
     // quota, whatever environment the suite is run in.

@@ -82,11 +82,11 @@ describe('UIAuthorizer (Two-Stage Reference Security)', () => {
 
     expect(sanitized.blocks).toHaveLength(1);
     const cardsBlock = sanitized.blocks[0] as Extract<typeof response.blocks[0], { type: 'cards' }>;
-    expect(cardsBlock.cards[0].action).toBeDefined();
-    expect(cardsBlock.cards[0].action?.actionType).toBe('open_artifact');
+    expect(cardsBlock.cards[0]!.action).toBeDefined();
+    expect(cardsBlock.cards[0]!.action?.actionType).toBe('open_artifact');
     // c2 should have had its action stripped
-    expect(cardsBlock.cards[1].action).toBeUndefined();
-    expect(cardsBlock.cards[1].title).toBe('Unauthorized Card');
+    expect(cardsBlock.cards[1]!.action).toBeUndefined();
+    expect(cardsBlock.cards[1]!.title).toBe('Unauthorized Card');
   });
 
   it('rejects dangerous javascript: sourceRef schemes', async () => {

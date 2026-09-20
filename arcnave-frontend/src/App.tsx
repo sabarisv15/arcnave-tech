@@ -1,5 +1,13 @@
-import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import type { ReactNode, RefObject } from "react";
 import {
   Link,
   Route,
@@ -421,20 +429,46 @@ function Conversation() {
   const history = (id && messages[id]) || [];
   const usage = useMessageUsage(id, activeRun);
   const scroll = useRef<HTMLDivElement>(null),
-    bottom = useRef<HTMLDivElement>(null);
+    bottom = useRef<HTMLDivElement>(null),
+    activeTurn = useRef<HTMLDivElement>(null),
+    anchoredTurn = useRef<string | null>(null);
   const [nearBottom, setNearBottom] = useState(true);
+  const isRunning = activeRun === id;
+  const activeUserId = isRunning
+    ? [...history].reverse().find((message) => message.role === "user")?.id
+    : undefined;
 
   useEffect(() => {
     if (id) openChat(id);
   }, [id, openChat]);
   useEffect(() => {
-    setNearBottom(true);
-    bottom.current?.scrollIntoView();
+    if (!isRunning) {
+      setNearBottom(true);
+      bottom.current?.scrollIntoView();
+    }
   }, [id]);
   const last = history.at(-1);
   useEffect(() => {
-    if (nearBottom) bottom.current?.scrollIntoView({ block: "end" });
-  }, [last?.text, last?.status, nearBottom]);
+    if (!isRunning && nearBottom)
+      bottom.current?.scrollIntoView({ block: "end" });
+  }, [last?.text, last?.status, nearBottom, isRunning]);
+  useLayoutEffect(() => {
+    if (!isRunning) {
+      anchoredTurn.current = null;
+      return;
+    }
+    if (!activeUserId || anchoredTurn.current === activeUserId) return;
+
+    anchoredTurn.current = activeUserId;
+    setNearBottom(false);
+    const frame = window.requestAnimationFrame(() => {
+      activeTurn.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeUserId, isRunning]);
 
   if (state === "loading" && !history.length)
     return (
@@ -470,7 +504,7 @@ function Conversation() {
             );
         }}
       >
-        <div className="messages">
+        <div className={`messages ${isRunning ? "has-active-turn" : ""}`}>
           {chat?.projectId && (
             <Link
               className="conversation-project"
@@ -487,6 +521,7 @@ function Conversation() {
               message={m}
               chatId={chat?.id ?? id!}
               usage={m.usage ?? usage[m.id]}
+              turnAnchorRef={m.id === activeUserId ? activeTurn : undefined}
             />
           ))}
           <div ref={bottom} />
@@ -554,10 +589,12 @@ function MessageView({
   message: m,
   chatId,
   usage,
+  turnAnchorRef,
 }: {
   message: Message;
   chatId: string;
   usage?: MessageUsage;
+  turnAnchorRef?: RefObject<HTMLDivElement | null>;
 }) {
   const {
     artifacts,
@@ -573,6 +610,22 @@ function MessageView({
   } = useWorkspace();
   const [copied, setCopied] = useState(false);
   const pending = m.id.startsWith("pending-");
+  const loading = m.status === "submitting" || m.status === "generating";
+  const [thinkingSeconds, setThinkingSeconds] = useState(1);
+
+  useEffect(() => {
+    if (!loading) {
+      setThinkingSeconds(1);
+      return;
+    }
+    const startedAt = Date.now();
+    const updateTimer = () =>
+      setThinkingSeconds(
+        Math.max(1, Math.floor((Date.now() - startedAt) / 1000)),
+      );
+    const timer = window.setInterval(updateTimer, 500);
+    return () => window.clearInterval(timer);
+  }, [loading, m.id]);
 
   const handleAction = (action: SafeAction) => {
     switch (action.actionType) {
@@ -609,7 +662,10 @@ function MessageView({
 
   if (m.role === "user")
     return (
-      <div className="user-message">
+      <div
+        className={`user-message ${turnAnchorRef ? "turn-anchor" : ""}`}
+        ref={turnAnchorRef}
+      >
         <div className="user-bubble">
           {m.attachments?.length ? (
             <div className="attachments">
@@ -635,18 +691,14 @@ function MessageView({
       </div>
     );
 
-  const loading = m.status === "submitting" || m.status === "generating";
   const failure = m.status === "error" ? describeError(m.error) : null;
   return (
     <article
       className={`assistant-message ${loading ? "is-generating" : ""}`}
       aria-label="ArcNave response"
     >
-      <div className="answer-byline">
-        <BrandMark />
-        <span>ArcNave</span>
-        {m.modelAlias && <span className="sample-label">{m.modelAlias}</span>}
-        {m.mode !== "chat" && (
+      {m.mode !== "chat" && (
+        <div className="response-meta">
           <button
             className="research-summary"
             onClick={() =>
@@ -669,8 +721,18 @@ function MessageView({
                     : "Search details"}
             <ChevronRight size={12} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
+      {loading && !m.text && (
+        <div className="response-wait" role="status" aria-live="polite">
+          <span className="response-wait-mark" aria-hidden="true">
+            <i />
+            <i />
+          </span>
+          <span>Thinking</span>
+          <time>{thinkingSeconds}s</time>
+        </div>
+      )}
       {m.text && (
         <Suspense fallback={<p className="markdown">{m.text}</p>}>
           <Markdown
@@ -689,16 +751,6 @@ function MessageView({
         <ToolCallList calls={m.toolCalls} />
       )}
       <div className="generation-status" role="status" aria-live="polite">
-        {loading && (
-          <span className="loading-line">
-            <span className="thinking-dots">
-              <i />
-              <i />
-              <i />
-            </span>
-            {m.text ? "" : "Thinking…"}
-          </span>
-        )}
         {m.status === "stopped" && (
           <span className="stopped-label">
             Response stopped

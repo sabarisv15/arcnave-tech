@@ -166,12 +166,14 @@ describe('Visual UI QA: Theme, Responsive Layout, and Accessibility', () => {
         {
           type: 'metric',
           blockId: 'm1',
+          sequence: 1,
           label: 'Revenue',
           value: '$4.2M',
         },
         {
           type: 'text',
           blockId: 't1',
+          sequence: 2,
           text: 'Executive performance is pacing 14% ahead of budget.',
         },
       ],
@@ -188,13 +190,17 @@ describe('Visual UI QA: Theme, Responsive Layout, and Accessibility', () => {
 
   // 7. Accessibility Roles on All Blocks
   it('guarantees role="region" and aria-label across all 10 generative UI block types', () => {
-    const textHtml = renderToStaticMarkup(<TextBlock block={{ type: 'text', text: 'Notes' }} />);
+    const textHtml = renderToStaticMarkup(
+      <TextBlock block={{ type: 'text', blockId: 'b_t', sequence: 1, text: 'Notes' }} />,
+    );
     expect(textHtml).toContain('ui-text-block');
 
     const compHtml = renderToStaticMarkup(
       <ComparisonBlock
         block={{
           type: 'comparison',
+          blockId: 'b_c',
+          sequence: 2,
           title: 'Database Comparison',
           items: [{ id: 'pg', name: 'Postgres' }, { id: 'sq', name: 'SQLite' }],
           attributes: [{ key: 'acid', label: 'ACID Compliant' }],
@@ -209,6 +215,8 @@ describe('Visual UI QA: Theme, Responsive Layout, and Accessibility', () => {
       <StepsBlock
         block={{
           type: 'steps',
+          blockId: 'b_s',
+          sequence: 3,
           title: 'Workflow Steps',
           steps: [{ index: 1, title: 'Clone Repo', status: 'complete' }],
         }}
@@ -221,6 +229,8 @@ describe('Visual UI QA: Theme, Responsive Layout, and Accessibility', () => {
       <CardsBlock
         block={{
           type: 'cards',
+          blockId: 'b_cr',
+          sequence: 4,
           title: 'Featured Reports',
           cards: [{ id: 'c1', title: 'Q1 Financials', description: 'Audited results' }],
         }}
@@ -233,6 +243,8 @@ describe('Visual UI QA: Theme, Responsive Layout, and Accessibility', () => {
       <SourcesBlock
         block={{
           type: 'sources',
+          blockId: 'b_so',
+          sequence: 5,
           title: 'Grounding Citations',
           sources: [{ sourceRef: 'src_1', title: 'Internal Wiki', url: 'https://wiki.corp' }],
         }}
@@ -245,8 +257,10 @@ describe('Visual UI QA: Theme, Responsive Layout, and Accessibility', () => {
       <TimelineBlock
         block={{
           type: 'timeline',
+          blockId: 'b_tm',
+          sequence: 6,
           title: 'Project Roadmap',
-          events: [{ title: 'Phase 1 Launch', date: '2025-01-01', status: 'completed' }],
+          events: [{ title: 'Phase 1 Launch', dateOrPeriod: '2025-01-01', status: 'completed' }],
         }}
       />,
     );

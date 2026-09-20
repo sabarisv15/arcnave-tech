@@ -106,6 +106,18 @@ describe('checkUpload', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('accepts a .xls upload with application/vnd.ms-excel', () => {
+    const result = checkUpload('report.xls', 'application/vnd.ms-excel', 100, cfg);
+    expect(result.ok).toBe(true);
+    expect(result.mimeType).toBe('application/vnd.ms-excel');
+  });
+
+  it('falls back to the extension for a .xls upload the browser sent as octet-stream', () => {
+    const result = checkUpload('report.xls', 'application/octet-stream', 100, cfg);
+    expect(result.ok).toBe(true);
+    expect(result.mimeType).toBe('application/vnd.ms-excel');
+  });
+
   it('falls back to the extension for a .xlsx upload the browser sent as octet-stream', () => {
     const result = checkUpload('report.xlsx', 'application/octet-stream', 100, cfg);
     expect(result.ok).toBe(true);

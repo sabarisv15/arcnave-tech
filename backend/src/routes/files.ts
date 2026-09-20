@@ -102,7 +102,10 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
               'this file are sent with your message.';
           }
         } catch (err) {
-          if (err instanceof ExtractionUnsupported) {
+          if (
+            err instanceof ExtractionUnsupported ||
+            (err instanceof Error && err.name === 'ExtractionUnsupported')
+          ) {
             status = 'unsupported';
             error = err.message;
           } else {

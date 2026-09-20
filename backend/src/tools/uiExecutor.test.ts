@@ -41,15 +41,15 @@ describe('UIToolExecutor (render_ui Tool Execution)', () => {
     const result = await executor.execute(call, new AbortController().signal);
 
     expect(result.ok).toBe(true);
-    expect(result.content[0].type).toBe('json');
+    expect(result.content[0]!.type).toBe('json');
     const response = (result.content[0] as { type: 'json'; data: UIResponseV1 }).data;
     expect(response.schemaVersion).toBe(1);
     expect(response.blocks).toHaveLength(2);
 
     // Ensure blockId and sequence were normalized
-    expect(response.blocks[0].blockId).toBeDefined();
-    expect(response.blocks[0].sequence).toBe(1);
-    expect(response.blocks[1].sequence).toBe(2);
+    expect(response.blocks[0]!.blockId).toBeDefined();
+    expect(response.blocks[0]!.sequence).toBe(1);
+    expect(response.blocks[1]!.sequence).toBe(2);
 
     // Ensure streaming callback was invoked for both blocks
     expect(onBlock).toHaveBeenCalledTimes(2);
