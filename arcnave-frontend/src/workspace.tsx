@@ -359,62 +359,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setActiveRun(chatId);
       let assistantId = options.placeholderId;
       let text = "";
-      let visibleText = "";
-      let bufferedText = "";
-      let textFrame: number | null = null;
-      let textDrainResolvers: Array<() => void> = [];
       let completed = false;
       let openedArtifact = false;
       // What this tab will assert about the row if the server has not caught up yet.
       let outcome: Message["status"] = "stopped";
-
-      const flushBufferedText = (force = false) => {
-        if (textFrame !== null) {
-          window.cancelAnimationFrame(textFrame);
-          textFrame = null;
-        }
-        if (!bufferedText) {
-          textDrainResolvers.splice(0).forEach((resolve) => resolve());
-          return;
-        }
-
-        // Providers can deliver several words (or whole paragraphs) in one network event.
-        // Reveal a bounded, adaptive slice per paint so those bursts still read as a stream.
-        const count = force
-          ? bufferedText.length
-          : Math.min(64, Math.max(2, Math.ceil(bufferedText.length / 6)));
-        visibleText += bufferedText.slice(0, count);
-        bufferedText = bufferedText.slice(count);
-        patchMessage(chatId, assistantId, (m) => ({
-          ...m,
-          text: visibleText,
-          status: "generating",
-        }));
-
-        if (bufferedText) {
-          textFrame = window.requestAnimationFrame(() => flushBufferedText());
-        } else {
-          textDrainResolvers.splice(0).forEach((resolve) => resolve());
-        }
-      };
-
-      const scheduleTextFlush = () => {
-        if (textFrame === null)
-          textFrame = window.requestAnimationFrame(() => flushBufferedText());
-      };
-
-      const drainBufferedText = () => {
-        if (!bufferedText) return Promise.resolve();
-        return new Promise<void>((resolve) => {
-          textDrainResolvers.push(resolve);
-          // requestAnimationFrame pauses in background tabs. Do not hold completion open
-          // indefinitely when the conversation is not visible.
-          window.setTimeout(() => {
-            if (bufferedText) flushBufferedText(true);
-            resolve();
-          }, 300);
-        });
-      };
 
       try {
         for await (const event of generate(
@@ -452,8 +400,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }
           if (event.type === "delta") {
             text += event.text;
-            bufferedText += event.text;
-            scheduleTextFlush();
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              text: m.text + event.text,
+              status: "generating",
+            }));
           }
           if (event.type === "sources")
             patchMessage(chatId, assistantId, (m) => ({
@@ -527,7 +478,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             });
           }
           if (event.type === "done") {
-            await drainBufferedText();
             completed = true;
             outcome = "complete";
             patchMessage(chatId, assistantId, (m) => ({
@@ -538,7 +488,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }));
           }
           if (event.type === "error") {
-            flushBufferedText(true);
             outcome = "error";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
@@ -553,7 +502,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (error) {
-        flushBufferedText(true);
         if (ac.signal.aborted) {
           outcome = "stopped";
           patchMessage(chatId, assistantId, (m) => ({
@@ -578,7 +526,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }));
         }
       } finally {
-        flushBufferedText(true);
         if (controller.current === ac) {
           controller.current = null;
           setActiveRun(null);
