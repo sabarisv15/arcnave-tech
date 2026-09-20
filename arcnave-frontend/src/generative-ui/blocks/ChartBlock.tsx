@@ -32,8 +32,27 @@ const THEME_PALETTE = [
   '#6366f1', // indigo
 ];
 
+function formatXLabel(val: unknown): string {
+  const str = String(val ?? '');
+  return str.length > 16 ? `${str.slice(0, 14)}…` : str;
+}
+
 export function ChartBlock({ block }: { block: ChartBlockType }) {
   const [showTable, setShowTable] = useState(false);
+
+  if (!block.data || block.data.length === 0) {
+    return (
+      <div className="ui-chart-container ui-chart-empty" role="region" aria-label={block.title || 'Chart'}>
+        <div className="ui-chart-header">
+          {block.title && <h4 className="ui-chart-title">{block.title}</h4>}
+          {block.description && <p className="ui-chart-description">{block.description}</p>}
+        </div>
+        <div className="ui-chart-empty-state" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--muted-foreground)' }}>
+          <p style={{ margin: 0, fontSize: '13px' }}>No chart data points available to display.</p>
+        </div>
+      </div>
+    );
+  }
 
   const renderChart = () => {
     switch (block.chartType) {
@@ -42,7 +61,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
+              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
               <Tooltip
                 contentStyle={{
@@ -74,7 +93,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
+              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
               <Tooltip
                 contentStyle={{
@@ -104,7 +123,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
           <ResponsiveContainer width="100%" height={280}>
             <AreaChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
+              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
               <Tooltip
                 contentStyle={{

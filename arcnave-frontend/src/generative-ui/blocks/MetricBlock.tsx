@@ -15,7 +15,9 @@ export function MetricBlock({ block }: { block: MetricBlockType }) {
     <div className="ui-metric-card" role="region" aria-label={block.label}>
       <span className="ui-metric-label">{block.label}</span>
       <div className="ui-metric-value-row">
-        <span className="ui-metric-value">{block.value}</span>
+        <span className="ui-metric-value">
+          {typeof block.value === 'number' ? block.value.toLocaleString() : block.value}
+        </span>
         {block.unit && <span className="ui-metric-unit">{block.unit}</span>}
       </div>
 

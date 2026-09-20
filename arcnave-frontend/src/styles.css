@@ -4156,6 +4156,58 @@ select:focus-visible {
   border-radius: 8px;
 }
 
+/* Keep the AI entry surface visually distinct everywhere it appears: home, conversations,
+   projects, and artifact creation. Several of those containers use --surface themselves, so a
+   plain white composer otherwise disappears into its parent. */
+.composer {
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  box-shadow:
+    0 1px 2px #1721320a,
+    0 10px 30px #1721320d;
+}
+
+.composer:hover {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
+}
+
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 12px 34px #17213212;
+}
+
+.conversation-composer {
+  background: var(--bg);
+}
+
+.conversation-composer .composer,
+.conversation-composer .composer.composer-inline {
+  box-shadow:
+    0 1px 2px #1721320a,
+    0 8px 24px #17213210;
+}
+
+[data-theme="dark"] .composer {
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow:
+    0 1px 2px #00000030,
+    0 12px 32px #00000024;
+}
+
+[data-theme="dark"] .composer:hover {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--line));
+}
+
+[data-theme="dark"] .composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 82%, white 8%);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 14px 36px #00000030;
+}
+
 .dropdown[aria-label="Model selection"] {
   border-radius: 10px;
 }
