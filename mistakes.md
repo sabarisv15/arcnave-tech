@@ -931,6 +931,20 @@ failure mode of this pattern, not a sign it is working.
   specifically Operation/Execution/Cloud-Logging polling, which only exercises once a real Job
   exists to actually run. **Still do not set `ENABLE_RUN_PYTHON=true` in production** — this was a
   local-only, reverted flag flip, and the Job itself still needs to be deployed first.
+- **2026-09-20 addendum #2:** Closed the gap fully. Deployed the real infrastructure
+  (`arcnave-sandbox-runtime` service account with zero project IAM, the `arcnave_sandbox_launcher`
+  custom role bound to the backend's service account, the `arcnave-python-sandbox` Cloud Run Job
+  in `asia-south1` — matching the existing Artifact Registry repo and backend service region,
+  not the `us-central1` the docs originally guessed) and live-verified `run_python` end to end in
+  production with `ENABLE_RUN_PYTHON=true`: the real `jobs:run` → Operation → Execution polling →
+  Cloud Logging result correlation chain completed and returned the correct `391` for `17*23`,
+  twice. One non-bug found along the way: `docker push` from Cloud Shell failed twice with `dial
+  tcp ... connect: connection refused` to two different Google IPs — not a credentials or image
+  problem, Cloud Shell's own local Docker networking; `gcloud builds submit --tag ...` (server-side
+  build+push via Cloud Build) worked on the first try. **`ENABLE_RUN_PYTHON` is now left `true` in
+  production** — deliberately, because `REGISTRATION_ENABLED=false` and the user is the only
+  account that can sign in, so the "arbitrary code execution exposed to any user" blast radius
+  this flag exists to gate does not currently apply. Revisit before opening registration again.
 
 ### 2026-09-19 — `compact` did not mean the same thing on every composer surface
 

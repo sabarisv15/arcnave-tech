@@ -59,8 +59,11 @@ of all three shapes. **`VertexSandboxClient` was retired the same day**, replace
 `CloudRunSandboxClient` — a self-hosted Cloud Run Job instead of another Agent Engine REST guess;
 see [ADR-0005](../decisions/0005-cloud-run-sandbox.md) and
 [the section below](#item-9--tool-calling-framework-phase-2-run_python-self-hosted-cloud-run-sandbox--2026-09-19).
-`ENABLE_RUN_PYTHON` now stays `false` pending live verification of that Cloud Run Job against a
-real deployed project (no Google support ticket needed for this path). `ENABLE_TOOL_USE` stays
+**`ENABLE_RUN_PYTHON` is now live-verified and `true` in production**, 2026-09-20 — see
+[the Cloud Run sandbox section below](#item-9--tool-calling-framework-phase-2-run_python-self-hosted-cloud-run-sandbox--2026-09-19)
+for the full account. Left on deliberately because `REGISTRATION_ENABLED=false` and the user is
+currently the only account that can sign in, so the larger blast radius that flag exists to gate
+does not apply yet — revisit before registration reopens. `ENABLE_TOOL_USE` stays
 `true` in production. A skills registry, sub-agent spawning, and goal/budget bookkeeping remain explicitly
 deferred per `tools/MAPPING.md`.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
@@ -291,16 +294,28 @@ Job doesn't exist yet — expected, nothing was deployed) and the failure surfac
 hang, exactly like `CodeExecutionToolExecutor` is supposed to handle it. This confirms the client's
 auth, URL construction, and request shape are correct against the live API.
 
-**Not yet done — deferred to a follow-up session:** live verification against a real deployed
-Cloud Run Job — the one thing the check above could not exercise, since no Job exists. The IAM
-custom role, the Job resource, and the two service accounts are documented in
-`docs/deploy/cloud-run-sandbox-setup.md` (with `backend/sandbox/verify-deployment-config.sh` to
-check the deployed shape once they exist) but nothing was actually created in the GCP project — no
-`gcloud` calls were made. `ENABLE_RUN_PYTHON` stays `false` in production until a real Job answers
-a real call end to end (Operation/Execution/Cloud-Logging polling is still only proven against a
-fake `fetch`), same bar item 9 phase 1/2's original live-verification used. `vertexSandboxClient.ts`
-and its test are **not deleted yet** — per ADR-0005, that happens only once `CloudRunSandboxClient`
-is confirmed working against real Cloud Run, not before.
+**Fully live-verified in production, 2026-09-20.** The real infrastructure from
+`docs/deploy/cloud-run-sandbox-setup.md` was deployed: the `arcnave-sandbox-runtime` service
+account (confirmed zero project IAM bindings), the `arcnave_sandbox_launcher` custom role bound to
+the backend's own service account, and the `arcnave-python-sandbox` Cloud Run Job — in
+`asia-south1`, not the `us-central1` the docs originally guessed, to match the existing Artifact
+Registry repo and the backend service's own region. `SANDBOX_LOCATION=asia-south1` was set on the
+live service (`--update-env-vars`, merge-only). `gcloud run jobs describe` confirmed
+`taskCount: 1`, `maxRetries: 0`, `parallelism: 1`, and the correct runtime service account.
+
+With `ENABLE_RUN_PYTHON=true` on the live service, `run_python` was called twice from a real
+browser session against production and both times completed the full chain for real — `jobs:run`
+→ Operation → Execution polling → Cloud Logging result correlation — returning the correct `391`
+for `17*23`. One non-bug hit along the way: `docker push` from Cloud Shell failed twice with a
+connection-refused error to two different Google IPs (Cloud Shell's own local Docker networking,
+not a credentials or image problem); `gcloud builds submit --tag ...` (server-side build+push)
+worked immediately.
+
+**`ENABLE_RUN_PYTHON` is deliberately left `true` in production** — `REGISTRATION_ENABLED=false`
+and the user is the only account able to sign in, so the "arbitrary code execution reachable by
+any user" blast radius this flag exists to gate does not currently apply. Revisit this before
+registration reopens. `vertexSandboxClient.ts` and its test are still not deleted — per ADR-0005,
+that cleanup is a separate, deliberate follow-up, not bundled into this live-verification pass.
 
 ### Live verification — item 9 phases 1 and 2 — 2026-09-19
 
