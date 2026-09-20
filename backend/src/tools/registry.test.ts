@@ -39,9 +39,10 @@ describe('ProjectToolRegistry', () => {
     expect(registry.getAvailableTools({ projectId: 'p1' })).not.toContainEqual(RUN_PYTHON);
   });
 
-  it('includes run_python when enabled and runPythonEnabled is true (decoupled from project)', () => {
+  it('includes run_python only when infrastructure and the turn policy both allow it', () => {
     const registry = new ProjectToolRegistry(true, true);
-    expect(registry.getAvailableTools({ projectId: null })).toEqual([
+    expect(registry.getAvailableTools({ projectId: null })).not.toContainEqual(RUN_PYTHON);
+    expect(registry.getAvailableTools({ projectId: null, allowPython: true })).toEqual([
       ...ARTIFACT_TOOL_DEFINITIONS,
       ...UPLOAD_TOOL_DEFINITIONS,
       RUN_PYTHON,
@@ -60,7 +61,7 @@ describe('ProjectToolRegistry', () => {
       const registry = new ProjectToolRegistry(true, true, false, false, false);
 
       // Without project: 3 artifact + 1 upload + 1 python = 5 tools
-      const noProj = registry.getAvailableTools({ projectId: null });
+      const noProj = registry.getAvailableTools({ projectId: null, allowPython: true });
       expect(noProj.map((t) => t.name)).toEqual([
         'create_artifact',
         'read_artifact',
@@ -71,7 +72,7 @@ describe('ProjectToolRegistry', () => {
       expect(noProj.length).toBe(5);
 
       // With project: 3 artifact + 1 upload + 1 python + 2 project = 7 tools
-      const withProj = registry.getAvailableTools({ projectId: 'p1' });
+      const withProj = registry.getAvailableTools({ projectId: 'p1', allowPython: true });
       expect(withProj.map((t) => t.name)).toEqual([
         'create_artifact',
         'read_artifact',
@@ -86,7 +87,11 @@ describe('ProjectToolRegistry', () => {
 
     it('verifies all 15 defined tools are enabled with all flags active and active goal', () => {
       const allEnabledRegistry = new ProjectToolRegistry(true, true, true, true, true);
-      const tools = allEnabledRegistry.getAvailableTools({ projectId: 'p1', activeGoalId: 'g1' });
+      const tools = allEnabledRegistry.getAvailableTools({
+        projectId: 'p1',
+        activeGoalId: 'g1',
+        allowPython: true,
+      });
       expect(tools.length).toBe(15);
       expect(tools.map((t) => t.name)).toEqual([
         'create_artifact',

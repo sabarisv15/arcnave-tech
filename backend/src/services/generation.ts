@@ -83,6 +83,7 @@ import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext } from './retrieval.js';
 import type { UsageService } from './usage.js';
+import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -308,9 +309,17 @@ export class GenerationService {
       memoryEnabled,
       generativeUiEnabled,
     );
+    const allowPython =
+      runPythonEnabled &&
+      shouldExposeRunPython({
+        prompt: input.prompt,
+        mode: input.mode,
+        hasAttachments: input.hasAttachments,
+      });
     const availableTools = toolRegistry.getAvailableTools({
       userId: input.userId,
       projectId: project?.id ?? null,
+      allowPython,
     });
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
@@ -465,7 +474,7 @@ export class GenerationService {
       toolMap.set('search_project_files', projectToolExecutor);
       toolMap.set('read_project_file', projectToolExecutor);
     }
-    if (runPythonEnabled) {
+    if (allowPython) {
       toolMap.set(
         'run_python',
         new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),

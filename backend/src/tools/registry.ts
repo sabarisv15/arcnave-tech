@@ -23,6 +23,8 @@ export interface ToolContext {
   userId?: string;
   projectId: string | null;
   activeGoalId?: string | null;
+  /** Per-turn authorization. Infrastructure availability alone never exposes code execution. */
+  allowPython?: boolean;
 }
 
 export interface ToolRegistry {
@@ -73,8 +75,9 @@ export class ProjectToolRegistry implements ToolRegistry {
         tools.push(...WEB_TOOL_DEFINITIONS);
       }
 
-      // run_python is available in all chats when runPythonEnabled is true
-      if (this.runPythonEnabled) {
+      // Code execution is high-cost and high-latency. It is visible only when both the
+      // deployment and the current request's deterministic capability policy allow it.
+      if (this.runPythonEnabled && context.allowPython === true) {
         tools.push(RUN_PYTHON);
       }
 

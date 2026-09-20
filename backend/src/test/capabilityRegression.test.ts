@@ -17,7 +17,11 @@ describe('Capability Regression Suite', () => {
   describe('1. 15-Tool Surface & Truthful Registry', () => {
     it('accurately exposes all 15 tools with all gates enabled', () => {
       const reg = new ProjectToolRegistry(true, true, true, true, true);
-      const tools = reg.getAvailableTools({ projectId: 'p1', activeGoalId: 'g1' });
+      const tools = reg.getAvailableTools({
+        projectId: 'p1',
+        activeGoalId: 'g1',
+        allowPython: true,
+      });
       expect(tools.length).toBe(15);
       const names = tools.map((t: { name: string }) => t.name);
 
@@ -47,9 +51,12 @@ describe('Capability Regression Suite', () => {
       expect(names).toContain('read_skill');
     });
 
-    it('decouples run_python from project requirement', () => {
+    it('decouples run_python from project requirement while requiring per-turn authorization', () => {
       const reg = new ProjectToolRegistry(true, true, false, false, false);
-      const toolsWithoutProject = reg.getAvailableTools({ projectId: null });
+      expect(reg.getAvailableTools({ projectId: null }).map((t) => t.name)).not.toContain(
+        'run_python',
+      );
+      const toolsWithoutProject = reg.getAvailableTools({ projectId: null, allowPython: true });
       expect(toolsWithoutProject.map((t: { name: string }) => t.name)).toContain('run_python');
     });
   });

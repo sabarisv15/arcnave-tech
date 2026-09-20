@@ -37,6 +37,7 @@ import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
+import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
@@ -207,6 +208,13 @@ export class AgentLoop {
       memoryEnabled,
       generativeUiEnabled,
     );
+    const allowPython =
+      runPythonEnabled &&
+      shouldExposeRunPython({
+        prompt: input.prompt,
+        mode: input.mode,
+        hasAttachments: input.hasAttachments,
+      });
 
     const activeHistory: Turn[] = [...history];
     const loadedSkillNames = new Set<string>();
@@ -214,7 +222,7 @@ export class AgentLoop {
     let effectiveSystemInstruction = systemInstruction;
 
     // Autoload internal skills if applicable (e.g. python-sandbox-patterns when run_python is active)
-    if (runPythonEnabled && skillsEnabled) {
+    if (allowPython && skillsEnabled) {
       const activeCapabilityNames = new Set<string>(['run_python']);
       const autoloads = this.skills!.getAutoloadSkills(activeCapabilityNames);
       for (const autoSkill of autoloads) {
@@ -250,6 +258,7 @@ export class AgentLoop {
         const availableTools = toolRegistry.getAvailableTools({
           projectId: project?.id ?? null,
           activeGoalId: activeGoal.id,
+          allowPython,
         });
 
         const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
@@ -338,7 +347,7 @@ export class AgentLoop {
           baseMap.set('search_project_files', projectToolExecutor);
           baseMap.set('read_project_file', projectToolExecutor);
         }
-        if (runPythonEnabled) {
+        if (allowPython) {
           baseMap.set(
             'run_python',
             new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),
