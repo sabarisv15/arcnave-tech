@@ -45,6 +45,7 @@ COPY --from=build /app/dist ./dist
 COPY package.json ./
 # The migration runner reads these at startup, before the server binds.
 COPY drizzle ./drizzle
+COPY skills ./skills
 
 # The `node` user ships with the image; creating our own would only add a UID to remember.
 # The upload volume has to be writable by it, so ownership is set here rather than at runtime
