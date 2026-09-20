@@ -1,11 +1,13 @@
 ---
 name: research-deep-dive
-version: 1.0.0
-description: Multi-source research, source quality evaluation, cross-verification, conflicting evidence analysis, and citation synthesis.
+version: 1.1.0
+description: Multi-source research, source quality evaluation, web search & fetch, cross-verification, and citation synthesis.
 category: research
 requires:
   tools:
     - search_project_files
+  capabilities:
+    - project.search
 autoload: false
 metadata:
   source: arcnave
@@ -13,19 +15,22 @@ metadata:
 
 # Deep Research & Evidence Synthesis
 
-Use this skill when conducting multi-turn investigations, synthesising evidence from multiple files or web sources, and evaluating conflicting claims.
+Use this skill when conducting multi-turn investigations, synthesising evidence from web sources, uploaded documents, or project files, and resolving conflicting claims.
 
-## Research Methodology
+## 1. Research Workflow (Deep Research Standards)
 
-1. **Source Evaluation & Triangulation**:
-   - Never rely on a single source or excerpt for critical assertions.
-   - Cross-verify facts across multiple indexed project files or grounding sources.
-   - Distinguish primary sources from secondary commentary or press summaries.
-2. **Conflicting Evidence & Bias Identification**:
-   - When sources disagree, state the conflicting claims explicitly rather than silently picking one.
-   - Contrast methodologies, publication dates, and institutional context behind differing conclusions.
-3. **Structured Synthesis**:
-   - Organize findings thematically with clear section headings.
-   - Ground every substantive claim with its origin (project file name, page number, or source domain).
-4. **Conclusion & Confidence Assessment**:
-   - State what the evidence definitively establishes versus where uncertainty or gaps remain.
+1. **Deconstruct Question**: Identify the core factual claims, unknowns, and search terms needed.
+2. **Search Public Web & Project**:
+   - Issue concise, keyword-targeted search queries (1 to 6 words) via `web_search` or `search_project_files`.
+   - Avoid generic or conversational queries.
+3. **Primary Source Elevation**:
+   - For corporate, legal, or financial inquiries, seek primary official filings (SEC EDGAR, company investor relations, government portals) over secondary aggregators or SEO-driven blogs.
+   - For academic or technical topics, navigate directly to official journal publications, preprints, or RFC standards.
+4. **Deep-Read & Triangulate**:
+   - When snippet results leave nuances unsettled, call `web_fetch` to retrieve the complete page content or `read_uploaded_file` to inspect attached documents.
+   - Never rely on a single source for pivotal statistics or controversial claims. Cross-verify across multiple independent primary sources.
+5. **Report Architecture & Formatting**:
+   - Organize complex findings with clear Markdown headings (`#`, `##`, `###`).
+   - Keep paragraphs short (3 to 5 sentences) to avoid dense walls of text.
+   - Ground each factual claim in verifiable source citations.
+   - When evidence is inconclusive or contradictory, state both positions transparently with their respective evidence rather than guessing.

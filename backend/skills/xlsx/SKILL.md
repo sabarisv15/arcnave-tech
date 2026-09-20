@@ -17,25 +17,24 @@ metadata:
 
 Use this skill when designing spreadsheets, financial models, budgeting sheets, or tabular data workbooks.
 
-## Structure & Architecture
+## Structure & Architecture (Claude & Excel Standards)
 
+- **Deliverable vs Cover Note**: The spreadsheet is the deliverable; chat is the cover note. Never paste giant walls of cells or formulas into chat. Direct the user to the key sheets, summary totals, and formula logic.
+- **Show Your Work (Formulas First)**:
+  - Users speak Excel, not Python. Any calculation producing an outcome the user sees in the spreadsheet must be an explicit formula (e.g. `=SUM(B2:B10)`, `=AVERAGE(...)`, `=C2*D2`), NEVER dead numbers typed externally.
+  - The user must be able to click any cell and inspect how it was derived.
+  - Function names must be UPPERCASE (`SUM`, `AVERAGE`, `IF`, `XLOOKUP`, `INDEX`, `MATCH`).
 - **Workbook Structure**:
   - For complex models, include a dedicated `Summary` or `Dashboard` table first, followed by `Data` / `Assumptions` / `Calculations` tables.
-- **Formula Standards**:
-  - Always write Excel formula function names in UPPERCASE (e.g. `SUM`, `AVERAGE`, `XLOOKUP`, `IF`, `INDEX`, `MATCH`).
-  - Keep formulas readable; break nested logic into distinct helper columns where appropriate.
-  - Never hardcode dynamic variables inside formulas; reference assumption cells.
+  - Each table heading (`# SheetName`) maps to its own worksheet tab.
 - **Cell Formatting & Data Types**:
-  - Format monetary values explicitly with currency symbols and standard decimal places (`$#,##0.00`).
-  - Format percentages explicitly (`0.0%`).
-  - Format dates consistently (`YYYY-MM-DD` or standard local date).
-- **Grid Layout & Visual Hierarchy**:
-  - Use clear header rows with bold text, distinct background shading, and borders.
-  - Total and Subtotal rows must use top thin border and bottom double border.
-  - Right-align numeric columns; left-align descriptions and identifiers.
+  - Format monetary values with currency symbols and standard decimals (`$1,250.00`).
+  - Format percentages explicitly (`94.2%` or `15.0%`).
+  - ArcNave's exporter automatically parses numbers, percentages, currencies, and formulas, auto-fits column widths, freezes the top header row, and styles rows with zebra striping.
+- **Large Datasets (>1,000 rows)**:
+  - When analyzing massive raw datasets, use `run_python` to process, aggregate, and summarize the data in the Cloud Run sandbox, then output clean, formula-backed tables into the spreadsheet artifact.
 
 ## Capability & Output Guidance
 
-- **Creating the Spreadsheet**: Call the `create_artifact` tool with `kind: 'document'` containing well-structured GFM Markdown tables with clear headings for each sheet.
-- **Exporting to Excel (.xlsx)**: ArcNave's export layer parses the Markdown tables into sheets and generates a real `.xlsx` workbook via ExcelJS for the user to download.
-- **Limitations**: Note that markdown-to-spreadsheet conversion captures tables and cell data; complex multi-tab VBA macros or dynamic chart objects require Python sandbox scripts.
+- **Creating the Spreadsheet**: Call the `create_artifact` tool with `kind: 'document'` containing well-structured GFM Markdown tables with clear headings for each sheet and explicit formulas (`=SUM(...)`).
+- **Exporting to Excel (.xlsx)**: ArcNave's export layer parses the Markdown tables into sheets and generates a real `.xlsx` workbook via ExcelJS with formulas, auto-fitted columns, and styled headers.

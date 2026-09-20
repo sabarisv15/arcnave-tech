@@ -33,6 +33,8 @@ Use this skill when designing print-ready reports, whitepapers, academic papers,
 
 ## Capability & Output Guidance
 
-- **Current ArcNave Capability**: ArcNave does not currently have a native `.pdf` binary export engine (only `.docx`, `.xlsx`, and `.pptx` are directly exportable).
-- **Recommended Workflow**: Call `create_artifact` to create a `document` artifact. The user can export it as a Word `.docx` file and convert/print to PDF from Word or their browser, or read the formatted document in the ArcNave workspace.
-- **Do Not Claim PDF File Creation**: Do not claim that a `.pdf` file was downloaded or created on disk.
+- **Native ArcNave PDF Export**: ArcNave provides a dedicated, native `.pdf` binary export engine powered by `pdf-lib`.
+- **Workflow**:
+  - Call `create_artifact` with `kind: 'document'` structured with Markdown headings, paragraphs, bullet points, callout blockquotes (`> `), and data tables.
+  - The document can be exported directly to a print-ready `.pdf` file with standard margins, wrapped paragraphs, callout accent lines, and data tables.
+- **Deliverable vs Cover Note**: The PDF document is the deliverable; chat is the cover note. In chat, summarize the document's core findings and direct the user to the artifact.

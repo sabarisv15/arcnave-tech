@@ -80,6 +80,8 @@ export const SUPPORTED_CAPABILITIES = new Set<string>([
   'artifact.export.pptx',
 ]);
 
+import type { CapabilityRegistry } from '../capabilities/registry.js';
+
 export class SkillService {
   private readonly skills = new Map<string, SkillEntry>();
   private loaded = false;
@@ -87,6 +89,7 @@ export class SkillService {
   constructor(
     private readonly rootDir: string,
     private readonly relativeSkillsDir: string = 'skills',
+    private readonly capabilityRegistry?: CapabilityRegistry,
   ) {}
 
   /**
@@ -180,7 +183,13 @@ export class SkillService {
     const requiredCaps = skill.requires.capabilities;
 
     const missingTools = requiredTools.filter((tool) => !availableTools.has(tool));
-    const missingCaps = requiredCaps.filter((cap) => !SUPPORTED_CAPABILITIES.has(cap));
+    const missingCaps = requiredCaps.filter((cap) => {
+      if (this.capabilityRegistry) {
+        // Strict: only 'full' capabilities satisfy full mode!
+        return !this.capabilityRegistry.isFull(cap);
+      }
+      return !SUPPORTED_CAPABILITIES.has(cap);
+    });
     const allMissing = [...missingTools, ...missingCaps];
 
     if (allMissing.length === 0) {

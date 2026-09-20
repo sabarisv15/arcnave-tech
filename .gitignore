@@ -39,6 +39,7 @@ Thumbs.db
 # Test output
 coverage/
 .nyc_output/
+test-artifacts/
 
 # Claude Code local state (project memory in .claude/ IS committed)
 .claude/settings.local.json

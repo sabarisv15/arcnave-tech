@@ -295,3 +295,92 @@ export const ARTIFACT_TOOL_DEFINITIONS: ToolDefinition[] = [
   UPDATE_ARTIFACT,
 ];
 
+/* -------------------------------------------------------------------------- Uploads */
+
+export const READ_UPLOADED_FILE: ToolDefinition = {
+  name: 'read_uploaded_file',
+  description:
+    'Reads content from an uploaded conversation attachment by fileId. ' +
+    'Supports page-aware slicing for PDFs (startPage, endPage) and character offsets (cursor/start, maxChars) for text files. ' +
+    'Use this to re-read or inspect uploaded documents, forms, or tables without losing source fidelity.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded file/attachment.',
+      },
+      startPage: {
+        type: 'integer',
+        description: 'Optional 1-based start page for PDFs.',
+      },
+      endPage: {
+        type: 'integer',
+        description: 'Optional 1-based end page for PDFs (inclusive).',
+      },
+      start: {
+        type: 'integer',
+        description: 'Optional character offset into extracted text content. Defaults to 0.',
+      },
+      maxChars: {
+        type: 'integer',
+        description: 'Soft budget for returned characters. The server enforces a hard cap.',
+      },
+    },
+    required: ['fileId'],
+    additionalProperties: false,
+  },
+};
+
+export const UPLOAD_TOOL_DEFINITIONS: ToolDefinition[] = [READ_UPLOADED_FILE];
+
+/* -------------------------------------------------------------------------- Web */
+
+export const WEB_SEARCH: ToolDefinition = {
+  name: 'web_search',
+  description:
+    'Searches the public web for real-time, current information or specific factual sources. ' +
+    'Returns a ranked list of search results including titles, snippets, and canonical URLs. ' +
+    'Use for up-to-date facts, current events, or verifying external claims.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Keywords or search query to look up on the web (1-6 words recommended).',
+      },
+      maxResults: {
+        type: 'integer',
+        description: 'Maximum number of results to retrieve (1 to 10). Defaults to 5.',
+      },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+};
+
+export const WEB_FETCH: ToolDefinition = {
+  name: 'web_fetch',
+  description:
+    'Fetches and extracts readable text from a specified public HTTP/HTTPS URL. ' +
+    'Returns the document title, extracted text content, and pagination/truncation details. ' +
+    'Use when you need to read the full body of a web article or documentation page returned by web_search.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      url: {
+        type: 'string',
+        description: 'The public http:// or https:// URL to fetch.',
+      },
+      maxChars: {
+        type: 'integer',
+        description: 'Maximum characters to retrieve (1000 to 30000). Defaults to 10000.',
+      },
+    },
+    required: ['url'],
+    additionalProperties: false,
+  },
+};
+
+export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH];
+

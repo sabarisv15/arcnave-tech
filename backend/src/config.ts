@@ -129,6 +129,10 @@ const envSchema = z.object({
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),
   ENABLE_ANTHROPIC_WEB_SEARCH: bool(false),
+  ENABLE_WEB: bool(false),
+  SERPAPI_API_KEY: optionalStr,
+  GOOGLE_SEARCH_API_KEY: optionalStr,
+  GOOGLE_SEARCH_ENGINE_ID: optionalStr,
   GROUNDING_REDIRECT_TIMEOUT_MS: int(5000),
 
   /**

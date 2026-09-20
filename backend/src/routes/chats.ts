@@ -483,12 +483,15 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       // --- gather attachments: text-extraction path vs. native path -----
       let attachmentText = '';
+      let attachmentManifest = '';
       let nativeAttachments: { mimeType: string; base64: string }[] = [];
       if (attachmentIds.length > 0) {
         const rows = await db
           .select({
+            id: attachmentsTable.id,
             filename: attachmentsTable.filename,
             mimeType: attachmentsTable.mimeType,
+            sizeBytes: attachmentsTable.sizeBytes,
             storageKey: attachmentsTable.storageKey,
             extractedText: attachmentsTable.extractedText,
           })
@@ -499,6 +502,13 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
               eq(attachmentsTable.userId, user.id),
             ),
           );
+
+        attachmentManifest = rows
+          .map(
+            (r) =>
+              `- fileId: "${r.id}" | filename: "${r.filename}" | type: ${r.mimeType} | size: ${r.sizeBytes} bytes`,
+          )
+          .join('\n');
 
         const isNative = (mimeType: string): boolean =>
           mimeType === 'application/pdf' || mimeType.startsWith('image/');
@@ -578,6 +588,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           projectId: chat.projectId,
           hasAttachments: attachmentIds.length > 0,
           attachmentText,
+          attachmentManifest,
           attachments: nativeAttachments,
           codeExecution,
           signal: controller.signal,

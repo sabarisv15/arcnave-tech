@@ -38,6 +38,10 @@ import { ProjectToolExecutor } from '../tools/executor.js';
 import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
+import { UploadToolExecutor } from '../tools/uploadExecutor.js';
+import { WebToolExecutor } from '../tools/webExecutor.js';
+import { WebFetchService } from './webFetch.js';
+import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { Retriever } from './retrieval.js';
 import type { SkillService } from './skills.js';
@@ -188,11 +192,13 @@ export class AgentLoop {
 
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
+    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
       this.cfg.ENABLE_AGENT_LOOP,
       skillsEnabled,
+      webEnabled,
     );
 
     const activeHistory: Turn[] = [...history];
@@ -309,6 +315,18 @@ export class AgentLoop {
         baseMap.set('create_artifact', artifactToolExecutor);
         baseMap.set('read_artifact', artifactToolExecutor);
         baseMap.set('update_artifact', artifactToolExecutor);
+
+        if (this.cfg.ENABLE_TOOL_USE) {
+          baseMap.set('read_uploaded_file', new UploadToolExecutor(this.db, this.storage, input.userId));
+        }
+
+        if (webEnabled) {
+          const webSearchAdapter = buildWebSearchAdapter(this.cfg);
+          const webExecutor = new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService());
+          baseMap.set('web_search', webExecutor);
+          baseMap.set('web_fetch', webExecutor);
+        }
+
         if (projectToolExecutor) {
           baseMap.set('search_project_files', projectToolExecutor);
           baseMap.set('read_project_file', projectToolExecutor);

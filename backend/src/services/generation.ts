@@ -60,6 +60,13 @@ import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
+import { UploadToolExecutor } from '../tools/uploadExecutor.js';
+import { WebToolExecutor } from '../tools/webExecutor.js';
+import { WebFetchService } from './webFetch.js';
+import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
+import { buildCapabilityRegistry } from '../capabilities/factory.js';
+import type { CapabilityRegistry } from '../capabilities/registry.js';
+import { buildBaseSystemPrompt } from './systemPrompt.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -150,6 +157,7 @@ export interface GenerateInput {
   projectId: string | null;
   hasAttachments: boolean;
   attachmentText: string;
+  attachmentManifest?: string;
   /** This turn's image/PDF attachments, ready as native content blocks. */
   attachments: AttachmentBlock[];
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
@@ -171,6 +179,7 @@ export interface PreferencesRow {
 
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
+  private readonly capabilities: CapabilityRegistry;
 
   constructor(
     private readonly db: Database,
@@ -184,7 +193,9 @@ export class GenerationService {
     private readonly sandboxClient?: SandboxClient,
     agentLoop?: AgentLoop,
     private readonly skills?: SkillService,
+    capabilities?: CapabilityRegistry,
   ) {
+    this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.agentLoop =
       agentLoop ??
       new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills);
@@ -297,7 +308,23 @@ export class GenerationService {
       });
     };
 
-    if (this.cfg.ENABLE_AGENT_LOOP) {
+    // --- AgentLoop Routing Policy ------------------------------------------
+    // AgentLoop is reserved for multi-step autonomous tasks (research mode, active goal,
+    // or iterative multi-tool tasks) — simple conversational turns stay in GenerationService
+    // to preserve low latency and avoid redundant tool loops.
+    const shouldRouteToAgentLoop = (inp: GenerateInput): boolean => {
+      if (inp.mode === 'research') return true;
+      // If client requests code execution with attachments requiring iterative execution
+      if (inp.codeExecution && inp.attachments.length > 0) return true;
+      // Structured heuristic: multi-turn research/synthesis tasks with explicit query shape
+      const p = inp.prompt.toLowerCase();
+      const hasSynthesisIntent =
+        (p.includes('compare') || p.includes('synthesize') || p.includes('investigate') || p.includes('deep dive')) &&
+        (p.includes('across') || p.includes('sources') || p.includes('evidence') || p.includes('documents'));
+      return hasSynthesisIntent;
+    };
+
+    if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
       yield* this.agentLoop.stream(input, {
         entry,
         provider,
@@ -316,11 +343,13 @@ export class GenerationService {
 
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
+    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
       false,
       skillsEnabled,
+      webEnabled,
     );
     const availableTools = toolRegistry.getAvailableTools({ projectId: project?.id ?? null });
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
@@ -358,11 +387,27 @@ export class GenerationService {
         )
       : undefined;
 
+    const uploadToolExecutor = this.cfg.ENABLE_TOOL_USE
+      ? new UploadToolExecutor(this.db, this.storage, input.userId)
+      : undefined;
+
+    const webSearchAdapter = buildWebSearchAdapter(this.cfg);
+    const webToolExecutor = webEnabled
+      ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService())
+      : undefined;
+
     const toolMap = new Map<string, ToolExecutor>();
     if (artifactToolExecutor) {
       toolMap.set('create_artifact', artifactToolExecutor);
       toolMap.set('read_artifact', artifactToolExecutor);
       toolMap.set('update_artifact', artifactToolExecutor);
+    }
+    if (uploadToolExecutor) {
+      toolMap.set('read_uploaded_file', uploadToolExecutor);
+    }
+    if (webToolExecutor) {
+      toolMap.set('web_search', webToolExecutor);
+      toolMap.set('web_fetch', webToolExecutor);
     }
     if (projectToolExecutor) {
       toolMap.set('search_project_files', projectToolExecutor);
@@ -829,6 +874,9 @@ export class GenerationService {
     const parts: string[] = [];
     const events: StreamEvent[] = [];
 
+    // Prepend Truthful Base System Prompt grounded by CapabilityRegistry
+    parts.push(buildBaseSystemPrompt(this.cfg, this.capabilities));
+
     if (prefs.instructions.trim()) {
       parts.push(`The person you are helping has these standing instructions:\n${prefs.instructions.trim()}`);
     }
@@ -878,6 +926,10 @@ export class GenerationService {
           });
         }
       }
+    }
+
+    if (input.attachmentManifest?.trim()) {
+      parts.push(`Attached files available to inspect:\n${input.attachmentManifest.trim()}`);
     }
 
     if (input.attachmentText.trim()) {

@@ -13,6 +13,8 @@ import { GeminiProvider } from './providers/gemini.js';
 import { GptOssVertexProvider } from './providers/gptOssVertex.js';
 import { ModelRegistry } from './providers/registry.js';
 import type { Provider } from './providers/types.js';
+import { buildCapabilityRegistry } from './capabilities/factory.js';
+import type { CapabilityRegistry } from './capabilities/registry.js';
 import { AgentLoop } from './services/agentLoop.js';
 import { AuthService } from './services/auth.js';
 import { GenerationService } from './services/generation.js';
@@ -31,6 +33,7 @@ export interface Services {
   cfg: Config;
   db: Database;
   registry: ModelRegistry;
+  capabilities: CapabilityRegistry;
   auth: AuthService;
   usage: UsageService;
   generation: GenerationService;
@@ -103,16 +106,29 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
         ),
       )
     : undefined;
-  const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR);
+  const capabilities = buildCapabilityRegistry(cfg);
+  const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR, capabilities);
   void skills.load();
 
   const agentLoop = new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills);
-  const generation = new GenerationService(db, cfg, registry, usage, retriever, storage, sandboxClient, agentLoop, skills);
+  const generation = new GenerationService(
+    db,
+    cfg,
+    registry,
+    usage,
+    retriever,
+    storage,
+    sandboxClient,
+    agentLoop,
+    skills,
+    capabilities,
+  );
 
   return {
     cfg,
     db,
     registry,
+    capabilities,
     auth: new AuthService(db, cfg),
     usage,
     generation,
