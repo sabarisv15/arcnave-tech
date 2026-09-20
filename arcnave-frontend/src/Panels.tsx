@@ -602,20 +602,47 @@ function ArtifactPanel({ id }: { id: string }) {
         <IconButton label="Copy artifact" onClick={() => void copy()}>
           <Copy size={16} />
         </IconButton>
-        <IconButton
-          label="Download artifact"
-          onClick={() =>
-            download(
-              content,
-              `${meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact"}.${
-                kind === "webpage" ? "html" : kind === "code" ? "js" : "md"
-              }`,
-              kind === "webpage" ? "text/html" : "text/plain",
-            )
-          }
-        >
-          <ArrowDownToLine size={17} />
-        </IconButton>
+        {kind === "document" ? (
+          <button
+            type="button"
+            className="button button-subtle"
+            disabled={exporting}
+            onClick={() => exportAs("docx")}
+            title="Download as Microsoft Word (.docx)"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "0 10px",
+              height: "28px",
+              fontSize: "12px",
+              fontWeight: 500,
+              borderRadius: "6px",
+              border: "1px solid var(--line)",
+              background: "var(--surface)",
+              color: "var(--ink)",
+              cursor: "pointer",
+            }}
+          >
+            <ArrowDownToLine size={14} />
+            {exporting ? "Exporting…" : "Word (.docx)"}
+          </button>
+        ) : (
+          <IconButton
+            label="Download artifact"
+            onClick={() =>
+              download(
+                content,
+                `${meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact"}.${
+                  kind === "webpage" ? "html" : kind === "code" ? "js" : "md"
+                }`,
+                kind === "webpage" ? "text/html" : "text/plain",
+              )
+            }
+          >
+            <ArrowDownToLine size={17} />
+          </IconButton>
+        )}
         {kind === "document" && (
           <select
             className="export-format"
@@ -623,9 +650,18 @@ function ArtifactPanel({ id }: { id: string }) {
             disabled={exporting}
             defaultValue=""
             onChange={(e) => {
-              const format = e.target.value as "xlsx" | "docx" | "pptx";
+              const format = e.target.value;
               e.target.value = "";
-              if (format) exportAs(format);
+              if (format === "md") {
+                download(
+                  content,
+                  `${meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact"}.md`,
+                  "text/markdown",
+                );
+                toast("Exported as Markdown");
+              } else if (format === "docx" || format === "xlsx" || format === "pptx") {
+                exportAs(format);
+              }
             }}
           >
             <option value="" disabled>
@@ -634,6 +670,7 @@ function ArtifactPanel({ id }: { id: string }) {
             <option value="docx">Word (.docx)</option>
             <option value="xlsx">Excel (.xlsx)</option>
             <option value="pptx">PowerPoint (.pptx)</option>
+            <option value="md">Markdown (.md)</option>
           </select>
         )}
       </div>
