@@ -799,3 +799,35 @@ describe('tool use', () => {
     expect(rows[0]!.input).toEqual({});
   });
 });
+
+/* -------------------------------------------------------------------------- attachment text across turns */
+
+describe('attachment text across turns', () => {
+  it('carries a text-extracted attachment forward into a later turn without re-attaching it', async () => {
+    const chatId = await newChat();
+
+    const part = multipart('policy.txt', 'The refund window is 45 days for annual plans.', 'text/plain');
+    const upload = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files',
+      headers: { ...part.headers, ...auth() },
+      payload: part.payload,
+    });
+    expect(upload.statusCode).toBe(201);
+    const attachmentId = (upload.json() as { id: string }).id;
+    const startCount = ctx.provider.seen.length;
+
+    // Turn 1: attach the file.
+    await generate(chatId, { prompt: 'What does this say?', attachmentIds: [attachmentId] });
+
+    // Turn 2: no attachment at all. If the fix works, the *history* sent to the provider for
+    // this second call still contains the file's text.
+    await generate(chatId, { prompt: 'How many days did it say again?' });
+
+    expect(ctx.provider.seen.length - startCount).toBe(2);
+    const secondRequest = ctx.provider.seen[ctx.provider.seen.length - 1]!;
+    const historyText = secondRequest.history.map((t) => t.text).join('\n');
+    expect(historyText).toContain('The refund window is 45 days for annual plans.');
+  });
+});
+

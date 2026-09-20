@@ -701,13 +701,49 @@ export class GenerationService {
       byMessage.set(row.messageId, list);
     }
 
-    return kept.map(
-      (r): Turn => ({
+    // The image/PDF path above re-attaches bytes so vision keeps "seeing" a photo on a later
+    // turn. This is the same idea for everything else: a plain text-extracted file's content is
+    // stored once at upload time (`attachments.extractedText`, files.ts) and would otherwise
+    // only ever reach the model on the turn it was uploaded — the model "forgets" it on the very
+    // next message, which is not a model limitation, it is this data never being re-sent.
+    const textAttachmentRows = kept.length
+      ? await this.db
+          .select({
+            messageId: attachments.messageId,
+            filename: attachments.filename,
+            extractedText: attachments.extractedText,
+          })
+          .from(attachments)
+          .where(
+            and(
+              inArray(
+                attachments.messageId,
+                kept.map((r) => r.id),
+              ),
+              sql`${attachments.extractedText} is not null and ${attachments.mimeType} <> 'application/pdf' and ${attachments.mimeType} not like 'image/%'`,
+            ),
+          )
+      : [];
+
+    const extractedByMessage = new Map<string, string>();
+    for (const row of textAttachmentRows) {
+      if (!row.messageId || !row.extractedText) continue;
+      const capped = row.extractedText.slice(0, this.cfg.HISTORY_MAX_ATTACHMENT_TEXT_CHARS);
+      const block = `--- ${row.filename} ---\n${capped}`;
+      const existing = extractedByMessage.get(row.messageId);
+      extractedByMessage.set(row.messageId, existing ? `${existing}\n\n${block}` : block);
+    }
+
+    return kept.map((r): Turn => {
+      const extracted = extractedByMessage.get(r.id);
+      return {
         role: r.role === 'user' ? 'user' : 'assistant',
-        text: r.text,
+        text: extracted
+          ? `${r.text}\n\n[Text extracted from a file attached to this message]\n${extracted}`
+          : r.text,
         ...(byMessage.has(r.id) ? { attachments: byMessage.get(r.id) } : {}),
-      }),
-    );
+      };
+    });
   }
 
   private async buildSystemInstruction(

@@ -120,6 +120,11 @@ const envSchema = z.object({
    *  per generate call. Oldest carried-forward attachments drop first past this cap; a file
    *  newly attached to the current turn is never dropped by it. */
   HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
+  /** Characters of text-extracted (non-image/PDF) attachment content carried forward per older
+   *  turn, per generate call. Capped independently of the 200,000-char upload-time cap in
+   *  files.ts — that cap is "how much to keep at all", this one is "how much of that to re-pay
+   *  for on every later turn of the same chat". */
+  HISTORY_MAX_ATTACHMENT_TEXT_CHARS: int(8000),
 
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),
