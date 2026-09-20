@@ -209,6 +209,10 @@ failure mode of this pattern, not a sign it is working.
   intent it does not know about.** Give it the intent — a flag set before the action — rather
   than trying to infer it from the error.
 - **Verify:** Sign out; the sign-in screen appears with no "session ended" notice.
+- **2026-09-20 addendum:** An expired session is useful context, not a form-level error. Keep
+  that notice as quiet supporting text, and never put `overflow-y: auto` on the desktop auth
+  column merely to compensate for oversized composition—the page must fit the viewport without
+  introducing a scrollbar between its two panels.
 
 ### 2026-09-17 — A Cloud Run service attached to a VPC with no NAT reached nothing
 

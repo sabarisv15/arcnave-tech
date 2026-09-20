@@ -3812,13 +3812,23 @@ textarea {
 /* Keep the artwork and its caption in separate rows at every desktop height. */
 @media (max-height: 850px) { .auth-signup .auth-headline { display: none; } }
 .auth-landing { grid-template-columns: minmax(0, 1fr); align-items: stretch; justify-content: stretch; }
-.auth-layout { max-width: 1480px; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: stretch; }
+.auth-layout { max-width: 1380px; grid-template-columns: minmax(0, 1fr) minmax(520px, .92fr); gap: clamp(52px, 6vw, 96px); align-items: stretch; }
 .auth-brand { width: 100%; }
-.auth-welcome { width: 100%; max-width: 680px; padding: 4px 12px; }
+.auth-welcome { width: 100%; max-width: 600px; padding: 4px 0; overflow: visible; }
 .auth-headline h1 { white-space: normal; }
+.auth-landing .auth-card { max-width: 440px; }
+.auth-landing .auth-notice {
+  margin: -2px 0 12px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .auth-landing .auth-submit, [data-theme="dark"] .auth-landing .auth-submit { color: #fff; }
 .auth-landing .auth-submit:disabled { opacity: 1; background: #6d7c72; border-color: #6d7c72; color: #fff; }
-.auth-study { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; padding: 26px 32px; gap: 20px; }
+.auth-study { display: grid; width: 100%; max-width: 720px; justify-self: center; grid-template-rows: auto minmax(0, 1fr) auto auto; padding: 26px 32px; gap: 20px; }
 .auth-study .auth-art-top, .auth-study .auth-art-bottom, .auth-study .auth-art-copy { position: static; }
 .auth-study .auth-art-copy { padding: 0 4px; }
 .auth-study .auth-art-copy > span { font-size: 9px; letter-spacing: 1.5px; }
