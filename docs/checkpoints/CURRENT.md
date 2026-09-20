@@ -1330,16 +1330,19 @@ verification command for each is in `mistakes.md`; summary:
 
 - **Live Model E2E Evaluation Matrix (Vertex AI Live Verification)**:
   ```text
-  Gemini Phase 6 Live E2E
-  - Comparison Matrix               ✅ render_ui called (blocks: comparison, table, cards, steps) | Validation OK
-  - Chart Generation                ✅ render_ui called (blocks: metric, chart) | Validation OK
-  - Casual Greeting ("Hi")          ✅ 0 tool calls (clean conversational response)
-  - Malicious Script Injection      ✅ Rejected by validator | Sanitized fallback extracted
+  Gemini Phase 6 Live E2E (5/5 Scenarios)
+  - Scenario 1: Comparison Matrix   ✅ render_ui called (blocks: comparison) | Validation OK
+  - Scenario 2: Chart Generation    ✅ render_ui called (blocks: metric, chart) | Validation OK
+  - Scenario 3: Steps Instructions  ✅ render_ui called (blocks: steps) | Validation OK
+  - Scenario 4: Casual Greeting     ✅ 0 tool calls (clean conversational response)
+  - Scenario 5: Hostile Script      ✅ Rejected by validator | Sanitized fallback extracted
 
-  Claude Phase 6 Live E2E
-  - Steps Instructions              ✅ render_ui called (blocks: steps, text) | Validation OK
-  - Casual Greeting ("Hi")          ✅ 0 tool calls (clean conversational response)
-  - Malicious Script Injection      ✅ Rejected by validator | Sanitized fallback extracted
+  Claude Phase 6 Live E2E (5/5 Scenarios)
+  - Scenario 1: Comparison Matrix   ✅ render_ui called (blocks: comparison) | Validation OK
+  - Scenario 2: Chart Generation    ✅ render_ui called (blocks: chart) | Validation OK
+  - Scenario 3: Steps Instructions  ✅ render_ui called (blocks: steps, text) | Validation OK
+  - Scenario 4: Casual Greeting     ✅ 0 tool calls (clean conversational response)
+  - Scenario 5: Hostile Script      ✅ Rejected by validator | Sanitized fallback extracted
 
   Gemini Phase 7 Live E2E
   - Tabular Ingestion & Profiling   ✅ Root V1 (7 cols, 7 rows, 99/100 quality score)
@@ -1354,10 +1357,19 @@ verification command for each is in `mistakes.md`; summary:
   - Lineage & V2 Transformation     ✅ Verified
   - Deliverable Exports (XLSX/PDF)  ✅ Verified
 
+  Visual UI & Layout QA Suite (visualQa.test.tsx)
+  - Light & Dark Mode Tokens        ✅ Verified (contrast, variables, tooltip styles)
+  - Large Number Formatting         ✅ Verified (82,450,000 USD localization)
+  - Long Chart Labels & Fallback    ✅ Verified (truncation with ellipsis, accessible table toggle)
+  - Empty Chart Graceful State      ✅ Verified (no broken axes, user-facing empty state)
+  - 500-Row Table Performance       ✅ Verified (DOM only renders 10 rows via pagination, not 500)
+  - Dashboard Overflow & Grid       ✅ Verified (collapsible grid columns, mobile overflow guards)
+  - Keyboard Navigation & ARIA      ✅ Verified (role="region", role="toolbar", aria-labels on all 10 block types)
+
   Test & Code Quality Gates
   - Backend Phase 6/7 Tests         ✅ 57/57 passed
   - Cross-Phase Regressions         ✅ 58/58 passed
-  - Frontend Test Suite             ✅ 36/36 passed
+  - Frontend Test Suite             ✅ 43/43 passed (including 7/7 Visual QA tests)
   - Frontend Build (tsc + vite)     ✅ 0 errors
   - Backend Build (tsc)             ✅ 0 errors
   - Production Health (/readyz)     ✅ 200 OK (DB, Vertex, Grounding, GCS ready)
