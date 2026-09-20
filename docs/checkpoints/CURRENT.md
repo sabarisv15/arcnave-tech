@@ -1306,6 +1306,77 @@ verification command for each is in `mistakes.md`; summary:
     - `GET /readyz` -> `HTTP 200 OK`: `{"status":"ready","checks":{"database":true,"vertexConfigured":true,"groundingConfigured":true,"storageBackend":"gcs"}}`
     - `GET /v1/models` -> `HTTP 200 OK`: all 4 models (`gemini-3.8-flash`, `claude-sonnet-5`, `claude-opus-5`, `openai/gpt-oss-120b-maas`) report `available: true`.
 
+---
+
+## Phase 6 & Phase 7 — Generative UI & Advanced Data Analytics (2026-09-20)
+
+- **Phase 6 Structured Generative UI Engine**:
+  - Unified model tool `render_ui` with strict Zod schema validation (`uiResponseV1Schema`).
+  - Provider normalization handling direct objects or stringified JSON arguments from both Gemini and Claude.
+  - Server-side authorization (`UIAuthorizer`) validating all referenced resource IDs against user/session ownership.
+  - Strict input sanitization rejecting raw scripts, external event handlers, and returning safe text fallbacks.
+  - Full suite of 10 UI blocks: `text`, `table` (with sort, filter, pagination up to 500 rows), `metric` (trend, delta, sentiments), `chart` (Recharts bar, line, area, pie, donut, scatter), `comparison`, `timeline`, `steps`, `cards`, `sources`, and `dashboard` (non-recursive container).
+  - Modern frontend rendering in `arcnave-frontend/src/generative-ui/` with responsive CSS and full light/dark theme parity.
+
+- **Phase 7 Advanced Data Analytics & Interactive Dashboards**:
+  - Deterministic CSV tabular profiling and schema inference (`parseCSV`, `profileTabularData`) with automated data quality scoring (`evaluateDataQuality`).
+  - Non-circular session initialization: create `analysisSessions` -> insert root `analysisDatasets` -> atomically point `currentDatasetId`.
+  - Immutable dataset versioning with opaque model-facing handles (`ds_...`), preventing model exposure to internal storage keys.
+  - Durable computation provenance (`analysisResults`) linking operations directly to specific dataset IDs.
+  - Zero raw data rows stored in Postgres metadata.
+  - Ephemeral derived datasets protected with a 7-day sliding TTL and full reproducible lineage (`analysisTransformations`).
+  - Expired dataset reconstruction replay verified: purged derived dataset is 100% reconstructed from root source + lineage scripts.
+  - Format-native deliverable exports (XLSX spreadsheet via `renderSpreadsheet` and PDF report via `renderPdf`) verified via binary inspectors.
+
+- **Live Model E2E Evaluation Matrix (Vertex AI Live Verification)**:
+  ```text
+  Gemini Phase 6 Live E2E
+  - Comparison Matrix               ✅ render_ui called (blocks: comparison, table, cards, steps) | Validation OK
+  - Chart Generation                ✅ render_ui called (blocks: metric, chart) | Validation OK
+  - Casual Greeting ("Hi")          ✅ 0 tool calls (clean conversational response)
+  - Malicious Script Injection      ✅ Rejected by validator | Sanitized fallback extracted
+
+  Claude Phase 6 Live E2E
+  - Steps Instructions              ✅ render_ui called (blocks: steps, text) | Validation OK
+  - Casual Greeting ("Hi")          ✅ 0 tool calls (clean conversational response)
+  - Malicious Script Injection      ✅ Rejected by validator | Sanitized fallback extracted
+
+  Gemini Phase 7 Live E2E
+  - Tabular Ingestion & Profiling   ✅ Root V1 (7 cols, 7 rows, 99/100 quality score)
+  - Monthly Aggregations & Metrics  ✅ $82,000 realized revenue, 62.2% margin
+  - Executive Dashboard Gen         ✅ render_ui called (blocks: metric, metric, chart, text) | Validation OK
+  - Derived Dataset V2              ✅ Filtered cancellations (5 rows, 7-day TTL assigned)
+  - Expired Lineage Replay          ✅ 100% MATCH with V2 original
+  - Export Deliverables             ✅ XLSX (7,114 bytes, verified true), PDF (39,827 bytes, verified true)
+
+  Claude Phase 7 Live E2E
+  - Analytics Dashboard Gen         ✅ render_ui called (blocks: metric, metric, chart, table, text) | Validation OK
+  - Lineage & V2 Transformation     ✅ Verified
+  - Deliverable Exports (XLSX/PDF)  ✅ Verified
+
+  Test & Code Quality Gates
+  - Backend Phase 6/7 Tests         ✅ 57/57 passed
+  - Cross-Phase Regressions         ✅ 58/58 passed
+  - Frontend Test Suite             ✅ 36/36 passed
+  - Frontend Build (tsc + vite)     ✅ 0 errors
+  - Backend Build (tsc)             ✅ 0 errors
+  - Production Health (/readyz)     ✅ 200 OK (DB, Vertex, Grounding, GCS ready)
+  - Models Availability (/v1/models)✅ All 4 models available
+  ==========================================================================================
+  Phase 6 — Structured Generative UI       ✅ COMPLETE & FROZEN
+  Phase 7 — Advanced Data Analytics       ✅ COMPLETE & FROZEN
+  ==========================================================================================
+  ```
+
+- **Cloud Deployment Verification (2026-09-20)**:
+  - Trigger: Cloud Build `fd7516b6-5413-44ae-9337-e7d86684c2f4` triggered automatically on push of `30758bd` to `main`.
+  - Image built & deployed: `asia-south1-docker.pkg.dev/project-8bcf740a-a7bd-4aea-974/cloud-run-source-deploy/arcnave-tech/arcnave-sandbox-service:30758bda94ca598f74f206d08c858bef5a0700f1`.
+  - Revision: `arcnave-sandbox-service-00097-6m7` in `asia-south1` transitioned to Ready and is serving 100% of production traffic.
+  - Live probe against production service `https://arcnave-sandbox-service-756927892291.asia-south1.run.app`:
+    - `GET /readyz` -> `HTTP 200 OK`: `{"status":"ready","checks":{"database":true,"vertexConfigured":true,"groundingConfigured":true,"storageBackend":"gcs"}}`
+    - `GET /v1/models` -> `HTTP 200 OK`: all 4 models (`gemini-3.8-flash`, `claude-sonnet-5`, `claude-opus-5`, `openai/gpt-oss-120b-maas`) report `available: true`.
+
+
 
 
 
