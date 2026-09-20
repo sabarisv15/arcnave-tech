@@ -1,0 +1,89 @@
+import { describe, expect, it } from 'vitest';
+import { compactionService } from './compactionService.js';
+import { compactionSummarySchema, type CompactionSummary } from './types.js';
+
+describe('Phase 5.3 Conversation Compaction', () => {
+  it('triggers compaction when headroom falls below threshold', () => {
+    // 32K context window, 25K tokens used => headroom = 32768 - 25000 - 4096 - 2048 = 1624 <= 8192
+    const check = compactionService.checkTrigger(32768, 25000, 4096, 2048, true);
+    expect(check.shouldCompact).toBe(true);
+    expect(check.headroomTokens).toBe(1624);
+    expect(check.reason).toContain('Headroom');
+  });
+
+  it('does not trigger compaction when ample headroom exists', () => {
+    // 128K context window, 10K tokens used => headroom = 128000 - 10000 - 4096 - 2048 = 111856
+    const check = compactionService.checkTrigger(128000, 10000);
+    expect(check.shouldCompact).toBe(false);
+    expect(check.headroomTokens).toBe(111856);
+  });
+
+  it('validates 11-field structured compaction schema', () => {
+    const validSummary: CompactionSummary = {
+      priorSummaryFolded: false,
+      conversationTopic: 'Financial Dashboard Architecture',
+      userExplicitPreferences: ['TypeScript strict mode', 'Dark theme'],
+      establishedConstraints: ['No external CDN scripts', 'WCAG AA compliance'],
+      artifactsCreatedOrModified: [
+        {
+          artifactId: 'art-123',
+          title: 'Architecture Spec',
+          kind: 'markdown',
+          version: 1,
+        },
+      ],
+      activeGoalsAndState: [
+        {
+          description: 'Implement financial dashboard',
+          status: 'in_progress',
+          note: 'Step 2 completed',
+        },
+      ],
+      keyFactualDiscoveries: ['Postgres GIN index is available', 'Vertex AI supports caching'],
+      pendingUserRequests: ['Add export to CSV'],
+      openTasksAndNextSteps: ['Implement export button', 'Verify color contrast'],
+      userDirectivesContinuity: ['Never truncate tables without user consent'],
+      criticalContextNotes: 'Client presentation scheduled for next week.',
+    };
+
+    const parsed = compactionSummarySchema.parse(validSummary);
+    expect(parsed.conversationTopic).toBe('Financial Dashboard Architecture');
+    expect(parsed.artifactsCreatedOrModified).toHaveLength(1);
+    expect(parsed.activeGoalsAndState).toHaveLength(1);
+  });
+
+  it('formats compaction into XML context for prompt injection', () => {
+    const dummyCompaction = {
+      id: 'comp-1',
+      chatId: 'chat-1',
+      throughMessageId: 'msg-10',
+      throughSeq: 10,
+      summary: {
+        priorSummaryFolded: true,
+        conversationTopic: 'Doc Exporter Implementation',
+        userExplicitPreferences: ['Prefer DOCX and XLSX'],
+        establishedConstraints: ['Node.js standard library'],
+        artifactsCreatedOrModified: [],
+        activeGoalsAndState: [],
+        keyFactualDiscoveries: [],
+        pendingUserRequests: [],
+        openTasksAndNextSteps: ['Test with Excel 2021'],
+        userDirectivesContinuity: [],
+        criticalContextNotes: 'All formats verified',
+      },
+      tokenCountBefore: 12000,
+      tokenCountAfter: 1500,
+      provider: 'google',
+      model: 'gemini-3.8-flash',
+      createdAt: new Date(),
+    };
+
+    const formatted = compactionService.formatCompactionForPrompt(dummyCompaction);
+    expect(formatted).toContain('<conversation_compaction through_message_id="msg-10" through_seq="10">');
+    expect(formatted).toContain('Topic: Doc Exporter Implementation');
+    expect(formatted).toContain('Prefer DOCX and XLSX');
+    expect(formatted).toContain('Test with Excel 2021');
+    expect(formatted).toContain('Critical Context Notes: All formats verified');
+    expect(formatted).toContain('</conversation_compaction>');
+  });
+});

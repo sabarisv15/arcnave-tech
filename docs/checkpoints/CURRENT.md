@@ -1223,4 +1223,61 @@ verification command for each is in `mistakes.md`; summary:
       TypeScript                        ✅ 0 errors
       ```
 
+- **Phase 5 — Context Intelligence: Prompt Caching, Persistent Memory, & Conversation Compaction (2026-09-20)**:
+  - **Subsystem 5.1: Prompt Caching**:
+    - Centralized prompt assembly engine (`src/services/promptCache/promptAssembly.ts`) strictly separating the 100% static stable prefix from dynamic per-turn suffix.
+    - Stable prefix includes `STATIC_BASE_SYSTEM_PROMPT_V1`, `STATIC_MEMORY_POLICY_V1`, `STATIC_COMPACTION_POLICY_V1`, and canonicalized tools derived from authorized `ToolRegistry` output.
+    - Dynamic suffix places runtime capability reflections (`<arcNave_capabilities>`), user standing instructions, project instructions, memory, compaction, and file retrieval strictly after the cache boundary.
+    - Zero artificial prompt padding: prompt caching thresholds verified against official Google Cloud & Anthropic documentation (Claude breakpoint $\ge 1,024$ tokens; Gemini 3.8 Flash implicit caching $\ge 6,144$ tokens).
+    - Live Vertex AI evaluation confirmed on Claude Sonnet 5:
+      - Cache write: 7,989 tokens written to ephemeral cache on Turn 1.
+      - Cache read: 7,989 tokens read on Turn 2 (**HIT: SUCCESS**).
+      - Latency reduced from 2,423ms $\to$ 1,302ms (1.12s improvement).
+      - Telemetry and cost savings normalized via `normalizeCacheMetrics`.
+  - **Subsystem 5.2: Persistent Memory**:
+    - Database migration `0007_smart_maximus.sql` creating `memory_items` table with GIN FTS index on `to_tsvector('simple', coalesce(key, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(content, ''))`.
+    - `MemoryService` (`src/services/memory/memoryService.ts`) with:
+      - Privacy & credential filter (`privacy.ts`) preventing API keys, passwords, connection strings, or private keys from persisting.
+      - Rank-based full-text search with `ts_rank_cd` and `websearch_to_tsquery('simple', ...)`.
+      - Optimistic concurrency control using `version` column, throwing `MemoryConcurrencyError` on race conditions.
+      - Standing memories retrieval bounded by `MEMORY_STANDING_MAX_CHARS` (default 2,000 characters).
+      - Active store deletion with zero message mutation: forgetting a memory removes it from active storage while leaving the underlying chat transcript completely untouched.
+    - Tool definitions & executor: `search_memory`, `read_memory`, `update_memory`, `forget_memory` registered in `ProjectToolRegistry` behind `ENABLE_MEMORY` for both normal chat and agent loop modes.
+    - REST API surface: `GET /v1/memory`, `DELETE /v1/memory/:id`, `DELETE /v1/memory/project/:projectId`, `DELETE /v1/memory/all`.
+    - Background distillation service (`distiller.ts`) extracting durable preferences strictly from user-authored statements.
+    - Live real-model evaluation on Gemini 3.8 Flash: 4/4 scenarios passed (explicit remember, standing constraint enforcement with `date-fns` over `moment.js`, active forget, and zero hallucination on neutral questions).
+  - **Subsystem 5.3: Conversation Compaction**:
+    - Database table `conversation_compactions` with unique index on `(chat_id, through_seq)`.
+    - `CompactionService` (`src/services/compaction/compactionService.ts`) with headroom calculation (`totalContext - inputTokens - outputReserve - safetyReserve`).
+    - Validated 11-field structured Zod schema (`compactionSummarySchema`) capturing topics, preferences, constraints, artifacts, goals, discoveries, pending requests, next steps, continuity directives, and context notes.
+    - Incremental folding algorithm combining prior compaction summaries with intervening turns.
+    - Invariant: underlying raw messages in `messages` table are NEVER deleted from Postgres.
+    - `loadHistory()` in `GenerationService` filters `messages.seq > throughSeq`, maintaining seamless continuity while keeping context bounded.
+    - Live evaluation on Gemini 3.8 Flash verified all checks: trigger condition, 11-field structured distillation, zero raw message deletion, and model continuity across compacted turns.
+  - **Subsystem 5.4: Frontend Settings UI**:
+    - Extended `api.ts` with `MemoryItemDto`, `MemoryListDto`, `api.memory.list`, `api.memory.delete`, `api.memory.clearProject`, `api.memory.clearAll`.
+    - Extended `Settings.tsx` Personalization tab with a dedicated Persistent Memories section:
+      - Memory list with key, content, scope, and status badges (`Standing` vs `Retrieved`).
+      - Individual delete button (`Trash2`) and "Clear all" button.
+    - Clean production build via Vite (`npm run build` passed in 6.46s).
+  - **Overall Phase 5 Test & Verification Matrix**:
+    ```text
+    Base System Prompt v1             ✅ 100% Frozen
+    Prompt Caching Breakpoint         ✅ Live Verified (7,989 tokens cached on Claude Sonnet 5)
+    Prompt Caching Latency Reduction  ✅ 2,423ms -> 1,302ms (1.12s faster)
+    Persistent Memory GIN FTS         ✅ Live Verified on Postgres
+    Memory Concurrency Control        ✅ Optimistic concurrency via version
+    Memory Secret/Privacy Filter      ✅ Credentials detected & rejected
+    Memory Active Forget              ✅ Active memory deleted; raw chat intact
+    Conversation Compaction           ✅ Validated 11-field structured schema
+    Message Deletion Invariant        ✅ 0 raw messages deleted
+    Compaction Continuity             ✅ Verified seamless continuity on Gemini
+    Frontend Settings Memory UI       ✅ Built & Verified (0 errors)
+    Gemini Live Behavior E2E          ✅ 12/12 passed (gemini-3.8-flash)
+    Claude Live Behavior E2E          ✅ 12/12 passed (claude-sonnet-5)
+    Backend Tests                     ✅ 429/429 passed (36/36 test files)
+    TypeScript Compile                ✅ 0 errors (tsc --noEmit)
+    ```
+
+
 

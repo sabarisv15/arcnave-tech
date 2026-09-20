@@ -16,9 +16,10 @@ import {
   Shield,
   Keyboard,
   TriangleAlert,
+  Trash2,
 } from "lucide-react";
 import { ApiError, api } from "./api";
-import type { LimitsDto, UsageSummaryDto } from "./api";
+import type { LimitsDto, MemoryItemDto, UsageSummaryDto } from "./api";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
 import { Modal } from "./ui";
@@ -223,6 +224,42 @@ export default function Settings() {
 function Personalization() {
   const { preferences, updatePreferences } = useWorkspace();
   const [text, setText] = useState(preferences.instructions);
+  const [memories, setMemories] = useState<MemoryItemDto[]>([]);
+  const [loadingMemories, setLoadingMemories] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const loadMemories = () => {
+    setLoadingMemories(true);
+    api.memory
+      .list()
+      .then((res) => setMemories(res.items))
+      .catch(() => {})
+      .finally(() => setLoadingMemories(false));
+  };
+
+  useEffect(() => {
+    loadMemories();
+  }, []);
+
+  const handleDeleteMemory = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await api.memory.delete(id);
+      setMemories((prev) => prev.filter((m) => m.id !== id));
+    } catch {}
+    setDeletingId(null);
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm("Are you sure you want to delete all stored persistent memories?")) return;
+    setLoadingMemories(true);
+    try {
+      await api.memory.clearAll();
+      setMemories([]);
+    } catch {}
+    setLoadingMemories(false);
+  };
+
   useEffect(
     () => setText(preferences.instructions),
     [preferences.instructions],
@@ -234,9 +271,9 @@ function Personalization() {
         A little context for future conversations.
       </p>
       <label className="field-label">
-        Your preferences
+        Your standing instructions
         <textarea
-          rows={7}
+          rows={5}
           maxLength={20000}
           placeholder="How would you like responses to be written?"
           value={text}
@@ -262,6 +299,94 @@ function Personalization() {
           Save instructions
         </button>
       </div>
+
+      <hr style={{ margin: "24px 0", borderColor: "var(--border-subtle, #333)" }} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+        <div>
+          <strong style={{ fontSize: "14px" }}>Persistent Memories</strong>
+          <p className="field-help" style={{ margin: "2px 0 0" }}>
+            Durable preferences, constraints, and facts remembered across chats.
+          </p>
+        </div>
+        {memories.length > 0 && (
+          <button
+            className="button"
+            style={{ fontSize: "12px", color: "var(--danger, #ff6b6b)" }}
+            onClick={handleClearAll}
+            disabled={loadingMemories}
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {loadingMemories ? (
+        <p className="loading-line" style={{ fontSize: "13px" }}>
+          <Loader2 size={14} className="spin" />
+          Loading memories…
+        </p>
+      ) : memories.length === 0 ? (
+        <p style={{ fontSize: "13px", color: "var(--text-muted, #888)", fontStyle: "italic" }}>
+          No memories stored yet. ArcNave remembers durable preferences when instructed (e.g. &quot;remember that...&quot;).
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "260px", overflowY: "auto" }}>
+          {memories.map((m) => (
+            <div
+              key={m.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                padding: "8px 12px",
+                borderRadius: "6px",
+                background: "var(--bg-subtle, rgba(255,255,255,0.03))",
+                border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
+                fontSize: "13px",
+              }}
+            >
+              <div style={{ flex: 1, marginRight: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
+                  <strong style={{ fontSize: "12px" }}>{m.key}</strong>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      padding: "1px 5px",
+                      borderRadius: "4px",
+                      background: m.isStanding ? "rgba(76, 175, 80, 0.2)" : "rgba(33, 150, 243, 0.2)",
+                      color: m.isStanding ? "#81c784" : "#64b5f6",
+                    }}
+                  >
+                    {m.isStanding ? "Standing" : "Retrieved"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      padding: "1px 5px",
+                      borderRadius: "4px",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      color: "#aaa",
+                    }}
+                  >
+                    {m.scope}
+                  </span>
+                </div>
+                <p style={{ margin: 0, color: "var(--text, #eee)", wordBreak: "break-word" }}>{m.content}</p>
+              </div>
+              <button
+                className="button-icon"
+                title="Forget this memory"
+                disabled={deletingId === m.id}
+                onClick={() => handleDeleteMemory(m.id)}
+                style={{ padding: "4px", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted, #888)" }}
+              >
+                {deletingId === m.id ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

@@ -384,3 +384,114 @@ export const WEB_FETCH: ToolDefinition = {
 
 export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH];
 
+/* -------------------------------------------------------------------------- Phase 5: Memory tools */
+
+export const SEARCH_MEMORY: ToolDefinition = {
+  name: 'search_memory',
+  description:
+    'Searches persistent memory across past conversations for user preferences, constraints, ' +
+    'project decisions, or remembered facts. Returns matching memories with their canonical memoryId, ' +
+    'key, summary, content excerpt, version, and relevance score.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Keywords or search phrase to look up in persistent memory.',
+      },
+      scope: {
+        type: 'string',
+        enum: ['global', 'project'],
+        description: 'Optional scope filter: "global" for user-wide memories, "project" for current project.',
+      },
+      limit: {
+        type: 'integer',
+        description: 'Maximum number of memories to return (1 to 10). Defaults to 5.',
+      },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+};
+
+export const READ_MEMORY: ToolDefinition = {
+  name: 'read_memory',
+  description:
+    'Reads the complete content and metadata of a persistent memory item by its canonical memoryId.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      memoryId: {
+        type: 'string',
+        description: 'The canonical UUID of the memory item, as returned by search_memory.',
+      },
+    },
+    required: ['memoryId'],
+    additionalProperties: false,
+  },
+};
+
+export const UPDATE_MEMORY: ToolDefinition = {
+  name: 'update_memory',
+  description:
+    'Updates an existing persistent memory item. Requires the canonical memoryId and ' +
+    'expectedVersion for optimistic concurrency control.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      memoryId: {
+        type: 'string',
+        description: 'The canonical UUID of the memory item to update.',
+      },
+      expectedVersion: {
+        type: 'integer',
+        description: 'The current version of the memory item being modified, to prevent race conditions.',
+      },
+      content: {
+        type: 'string',
+        description: 'Updated memory content.',
+      },
+      summary: {
+        type: 'string',
+        description: 'Short single-sentence summary of the memory.',
+      },
+      isStanding: {
+        type: 'boolean',
+        description: 'Whether this memory is a standing preference loaded into all conversations.',
+      },
+    },
+    required: ['memoryId', 'expectedVersion'],
+    additionalProperties: false,
+  },
+};
+
+export const FORGET_MEMORY: ToolDefinition = {
+  name: 'forget_memory',
+  description:
+    'Removes a memory item from active persistent storage by its canonical memoryId. ' +
+    'Deletes the item from active memory; original chat transcripts are preserved.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      memoryId: {
+        type: 'string',
+        description: 'The canonical UUID of the memory item to remove.',
+      },
+      expectedVersion: {
+        type: 'integer',
+        description: 'Optional expected version for concurrency safety.',
+      },
+    },
+    required: ['memoryId'],
+    additionalProperties: false,
+  },
+};
+
+export const MEMORY_TOOL_DEFINITIONS: ToolDefinition[] = [
+  SEARCH_MEMORY,
+  READ_MEMORY,
+  UPDATE_MEMORY,
+  FORGET_MEMORY,
+];
+
+

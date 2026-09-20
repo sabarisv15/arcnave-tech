@@ -224,6 +224,30 @@ const envSchema = z.object({
   /** Maximum bytes of content allowed in a model-generated artifact (create/update). */
   ARTIFACT_MAX_CONTENT_BYTES: int(500_000),
 
+  // --- Phase 5: Context Intelligence -------------------------------------
+  /** Master gate for provider prompt caching (prefix stability & cache_control). */
+  ENABLE_PROMPT_CACHE: bool(false),
+  /** Minimum prefix token count required before Anthropic cache_control is placed. */
+  PROMPT_CACHE_MIN_TOKENS_ANTHROPIC: int(1024),
+  /** Minimum prefix token count expected before Gemini Vertex implicit caching kicks in. */
+  PROMPT_CACHE_MIN_TOKENS_GEMINI: int(2048),
+
+  /** Master gate for persistent memory (PostgreSQL durable memory_items). */
+  ENABLE_MEMORY: bool(false),
+  /** Background conservative distillation of durable user-stated facts. */
+  ENABLE_MEMORY_BACKGROUND_DISTILL: bool(false),
+  /** Maximum total characters allocated to standing context memories. */
+  MEMORY_STANDING_MAX_CHARS: int(2000),
+  /** Maximum relevant memory items injected per turn. */
+  MEMORY_RELEVANT_MAX_ITEMS: int(5),
+
+  /** Master gate for context pressure-driven conversation compaction. */
+  ENABLE_CONTEXT_COMPACTION: bool(false),
+  /** Headroom threshold in tokens below which compaction triggers. */
+  COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),
+  /** Headroom ratio (remaining context / total context window) below which compaction triggers. */
+  COMPACTION_TRIGGER_HEADROOM_RATIO: z.coerce.number().min(0.01).max(0.99).default(0.15),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),

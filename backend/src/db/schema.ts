@@ -600,6 +600,81 @@ export const goalEvents = pgTable(
   ],
 );
 
+/* -------------------------------------------------------------------------- persistent memory & compaction */
+
+/**
+ * Phase 5.2: Persistent Memory.
+ * Stores durable cross-session facts, preferences, profile details, and project decisions.
+ * Supports optimistic concurrency via `version`, scope isolation (global vs project),
+ * standing context classification (`isStanding`), and PostgreSQL GIN Full-Text Search.
+ */
+export const memoryItems = pgTable(
+  'memory_items',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    scope: varchar('scope', { length: 16 }).notNull().default('global'), // 'global' | 'project'
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 24 }).notNull().default('preference'), // 'profile' | 'preference' | 'feedback' | 'project'
+    key: varchar('key', { length: 200 }).notNull(),
+    content: text('content').notNull(),
+    summary: text('summary').notNull().default(''),
+    isStanding: boolean('is_standing').notNull().default(false),
+    sourceType: varchar('source_type', { length: 32 }).notNull().default('user_statement'), // 'user_statement' | 'explicit_memory_command' | 'project_decision'
+    sourceChatId: uuid('source_chat_id').references(() => chats.id, { onDelete: 'set null' }),
+    sourceMessageId: uuid('source_message_id').references(() => messages.id, { onDelete: 'set null' }),
+    version: integer('version').notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('ix_memory_user_scope').on(t.userId, t.scope, t.projectId),
+    index('ix_memory_user_standing').on(t.userId, t.isStanding),
+    uniqueIndex('uq_memory_user_scope_key').on(
+      t.userId,
+      t.scope,
+      sql`coalesce(${t.projectId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      t.key,
+    ),
+    // Real PostgreSQL GIN Full-Text Search index
+    index('ix_memory_fts').using(
+      'gin',
+      sql`to_tsvector('simple', coalesce(${t.key}, '') || ' ' || coalesce(${t.summary}, '') || ' ' || coalesce(${t.content}, ''))`,
+    ),
+  ],
+);
+
+/**
+ * Phase 5.3: Conversation Compactions.
+ * Records structured, 11-point context summaries of earlier conversation turns when context pressure triggers.
+ * Preserves narrative continuity across compactions without deleting the underlying raw messages in Postgres.
+ */
+export const conversationCompactions = pgTable(
+  'conversation_compactions',
+  {
+    id: id(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    throughMessageId: uuid('through_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    throughSeq: integer('through_seq').notNull(),
+    summary: jsonb('summary').$type<Record<string, unknown>>().notNull(),
+    tokenCountBefore: integer('token_count_before'),
+    tokenCountAfter: integer('token_count_after'),
+    provider: varchar('provider', { length: 32 }),
+    model: varchar('model', { length: 128 }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('uq_compactions_chat_seq').on(t.chatId, t.throughSeq),
+    index('ix_compactions_chat').on(t.chatId),
+  ],
+);
+
 /* -------------------------------------------------------------------------- relations */
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -667,6 +742,18 @@ export const goalEventsRelations = relations(goalEvents, ({ one }) => ({
   goal: one(goals, { fields: [goalEvents.goalId], references: [goals.id] }),
 }));
 
+export const memoryItemsRelations = relations(memoryItems, ({ one }) => ({
+  user: one(users, { fields: [memoryItems.userId], references: [users.id] }),
+  project: one(projects, { fields: [memoryItems.projectId], references: [projects.id] }),
+  sourceChat: one(chats, { fields: [memoryItems.sourceChatId], references: [chats.id] }),
+  sourceMessage: one(messages, { fields: [memoryItems.sourceMessageId], references: [messages.id] }),
+}));
+
+export const conversationCompactionsRelations = relations(conversationCompactions, ({ one }) => ({
+  chat: one(chats, { fields: [conversationCompactions.chatId], references: [chats.id] }),
+  throughMessage: one(messages, { fields: [conversationCompactions.throughMessageId], references: [messages.id] }),
+}));
+
 /* -------------------------------------------------------------------------- inferred types */
 
 export type User = typeof users.$inferSelect;
@@ -691,3 +778,7 @@ export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
 export type GoalEvent = typeof goalEvents.$inferSelect;
 export type NewGoalEvent = typeof goalEvents.$inferInsert;
+export type MemoryItem = typeof memoryItems.$inferSelect;
+export type NewMemoryItem = typeof memoryItems.$inferInsert;
+export type ConversationCompaction = typeof conversationCompactions.$inferSelect;
+export type NewConversationCompaction = typeof conversationCompactions.$inferInsert;

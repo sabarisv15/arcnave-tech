@@ -31,6 +31,7 @@ import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chats.js';
 import { fileRoutes } from './routes/files.js';
 import { healthRoutes } from './routes/health.js';
+import { memoryRoutes } from './routes/memory.js';
 import { modelRoutes } from './routes/models.js';
 import { preferenceRoutes } from './routes/preferences.js';
 import { projectRoutes } from './routes/projects.js';
@@ -188,6 +189,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       await scope.register(preferenceRoutes);
       await scope.register(fileRoutes);
       await scope.register(skillRoutes);
+      await scope.register(memoryRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );

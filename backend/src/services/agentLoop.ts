@@ -42,6 +42,9 @@ import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
+import { memoryService } from './memory/memoryService.js';
+import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
+import { buildStablePrefix } from './promptCache/promptAssembly.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { Retriever } from './retrieval.js';
 import type { SkillService } from './skills.js';
@@ -193,12 +196,14 @@ export class AgentLoop {
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
+    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
       this.cfg.ENABLE_AGENT_LOOP,
       skillsEnabled,
       webEnabled,
+      memoryEnabled,
     );
 
     const activeHistory: Turn[] = [...history];
@@ -347,6 +352,14 @@ export class AgentLoop {
           baseMap.set('read_skill', skillToolExecutor);
         }
 
+        if (memoryEnabled) {
+          const memoryToolExecutor = new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null);
+          baseMap.set('search_memory', memoryToolExecutor);
+          baseMap.set('read_memory', memoryToolExecutor);
+          baseMap.set('update_memory', memoryToolExecutor);
+          baseMap.set('forget_memory', memoryToolExecutor);
+        }
+
         const rawDispatcher = new DispatchingToolExecutor(baseMap);
 
         // Intercept tools with G2 check, failure tracking, and recovery logging
@@ -362,7 +375,9 @@ export class AgentLoop {
               call.name !== 'list_skills' &&
               call.name !== 'search_skills' &&
               call.name !== 'read_skill' &&
-              call.name !== 'read_artifact'
+              call.name !== 'read_artifact' &&
+              call.name !== 'search_memory' &&
+              call.name !== 'read_memory'
             ) {
               const isG2 = await GoalToolExecutor.isToolG2Blocked(this.db, activeGoal.id, call.name);
               if (isG2) {
@@ -405,11 +420,18 @@ export class AgentLoop {
           },
         };
 
+        const promptAssembly = {
+          stablePrefix: buildStablePrefix(availableTools),
+          dynamicSuffix: {},
+          fullSystemInstruction: effectiveSystemInstruction,
+        };
+
         const request: GenerationRequest = {
           prompt: input.prompt,
           history: activeHistory,
           attachments: input.attachments,
           systemInstruction: effectiveSystemInstruction,
+          promptAssembly,
           mode: input.mode,
           maxOutputTokens,
           providerModelId: entry.providerModelId!,

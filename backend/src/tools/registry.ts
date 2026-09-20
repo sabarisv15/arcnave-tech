@@ -9,6 +9,7 @@
 import {
   ARTIFACT_TOOL_DEFINITIONS,
   GOAL_TOOL_DEFINITIONS,
+  MEMORY_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
   SKILL_TOOL_DEFINITIONS,
@@ -18,6 +19,7 @@ import {
 import type { ToolDefinition } from '../providers/types.js';
 
 export interface ToolContext {
+  userId?: string;
   projectId: string | null;
   activeGoalId?: string | null;
 }
@@ -39,6 +41,9 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly skillsEnabled: boolean = false,
     /** Phase 2 web gate — exposes web_search and web_fetch tools. */
     private readonly webEnabled: boolean = false,
+    /** Phase 5 memory gate — exposes persistent memory tools (search_memory, read_memory,
+     *  update_memory, forget_memory) in both chat and agent modes. */
+    private readonly memoryEnabled: boolean = false,
   ) {}
 
   getAvailableTools(context: ToolContext): ToolDefinition[] {
@@ -49,6 +54,11 @@ export class ProjectToolRegistry implements ToolRegistry {
 
       // Upload file reading is available across all chats when tool use is on.
       tools.push(...UPLOAD_TOOL_DEFINITIONS);
+
+      // Persistent memory tools are available across all chats when memory is enabled
+      if (this.memoryEnabled) {
+        tools.push(...MEMORY_TOOL_DEFINITIONS);
+      }
 
       // Web search and fetch when webEnabled is true
       if (this.webEnabled) {

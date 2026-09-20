@@ -579,6 +579,27 @@ interface Page<T> {
   nextCursor: string | null;
 }
 
+export interface MemoryItemDto {
+  id: string;
+  userId: string;
+  scope: string;
+  projectId: string | null;
+  kind: string;
+  key: string;
+  content: string;
+  summary: string;
+  isStanding: boolean;
+  sourceType: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryListDto {
+  items: MemoryItemDto[];
+  total: number;
+}
+
 /* -------------------------------------------------------------------------- endpoints */
 
 export const api = {
@@ -773,5 +794,13 @@ export const api = {
       get<{ items: MessageUsageDto[] }>("/usage/messages", { chatId }),
     exportUrl: (since?: string) =>
       url("/usage/export", since ? { since } : undefined),
+  },
+
+  memory: {
+    list: (params?: { projectId?: string; scope?: string; limit?: number; offset?: number }) =>
+      get<MemoryListDto>("/memory", params),
+    delete: (id: string) => del(`/memory/${id}`),
+    clearProject: (projectId: string) => del(`/memory/project/${projectId}`),
+    clearAll: () => del("/memory/all"),
   },
 };

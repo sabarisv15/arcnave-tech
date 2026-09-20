@@ -41,6 +41,7 @@ import type {
   ProviderEvent,
   ProviderSource,
   ProviderUsage,
+  ToolDefinition,
   ToolExecutor,
   ToolResult,
   Turn,
@@ -66,7 +67,13 @@ import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
-import { buildBaseSystemPrompt } from './systemPrompt.js';
+import { buildBaseSystemPrompt, buildDynamicRuntimeContext } from './systemPrompt.js';
+import { assemblePrompt } from './promptCache/promptAssembly.js';
+import type { PromptAssembly } from './promptCache/types.js';
+import { memoryService } from './memory/memoryService.js';
+import { distillUserStatement } from './memory/distiller.js';
+import { compactionService } from './compaction/compactionService.js';
+import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -213,10 +220,13 @@ export class GenerationService {
     const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
+    const latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
+      ? await compactionService.getLatestCompaction(input.chatId)
+      : null;
     // Loaded before model resolution (not its historical position) because whether this turn
     // needs a vision-capable model depends on what's carried forward, not only on what's newly
     // attached — and loadHistory has no dependency on which model gets picked.
-    const history = await this.loadHistory(input.chatId, input.messageId);
+    const history = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq);
 
     // --- resolve the model ------------------------------------------------
     const requiresGrounding = input.mode !== 'chat';
@@ -279,11 +289,31 @@ export class GenerationService {
       model: modelInfo,
     };
 
+    // --- resolve available tools -------------------------------------------
+    const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
+    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
+    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
+    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
+    const toolRegistry = new ProjectToolRegistry(
+      this.cfg.ENABLE_TOOL_USE,
+      runPythonEnabled,
+      false,
+      skillsEnabled,
+      webEnabled,
+      memoryEnabled,
+    );
+    const availableTools = toolRegistry.getAvailableTools({
+      userId: input.userId,
+      projectId: project?.id ?? null,
+    });
+    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+
     // --- assemble context -------------------------------------------------
-    const { systemInstruction, contextEvents } = await this.buildSystemInstruction(
+    const { systemInstruction, contextEvents, promptAssembly } = await this.buildSystemInstruction(
       input,
       prefs,
       project,
+      availableTools,
     );
     for (const event of contextEvents) {
       yield event;
@@ -341,19 +371,6 @@ export class GenerationService {
       return;
     }
 
-    const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
-    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
-    const toolRegistry = new ProjectToolRegistry(
-      this.cfg.ENABLE_TOOL_USE,
-      runPythonEnabled,
-      false,
-      skillsEnabled,
-      webEnabled,
-    );
-    const availableTools = toolRegistry.getAvailableTools({ projectId: project?.id ?? null });
-    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
-
     const projectToolExecutor =
       availableTools.length > 0 && project !== null && this.cfg.ENABLE_TOOL_USE
         ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
@@ -396,6 +413,10 @@ export class GenerationService {
       ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService())
       : undefined;
 
+    const memoryToolExecutor = memoryEnabled
+      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+      : undefined;
+
     const toolMap = new Map<string, ToolExecutor>();
     if (artifactToolExecutor) {
       toolMap.set('create_artifact', artifactToolExecutor);
@@ -408,6 +429,12 @@ export class GenerationService {
     if (webToolExecutor) {
       toolMap.set('web_search', webToolExecutor);
       toolMap.set('web_fetch', webToolExecutor);
+    }
+    if (memoryToolExecutor) {
+      toolMap.set('search_memory', memoryToolExecutor);
+      toolMap.set('read_memory', memoryToolExecutor);
+      toolMap.set('update_memory', memoryToolExecutor);
+      toolMap.set('forget_memory', memoryToolExecutor);
     }
     if (projectToolExecutor) {
       toolMap.set('search_project_files', projectToolExecutor);
@@ -432,6 +459,7 @@ export class GenerationService {
       history,
       attachments: input.attachments,
       systemInstruction,
+      promptAssembly,
       mode: input.mode,
       maxOutputTokens,
       providerModelId: entry.providerModelId!,
@@ -612,6 +640,18 @@ export class GenerationService {
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
     });
 
+    if (status === 'complete' && this.cfg.ENABLE_MEMORY && this.cfg.ENABLE_MEMORY_BACKGROUND_DISTILL) {
+      distillUserStatement({
+        userId: input.userId,
+        userMessage: input.prompt,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        projectId: project?.id ?? null,
+      }).catch((err) => {
+        log.debug({ err }, 'Background memory distillation failed');
+      });
+    }
+
     // A cancelled run has no terminal `done`: the client already knows it stopped, and
     // emitting "done" would claim a completion that did not happen.
     if (status === 'complete') {
@@ -760,11 +800,23 @@ export class GenerationService {
   }
 
   /** Prior turns, oldest first, excluding the assistant row we are about to fill. */
-  private async loadHistory(chatId: string, excludeMessageId: string): Promise<Turn[]> {
+  private async loadHistory(
+    chatId: string,
+    excludeMessageId: string,
+    throughSeq?: number,
+  ): Promise<Turn[]> {
+    const conditions = [
+      eq(messages.chatId, chatId),
+      sql`${messages.id} <> ${excludeMessageId}`,
+    ];
+    if (throughSeq !== undefined && throughSeq > 0) {
+      conditions.push(sql`${messages.seq} > ${throughSeq}`);
+    }
+
     const rows = await this.db
       .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq })
       .from(messages)
-      .where(and(eq(messages.chatId, chatId), sql`${messages.id} <> ${excludeMessageId}`))
+      .where(and(...conditions))
       .orderBy(desc(messages.seq))
       .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 12));
 
@@ -870,26 +922,48 @@ export class GenerationService {
     input: GenerateInput,
     prefs: PreferencesRow,
     project: { id: string; title: string; instructions: string } | null,
-  ): Promise<{ systemInstruction: string; contextEvents: StreamEvent[] }> {
-    const parts: string[] = [];
+    availableTools: ToolDefinition[] = [],
+  ): Promise<{
+    systemInstruction: string;
+    contextEvents: StreamEvent[];
+    promptAssembly: PromptAssembly;
+  }> {
     const events: StreamEvent[] = [];
 
-    // Prepend Truthful Base System Prompt grounded by CapabilityRegistry
-    parts.push(buildBaseSystemPrompt(this.cfg, this.capabilities));
+    // 1. Standing preferences (User instructions + durable standing memories)
+    let standingMemories = '';
+    if (this.cfg.ENABLE_MEMORY) {
+      standingMemories = await memoryService.getStandingMemories(input.userId, project?.id ?? null);
+    }
+    const combinedStandingPrefs = [prefs.instructions.trim(), standingMemories.trim()]
+      .filter(Boolean)
+      .join('\n');
 
-    if (prefs.instructions.trim()) {
-      parts.push(`The person you are helping has these standing instructions:\n${prefs.instructions.trim()}`);
+    // 2. Relevant persistent memories
+    let relevantMemoryText = '';
+    if (this.cfg.ENABLE_MEMORY) {
+      const relevant = await memoryService.getRelevantMemories(
+        input.userId,
+        input.prompt,
+        project?.id ?? null,
+      );
+      if (relevant.length > 0) {
+        relevantMemoryText = relevant.map((r) => `- [${r.key}]: ${r.content}`).join('\n');
+      }
     }
 
-    if (project) {
-      if (project.instructions.trim()) {
-        parts.push(
-          `Instructions for the project "${project.title}":\n${project.instructions.trim()}`,
-        );
+    // 3. Conversation compaction summary
+    let compactionText = '';
+    if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
+      const latestCompaction = await compactionService.getLatestCompaction(input.chatId);
+      if (latestCompaction) {
+        compactionText = compactionService.formatCompactionForPrompt(latestCompaction);
       }
+    }
 
-      // Retrieve only the relevant slices. Injecting whole files would blow the context
-      // window and Vertex's 30 MB payload cap on any real knowledge base.
+    // 4. Project search context
+    let retrievedContextText: string | undefined;
+    if (project) {
       const chunks = await this.retriever.search(
         this.db,
         project.id,
@@ -898,7 +972,7 @@ export class GenerationService {
       );
       const context = formatContext(chunks, this.cfg.PROJECT_CONTEXT_MAX_CHARS);
       if (context) {
-        parts.push(context);
+        retrievedContextText = context;
         const files = new Set(chunks.map((c) => c.filename));
         events.push({
           type: 'research',
@@ -928,38 +1002,32 @@ export class GenerationService {
       }
     }
 
-    if (input.attachmentManifest?.trim()) {
-      parts.push(`Attached files available to inspect:\n${input.attachmentManifest.trim()}`);
-    }
-
-    if (input.attachmentText.trim()) {
-      parts.push(
-        `Text extracted from files attached to this message:\n${input.attachmentText.trim()}`,
-      );
-    }
-
-    if (input.mode !== 'chat') {
-      parts.push(
-        'Answer using the web search results available to you. Cite the sources you actually ' +
+    // 5. Mode directive
+    const modeDirective =
+      input.mode !== 'chat'
+        ? 'Answer using the web search results available to you. Cite the sources you actually ' +
           'used. Do not invent citations, and say plainly when the evidence does not settle ' +
-          'the question.',
-      );
-    }
+          'the question.'
+        : undefined;
 
-    if (this.cfg.ENABLE_TOOL_USE) {
-      parts.push(
-        'Artifact & Deliverable Rules:\n' +
-          '- When the user asks to "convert to doc", "make a report", "write a document/article", ' +
-          '"create a presentation", "prepare a spreadsheet", "save as file", or requests a standalone deliverable for editing, reuse, or download:\n' +
-          '  * NEVER simply output the document text into chat telling the user to "copy and paste it into Word/Google Docs".\n' +
-          '  * You MUST call the `create_artifact` tool with the structured document content (using clean Markdown with headings, tables, and bullet points).\n' +
-          '  * Creating an artifact opens an interactive, editable workspace panel for the user and enables 1-click export to supported Office formats (.docx, .xlsx, .pptx).\n' +
-          '- When converting an uploaded file, first obtain and understand the source content through the available file/document-reading capabilities. Do not generate a conversion from unseen content.\n' +
-          '- For casual, brief conversational answers or short messages (e.g. "write a 2-line leave message"), answer directly in chat without creating an unnecessary artifact. Avoid artifact spam.',
-      );
-    }
+    // 6. Assemble prompt separating stable prefix from dynamic suffix
+    const promptAssembly = assemblePrompt(availableTools, {
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities),
+      standingPreferences: combinedStandingPrefs || undefined,
+      projectInstructions: project?.instructions?.trim() || undefined,
+      relevantMemory: relevantMemoryText || undefined,
+      compactionSummary: compactionText || undefined,
+      retrievedContext: retrievedContextText,
+      attachmentManifest: input.attachmentManifest?.trim() || undefined,
+      attachmentText: input.attachmentText?.trim() || undefined,
+      modePrompt: modeDirective,
+    });
 
-    return { systemInstruction: parts.join('\n\n'), contextEvents: events };
+    return {
+      systemInstruction: promptAssembly.fullSystemInstruction,
+      contextEvents: events,
+      promptAssembly,
+    };
   }
 
   /* ------------------------------------------------------------------ persistence */

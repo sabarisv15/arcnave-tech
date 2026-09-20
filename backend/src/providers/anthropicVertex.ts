@@ -242,12 +242,31 @@ export class AnthropicVertexProvider implements Provider {
         // an abort here would still issue one more provider call. See Task 7/8's equivalent gap
         // in the Gemini adapter, caught only by an abort-mid-loop test.
         if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const systemParam: string | Anthropic.TextBlockParam[] | undefined = (() => {
+          if (request.promptAssembly && this.cfg.ENABLE_PROMPT_CACHE) {
+            const { stablePrefix, fullSystemInstruction } = request.promptAssembly;
+            const blocks: Anthropic.TextBlockParam[] = [
+              {
+                type: 'text',
+                text: stablePrefix.systemText,
+                cache_control: { type: 'ephemeral' },
+              },
+            ];
+            const dynamicText = fullSystemInstruction.slice(stablePrefix.systemText.length).trim();
+            if (dynamicText) {
+              blocks.push({ type: 'text', text: dynamicText });
+            }
+            return blocks;
+          }
+          return request.systemInstruction || undefined;
+        })();
+
         const stream = this.getClient().messages.stream(
           {
             model: request.providerModelId,
             max_tokens: request.maxOutputTokens,
             messages,
-            ...(request.systemInstruction ? { system: request.systemInstruction } : {}),
+            ...(systemParam !== undefined ? { system: systemParam } : {}),
             ...(tools.length > 0 ? { tools } : {}),
             ...(useTools ? { tool_choice: { type: 'auto', disable_parallel_tool_use: true } } : {}),
           },

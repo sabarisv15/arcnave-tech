@@ -159,6 +159,8 @@ export interface GenerationRequest {
   tools?: ToolDefinition[];
   /** Required when `tools` is non-empty; absent otherwise. */
   toolExecutor?: ToolExecutor;
+  /** Phase 5 canonical prompt assembly (stable prefix + dynamic suffix). */
+  promptAssembly?: import('../services/promptCache/types.js').PromptAssembly;
   signal: AbortSignal;
 }
 
