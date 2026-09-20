@@ -1264,7 +1264,12 @@ verification command for each is in `mistakes.md`; summary:
     ```text
     Base System Prompt v1             ✅ 100% Frozen
     Claude Prompt Caching Hit         ✅ Live Verified (7,989 tokens cached on Claude Sonnet 5)
-    Gemini Prompt Caching Hit         ✅ Live Verified (6,260 cached tokens; cachedContentTokenCount > 0)
+    Gemini Prompt Cache Hit           ✅ Live verified (cachedContentTokenCount = 6,260)
+                                         Observed request latency:
+                                           Run 1 = 4,315 ms
+                                           Run 2 = 2,099 ms
+                                         Note: Both runs reported cached tokens, so the latency
+                                         difference must not be attributed entirely to cache warm-up.
     Gemini Live Memory E2E            ✅ 4/4 passed (remember -> apply -> forget -> neutral)
     Claude Live Memory E2E            ✅ 4/4 passed (remember -> new chat recall -> forget -> confirmed gone)
     Gemini Live Compaction E2E        ✅ 11-field schema, 0 deleted messages, seamless continuity
@@ -1281,7 +1286,15 @@ verification command for each is in `mistakes.md`; summary:
     Cloud Build & Deployment          ✅ SUCCESS (rev arcnave-sandbox-service-00090-wnt @ 100% traffic)
     Production Readiness Probe        ✅ /readyz 200 OK (DB, Vertex, Grounding, GCS all ready)
     ==========================================================================================
-    Phase 5 Context Intelligence      ✅ FULL CROSS-PROVIDER VALIDATION COMPLETE
+    Phase 5 — Context Intelligence
+    Prompt Caching                    ✅ COMPLETE
+    Persistent Memory                 ✅ COMPLETE
+    Conversation Compaction           ✅ COMPLETE
+    Gemini validation                 ✅
+    Claude validation                 ✅
+    Production deployment             ✅
+    Regression suite                  ✅ 429/429
+    Phase 5                           ✅ FROZEN
     ==========================================================================================
     ```
 
