@@ -78,6 +78,7 @@ docker start arcnave-pg
   decision was reversed.
 - **Comments state why, not what.** And a comment that asserts a guarantee needs a test that
   fails when the guarantee stops holding.
+- **Response style (Tanglish):** After every execution or task, always explain what was done in simple, clear Tanglish (Tamil + English in Latin script).
 
 ## Before you finish a task
 
@@ -87,3 +88,4 @@ docker start arcnave-pg
    and how to verify. Prune if it is over 40 entries. This step is skipped exactly when
    context is tightest and the lesson is most valuable, so do it deliberately.
 4. Update `docs/checkpoints/CURRENT.md` if the state of the work moved.
+5. In your response to the user, explain what was done in simple Tanglish.
