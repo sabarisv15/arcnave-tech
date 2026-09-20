@@ -1277,7 +1277,18 @@ verification command for each is in `mistakes.md`; summary:
     Claude Live Behavior E2E          ✅ 12/12 passed (claude-sonnet-5)
     Backend Tests                     ✅ 429/429 passed (36/36 test files)
     TypeScript Compile                ✅ 0 errors (tsc --noEmit)
+    Cloud Build & Deployment          ✅ SUCCESS (rev arcnave-sandbox-service-00090-wnt @ 100% traffic)
+    Production Readiness Probe        ✅ /readyz 200 OK (DB, Vertex, Grounding, GCS all ready)
     ```
+
+- **Cloud Deployment Verification (2026-09-20)**:
+  - Trigger: Cloud Build `96eda5c5-a6e3-4b39-a15e-cde703d5f866` triggered automatically on push of `97162d5` to `main`.
+  - Image built & deployed: `asia-south1-docker.pkg.dev/project-8bcf740a-a7bd-4aea-974/cloud-run-source-deploy/arcnave-tech/arcnave-sandbox-service:97162d596b1be95eeacb6f2499dafdefb0120126`.
+  - Revision: `arcnave-sandbox-service-00090-wnt` in `asia-south1` transitioned to Ready in 19.45s and is serving 100% of production traffic.
+  - Live probe against production service `https://arcnave-sandbox-service-756927892291.asia-south1.run.app`:
+    - `GET /readyz` -> `HTTP 200 OK`: `{"status":"ready","checks":{"database":true,"vertexConfigured":true,"groundingConfigured":true,"storageBackend":"gcs"}}`
+    - `GET /v1/models` -> `HTTP 200 OK`: all 4 models (`gemini-3.8-flash`, `claude-sonnet-5`, `claude-opus-5`, `openai/gpt-oss-120b-maas`) report `available: true`.
+
 
 
 
