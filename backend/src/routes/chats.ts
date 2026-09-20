@@ -17,6 +17,8 @@ import { z } from 'zod';
 import {
   attachments as attachmentsTable,
   chats,
+  goalEvents,
+  goals,
   messages,
   messageSources,
   projects,
@@ -117,6 +119,30 @@ const messageSchema = z.object({
 });
 
 type MessageDto = z.infer<typeof messageSchema>;
+
+const goalCheckpointSchema = z.object({
+  id: z.string(),
+  note: z.string(),
+  at: z.string().nullable(),
+});
+
+const goalSchema = z.object({
+  id: z.string(),
+  chatId: z.string(),
+  originMessageId: z.string().nullable(),
+  description: z.string(),
+  status: z.string(),
+  tokenBudget: z.number().nullable(),
+  spentTokens: z.number(),
+  remainingBudget: z.number().nullable(),
+  blockedReason: z.string().nullable(),
+  consecutiveFailureCount: z.number(),
+  lastFailedTool: z.string().nullable(),
+  lastFailureFingerprint: z.string().nullable(),
+  createdAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  checkpoints: z.array(goalCheckpointSchema),
+});
 
 const chatSchema = z.object({
   id: z.string(),
@@ -223,14 +249,65 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     {
       schema: {
         tags: ['chats'],
-        summary: 'A chat with its full message history',
+        summary: 'A chat with its full message history and active goal state',
         params: uuidParam,
-        response: { 200: chatSchema.extend({ messages: z.array(messageSchema) }) },
+        response: {
+          200: chatSchema.extend({
+            messages: z.array(messageSchema),
+            activeGoal: goalSchema.nullable(),
+          }),
+        },
       },
     },
     async (request) => {
+      const { db } = request.services;
       const chat = await loadChat(request, request.params.id);
-      return { ...toChatDto(chat), messages: await loadMessages(request, chat.id) };
+
+      const [activeGoalRow] = await db
+        .select()
+        .from(goals)
+        .where(and(eq(goals.chatId, chat.id), eq(goals.status, 'active')))
+        .limit(1);
+
+      let activeGoal = null;
+      if (activeGoalRow) {
+        const events = await db
+          .select()
+          .from(goalEvents)
+          .where(and(eq(goalEvents.goalId, activeGoalRow.id), eq(goalEvents.type, 'checkpoint')))
+          .orderBy(desc(goalEvents.createdAt));
+
+        activeGoal = {
+          id: activeGoalRow.id,
+          chatId: activeGoalRow.chatId,
+          originMessageId: activeGoalRow.originMessageId,
+          description: activeGoalRow.description,
+          status: activeGoalRow.status,
+          tokenBudget: activeGoalRow.tokenBudget,
+          spentTokens: activeGoalRow.spentTokens,
+          remainingBudget:
+            activeGoalRow.tokenBudget != null
+              ? Math.max(0, activeGoalRow.tokenBudget - activeGoalRow.spentTokens)
+              : null,
+          blockedReason: activeGoalRow.blockedReason,
+          consecutiveFailureCount: activeGoalRow.consecutiveFailureCount,
+          lastFailedTool: activeGoalRow.lastFailedTool,
+          lastFailureFingerprint: activeGoalRow.lastFailureFingerprint,
+          createdAt: activeGoalRow.createdAt ? activeGoalRow.createdAt.toISOString() : null,
+          completedAt: activeGoalRow.completedAt ? activeGoalRow.completedAt.toISOString() : null,
+          checkpoints: events.map((e) => ({
+            id: e.id,
+            note: (e.data as { note?: string })?.note ?? '',
+            at: e.createdAt ? e.createdAt.toISOString() : null,
+          })),
+        };
+      }
+
+      return {
+        ...toChatDto(chat),
+        messages: await loadMessages(request, chat.id),
+        activeGoal,
+      };
     },
   );
 

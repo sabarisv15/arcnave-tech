@@ -34,6 +34,7 @@ import { healthRoutes } from './routes/health.js';
 import { modelRoutes } from './routes/models.js';
 import { preferenceRoutes } from './routes/preferences.js';
 import { projectRoutes } from './routes/projects.js';
+import { skillRoutes } from './routes/skills.js';
 import { usageRoutes } from './routes/usage.js';
 import type { AppInstance } from './types.js';
 
@@ -186,6 +187,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       await scope.register(usageRoutes);
       await scope.register(preferenceRoutes);
       await scope.register(fileRoutes);
+      await scope.register(skillRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );

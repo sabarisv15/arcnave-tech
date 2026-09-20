@@ -90,3 +90,126 @@ export const RUN_PYTHON: ToolDefinition = {
     required: ['code'],
   },
 };
+
+/**
+ * Item 10 Goal Bookkeeping Tools.
+ * Exposes active goal state, progress tracking, and context-window token remaining queries.
+ */
+export const GET_GOAL: ToolDefinition = {
+  name: 'get_goal',
+  description:
+    'Reads the active goal for this conversation, its current status, allocated token budget, ' +
+    'spent tokens, remaining budget, and recorded checkpoint notes. Call this at the start of an ' +
+    'autonomous step or when evaluating remaining budget and milestone progress.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+};
+
+export const UPDATE_GOAL: ToolDefinition = {
+  name: 'update_goal',
+  description:
+    'Updates the active goal status (complete or blocked), or appends a progress checkpoint note. ' +
+    'Mark as complete ONLY when the goal objectives are genuinely achieved. ' +
+    'Mark as blocked ONLY when the exact same underlying failure has occurred 3 consecutive times (B2 rule); ' +
+    'the server will reject the blocked transition if this condition is not met.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      status: {
+        type: 'string',
+        enum: ['complete', 'blocked'],
+        description: 'New goal status. Set to complete when objectives are achieved, or blocked if B2 failure threshold is met.',
+      },
+      note: {
+        type: 'string',
+        description: 'Checkpoint or progress summary note to record for this goal.',
+      },
+      blockedReason: {
+        type: 'string',
+        description: 'Required explanation when status is set to blocked.',
+      },
+    },
+    additionalProperties: false,
+  },
+};
+
+export const GET_CONTEXT_REMAINING: ToolDefinition = {
+  name: 'get_context_remaining',
+  description:
+    'Returns the model context window limit, measured tokens used by the current request context, ' +
+    'and remaining available tokens in the context window. Returns null values when exact token counting is unavailable.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+};
+
+export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  GET_GOAL,
+  UPDATE_GOAL,
+  GET_CONTEXT_REMAINING,
+];
+
+/**
+ * Item 11 Skills System Tools.
+ * Provides lightweight discovery, keyword search, and lazy loading of specialized SKILL.md instructions.
+ */
+export const LIST_SKILLS: ToolDefinition = {
+  name: 'list_skills',
+  description:
+    'Lists available specialized skills with their name, version, category, capability mode, and summary description. ' +
+    'Call this to discover expert procedural instructions for documents, presentations, spreadsheets, data analysis, or deep research.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+};
+
+export const SEARCH_SKILLS: ToolDefinition = {
+  name: 'search_skills',
+  description:
+    'Searches available skills by topic or task keywords (e.g. "presentation", "spreadsheet", "deep research", "data analysis"). ' +
+    'Returns ranked matches with summaries and capability modes.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Search query or task keywords to find relevant skills.',
+      },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+};
+
+export const READ_SKILL: ToolDefinition = {
+  name: 'read_skill',
+  description:
+    'Loads the complete expert instructions, formatting standards, and gotchas for a specified skill. ' +
+    'Call this before performing complex domain tasks (e.g. creating documents, slides, financial models, or deep research).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description:
+          'The exact name of the skill to load (e.g. "docx", "pptx", "xlsx", "pdf", "data-analysis", "research-deep-dive", "skill-creator").',
+      },
+    },
+    required: ['name'],
+    additionalProperties: false,
+  },
+};
+
+export const SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  LIST_SKILLS,
+  SEARCH_SKILLS,
+  READ_SKILL,
+];
+

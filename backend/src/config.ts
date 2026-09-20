@@ -194,6 +194,28 @@ const envSchema = z.object({
    *  abandoned while it's genuinely in flight. */
   SANDBOX_CLAIM_LEASE_BUFFER_MS: int(30_000),
 
+  // --- Agent Loop & Goals (Item 10) ---------------------------------------
+  /** Master gate for the autonomous multi-step agent loop and goal bookkeeping tools. */
+  ENABLE_AGENT_LOOP: bool(false),
+  /** Default token budget allocated to an autonomous agent goal. */
+  GOAL_DEFAULT_TOKEN_BUDGET: int(100_000),
+  /** Maximum number of autonomous turns / steps executed in one agent run before stopping. */
+  AGENT_MAX_STEPS: int(12),
+  /** Maximum total tool calls executed across an entire agent run before stopping. */
+  AGENT_MAX_TOOL_CALLS: int(30),
+  /** Maximum wall-clock time in milliseconds allowed for an autonomous agent loop run. */
+  AGENT_LOOP_TIMEOUT_MS: int(120_000),
+
+  // --- Skills System (Item 11) -------------------------------------------
+  /** Master gate for the skills registry, progressive disclosure, and skill tools. */
+  ENABLE_SKILLS: bool(false),
+  /** Directory path containing ArcNave production SKILL.md bundles (relative to backend root). */
+  SKILLS_DIR: z.string().default('skills'),
+  /** Maximum number of distinct skills that can be loaded in one step. */
+  MAX_LOADED_SKILLS_PER_STEP: int(3),
+  /** Maximum character/token budget allocated to injected skill instructions in context. */
+  MAX_SKILL_CONTEXT_TOKENS: int(12_000),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),

@@ -53,11 +53,14 @@ import {
   toolResultPreview,
   totalTokens,
 } from '../providers/types.js';
+import { AgentLoop } from './agentLoop.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
+import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
+import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext } from './retrieval.js';
@@ -152,7 +155,7 @@ export interface GenerateInput {
   signal: AbortSignal;
 }
 
-interface PreferencesRow {
+export interface PreferencesRow {
   instructions: string;
   maxOutputTokens: number;
   dailyTokenBudget: number | null;
@@ -165,6 +168,8 @@ interface PreferencesRow {
 /* -------------------------------------------------------------------------- service */
 
 export class GenerationService {
+  private readonly agentLoop: AgentLoop;
+
   constructor(
     private readonly db: Database,
     private readonly cfg: Config,
@@ -175,7 +180,13 @@ export class GenerationService {
     /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured — run_python
      *  is simply never in the available-tools list in that case (see the wiring in `run()`). */
     private readonly sandboxClient?: SandboxClient,
-  ) {}
+    agentLoop?: AgentLoop,
+    private readonly skills?: SkillService,
+  ) {
+    this.agentLoop =
+      agentLoop ??
+      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills);
+  }
 
   /**
    * Run one turn, yielding events for the SSE transport.
@@ -284,31 +295,62 @@ export class GenerationService {
       });
     };
 
+    if (this.cfg.ENABLE_AGENT_LOOP) {
+      yield* this.agentLoop.stream(input, {
+        entry,
+        provider,
+        maxOutputTokens,
+        prefs,
+        project: project ? { id: project.id, instructions: project.instructions } : null,
+        history,
+        systemInstruction,
+        startedAt,
+        releaseReservation,
+        grounded,
+        codeExecution,
+      });
+      return;
+    }
+
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, runPythonEnabled);
+    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
+    const toolRegistry = new ProjectToolRegistry(
+      this.cfg.ENABLE_TOOL_USE,
+      runPythonEnabled,
+      false,
+      skillsEnabled,
+    );
     const availableTools = toolRegistry.getAvailableTools({ projectId: project?.id ?? null });
+    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+
     const projectToolExecutor =
-      availableTools.length > 0
-        ? new ProjectToolExecutor(this.db, this.retriever, project!.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
+      availableTools.length > 0 && project !== null && this.cfg.ENABLE_TOOL_USE
+        ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
         : undefined;
-    const toolExecutor =
-      availableTools.length > 0
-        ? new DispatchingToolExecutor(
-            new Map<string, ToolExecutor>([
-              ...(['search_project_files', 'read_project_file'] as const).map(
-                (name): [string, ToolExecutor] => [name, projectToolExecutor!],
-              ),
-              ...(runPythonEnabled
-                ? ([
-                    [
-                      'run_python',
-                      new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),
-                    ] as [string, ToolExecutor],
-                  ] satisfies [string, ToolExecutor][])
-                : []),
-            ]),
-          )
+
+    const skillToolExecutor =
+      skillsEnabled && this.skills !== undefined
+        ? new SkillToolExecutor(this.skills, activeToolNames)
         : undefined;
+
+    const toolMap = new Map<string, ToolExecutor>();
+    if (projectToolExecutor) {
+      toolMap.set('search_project_files', projectToolExecutor);
+      toolMap.set('read_project_file', projectToolExecutor);
+    }
+    if (runPythonEnabled) {
+      toolMap.set(
+        'run_python',
+        new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),
+      );
+    }
+    if (skillToolExecutor) {
+      toolMap.set('list_skills', skillToolExecutor);
+      toolMap.set('search_skills', skillToolExecutor);
+      toolMap.set('read_skill', skillToolExecutor);
+    }
+
+    const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
     const request: GenerationRequest = {
       prompt: input.prompt,
@@ -967,7 +1009,7 @@ export function toSourceDto(source: ProviderSource, id: number): SourceDto {
   };
 }
 
-function computeCostFor(cfg: Config, providerModelId: string, usage: ProviderUsage): number | null {
+export function computeCostFor(cfg: Config, providerModelId: string, usage: ProviderUsage): number | null {
   const row = cfg.PRICING_TABLE[providerModelId];
   if (!row || !usage.exact) return null;
   const cost =

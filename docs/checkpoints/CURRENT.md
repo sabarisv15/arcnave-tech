@@ -1061,3 +1061,24 @@ verification command for each is in `mistakes.md`; summary:
   though `run_python`'s later live tests, above, did exercise Anthropic/Sonnet 5, just not
   `search_project_files` specifically). **The frontend UI gap is closed** — see
   [Item 9 — frontend UI for tool calls](#item-9--frontend-ui-for-tool-calls--2026-09-19).
+- **2026-09-20: Item 10 (Multi-Step Agent Loop & Goal Bookkeeping) complete and tested**:
+  - Implemented `AgentLoop` service (`backend/src/services/agentLoop.ts`) providing an autonomous multi-step execution loop (bounded by `AGENT_MAX_STEPS` and `AGENT_MAX_TOOL_CALLS`).
+  - Added database persistence with `goals` (with partial unique index `uq_active_goal_per_chat` enforcing 1 active goal per conversation) and `goal_events` (checkpoints, status changes, tool outcomes, budget updates) in migration `0006_fluffy_goals.sql`.
+  - Implemented `GoalToolExecutor` (`backend/src/tools/goalExecutor.ts`) handling `get_goal`, `update_goal`, and `get_context_remaining`.
+  - Enforced deterministic failure normalization (`normalizeFailureFingerprint`: `${toolName}|${category}|${stableCode}`).
+  - Enforced **B2 rule**: goal transition to `blocked` is permitted only when consecutive identical failures >= 3.
+  - Enforced **G2 rule**: tool retry is blocked when consecutive identical failures >= 2, forcing alternate strategy.
+  - Enforced **Invariant 3**: exact token accounting per step; `get_context_remaining` returns exact numbers or `null` (never estimates).
+  - Wired `AgentLoop` into `GenerationService` and `container.ts` behind `ENABLE_AGENT_LOOP`.
+  - Extended `GET /chats/:id` to return `activeGoal` and checkpoints.
+  - Full test suite verified: 25 test files (332 tests) passing in backend, frontend tests and build passing.
+- **2026-09-20: Item 11 (Skills System) complete and tested**:
+  - Built ArcNave-native Skills architecture separating instruction/workflow knowledge (Skill) from actual capability (Tool).
+  - Authored 8 initial skills in `backend/skills/` (`docx`, `pptx`, `xlsx`, `pdf`, `data-analysis`, `research-deep-dive`, `python-sandbox-patterns`, `skill-creator`) with strict YAML frontmatter schema.
+  - Implemented `SkillService` (`backend/src/services/skills.ts`) with frontmatter validation, secure filesystem scan, in-memory Map registry, path-traversal prevention, keyword search, and dynamic capability evaluation (`full`, `guidance_only`, `unavailable`).
+  - Implemented `SkillToolExecutor` (`backend/src/tools/skillExecutor.ts`) for model-callable discovery tools (`list_skills`, `search_skills`, `read_skill`) following typed error envelope (Invariant 1).
+  - Integrated with Item 10 `AgentLoop` with progressive disclosure context limits (`MAX_LOADED_SKILLS_PER_STEP=3`, `MAX_SKILL_CONTEXT_TOKENS=12000`), deduplication, autoloading of `python-sandbox-patterns` when `run_python` is active, and logging `skill_loaded` events into `goal_events`.
+  - Added public REST discovery endpoints `GET /v1/skills` and `GET /v1/skills/:name` (`backend/src/routes/skills.ts`), bringing total routes to 43.
+  - Gated behind `ENABLE_SKILLS=false` in `config.ts`.
+  - Full verification: 28 test files (353 tests) passing in backend, TypeScript clean (`tsc --noEmit`), OpenAPI schema regenerated (`43 paths`), frontend tests and build passing.
+

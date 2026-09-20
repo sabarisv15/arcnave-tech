@@ -13,12 +13,14 @@ import { GeminiProvider } from './providers/gemini.js';
 import { GptOssVertexProvider } from './providers/gptOssVertex.js';
 import { ModelRegistry } from './providers/registry.js';
 import type { Provider } from './providers/types.js';
+import { AgentLoop } from './services/agentLoop.js';
 import { AuthService } from './services/auth.js';
 import { GenerationService } from './services/generation.js';
 import type { Retriever } from './services/retrieval.js';
 import { LexicalRetriever } from './services/retrieval.js';
 import type { ObjectStorage } from './services/storage.js';
 import { buildStorage } from './services/storage.js';
+import { SkillService } from './services/skills.js';
 import { UsageService } from './services/usage.js';
 import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
 import type { SandboxClient } from './tools/sandbox/client.js';
@@ -32,6 +34,8 @@ export interface Services {
   auth: AuthService;
   usage: UsageService;
   generation: GenerationService;
+  agentLoop: AgentLoop;
+  skills: SkillService;
   storage: ObjectStorage;
   retriever: Retriever;
   /**
@@ -56,6 +60,7 @@ export interface BuildOptions {
   providers?: Partial<Record<'google' | 'anthropic' | 'openai-oss', Provider>>;
   storage?: ObjectStorage;
   retriever?: Retriever;
+  skills?: SkillService;
   /** Test seam — a real `CloudRunSandboxClient` is never constructed unless a GCP project is
    *  configured, mirroring how the provider adapters lazily construct their own Vertex clients. */
   sandboxClient?: SandboxClient;
@@ -98,7 +103,11 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
         ),
       )
     : undefined;
-  const generation = new GenerationService(db, cfg, registry, usage, retriever, storage, sandboxClient);
+  const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR);
+  void skills.load();
+
+  const agentLoop = new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills);
+  const generation = new GenerationService(db, cfg, registry, usage, retriever, storage, sandboxClient, agentLoop, skills);
 
   return {
     cfg,
@@ -107,6 +116,8 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     auth: new AuthService(db, cfg),
     usage,
     generation,
+    agentLoop,
+    skills,
     storage,
     retriever,
     visionProvider: providers.google!,

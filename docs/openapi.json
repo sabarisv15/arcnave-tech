@@ -781,7 +781,7 @@
     },
     "/chats/{id}": {
       "get": {
-        "summary": "A chat with its full message history",
+        "summary": "A chat with its full message history and active goal state",
         "tags": [
           "chats"
         ],
@@ -1148,6 +1148,104 @@
                         ],
                         "additionalProperties": false
                       }
+                    },
+                    "activeGoal": {
+                      "nullable": true,
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "chatId": {
+                          "type": "string"
+                        },
+                        "originMessageId": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "tokenBudget": {
+                          "nullable": true,
+                          "type": "number"
+                        },
+                        "spentTokens": {
+                          "type": "number"
+                        },
+                        "remainingBudget": {
+                          "nullable": true,
+                          "type": "number"
+                        },
+                        "blockedReason": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "consecutiveFailureCount": {
+                          "type": "number"
+                        },
+                        "lastFailedTool": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "lastFailureFingerprint": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "completedAt": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "checkpoints": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "nullable": true,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "note",
+                              "at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "chatId",
+                        "originMessageId",
+                        "description",
+                        "status",
+                        "tokenBudget",
+                        "spentTokens",
+                        "remainingBudget",
+                        "blockedReason",
+                        "consecutiveFailureCount",
+                        "lastFailedTool",
+                        "lastFailureFingerprint",
+                        "createdAt",
+                        "completedAt",
+                        "checkpoints"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -1158,7 +1256,8 @@
                     "version",
                     "createdAt",
                     "updatedAt",
-                    "messages"
+                    "messages",
+                    "activeGoal"
                   ],
                   "additionalProperties": false
                 }
@@ -5118,6 +5217,146 @@
                   },
                   "required": [
                     "deleted"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills": {
+      "get": {
+        "summary": "List all available skills and their capability modes",
+        "tags": [
+          "skills"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "scope": {
+                            "type": "string"
+                          },
+                          "mode": {
+                            "type": "string"
+                          },
+                          "missingCapabilities": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "version",
+                          "description",
+                          "category",
+                          "scope",
+                          "mode",
+                          "missingCapabilities"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills/{name}": {
+      "get": {
+        "summary": "Retrieve instructions and metadata for a specific skill",
+        "tags": [
+          "skills"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "type": "string"
+                    },
+                    "missingCapabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version",
+                    "description",
+                    "category",
+                    "scope",
+                    "mode",
+                    "missingCapabilities",
+                    "content"
                   ],
                   "additionalProperties": false
                 }

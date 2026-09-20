@@ -544,6 +544,62 @@ export const sandboxClaims = pgTable('sandbox_claims', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });
 
+/**
+ * Item 10: Multi-step Autonomous Agent Goals.
+ * Persists an active goal bound to a chat with multi-turn token budget, live spent tokens,
+ * failure counters, and status. Enforces at most one active goal per chat via a partial unique index.
+ */
+export const goals = pgTable(
+  'goals',
+  {
+    id: id(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    originMessageId: uuid('origin_message_id').references(() => messages.id, { onDelete: 'set null' }),
+    description: text('description').notNull(),
+    status: varchar('status', { length: 32 }).notNull().default('active'), // 'active' | 'complete' | 'blocked' | 'abandoned'
+    tokenBudget: integer('token_budget'),
+    spentTokens: integer('spent_tokens').notNull().default(0),
+    blockedReason: text('blocked_reason'),
+    lastFailureFingerprint: text('last_failure_fingerprint'),
+    consecutiveFailureCount: integer('consecutive_failure_count').notNull().default(0),
+    lastFailedTool: text('last_failed_tool'),
+    lastFailureAt: timestamp('last_failure_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('ix_goals_chat').on(t.chatId),
+    uniqueIndex('uq_active_goal_per_chat').on(t.chatId).where(sql`${t.status} = 'active'`),
+  ],
+);
+
+/**
+ * Audit events and checkpoints for a goal.
+ * Records checkpoints, status changes, tool outcomes, and recovery attempts across multi-turn runs.
+ */
+export const goalEvents = pgTable(
+  'goal_events',
+  {
+    id: id(),
+    goalId: uuid('goal_id')
+      .notNull()
+      .references(() => goals.id, { onDelete: 'cascade' }),
+    runId: varchar('run_id', { length: 64 }),
+    type: varchar('type', { length: 32 }).notNull(), // 'checkpoint' | 'tool_success' | 'tool_failure' | 'recovery_attempt' | 'status_change' | 'budget_update'
+    toolName: text('tool_name'),
+    failureFingerprint: text('failure_fingerprint'),
+    data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('ix_goal_events_goal').on(t.goalId),
+    index('ix_goal_events_created').on(t.createdAt),
+  ],
+);
+
 /* -------------------------------------------------------------------------- relations */
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -566,6 +622,7 @@ export const projectFilesRelations = relations(projectFiles, ({ one, many }) => 
 export const chatsRelations = relations(chats, ({ one, many }) => ({
   project: one(projects, { fields: [chats.projectId], references: [projects.id] }),
   messages: many(messages),
+  goals: many(goals),
 }));
 
 export const messagesRelations = relations(messages, ({ one, many }) => ({
@@ -600,6 +657,16 @@ export const artifactVersionsRelations = relations(artifactVersions, ({ one }) =
   artifact: one(artifacts, { fields: [artifactVersions.artifactId], references: [artifacts.id] }),
 }));
 
+export const goalsRelations = relations(goals, ({ one, many }) => ({
+  chat: one(chats, { fields: [goals.chatId], references: [chats.id] }),
+  originMessage: one(messages, { fields: [goals.originMessageId], references: [messages.id] }),
+  events: many(goalEvents),
+}));
+
+export const goalEventsRelations = relations(goalEvents, ({ one }) => ({
+  goal: one(goals, { fields: [goalEvents.goalId], references: [goals.id] }),
+}));
+
 /* -------------------------------------------------------------------------- inferred types */
 
 export type User = typeof users.$inferSelect;
@@ -620,3 +687,7 @@ export type Artifact = typeof artifacts.$inferSelect;
 export type ArtifactVersion = typeof artifactVersions.$inferSelect;
 export type UsageRecord = typeof usageRecords.$inferSelect;
 export type UsageCounter = typeof usageCounters.$inferSelect;
+export type Goal = typeof goals.$inferSelect;
+export type NewGoal = typeof goals.$inferInsert;
+export type GoalEvent = typeof goalEvents.$inferSelect;
+export type NewGoalEvent = typeof goalEvents.$inferInsert;
