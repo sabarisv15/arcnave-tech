@@ -1263,15 +1263,16 @@ verification command for each is in `mistakes.md`; summary:
   - **Overall Phase 5 Test & Verification Matrix**:
     ```text
     Base System Prompt v1             ✅ 100% Frozen
-    Prompt Caching Breakpoint         ✅ Live Verified (7,989 tokens cached on Claude Sonnet 5)
-    Prompt Caching Latency Reduction  ✅ 2,423ms -> 1,302ms (1.12s faster)
-    Persistent Memory GIN FTS         ✅ Live Verified on Postgres
+    Claude Prompt Caching Hit         ✅ Live Verified (7,989 tokens cached on Claude Sonnet 5)
+    Gemini Prompt Caching Hit         ✅ Live Verified (6,260 cached tokens; cachedContentTokenCount > 0)
+    Gemini Live Memory E2E            ✅ 4/4 passed (remember -> apply -> forget -> neutral)
+    Claude Live Memory E2E            ✅ 4/4 passed (remember -> new chat recall -> forget -> confirmed gone)
+    Gemini Live Compaction E2E        ✅ 11-field schema, 0 deleted messages, seamless continuity
+    Claude Live Compaction E2E        ✅ 11-field schema, 0 deleted messages, seamless continuity
+    Persistent Memory GIN FTS         ✅ Live Verified on Postgres (ts_rank_cd)
     Memory Concurrency Control        ✅ Optimistic concurrency via version
     Memory Secret/Privacy Filter      ✅ Credentials detected & rejected
     Memory Active Forget              ✅ Active memory deleted; raw chat intact
-    Conversation Compaction           ✅ Validated 11-field structured schema
-    Message Deletion Invariant        ✅ 0 raw messages deleted
-    Compaction Continuity             ✅ Verified seamless continuity on Gemini
     Frontend Settings Memory UI       ✅ Built & Verified (0 errors)
     Gemini Live Behavior E2E          ✅ 12/12 passed (gemini-3.8-flash)
     Claude Live Behavior E2E          ✅ 12/12 passed (claude-sonnet-5)
@@ -1279,6 +1280,9 @@ verification command for each is in `mistakes.md`; summary:
     TypeScript Compile                ✅ 0 errors (tsc --noEmit)
     Cloud Build & Deployment          ✅ SUCCESS (rev arcnave-sandbox-service-00090-wnt @ 100% traffic)
     Production Readiness Probe        ✅ /readyz 200 OK (DB, Vertex, Grounding, GCS all ready)
+    ==========================================================================================
+    Phase 5 Context Intelligence      ✅ FULL CROSS-PROVIDER VALIDATION COMPLETE
+    ==========================================================================================
     ```
 
 - **Cloud Deployment Verification (2026-09-20)**:
