@@ -226,7 +226,7 @@ const envSchema = z.object({
 
   // --- Phase 5: Context Intelligence -------------------------------------
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
-  ENABLE_PROMPT_CACHE: bool(false),
+  ENABLE_PROMPT_CACHE: bool(true),
   /** Minimum prefix token count required before Anthropic cache_control is placed. */
   PROMPT_CACHE_MIN_TOKENS_ANTHROPIC: int(1024),
   /** Minimum prefix token count expected before Gemini Vertex implicit caching kicks in. */
