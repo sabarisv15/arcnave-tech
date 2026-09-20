@@ -442,6 +442,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                   : t,
               ),
             }));
+          if (event.type === "code")
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              status: "generating",
+              codeBlocks: [
+                ...(m.codeBlocks ?? []),
+                { code: event.code, language: event.language, output: event.output },
+              ],
+            }));
           if (event.type === "done") {
             completed = true;
             outcome = "complete";

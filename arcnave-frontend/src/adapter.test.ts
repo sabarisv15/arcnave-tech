@@ -47,6 +47,14 @@ describe("SSE framing", () => {
     expect(await collect()).toEqual([{ type: "delta", text: "hello world" }]);
   });
 
+  it("parses code execution event frames", async () => {
+    const whole = frame({ type: "code", code: "print(42)", language: "python", output: "42\n" });
+    vi.stubGlobal("fetch", streaming([whole]));
+    expect(await collect()).toEqual([
+      { type: "code", code: "print(42)", language: "python", output: "42\n" },
+    ]);
+  });
+
   it("keeps every delta when chunks straddle several frames", async () => {
     const body =
       frame({ type: "delta", text: "one " }) +

@@ -118,6 +118,7 @@ export interface Message {
   sources?: Source[];
   events?: ResearchEvent[];
   toolCalls?: ToolCall[];
+  codeBlocks?: { code?: string; language?: string; output?: string }[];
   researchStage?: ResearchStage;
   questions?: string[];
   artifactId?: string;

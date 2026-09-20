@@ -719,6 +719,23 @@ function MessageView({
           <ChevronRight size={15} />
         </button>
       )}
+      {m.codeBlocks && m.codeBlocks.length > 0 && (
+        <div className="ran-code">
+          {m.codeBlocks.map((block, i) => (
+            <details key={i} className="ran-code-block">
+              <summary>Ran code{block.language ? ` (${block.language})` : ""}</summary>
+              {block.code && (
+                <Suspense fallback={<pre>{block.code}</pre>}>
+                  <Markdown text={"```" + (block.language ?? "") + "\n" + block.code + "\n```"} />
+                </Suspense>
+              )}
+              {block.output && (
+                <pre className="ran-code-output">{block.output}</pre>
+              )}
+            </details>
+          ))}
+        </div>
+      )}
       {m.artifactId && (
         <button
           className="artifact-message"
