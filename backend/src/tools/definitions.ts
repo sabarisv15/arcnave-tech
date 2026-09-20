@@ -6,6 +6,7 @@
  * search" and must not claim conceptual/semantic matching, because there is none.
  */
 import type { ToolDefinition } from '../providers/types.js';
+import { getProviderSafeUISchema } from '../services/ui/schemas.js';
 
 export const SEARCH_PROJECT_FILES: ToolDefinition = {
   name: 'search_project_files',
@@ -493,5 +494,18 @@ export const MEMORY_TOOL_DEFINITIONS: ToolDefinition[] = [
   UPDATE_MEMORY,
   FORGET_MEMORY,
 ];
+
+export const RENDER_UI: ToolDefinition = {
+  name: 'render_ui',
+  description:
+    'Renders a structured, interactive generative UI layout in the chat. Use it when ' +
+    'structured presentation significantly improves clarity (e.g. comparing options, ' +
+    'plotting time-series or categorical data, displaying KPI metrics with deltas/trends, ' +
+    'showing project timelines, or laying out multi-step processes or interactive dashboards). ' +
+    'Do not call this for simple conversational text or greetings.',
+  inputSchema: getProviderSafeUISchema(),
+};
+
+export const UI_TOOL_DEFINITIONS: ToolDefinition[] = [RENDER_UI];
 
 

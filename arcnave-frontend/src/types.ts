@@ -6,6 +6,7 @@
  * a number the backend never measured. The DTOs themselves live in `api.ts`.
  */
 import { api } from "./api";
+import type { UIBlock } from "./generative-ui/types";
 import type {
   ArtifactDto,
   AttachmentDto,
@@ -118,6 +119,7 @@ export interface Message {
   sources?: Source[];
   events?: ResearchEvent[];
   toolCalls?: ToolCall[];
+  uiBlocks?: UIBlock[];
   codeBlocks?: { code?: string; language?: string; output?: string }[];
   researchStage?: ResearchStage;
   questions?: string[];
@@ -286,6 +288,24 @@ export function toProjectFile(dto: ProjectFileDto): Attachment {
 }
 
 export function toMessage(dto: MessageDto): Message {
+  let uiBlocks: UIBlock[] | undefined;
+  const renderCall = dto.toolCalls.find((c) => c.name === "render_ui");
+  if (renderCall) {
+    const jsonContent = renderCall.content?.find((c) => c.type === "json");
+    if (jsonContent && typeof jsonContent.data === "object" && jsonContent.data !== null) {
+      const dataObj = jsonContent.data as { blocks?: UIBlock[] };
+      if (Array.isArray(dataObj.blocks)) {
+        uiBlocks = dataObj.blocks;
+      }
+    } else if (
+      typeof renderCall.input === "object" &&
+      renderCall.input !== null &&
+      "blocks" in renderCall.input
+    ) {
+      uiBlocks = (renderCall.input as { blocks: UIBlock[] }).blocks;
+    }
+  }
+
   return {
     id: dto.id,
     seq: dto.seq,
@@ -296,6 +316,7 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.sources.length ? { sources: dto.sources.map(toSource) } : {}),
     ...(dto.events.length ? { events: dto.events.map(toResearchEvent) } : {}),
     ...(dto.toolCalls.length ? { toolCalls: dto.toolCalls.map(toToolCall) } : {}),
+    ...(uiBlocks && uiBlocks.length ? { uiBlocks } : {}),
     ...(dto.researchStage ? { researchStage: dto.researchStage } : {}),
     ...(dto.questions.length ? { questions: dto.questions } : {}),
     ...(dto.artifactId ? { artifactId: dto.artifactId } : {}),

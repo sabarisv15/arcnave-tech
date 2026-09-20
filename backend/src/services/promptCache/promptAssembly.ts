@@ -11,6 +11,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { STATIC_BASE_SYSTEM_PROMPT_V1 } from '../systemPrompt.js';
 import { STATIC_MEMORY_POLICY_V1 } from '../memory/policy.js';
 import { STATIC_COMPACTION_POLICY_V1 } from '../compaction/policy.js';
+import { GENERATIVE_UI_POLICY_V1, ANALYTICS_POLICY_V1 } from '../ui/policy.js';
 import {
   canonicalizeTools,
   computePrefixHash,
@@ -27,6 +28,8 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[]): StablePref
     STATIC_BASE_SYSTEM_PROMPT_V1,
     STATIC_MEMORY_POLICY_V1,
     STATIC_COMPACTION_POLICY_V1,
+    GENERATIVE_UI_POLICY_V1,
+    ANALYTICS_POLICY_V1,
   ].join('\n\n');
 
   const tools = canonicalizeTools(authorizedTools);

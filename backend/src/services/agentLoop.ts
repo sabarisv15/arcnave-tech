@@ -197,6 +197,7 @@ export class AgentLoop {
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
+    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
@@ -204,6 +205,7 @@ export class AgentLoop {
       skillsEnabled,
       webEnabled,
       memoryEnabled,
+      generativeUiEnabled,
     );
 
     const activeHistory: Turn[] = [...history];

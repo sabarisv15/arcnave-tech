@@ -463,6 +463,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 { code: event.code, language: event.language, output: event.output },
               ],
             }));
+          if (event.type === "ui_block") {
+            patchMessage(chatId, assistantId, (m) => {
+              const existing = m.uiBlocks ?? [];
+              const exists = existing.some((b) => b.blockId === event.block.blockId);
+              const updated = exists
+                ? existing.map((b) => (b.blockId === event.block.blockId ? event.block : b))
+                : [...existing, event.block];
+              return {
+                ...m,
+                status: "generating",
+                uiBlocks: updated,
+              };
+            });
+          }
           if (event.type === "done") {
             completed = true;
             outcome = "complete";

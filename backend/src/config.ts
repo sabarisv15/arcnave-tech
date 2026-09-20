@@ -248,6 +248,18 @@ const envSchema = z.object({
   /** Headroom ratio (remaining context / total context window) below which compaction triggers. */
   COMPACTION_TRIGGER_HEADROOM_RATIO: z.coerce.number().min(0.01).max(0.99).default(0.15),
 
+  // --- Phase 6: Generative UI & Phase 7: Analytics ------------------------
+  /** Master gate for structured Generative UI (render_ui tool). */
+  ENABLE_GENERATIVE_UI: bool(true),
+  /** Maximum bytes for a validated Generative UI response payload. */
+  UI_MAX_RESPONSE_BYTES: int(100_000),
+  /** Master gate for advanced data analytics sessions and profiling. */
+  ENABLE_ANALYTICS: bool(true),
+  /** Gate for composed interactive dashboards. */
+  ENABLE_ANALYTICS_DASHBOARDS: bool(true),
+  /** Sliding TTL in hours for ephemeral derived datasets before recomputation. */
+  DERIVED_DATASET_TTL_HOURS: int(168),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),

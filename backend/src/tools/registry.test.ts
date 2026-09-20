@@ -106,5 +106,17 @@ describe('ProjectToolRegistry', () => {
         'read_skill',
       ]);
     });
+
+    it('omits render_ui when generativeUiEnabled is false', () => {
+      const registry = new ProjectToolRegistry(true, false, false, false, false, false, false);
+      const tools = registry.getAvailableTools({ projectId: null });
+      expect(tools.map((t) => t.name)).not.toContain('render_ui');
+    });
+
+    it('includes render_ui when generativeUiEnabled is true', () => {
+      const registry = new ProjectToolRegistry(true, false, false, false, false, false, true);
+      const tools = registry.getAvailableTools({ projectId: null });
+      expect(tools.map((t) => t.name)).toContain('render_ui');
+    });
   });
 });

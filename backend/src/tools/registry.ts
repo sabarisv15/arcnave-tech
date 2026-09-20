@@ -13,6 +13,7 @@ import {
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
   SKILL_TOOL_DEFINITIONS,
+  UI_TOOL_DEFINITIONS,
   UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
 } from './definitions.js';
@@ -44,6 +45,8 @@ export class ProjectToolRegistry implements ToolRegistry {
     /** Phase 5 memory gate — exposes persistent memory tools (search_memory, read_memory,
      *  update_memory, forget_memory) in both chat and agent modes. */
     private readonly memoryEnabled: boolean = false,
+    /** Phase 6 Generative UI gate — exposes render_ui tool across all chats. */
+    private readonly generativeUiEnabled: boolean = false,
   ) {}
 
   getAvailableTools(context: ToolContext): ToolDefinition[] {
@@ -58,6 +61,11 @@ export class ProjectToolRegistry implements ToolRegistry {
       // Persistent memory tools are available across all chats when memory is enabled
       if (this.memoryEnabled) {
         tools.push(...MEMORY_TOOL_DEFINITIONS);
+      }
+
+      // Generative UI tool (render_ui) when generativeUiEnabled is true
+      if (this.generativeUiEnabled) {
+        tools.push(...UI_TOOL_DEFINITIONS);
       }
 
       // Web search and fetch when webEnabled is true

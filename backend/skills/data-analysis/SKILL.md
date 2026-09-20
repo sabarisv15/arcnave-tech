@@ -1,7 +1,7 @@
 ---
 name: data-analysis
-version: 1.0.0
-description: Tabular data exploration, cleaning, descriptive statistics, chart selection, and visualization best practices.
+version: 1.1.0
+description: Tabular data exploration, cleaning, descriptive statistics, chart selection, and structured generative UI dashboards.
 category: analysis
 requires:
   tools:
@@ -11,27 +11,31 @@ metadata:
   source: arcnave
 ---
 
-# Data Analysis & Visualization Best Practices
+# Data Analysis & Generative Visualization
 
-Use this skill when exploring datasets, calculating statistics, cleaning tabular data, and creating analytical charts.
+Use this skill when exploring datasets, calculating statistics, cleaning tabular data, and presenting interactive dashboards.
 
 ## Analysis Process
 
 1. **Inspection & Validation**:
+   - Work with dataset handles (`datasetHandle`) provided in the context (e.g. `ds_...`). Never ask for or expose internal storage keys.
    - Inspect shape, columns, missing values, and data types before computing aggregates.
    - Detect outliers or anomalies and note them explicitly.
+
 2. **Descriptive Statistics**:
    - Compute distribution summaries (mean, median, standard deviation, interquartile range).
    - Use median over mean for heavily skewed data (e.g. income, latency).
+
 3. **Visualization Selection**:
    - **Trend over time**: Line chart with clear temporal x-axis.
    - **Comparison across categories**: Horizontal or vertical bar chart with sorted bars.
    - **Part-to-whole**: Stacked bar chart or donut chart (only for <= 5 categories).
-   - **Correlation / Distribution**: Scatter plot or histogram / box plot.
-4. **Interpretation & Actionable Insights**:
-   - Never just output numbers or plots without explaining what the data indicates and why it matters to the user's objective.
+   - **Correlation / Distribution**: Scatter plot or histogram.
 
-## Capability & Output Guidance
-
-- **When `run_python` tool is available**: Execute Python scripts in the sandbox to process data and compute exact aggregations.
-- **When in `guidance_only` mode**: Provide the structured analysis plan, statistical formulas, and expected data transformation logic.
+4. **Structured Presentation with `render_ui`**:
+   - When presenting data findings, call `render_ui` to provide rich inline blocks:
+     - `metric`: Key quantitative indicators with units and provenance.
+     - `chart`: Visual data trends.
+     - `table`: Structured numerical rows with sorting.
+     - `dashboard`: Cohesive layout combining metrics and charts.
+   - Always accompany visual UI blocks with concise narrative takeaways.

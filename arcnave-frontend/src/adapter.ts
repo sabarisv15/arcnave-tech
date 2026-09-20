@@ -17,6 +17,7 @@
 import { ApiError, describeError, errorCopy, url } from "./api";
 import type { SourceDto, UsageDto } from "./api";
 import type { Mode, ResearchEvent } from "./types";
+import type { UIBlock } from "./generative-ui/types";
 
 export interface ModelInfo {
   requested: string;
@@ -55,6 +56,7 @@ export type StreamEvent =
       kind: string;
       version: number;
     }
+  | { type: "ui_block"; block: UIBlock }
   | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
   | {
       type: "error";

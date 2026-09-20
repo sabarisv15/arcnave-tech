@@ -46,6 +46,8 @@ import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { readLocal, writeLocal } from "./storage";
 import type { Message, MessageUsage, Mode, ToolCall } from "./types";
+import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
+import type { SafeAction } from "./generative-ui/types";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -567,9 +569,31 @@ function MessageView({
     setEdit,
     feedback,
     saveResponseAsArtifact,
+    send,
   } = useWorkspace();
   const [copied, setCopied] = useState(false);
   const pending = m.id.startsWith("pending-");
+
+  const handleAction = (action: SafeAction) => {
+    switch (action.actionType) {
+      case "open_artifact":
+        setPanel({ kind: "artifact", id: action.artifactId });
+        break;
+      case "view_source": {
+        const idx = parseInt(action.sourceRef, 10);
+        setPanel({
+          kind: "sources",
+          chatId,
+          messageId: m.id,
+          selected: Number.isFinite(idx) ? idx : 0,
+        });
+        break;
+      }
+      case "filter_view":
+        send(`Filter: ${action.filterKey} = ${String(action.filterValue)}`, m.mode, [], chatId);
+        break;
+    }
+  };
 
   const copy = async () => {
     try {
@@ -657,6 +681,9 @@ function MessageView({
             }
           />
         </Suspense>
+      )}
+      {m.uiBlocks && m.uiBlocks.length > 0 && (
+        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />
       )}
       {m.toolCalls && m.toolCalls.length > 0 && (
         <ToolCallList calls={m.toolCalls} />
@@ -836,9 +863,11 @@ function MessageView({
  * `content`.
  */
 function ToolCallList({ calls }: { calls: ToolCall[] }) {
+  const visibleCalls = calls.filter((c) => c.name !== "render_ui");
+  if (visibleCalls.length === 0) return null;
   return (
     <div className="tool-call-list">
-      {calls.map((call, i) => (
+      {visibleCalls.map((call, i) => (
         <ToolCallRow key={`${call.toolCallId}-${i}`} call={call} />
       ))}
     </div>

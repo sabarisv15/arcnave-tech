@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGeminiContents, toGeminiFunctionDeclaration, toGeminiFunctionResponsePart } from './gemini.js';
+import { RENDER_UI } from '../tools/definitions.js';
 import type { GenerationRequest } from './types.js';
 
 function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequest {
@@ -96,6 +97,14 @@ describe('toGeminiFunctionDeclaration', () => {
     const decl = toGeminiFunctionDeclaration({ name: 'x', description: 'x', inputSchema: original });
     (decl.parametersJsonSchema as Record<string, unknown>)['type'] = 'MUTATED';
     expect(original['type']).toBe('object');
+  });
+
+  it('converts RENDER_UI tool definition to valid Gemini function declaration', () => {
+    const decl = toGeminiFunctionDeclaration(RENDER_UI);
+    expect(decl.name).toBe('render_ui');
+    expect(decl.description).toContain('interactive generative UI layout');
+    expect(decl.parametersJsonSchema).toBeDefined();
+    expect((decl.parametersJsonSchema as Record<string, unknown>)['type']).toBe('object');
   });
 });
 

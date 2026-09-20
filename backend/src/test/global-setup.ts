@@ -12,6 +12,7 @@ import { runMigrations } from '../db/migrate.js';
 import { TEST_DATABASE_URL } from './harness.js';
 
 export default async function setup(): Promise<void> {
+  if (process.env.SKIP_DB === '1') return;
   const url = new URL(TEST_DATABASE_URL);
   const database = url.pathname.replace(/^\//, '');
 

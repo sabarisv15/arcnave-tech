@@ -74,6 +74,9 @@ import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compactionService } from './compaction/compactionService.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
+import { UIToolExecutor } from '../tools/uiExecutor.js';
+import { UIAuthorizer } from './ui/authorizer.js';
+import type { UIBlock } from './ui/types.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -101,6 +104,7 @@ export type StreamEvent =
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
   | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
+  | { type: 'ui_block'; block: UIBlock }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
@@ -294,6 +298,7 @@ export class GenerationService {
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
+    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
@@ -301,6 +306,7 @@ export class GenerationService {
       skillsEnabled,
       webEnabled,
       memoryEnabled,
+      generativeUiEnabled,
     );
     const availableTools = toolRegistry.getAvailableTools({
       userId: input.userId,
@@ -417,7 +423,26 @@ export class GenerationService {
       ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
       : undefined;
 
+    const pendingUiEvents: StreamEvent[] = [];
+    const uiAuthorizer = new UIAuthorizer(this.db);
+    const uiToolExecutor = generativeUiEnabled
+      ? new UIToolExecutor(
+          uiAuthorizer,
+          { userId: input.userId, chatId: input.chatId, projectId: project?.id ?? null },
+          this.cfg.UI_MAX_RESPONSE_BYTES,
+          (block) => {
+            pendingUiEvents.push({
+              type: 'ui_block',
+              block,
+            });
+          },
+        )
+      : undefined;
+
     const toolMap = new Map<string, ToolExecutor>();
+    if (uiToolExecutor) {
+      toolMap.set('render_ui', uiToolExecutor);
+    }
     if (artifactToolExecutor) {
       toolMap.set('create_artifact', artifactToolExecutor);
       toolMap.set('read_artifact', artifactToolExecutor);
@@ -536,6 +561,9 @@ export class GenerationService {
             );
             while (pendingArtifactEvents.length > 0) {
               yield pendingArtifactEvents.shift()!;
+            }
+            while (pendingUiEvents.length > 0) {
+              yield pendingUiEvents.shift()!;
             }
             break;
           }
