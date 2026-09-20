@@ -216,6 +216,10 @@ const envSchema = z.object({
   /** Maximum character/token budget allocated to injected skill instructions in context. */
   MAX_SKILL_CONTEXT_TOKENS: int(12_000),
 
+  // --- Artifacts ----------------------------------------------------------
+  /** Maximum bytes of content allowed in a model-generated artifact (create/update). */
+  ARTIFACT_MAX_CONTENT_BYTES: int(500_000),
+
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),

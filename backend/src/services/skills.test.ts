@@ -37,17 +37,23 @@ describe('SkillService', () => {
   });
 
   it('evaluates capability dependencies honestly (guidance_only vs full)', () => {
-    // 1. Without artifact.pptx -> mode should be guidance_only and missing artifact.pptx
+    // 1. Without create_artifact -> pptx mode should be guidance_only and missing create_artifact
     const withoutTool = service.getSkill('pptx', []);
     expect(withoutTool).not.toBeNull();
     expect(withoutTool?.mode).toBe('guidance_only');
-    expect(withoutTool?.missingCapabilities).toEqual(['artifact.pptx']);
+    expect(withoutTool?.missingCapabilities).toEqual(['create_artifact']);
 
-    // 2. With artifact.pptx -> mode should be full
-    const withTool = service.getSkill('pptx', ['artifact.pptx']);
+    // 2. With create_artifact -> pptx has supported artifact.export.pptx capability -> full mode
+    const withTool = service.getSkill('pptx', ['create_artifact']);
     expect(withTool).not.toBeNull();
     expect(withTool?.mode).toBe('full');
     expect(withTool?.missingCapabilities).toEqual([]);
+
+    // 3. PDF requires artifact.export.pdf which is NOT supported -> always guidance_only
+    const pdfSkill = service.getSkill('pdf', ['create_artifact']);
+    expect(pdfSkill).not.toBeNull();
+    expect(pdfSkill?.mode).toBe('guidance_only');
+    expect(pdfSkill?.missingCapabilities).toEqual(['artifact.export.pdf']);
   });
 
   it('evaluates run_python dependency for data-analysis', () => {

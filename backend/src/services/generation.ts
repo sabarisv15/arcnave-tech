@@ -54,6 +54,7 @@ import {
   totalTokens,
 } from '../providers/types.js';
 import { AgentLoop } from './agentLoop.js';
+import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
@@ -85,6 +86,7 @@ export type StreamEvent =
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
   | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
+  | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
@@ -333,7 +335,35 @@ export class GenerationService {
         ? new SkillToolExecutor(this.skills, activeToolNames)
         : undefined;
 
+    const pendingArtifactEvents: StreamEvent[] = [];
+    const artifactToolExecutor = this.cfg.ENABLE_TOOL_USE
+      ? new ArtifactToolExecutor(
+          this.db,
+          {
+            userId: input.userId,
+            projectId: project?.id ?? null,
+            chatId: input.chatId,
+            assistantMessageId: input.messageId,
+          },
+          this.cfg.ARTIFACT_MAX_CONTENT_BYTES,
+          (art) => {
+            pendingArtifactEvents.push({
+              type: 'artifact_created',
+              artifactId: art.artifactId,
+              title: art.title,
+              kind: art.kind,
+              version: art.version,
+            });
+          },
+        )
+      : undefined;
+
     const toolMap = new Map<string, ToolExecutor>();
+    if (artifactToolExecutor) {
+      toolMap.set('create_artifact', artifactToolExecutor);
+      toolMap.set('read_artifact', artifactToolExecutor);
+      toolMap.set('update_artifact', artifactToolExecutor);
+    }
     if (projectToolExecutor) {
       toolMap.set('search_project_files', projectToolExecutor);
       toolMap.set('read_project_file', projectToolExecutor);
@@ -431,6 +461,9 @@ export class GenerationService {
               event.result,
               eventOrdinal++,
             );
+            while (pendingArtifactEvents.length > 0) {
+              yield pendingArtifactEvents.shift()!;
+            }
             break;
           }
 
@@ -858,6 +891,19 @@ export class GenerationService {
         'Answer using the web search results available to you. Cite the sources you actually ' +
           'used. Do not invent citations, and say plainly when the evidence does not settle ' +
           'the question.',
+      );
+    }
+
+    if (this.cfg.ENABLE_TOOL_USE) {
+      parts.push(
+        'Artifact & Deliverable Rules:\n' +
+          '- When the user asks to "convert to doc", "make a report", "write a document/article", ' +
+          '"create a presentation", "prepare a spreadsheet", "save as file", or requests a standalone deliverable for editing, reuse, or download:\n' +
+          '  * NEVER simply output the document text into chat telling the user to "copy and paste it into Word/Google Docs".\n' +
+          '  * You MUST call the `create_artifact` tool with the structured document content (using clean Markdown with headings, tables, and bullet points).\n' +
+          '  * Creating an artifact opens an interactive, editable workspace panel for the user and enables 1-click export to supported Office formats (.docx, .xlsx, .pptx).\n' +
+          '- When converting an uploaded file, first obtain and understand the source content through the available file/document-reading capabilities. Do not generate a conversion from unseen content.\n' +
+          '- For casual, brief conversational answers or short messages (e.g. "write a 2-line leave message"), answer directly in chat without creating an unnecessary artifact. Avoid artifact spam.',
       );
     }
 

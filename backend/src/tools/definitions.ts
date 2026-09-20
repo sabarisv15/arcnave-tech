@@ -213,3 +213,85 @@ export const SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
   READ_SKILL,
 ];
 
+/* -------------------------------------------------------------------------- Artifacts */
+
+export const CREATE_ARTIFACT: ToolDefinition = {
+  name: 'create_artifact',
+  description:
+    'Creates a new standalone editable artifact (document, code, or webpage) in the workspace. ' +
+    'The artifact immediately appears in the side panel for the user to inspect, edit, and export to supported formats (.docx, .xlsx, .pptx). ' +
+    'Call this whenever the user asks for a document, report, presentation, spreadsheet, or asks to convert an uploaded file into a reusable deliverable. ' +
+    'Do NOT output raw text in chat telling the user to copy-paste when they requested a document/file.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: {
+        type: 'string',
+        description: 'Concise title for the artifact (1 to 200 characters).',
+      },
+      kind: {
+        type: 'string',
+        enum: ['document', 'code', 'webpage'],
+        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), or 'webpage' (HTML). Defaults to 'document'.",
+      },
+      content: {
+        type: 'string',
+        description: 'The complete content of the artifact. Use clean, well-formatted Markdown with headings, tables, and lists for documents.',
+      },
+    },
+    required: ['title', 'content'],
+    additionalProperties: false,
+  },
+};
+
+export const READ_ARTIFACT: ToolDefinition = {
+  name: 'read_artifact',
+  description:
+    'Reads the latest version, title, kind, and content of an existing workspace artifact. ' +
+    'Call this before updating or refining an artifact so you understand its current text and version.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        description: 'The UUID of the artifact to read.',
+      },
+    },
+    required: ['id'],
+    additionalProperties: false,
+  },
+};
+
+export const UPDATE_ARTIFACT: ToolDefinition = {
+  name: 'update_artifact',
+  description:
+    'Appends a new version to an existing workspace artifact. ' +
+    'Requires expectedVersion (the current version you read) to prevent overwriting concurrent user edits. ' +
+    'If a version conflict occurs, read_artifact again to inspect the latest changes before reapplying your update.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        description: 'The UUID of the artifact to update.',
+      },
+      expectedVersion: {
+        type: 'integer',
+        description: 'The current version of the artifact you expect to update (must match currentVersion).',
+      },
+      content: {
+        type: 'string',
+        description: 'The full updated content for the new artifact version.',
+      },
+    },
+    required: ['id', 'expectedVersion', 'content'],
+    additionalProperties: false,
+  },
+};
+
+export const ARTIFACT_TOOL_DEFINITIONS: ToolDefinition[] = [
+  CREATE_ARTIFACT,
+  READ_ARTIFACT,
+  UPDATE_ARTIFACT,
+];
+

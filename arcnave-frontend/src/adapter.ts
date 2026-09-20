@@ -48,6 +48,13 @@ export type StreamEvent =
       ok: boolean;
       preview: string;
     }
+  | {
+      type: "artifact_created";
+      artifactId: string;
+      title: string;
+      kind: string;
+      version: number;
+    }
   | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
   | {
       type: "error";

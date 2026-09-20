@@ -1,11 +1,13 @@
 ---
 name: docx
-version: 1.0.0
+version: 1.1.0
 description: Professional Word document structure, formatting, typography, callouts, and clean layout guidelines.
 category: artifact
 requires:
   tools:
-    - artifact.docx
+    - create_artifact
+  capabilities:
+    - artifact.export.docx
 autoload: false
 metadata:
   source: arcnave
@@ -19,7 +21,7 @@ Use this skill when designing, structuring, or preparing content for Word docume
 
 - **Structural Hierarchy**: Use clear headings (Title, Heading 1, Heading 2, Heading 3). Keep heading nesting strictly sequential.
 - **Typography & Consistency**:
-  - Prefer clean, readable typefaces.
+  - Prefer clean, readable formatting.
   - Body text should maintain comfortable line spacing and paragraph margins.
   - Avoid excessive decorative font variations.
 - **Tables & Data Layout**:
@@ -36,5 +38,6 @@ Use this skill when designing, structuring, or preparing content for Word docume
 
 ## Capability & Output Guidance
 
-- **When `artifact.docx` tool is available**: You may generate and export the formatted `.docx` binary artifact.
-- **When in `guidance_only` mode (tool not present)**: Do not claim that a `.docx` file has been downloaded or created on disk. Instead, produce the complete, professionally formatted document content in Markdown with structural annotations so the user or document exporter can render it into Word.
+- **Creating the Document**: Call the `create_artifact` tool with `kind: 'document'` and the complete Markdown content. This creates the editable workspace artifact and displays it in the side panel.
+- **Exporting to Word (.docx)**: ArcNave's document export layer converts the artifact's Markdown headings, paragraphs, bullet lists, and tables into a real `.docx` file for the user to download.
+- **Never Tell Users to Copy-Paste**: When the user requests a Word document, report, or file deliverable, do NOT paste raw text into chat with "copy and paste this into Word". Always invoke `create_artifact`.

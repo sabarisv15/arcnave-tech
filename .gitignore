@@ -45,3 +45,6 @@ coverage/
 
 # Source archive
 arcnave-frontend.zip
+
+# Reference tools / corpus
+/tools/

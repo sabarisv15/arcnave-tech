@@ -360,6 +360,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       let assistantId = options.placeholderId;
       let text = "";
       let completed = false;
+      let openedArtifact = false;
       // What this tab will assert about the row if the server has not caught up yet.
       let outcome: Message["status"] = "stopped";
 
@@ -442,6 +443,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                   : t,
               ),
             }));
+          if (event.type === "artifact_created") {
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              artifactId: event.artifactId,
+            }));
+            void refreshArtifacts();
+            if (!openedArtifact) {
+              openedArtifact = true;
+              setPanel({ kind: "artifact", id: event.artifactId });
+            }
+          }
           if (event.type === "code")
             patchMessage(chatId, assistantId, (m) => ({
               ...m,

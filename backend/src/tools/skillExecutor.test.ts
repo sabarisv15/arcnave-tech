@@ -51,7 +51,7 @@ describe('SkillToolExecutor', () => {
 
   it('read_skill returns complete instructions and capability mode', async () => {
     let loadedSkillName = '';
-    const executor = new SkillToolExecutor(skillService, new Set(['artifact.pptx']), (s) => {
+    const executor = new SkillToolExecutor(skillService, new Set(['create_artifact']), (s) => {
       loadedSkillName = s.name;
     });
 
@@ -80,7 +80,7 @@ describe('SkillToolExecutor', () => {
     const data = jsonContent(result.content);
     expect(data.name).toBe('pptx');
     expect(data.mode).toBe('guidance_only');
-    expect(data.missingCapabilities).toEqual(['artifact.pptx']);
+    expect(data.missingCapabilities).toEqual(['create_artifact']);
   });
 
   it('read_skill handles unknown skill gracefully with typed failure (Invariant 1)', async () => {

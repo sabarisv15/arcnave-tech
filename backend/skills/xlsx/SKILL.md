@@ -1,11 +1,13 @@
 ---
 name: xlsx
-version: 1.0.0
+version: 1.1.0
 description: Professional spreadsheet architecture, formula conventions, financial modeling, summary sheets, and grid formatting.
 category: artifact
 requires:
   tools:
-    - artifact.xlsx
+    - create_artifact
+  capabilities:
+    - artifact.export.xlsx
 autoload: false
 metadata:
   source: arcnave
@@ -18,7 +20,7 @@ Use this skill when designing spreadsheets, financial models, budgeting sheets, 
 ## Structure & Architecture
 
 - **Workbook Structure**:
-  - For complex models, include a dedicated `Summary` or `Dashboard` sheet first, followed by `Data` / `Assumptions` / `Calculations` tabs.
+  - For complex models, include a dedicated `Summary` or `Dashboard` table first, followed by `Data` / `Assumptions` / `Calculations` tables.
 - **Formula Standards**:
   - Always write Excel formula function names in UPPERCASE (e.g. `SUM`, `AVERAGE`, `XLOOKUP`, `IF`, `INDEX`, `MATCH`).
   - Keep formulas readable; break nested logic into distinct helper columns where appropriate.
@@ -34,5 +36,6 @@ Use this skill when designing spreadsheets, financial models, budgeting sheets, 
 
 ## Capability & Output Guidance
 
-- **When `artifact.xlsx` tool is available**: You may generate and export the `.xlsx` spreadsheet file.
-- **When in `guidance_only` mode (tool not present)**: Do not claim that an `.xlsx` file has been saved or generated. Provide the complete spreadsheet table layout, formulas, and cell coordinates in clean Markdown tabular format.
+- **Creating the Spreadsheet**: Call the `create_artifact` tool with `kind: 'document'` containing well-structured GFM Markdown tables with clear headings for each sheet.
+- **Exporting to Excel (.xlsx)**: ArcNave's export layer parses the Markdown tables into sheets and generates a real `.xlsx` workbook via ExcelJS for the user to download.
+- **Limitations**: Note that markdown-to-spreadsheet conversion captures tables and cell data; complex multi-tab VBA macros or dynamic chart objects require Python sandbox scripts.

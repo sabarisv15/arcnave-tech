@@ -31,6 +31,7 @@ import type {
   Turn,
 } from '../providers/types.js';
 import { EMPTY_USAGE, isAbort } from '../providers/types.js';
+import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
@@ -282,7 +283,32 @@ export class AgentLoop {
             })
           : undefined;
 
+        const pendingArtifactEvents: StreamEvent[] = [];
+        const artifactToolExecutor = new ArtifactToolExecutor(
+          this.db,
+          {
+            userId: input.userId,
+            projectId: project?.id ?? null,
+            chatId: input.chatId,
+            assistantMessageId: input.messageId,
+            runId,
+          },
+          this.cfg.ARTIFACT_MAX_CONTENT_BYTES,
+          (art) => {
+            pendingArtifactEvents.push({
+              type: 'artifact_created',
+              artifactId: art.artifactId,
+              title: art.title,
+              kind: art.kind,
+              version: art.version,
+            });
+          },
+        );
+
         const baseMap = new Map<string, ToolExecutor>();
+        baseMap.set('create_artifact', artifactToolExecutor);
+        baseMap.set('read_artifact', artifactToolExecutor);
+        baseMap.set('update_artifact', artifactToolExecutor);
         if (projectToolExecutor) {
           baseMap.set('search_project_files', projectToolExecutor);
           baseMap.set('read_project_file', projectToolExecutor);
@@ -310,14 +336,15 @@ export class AgentLoop {
           execute: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
             totalToolCalls++;
 
-            // G2 Rule Check (exclude goals and skill query tools)
+            // G2 Rule Check (exclude goals, skills, and read_artifact queries)
             if (
               call.name !== 'get_goal' &&
               call.name !== 'update_goal' &&
               call.name !== 'get_context_remaining' &&
               call.name !== 'list_skills' &&
               call.name !== 'search_skills' &&
-              call.name !== 'read_skill'
+              call.name !== 'read_skill' &&
+              call.name !== 'read_artifact'
             ) {
               const isG2 = await GoalToolExecutor.isToolG2Blocked(this.db, activeGoal.id, call.name);
               if (isG2) {
@@ -444,6 +471,9 @@ export class AgentLoop {
                 event.result,
                 eventOrdinal++,
               );
+              while (pendingArtifactEvents.length > 0) {
+                yield pendingArtifactEvents.shift()!;
+              }
               break;
             }
 

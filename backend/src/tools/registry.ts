@@ -6,7 +6,13 @@
  * `GenerationService.loadProject` scopes by `userId`, so a `projectId` reaching here is already
  * the caller's own project.
  */
-import { GOAL_TOOL_DEFINITIONS, PROJECT_TOOL_DEFINITIONS, RUN_PYTHON, SKILL_TOOL_DEFINITIONS } from './definitions.js';
+import {
+  ARTIFACT_TOOL_DEFINITIONS,
+  GOAL_TOOL_DEFINITIONS,
+  PROJECT_TOOL_DEFINITIONS,
+  RUN_PYTHON,
+  SKILL_TOOL_DEFINITIONS,
+} from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 
 export interface ToolContext {
@@ -35,9 +41,14 @@ export class ProjectToolRegistry implements ToolRegistry {
 
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
-    if (this.enabled && context.projectId !== null) {
-      tools.push(...PROJECT_TOOL_DEFINITIONS);
-      if (this.runPythonEnabled) tools.push(RUN_PYTHON);
+    if (this.enabled) {
+      // Artifact tools (create, read, update) are available across all chats when tool use is on.
+      tools.push(...ARTIFACT_TOOL_DEFINITIONS);
+
+      if (context.projectId !== null) {
+        tools.push(...PROJECT_TOOL_DEFINITIONS);
+        if (this.runPythonEnabled) tools.push(RUN_PYTHON);
+      }
     }
     if (this.agentLoopEnabled && context.activeGoalId) {
       tools.push(...GOAL_TOOL_DEFINITIONS);

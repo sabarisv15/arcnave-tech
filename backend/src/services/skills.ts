@@ -41,8 +41,9 @@ const skillFrontmatterSchema = z.object({
   requires: z
     .object({
       tools: z.array(z.string()).default([]),
+      capabilities: z.array(z.string()).default([]),
     })
-    .default({ tools: [] }),
+    .default({ tools: [], capabilities: [] }),
   autoload: z.boolean().default(false),
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
@@ -68,6 +69,16 @@ export interface SkillSummary {
 export interface SkillDetail extends SkillSummary {
   content: string;
 }
+
+/**
+ * Supported backend capabilities verified in ArcNave (ADR-0004 & artifacts service).
+ * Used to evaluate honest skill capability modes (full vs guidance_only).
+ */
+export const SUPPORTED_CAPABILITIES = new Set<string>([
+  'artifact.export.docx',
+  'artifact.export.xlsx',
+  'artifact.export.pptx',
+]);
 
 export class SkillService {
   private readonly skills = new Map<string, SkillEntry>();
@@ -165,18 +176,19 @@ export class SkillService {
     skill: SkillFrontmatter,
     availableTools: Set<string>,
   ): { mode: SkillMode; missingCapabilities: string[] } {
-    const required = skill.requires.tools;
-    if (required.length === 0) {
+    const requiredTools = skill.requires.tools;
+    const requiredCaps = skill.requires.capabilities;
+
+    const missingTools = requiredTools.filter((tool) => !availableTools.has(tool));
+    const missingCaps = requiredCaps.filter((cap) => !SUPPORTED_CAPABILITIES.has(cap));
+    const allMissing = [...missingTools, ...missingCaps];
+
+    if (allMissing.length === 0) {
       return { mode: 'full', missingCapabilities: [] };
     }
 
-    const missing = required.filter((tool) => !availableTools.has(tool));
-    if (missing.length === 0) {
-      return { mode: 'full', missingCapabilities: [] };
-    }
-
-    // When required capabilities are missing, degrade gracefully to guidance_only
-    return { mode: 'guidance_only', missingCapabilities: missing };
+    // When required capabilities or tools are missing, degrade gracefully to guidance_only
+    return { mode: 'guidance_only', missingCapabilities: allMissing };
   }
 
   private toSet(availableTools?: string[] | Set<string>): Set<string> {

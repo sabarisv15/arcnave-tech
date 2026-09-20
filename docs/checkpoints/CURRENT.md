@@ -1071,7 +1071,6 @@ verification command for each is in `mistakes.md`; summary:
   - Enforced **Invariant 3**: exact token accounting per step; `get_context_remaining` returns exact numbers or `null` (never estimates).
   - Wired `AgentLoop` into `GenerationService` and `container.ts` behind `ENABLE_AGENT_LOOP`.
   - Extended `GET /chats/:id` to return `activeGoal` and checkpoints.
-  - Full test suite verified: 25 test files (332 tests) passing in backend, frontend tests and build passing.
 - **2026-09-20: Item 11 (Skills System) complete and tested**:
   - Built ArcNave-native Skills architecture separating instruction/workflow knowledge (Skill) from actual capability (Tool).
   - Authored 8 initial skills in `backend/skills/` (`docx`, `pptx`, `xlsx`, `pdf`, `data-analysis`, `research-deep-dive`, `python-sandbox-patterns`, `skill-creator`) with strict YAML frontmatter schema.
@@ -1080,5 +1079,21 @@ verification command for each is in `mistakes.md`; summary:
   - Integrated with Item 10 `AgentLoop` with progressive disclosure context limits (`MAX_LOADED_SKILLS_PER_STEP=3`, `MAX_SKILL_CONTEXT_TOKENS=12000`), deduplication, autoloading of `python-sandbox-patterns` when `run_python` is active, and logging `skill_loaded` events into `goal_events`.
   - Added public REST discovery endpoints `GET /v1/skills` and `GET /v1/skills/:name` (`backend/src/routes/skills.ts`), bringing total routes to 43.
   - Gated behind `ENABLE_SKILLS=false` in `config.ts`.
-  - Full verification: 28 test files (353 tests) passing in backend, TypeScript clean (`tsc --noEmit`), OpenAPI schema regenerated (`43 paths`), frontend tests and build passing.
+- **2026-09-20: Anthropic-parity `create_artifact` + Workspace Integration complete and tested**:
+  - Built direct bridge from model tool-calling to ArcNave's editable Artifact workspace via `create_artifact`, `read_artifact`, and `update_artifact` tools.
+  - Implemented `ArtifactToolExecutor` (`backend/src/tools/artifactExecutor.ts`):
+    - Strict trusted server scoping (`userId`, `chatId`, optional `projectId`, `assistantMessageId`).
+    - Idempotent tool execution using PostgreSQL `idempotency_keys` table to guarantee no duplicate artifacts on replayed tool calls.
+    - Optimistic concurrency control (`expectedVersion`) backed by atomic `FOR UPDATE` row locking to prevent race conditions.
+    - Bounded content protection (`ARTIFACT_MAX_CONTENT_BYTES: 500_000`).
+    - Standardized `ToolResult` JSON envelope complying with Invariant 1 (typed error returns, never throwing).
+  - Capability-aware skill model alignment:
+    - Updated `docx/SKILL.md`, `xlsx/SKILL.md`, `pptx/SKILL.md`, and `pdf/SKILL.md` frontmatters and guidance to require `create_artifact` tool and their respective `artifact.export.*` capabilities.
+    - Accurately reports `mode: 'full'` for `docx`, `xlsx`, `pptx`, and `mode: 'guidance_only'` for `pdf` (no PDF export tool exists).
+    - Injected Anthropic deliverable system prompt instruction directing the model to call `create_artifact` instead of telling users to copy-paste.
+  - End-to-end streaming & Frontend auto-open:
+    - Added `artifact_created` SSE event emitted by both `GenerationService` and `AgentLoop`.
+    - Extended frontend `adapter.ts` and `workspace.tsx` to handle `artifact_created`, dynamically associate the artifact with the message, refresh the artifacts list, and automatically open the split-view `ArtifactPanel` on the first creation.
+  - Full verification: All 29 backend test files (364 tests) passing, backend `tsc --noEmit` clean (0 errors), OpenAPI schema generated (43 paths), frontend vitest suite (28 tests) passing, frontend Vite production build passing.
+
 
