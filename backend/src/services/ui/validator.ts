@@ -41,7 +41,16 @@ export function sanitizeInertText(text: string): string {
  * @param maxBytes Global UTF-8 byte cap on serialized payload (default 100,000)
  */
 export function validateAndNormalizeUI(input: unknown, maxBytes: number = 100_000): ValidationResult {
-  if (!input || typeof input !== 'object') {
+  let parsedInput = input;
+  if (typeof parsedInput === 'string') {
+    try {
+      parsedInput = JSON.parse(parsedInput);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!parsedInput || typeof parsedInput !== 'object') {
     return {
       ok: false,
       fallbackText: 'Structured view could not be rendered.',
@@ -49,7 +58,20 @@ export function validateAndNormalizeUI(input: unknown, maxBytes: number = 100_00
     };
   }
 
-  const raw = input as { blocks?: unknown[] };
+  let raw = parsedInput as { blocks?: unknown };
+  if (typeof raw.blocks === 'string') {
+    try {
+      const parsedBlocks = JSON.parse(raw.blocks);
+      if (Array.isArray(parsedBlocks)) {
+        raw = { blocks: parsedBlocks };
+      } else if (parsedBlocks && typeof parsedBlocks === 'object' && Array.isArray((parsedBlocks as any).blocks)) {
+        raw = { blocks: (parsedBlocks as any).blocks };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   if (!Array.isArray(raw.blocks) || raw.blocks.length === 0) {
     return {
       ok: false,
