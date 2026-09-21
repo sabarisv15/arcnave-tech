@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   ChevronDown,
@@ -103,6 +103,8 @@ export default function Composer({
     toast,
     edit,
     setEdit,
+    chats,
+    messages,
   } = useWorkspace();
   const { models } = useSession();
   const [text, setText] = useState(initialPrompt),
@@ -158,6 +160,23 @@ export default function Composer({
   const busy = !!activeRun;
   const ownRun = activeRun === chatId;
   const grounded = models?.capabilities.groundedSearch ?? true;
+  const followUpSuggestion = useMemo(() => {
+    if (!chatId) return "";
+    const history = messages[chatId] ?? [];
+    const related = [...history]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.questions?.length)
+      ?.questions?.find((question) => question.trim());
+    if (related) return related.trim();
+
+    const title = chats.find((chat) => chat.id === chatId)?.title.trim();
+    if (title && !/^new (chat|conversation)$/i.test(title)) {
+      const topic = title.length > 68 ? `${title.slice(0, 65).trimEnd()}…` : title;
+      return `Go deeper on ${topic}`;
+    }
+    return "What should we explore next?";
+  }, [chatId, chats, messages]);
+  const showFollowUp = inlineReply && !text && !files.length && !artifact && !edit;
 
   /**
    * Upload each file as it is chosen.
@@ -339,30 +358,55 @@ export default function Composer({
             )}
           </div>
         )}
-        <textarea
-          ref={textarea}
-          aria-label="Your message"
-          placeholder={
-            artifactIntent
-              ? "Describe the artifact you want to create…"
-              : chatId
-              ? "Keep the thought going…"
-              : "Ask a question. Follow a thought."
-          }
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (
-              e.key === "Enter" &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing &&
-              (preferences.enterToSend || e.ctrlKey || e.metaKey)
-            ) {
-              e.preventDefault();
-              submit();
+        <div className="composer-input">
+          {showFollowUp && followUpSuggestion && (
+            <div className="composer-suggestion" aria-hidden="true">
+              <span>{followUpSuggestion}</span>
+              <kbd>Tab</kbd>
+            </div>
+          )}
+          <textarea
+            ref={textarea}
+            aria-label={
+              showFollowUp && followUpSuggestion
+                ? `Your message. Suggested follow-up: ${followUpSuggestion}. Press Tab to use it.`
+                : "Your message"
             }
-          }}
-        />
+            placeholder={
+              artifactIntent
+                ? "Describe the artifact you want to create…"
+                : chatId
+                ? ""
+                : "Ask a question. Follow a thought."
+            }
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.key === "Tab" || e.key === "ArrowRight") &&
+                showFollowUp &&
+                followUpSuggestion
+              ) {
+                e.preventDefault();
+                setText(followUpSuggestion);
+                window.requestAnimationFrame(() => {
+                  const end = followUpSuggestion.length;
+                  textarea.current?.setSelectionRange(end, end);
+                });
+                return;
+              }
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing &&
+                (preferences.enterToSend || e.ctrlKey || e.metaKey)
+              ) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+        </div>
         <div className="composer-toolbar">
           <Dropdown
             label="Add files and tools"

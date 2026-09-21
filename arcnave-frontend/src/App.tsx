@@ -314,9 +314,28 @@ function Shell() {
 
 function Home() {
   const { preferences } = useWorkspace();
-  const { models } = useSession();
+  const { models, user } = useSession();
   const [suggestion, setSuggestion] = useState(""),
-    [mode, setMode] = useState<Mode>(preferences.defaultMode);
+    [mode, setMode] = useState<Mode>(preferences.defaultMode),
+    [greeting] = useState(() => {
+      const name = user?.name.trim().split(/\s+/)[0];
+      const greetings = name
+        ? [
+            `What are we working on, ${name}?`,
+            `Where should we begin, ${name}?`,
+            `What is on your mind, ${name}?`,
+            `Ready when you are, ${name}.`,
+            `What shall we explore, ${name}?`,
+          ]
+        : [
+            "What are we working on?",
+            "Where should we begin?",
+            "What is on your mind?",
+            "Ready when you are.",
+            "What shall we explore?",
+          ];
+      return greetings[Math.floor(Math.random() * greetings.length)];
+    });
   const grounded = models?.capabilities.groundedSearch ?? true;
   return (
     <>
@@ -324,7 +343,7 @@ function Home() {
         <div className="home-intro">
           <BrandMark />
           <p className="eyebrow">A LITTLE ROOM TO THINK</p>
-          <h1>Where shall we begin?</h1>
+          <h1>{greeting}</h1>
         </div>
         <Composer initialPrompt={suggestion} initialMode={mode} />
         <div className="suggestions">
