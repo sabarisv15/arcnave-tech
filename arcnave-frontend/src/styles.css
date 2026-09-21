@@ -4224,22 +4224,117 @@ select:focus-visible {
   border-radius: 8px;
 }
 
-/* Keep the AI entry surface visually distinct everywhere it appears: home, conversations,
-   projects, and artifact creation. Several of those containers use --surface themselves, so a
-   plain white composer otherwise disappears into its parent. */
+/* The composer is ArcNave's primary working surface. Keep all of its visual character inside
+   the component: a bright writing plane, a fine signature edge, and a quiet control dock. This
+   avoids the broad side glows that made the surrounding page look selected. */
 .composer {
+  --composer-edge: color-mix(in srgb, var(--accent) 38%, var(--line));
+  --composer-edge-active: color-mix(in srgb, var(--accent) 76%, var(--line));
+  isolation: isolate;
+  overflow: hidden;
   background: var(--surface);
-  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
-  box-shadow: 0 1px 3px #17213210;
+  border-color: var(--composer-edge);
+  border-radius: 22px;
+  box-shadow:
+    0 1px 2px #1721320b,
+    0 10px 32px #1721320a,
+    inset 0 1px 0 #ffffff;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.composer::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  left: 50%;
+  width: 74px;
+  height: 2px;
+  border-radius: 0 0 999px 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 72%, white),
+    transparent
+  );
+  transform: translateX(-50%);
+  opacity: 0.72;
+  pointer-events: none;
+  transition:
+    width 220ms ease,
+    opacity 180ms ease;
 }
 
 .composer:hover {
-  border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--line));
+  box-shadow:
+    0 2px 4px #1721320d,
+    0 14px 38px #1721320d,
+    inset 0 1px 0 #ffffff;
 }
 
 .composer:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--composer-edge-active);
+  box-shadow:
+    0 2px 5px #17213210,
+    0 15px 42px #17213210,
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 13%, transparent),
+    inset 0 1px 0 #ffffff;
+}
+
+.composer:focus-within::before {
+  width: 116px;
+  opacity: 1;
+}
+
+.composer textarea {
+  color: var(--ink);
+  letter-spacing: -0.012em;
+}
+
+.composer textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, white);
+}
+
+.composer .composer-toolbar {
+  position: relative;
+  padding: 5px 6px;
+  margin-inline: -5px;
+  margin-bottom: -2px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--soft) 54%, transparent);
+}
+
+.composer .icon-button,
+.composer .quiet-button {
+  border-radius: 9px;
+}
+
+.composer .send-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  box-shadow:
+    0 1px 2px #17213224,
+    inset 0 1px 0 #ffffff24;
+  transition:
+    transform 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.composer .send-button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 10px #17213226,
+    inset 0 1px 0 #ffffff2b;
+}
+
+.composer .send-button:disabled {
+  box-shadow: inset 0 1px 0 #ffffff80;
 }
 
 .conversation-composer {
@@ -4248,13 +4343,45 @@ select:focus-visible {
 
 .conversation-composer .composer,
 .conversation-composer .composer.composer-inline {
-  box-shadow: 0 1px 3px #17213210;
+  border-radius: 18px;
+  box-shadow:
+    0 1px 2px #1721320b,
+    0 8px 24px #1721320a,
+    inset 0 1px 0 #ffffff;
+}
+
+.conversation-composer .composer-inline .composer-toolbar {
+  padding: 3px 4px;
+  margin-inline: -3px;
+  margin-bottom: -1px;
+  border-radius: 11px;
+}
+
+.home .composer {
+  border-radius: 26px;
+  padding: 22px 20px 14px;
+  box-shadow:
+    0 2px 4px #1721320c,
+    0 18px 54px #1721320f,
+    inset 0 1px 0 #ffffff;
+}
+
+.home .composer textarea {
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.home .composer .composer-toolbar {
+  margin-top: 16px;
 }
 
 [data-theme="dark"] .composer {
   background: var(--surface);
   border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
-  box-shadow: 0 1px 3px #00000030;
+  box-shadow:
+    0 2px 4px #00000030,
+    0 14px 40px #00000022,
+    inset 0 1px 0 #ffffff0b;
 }
 
 [data-theme="dark"] .composer:hover {
@@ -4263,7 +4390,23 @@ select:focus-visible {
 
 [data-theme="dark"] .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 82%, white 8%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow:
+    0 2px 4px #00000038,
+    0 16px 44px #0000002b,
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent),
+    inset 0 1px 0 #ffffff0c;
+}
+
+[data-theme="dark"] .composer .composer-toolbar {
+  background: color-mix(in srgb, var(--soft) 66%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer,
+  .composer::before,
+  .composer .send-button {
+    transition: none;
+  }
 }
 
 .dropdown[aria-label="Model selection"] {
