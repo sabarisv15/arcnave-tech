@@ -4197,7 +4197,7 @@ select:focus-visible {
 .conversation-composer .composer-inline textarea {
   min-height: 34px;
   max-height: 42dvh;
-  padding: 0 2px;
+  padding: 10px 4px 2px;
   font-size: 14px;
   line-height: 1.45;
   overflow-y: auto;
@@ -4319,7 +4319,7 @@ select:focus-visible {
   position: absolute;
   inset: 0 4px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-start;
   gap: 9px;
   color: color-mix(in srgb, var(--muted) 78%, white);
@@ -4328,6 +4328,7 @@ select:focus-visible {
   text-align: left;
   pointer-events: none;
   overflow: hidden;
+  padding-top: 10px;
 }
 
 .composer-suggestion span {
