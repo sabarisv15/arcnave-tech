@@ -4301,11 +4301,26 @@ select:focus-visible {
 
 .composer .composer-toolbar {
   position: relative;
-  padding: 5px 6px;
-  margin-inline: -5px;
-  margin-bottom: -2px;
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--soft) 54%, transparent);
+  padding: 10px 2px 1px;
+  margin: 8px 0 0;
+  background: transparent;
+}
+
+.composer .composer-toolbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 2px;
+  right: 2px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--line) 72%, transparent) 12%,
+    color-mix(in srgb, var(--line) 72%, transparent) 88%,
+    transparent
+  );
+  pointer-events: none;
 }
 
 .composer .icon-button,
@@ -4351,10 +4366,8 @@ select:focus-visible {
 }
 
 .conversation-composer .composer-inline .composer-toolbar {
-  padding: 3px 4px;
-  margin-inline: -3px;
-  margin-bottom: -1px;
-  border-radius: 11px;
+  padding: 7px 1px 0;
+  margin: 4px 0 0;
 }
 
 .home .composer {
@@ -4372,7 +4385,8 @@ select:focus-visible {
 }
 
 .home .composer .composer-toolbar {
-  margin-top: 16px;
+  margin-top: 12px;
+  padding-top: 13px;
 }
 
 [data-theme="dark"] .composer {
@@ -4395,10 +4409,6 @@ select:focus-visible {
     0 16px 44px #0000002b,
     inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent),
     inset 0 1px 0 #ffffff0c;
-}
-
-[data-theme="dark"] .composer .composer-toolbar {
-  background: color-mix(in srgb, var(--soft) 66%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
