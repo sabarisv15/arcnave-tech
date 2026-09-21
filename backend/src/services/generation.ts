@@ -300,13 +300,21 @@ export class GenerationService {
     };
 
     // --- Skill-First -> Tool-Second Routing --------------------------------
+    const attachmentNames: string[] = [];
+    if (input.attachmentManifest) {
+      const matches = input.attachmentManifest.matchAll(/filename:\s*"([^"]+)"/g);
+      for (const m of matches) {
+        if (m[1]) attachmentNames.push(m[1]);
+      }
+    }
+
     const candidateSkillSummaries = this.skills ? this.skills.listSkills() : [];
     const routingDecision = routeTurn({
       prompt: input.prompt,
       mode: input.mode,
       hasAttachments: input.hasAttachments,
       attachmentMimeTypes: input.attachments.map((a) => a.mimeType),
-      attachmentNames: [],
+      attachmentNames,
       candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
       imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
@@ -398,7 +406,7 @@ export class GenerationService {
     const shouldRouteToAgentLoop = (inp: GenerateInput): boolean => {
       if (inp.mode === 'research') return true;
       // If client requests code execution with attachments requiring iterative execution
-      if (inp.codeExecution && inp.attachments.length > 0) return true;
+      if (routingDecision.pythonExposed && inp.codeExecution && inp.attachments.length > 0) return true;
       // Structured heuristic: multi-turn research/synthesis tasks with explicit query shape
       const p = inp.prompt.toLowerCase();
       const hasSynthesisIntent =
@@ -561,7 +569,7 @@ export class GenerationService {
       maxOutputTokens,
       providerModelId: entry.providerModelId!,
       grounded,
-      codeExecution,
+      codeExecution: routingDecision.pythonExposed && codeExecution,
       ...(availableTools.length > 0 ? { tools: availableTools } : {}),
       ...(toolExecutor ? { toolExecutor } : {}),
       signal: input.signal,
