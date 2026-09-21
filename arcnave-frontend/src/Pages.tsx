@@ -727,8 +727,11 @@ function XIcon() {
 }
 
 function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
-  const { setPanel, refreshArtifacts, toast } = useWorkspace();
+  const { setPanel, refreshArtifacts, toast, chats, projects } = useWorkspace();
   const [confirm, setConfirm] = useState(false);
+  const sourceChat = chats.find((c) => c.id === a.chatId);
+  const sourceProject = projects.find((p) => p.id === a.projectId);
+
   return (
     <div className="artifact-card">
       <button onClick={() => setPanel({ kind: "artifact", id: a.id })}>
@@ -760,6 +763,12 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
           <small>
             {a.kind} · version {a.currentVersion}
           </small>
+          {(sourceChat || sourceProject) && (
+            <div className="artifact-provenance" style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.75rem', opacity: 0.8 }}>
+              {sourceChat && <span>From chat: {sourceChat.title}</span>}
+              {sourceProject && <span>Project: {sourceProject.title}</span>}
+            </div>
+          )}
         </div>
       </button>
       <IconButton
@@ -805,12 +814,19 @@ export function ArtifactsPage() {
   const { artifacts } = useWorkspace();
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All"),
+    [sourceFilter, setSourceFilter] = useState<"all" | "standalone" | "project">("all"),
     [creating, setCreating] = useState(false);
-  const list = artifacts.filter(
-    (a) =>
-      (filter === "All" || a.kind === filter) &&
-      a.title.toLowerCase().includes(query.toLowerCase()),
-  );
+
+  const list = artifacts.filter((a) => {
+    const matchesType = filter === "All" || a.kind === filter;
+    const matchesQuery = a.title.toLowerCase().includes(query.toLowerCase());
+    const matchesSource =
+      sourceFilter === "all" ||
+      (sourceFilter === "project" && Boolean(a.projectId)) ||
+      (sourceFilter === "standalone" && !a.projectId);
+    return matchesType && matchesQuery && matchesSource;
+  });
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -836,6 +852,26 @@ export function ArtifactsPage() {
               {f === "All" ? f : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
+        </div>
+        <div className="segmented">
+          <button
+            className={sourceFilter === "all" ? "active" : ""}
+            onClick={() => setSourceFilter("all")}
+          >
+            All
+          </button>
+          <button
+            className={sourceFilter === "project" ? "active" : ""}
+            onClick={() => setSourceFilter("project")}
+          >
+            Project
+          </button>
+          <button
+            className={sourceFilter === "standalone" ? "active" : ""}
+            onClick={() => setSourceFilter("standalone")}
+          >
+            Standalone
+          </button>
         </div>
         <div className="search-field">
           <Search size={16} />

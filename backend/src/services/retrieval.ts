@@ -141,13 +141,16 @@ async function extractPdfPages(data: Buffer, visionProvider?: Provider): Promise
     const result = await parser.getText();
     // pdf-parse always inlines a `-- N of M --` page separator into the concatenated `.text`,
     // even for a page with zero real content, so that string is never actually empty for a
-    // scanned PDF — only the per-page text is. Checked here, not against the whole-document
-    // string, or a scanned PDF would silently skip the OCR branch below.
-    const hasSelectableText = result.pages.some((page) => page.text.trim() !== '');
+    // Selectable text check: if the PDF contains real text, extract per-page text layers.
+    // If no selectable text exists (scanned/raster document), fall back to Gemini Vision OCR.
+    const hasSelectableText = result.pages.some((page) => page.text.trim().length > 0);
     if (hasSelectableText) {
       return result.pages
         .filter((page) => page.text.trim() !== '')
-        .map((page) => ({ num: page.num, text: page.text }));
+        .map((page) => ({
+          num: page.num,
+          text: page.text.trim(),
+        }));
     }
 
     // No selectable text: this is a scanned PDF. Rasterize pages and let Gemini read them —

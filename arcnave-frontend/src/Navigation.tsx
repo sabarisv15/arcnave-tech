@@ -341,17 +341,22 @@ export default function Sidebar({
                   {open && (
                     <div className="sidebar-project-chats">
                       {projectChats.map((chat) => (
-                        <button
-                          className={`sidebar-child-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
+                        <div
+                          className={`sidebar-child-chat-wrapper ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
                           key={chat.id}
-                          onClick={() => go(`/chat/${chat.id}`)}
                         >
-                          <MessageCircleMore
-                            size={14}
-                            className={chat.pinned ? "pinned" : ""}
-                          />
-                          <span>{chat.title}</span>
-                        </button>
+                          <button
+                            className={`sidebar-child-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
+                            onClick={() => go(`/chat/${chat.id}`)}
+                          >
+                            <MessageCircleMore
+                              size={14}
+                              className={chat.pinned ? "pinned" : ""}
+                            />
+                            <span>{chat.title}</span>
+                          </button>
+                          <ChatMenu chat={chat} />
+                        </div>
                       ))}
                       {!projectChats.length && (
                         <p className="sidebar-section-empty">
@@ -388,17 +393,22 @@ export default function Sidebar({
             </span>
           </div>
           {standaloneChats.map((chat) => (
-            <button
-              className={`sidebar-standalone-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
+            <div
+              className={`sidebar-standalone-chat-wrapper ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
               key={chat.id}
-              onClick={() => go(`/chat/${chat.id}`)}
             >
-              <MessageCircleMore
-                size={14}
-                className={chat.pinned ? "pinned" : ""}
-              />
-              <span>{chat.title}</span>
-            </button>
+              <button
+                className={`sidebar-standalone-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
+                onClick={() => go(`/chat/${chat.id}`)}
+              >
+                <MessageCircleMore
+                  size={14}
+                  className={chat.pinned ? "pinned" : ""}
+                />
+                <span>{chat.title}</span>
+              </button>
+              <ChatMenu chat={chat} />
+            </div>
           ))}
           {!standaloneChats.length && (
             <p className="sidebar-section-empty">

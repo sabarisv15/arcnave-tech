@@ -988,6 +988,21 @@ failure mode of this pattern, not a sign it is working.
   text file, asks a question with the attachment, then asks a follow-up with no attachment;
   asserts the provider's second request still contains the file's text.
 
+### 2026-09-21 — A legacy transcript field crashed the whole workspace
+
+- **Symptom:** Opening a chat after an `.xlsx` analysis could replace the workspace with the
+  error boundary: `Cannot read properties of undefined (reading 'map')`, even though the
+  response had been saved.
+- **Cause:** `toMessage` treated transcript evidence collections (`sources`, `events`,
+  `toolCalls`, `attachments`, and `questions`) as always-present arrays. A persisted/returned
+  message missing any one of those fields threw while mapping the transcript, and the uncaught
+  render error took down the entire chat view.
+- **Rule:** **Normalize optional wire collections at the DTO boundary before rendering.** A
+  missing collection means no data was supplied; it must not be allowed to crash unrelated,
+  saved transcript content.
+- **Verify:** `arcnave-frontend/src/types.test.ts` covers a legacy message with every optional
+  collection absent; `npm test` and `npm run build` pass.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1012,6 +1027,8 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-21** — Added the transcript DTO normalization entry: missing optional evidence
+  arrays in an older/degraded chat payload must not trip the workspace error boundary.
 - **2026-09-20** — Added entry for the attachment-text carry-forward bug: text-extracted
   attachments were only injected into the upload turn's system prompt and vanished on turn two.
 - **2026-09-20** — Retired "A comment asserted a guarantee the code did not provide" (the

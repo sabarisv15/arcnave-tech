@@ -9,6 +9,7 @@
 import {
   ARTIFACT_TOOL_DEFINITIONS,
   GOAL_TOOL_DEFINITIONS,
+  IMAGE_TOOL_DEFINITIONS,
   MEMORY_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
@@ -49,6 +50,8 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly memoryEnabled: boolean = false,
     /** Phase 6 Generative UI gate — exposes render_ui tool across all chats. */
     private readonly generativeUiEnabled: boolean = false,
+    /** Modern Gemini Image gate — exposes generate_image across all chats. */
+    private readonly imageEnabled: boolean = false,
   ) {}
 
   getAvailableTools(context: ToolContext): ToolDefinition[] {
@@ -59,6 +62,11 @@ export class ProjectToolRegistry implements ToolRegistry {
 
       // Upload file reading is available across all chats when tool use is on.
       tools.push(...UPLOAD_TOOL_DEFINITIONS);
+
+      // Image generation via Gemini Image hierarchy
+      if (this.imageEnabled) {
+        tools.push(...IMAGE_TOOL_DEFINITIONS);
+      }
 
       // Persistent memory tools are available across all chats when memory is enabled
       if (this.memoryEnabled) {

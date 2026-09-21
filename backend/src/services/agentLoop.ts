@@ -41,6 +41,7 @@ import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
+import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import { memoryService } from './memory/memoryService.js';
@@ -199,6 +200,7 @@ export class AgentLoop {
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
+    const imageEnabled = Boolean(this.cfg.ENABLE_IMAGE_GENERATION);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
@@ -207,6 +209,7 @@ export class AgentLoop {
       webEnabled,
       memoryEnabled,
       generativeUiEnabled,
+      imageEnabled,
     );
     const allowPython =
       runPythonEnabled &&
@@ -369,6 +372,20 @@ export class AgentLoop {
           baseMap.set('read_memory', memoryToolExecutor);
           baseMap.set('update_memory', memoryToolExecutor);
           baseMap.set('forget_memory', memoryToolExecutor);
+        }
+
+        if (imageEnabled) {
+          baseMap.set(
+            'generate_image',
+            new ImageGenerationExecutor(
+              this.cfg,
+              this.storage,
+              this.db,
+              input.userId,
+              input.chatId,
+              input.messageId,
+            ),
+          );
         }
 
         const rawDispatcher = new DispatchingToolExecutor(baseMap);
@@ -625,7 +642,42 @@ export class AgentLoop {
     }
 
     // Persist final message state
-    const text = collectedText.join('');
+    let text = collectedText.join('');
+
+    // Guaranteed Final Outcome: synthesize text if agent loop produced tool calls but finished with blank text
+    if (status === 'complete' && text.trim().length === 0) {
+      if (input.mode === 'research' && collectedSources.length === 0) {
+        text = 'Live web research could not be completed at this time due to search provider unavailability.';
+        yield { type: 'delta', text };
+      } else {
+        try {
+          const synthesisStream = provider.stream({
+            prompt: `${input.prompt}\n\n[System Instruction: Synthesize a complete final answer based on the previous tool results and evidence above. Do not call any further tools.]`,
+            history: activeHistory,
+            attachments: input.attachments,
+            systemInstruction,
+            mode: input.mode,
+            maxOutputTokens,
+            providerModelId: entry.providerModelId!,
+            grounded: false,
+            codeExecution: false,
+            tools: [],
+            toolExecutor: undefined,
+            signal: input.signal,
+          });
+          for await (const ev of synthesisStream) {
+            if (ev.type === 'delta' && ev.text) {
+              text += ev.text;
+              yield { type: 'delta', text: ev.text };
+            } else if (ev.type === 'completed') {
+              cumulativeUsage = sumUsage(cumulativeUsage, ev.usage);
+            }
+          }
+        } catch (synthErr) {
+          log.warn({ err: String(synthErr) }, 'agent loop final synthesis round failed');
+        }
+      }
+    }
     await this.finalise(input, {
       text,
       sources: collectedSources,

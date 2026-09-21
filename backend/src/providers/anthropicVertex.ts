@@ -14,6 +14,8 @@ import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import { sourcesFromAnthropicBlocks } from './grounding.js';
+import { ApiError } from '../errors.js';
+import { getModelCapability } from './capabilitiesTable.js';
 import type {
   GenerationRequest,
   Provider,
@@ -159,6 +161,21 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
   // The API requires the sequence to start with a user turn.
   while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
 
+  // Validate upfront that no newly attached image exceeds the model's base64 capacity
+  const capability = getModelCapability('Sonnet 5');
+  for (const att of request.attachments ?? []) {
+    if (att.mimeType.startsWith('image/')) {
+      const base64Bytes = Buffer.byteLength(att.base64, 'utf8');
+      if (base64Bytes > capability.maxEncodedImageBytes) {
+        throw new ApiError('provider_payload_limit', {
+          title: 'Image exceeds Claude 5 MB limit',
+          detail: `This image is ${(base64Bytes / 1_000_000).toFixed(1)} MB when encoded, exceeding Anthropic's 5 MB limit on Vertex AI. Choose a smaller image or select Gemini 3.8 Flash, which supports up to 20 MB.`,
+          meta: { base64Bytes, limitBytes: capability.maxEncodedImageBytes, model: 'Sonnet 5' },
+        });
+      }
+    }
+  }
+
   const currentBlocks = attachmentBlocks(request.attachments);
   if (currentBlocks.length === 0) {
     messages.push({ role: 'user', content: request.prompt });
@@ -234,6 +251,8 @@ export class AnthropicVertexProvider implements Provider {
       ...(useTools ? toolDefs.map(toAnthropicTool) : []),
     ];
 
+    const failedToolCalls = new Set<string>();
+
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
         // A round boundary is the one place abort can fire with no request in flight yet (e.g.
@@ -261,14 +280,19 @@ export class AnthropicVertexProvider implements Provider {
           return request.systemInstruction || undefined;
         })();
 
+        // If on the final round, disable tools so the model is forced to synthesize text
+        const isFinalRound = isLastRound(round, maxRounds);
+        const effectiveTools = isFinalRound ? [] : tools;
+        const effectiveUseTools = isFinalRound ? false : useTools;
+
         const stream = this.getClient().messages.stream(
           {
             model: request.providerModelId,
             max_tokens: request.maxOutputTokens,
             messages,
             ...(systemParam !== undefined ? { system: systemParam } : {}),
-            ...(tools.length > 0 ? { tools } : {}),
-            ...(useTools ? { tool_choice: { type: 'auto', disable_parallel_tool_use: true } } : {}),
+            ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
+            ...(effectiveUseTools ? { tool_choice: { type: 'auto', disable_parallel_tool_use: true } } : {}),
           },
           { signal: request.signal },
         );
@@ -321,10 +345,32 @@ export class AnthropicVertexProvider implements Provider {
 
         if (primary) {
           const call = { id: primary.id, name: primary.name, input: primary.input };
-          yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
-          const result = await request.toolExecutor!.execute(call, request.signal);
-          yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
-          resultBlocks.push(toAnthropicToolResultBlock(call.id, result));
+          const callFingerprint = `${call.name}:${JSON.stringify(call.input)}`;
+          
+          if (failedToolCalls.has(callFingerprint)) {
+            // Duplicate failed call detected: do not repeat execution, return guard instruction
+            const guardResult: ToolResult = {
+              toolCallId: call.id,
+              ok: false,
+              content: [
+                {
+                  type: 'text',
+                  text: `This tool (${call.name}) previously failed with these exact inputs. Do not retry it. Deliver your synthesized answer directly in text to the user.`,
+                },
+              ],
+            };
+            yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
+            yield { type: 'tool_result', toolCallId: call.id, name: call.name, result: guardResult };
+            resultBlocks.push(toAnthropicToolResultBlock(call.id, guardResult));
+          } else {
+            yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
+            const result = await request.toolExecutor!.execute(call, request.signal);
+            if (!result.ok) {
+              failedToolCalls.add(callFingerprint);
+            }
+            yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
+            resultBlocks.push(toAnthropicToolResultBlock(call.id, result));
+          }
         }
         for (const extra of rest) {
           resultBlocks.push(toAnthropicToolResultBlock(extra.id, deferredCallResult(extra.id)));

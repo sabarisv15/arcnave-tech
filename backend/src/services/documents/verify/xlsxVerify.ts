@@ -63,6 +63,21 @@ export async function verifyXlsx(buffer: Buffer): Promise<VerificationResult> {
           const val = cell.value;
           if (val && typeof val === 'object' && 'formula' in val) {
             formulaCount++;
+            const formulaStr = String((val as any).formula);
+            if (
+              formulaStr.includes('#REF!') ||
+              formulaStr.includes('#NAME?') ||
+              formulaStr.includes('#VALUE!') ||
+              formulaStr.includes('#DIV/0!')
+            ) {
+              errors.push(`Formula error token in cell ${cell.address}: ${formulaStr}`);
+            }
+          }
+          if (
+            typeof val === 'string' &&
+            (val === '#REF!' || val === '#NAME?' || val === '#VALUE!' || val === '#DIV/0!')
+          ) {
+            errors.push(`Broken formula result in cell ${cell.address}: ${val}`);
           }
           if (typeof val === 'number') {
             numberCount++;

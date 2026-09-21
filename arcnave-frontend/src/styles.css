@@ -103,11 +103,33 @@
 body {
   margin: 0;
 }
+
+/* High-density clarity pass. Keep the existing palette and layout; this only asks the browser
+   for its sharpest text and vector rendering so the workspace stays crisp on dense displays. */
+html {
+  background: var(--bg);
+  text-size-adjust: 100%;
+}
+body {
+  min-width: 320px;
+  min-height: 100%;
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures contextual;
+}
+#root {
+  min-height: 100dvh;
+}
 button,
 input,
 textarea,
 select {
   font: inherit;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
 }
 button,
 a,
@@ -165,6 +187,7 @@ select {
 svg {
   flex-shrink: 0;
   stroke-width: 1.65;
+  shape-rendering: geometricPrecision;
 }
 h1,
 h2,
@@ -1022,8 +1045,30 @@ textarea {
 .recent-row:focus-within .chat-menu,
 .topbar .chat-menu,
 .conversation-list-row:hover .chat-menu,
-.conversation-list-row:focus-within .chat-menu {
+.conversation-list-row:focus-within .chat-menu,
+.sidebar-standalone-chat-wrapper:hover .chat-menu,
+.sidebar-standalone-chat-wrapper:focus-within .chat-menu,
+.sidebar-child-chat-wrapper:hover .chat-menu,
+.sidebar-child-chat-wrapper:focus-within .chat-menu {
   opacity: 1;
+}
+.sidebar-standalone-chat-wrapper,
+.sidebar-child-chat-wrapper {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 100%;
+}
+.sidebar-standalone-chat-wrapper .chat-menu,
+.sidebar-child-chat-wrapper .chat-menu {
+  position: absolute;
+  right: 4px;
+}
+.sidebar-standalone-chat-wrapper button.sidebar-standalone-chat,
+.sidebar-child-chat-wrapper button.sidebar-child-chat {
+  flex: 1;
+  min-width: 0;
+  padding-right: 28px;
 }
 .nav-item.active {
   background: var(--hover);

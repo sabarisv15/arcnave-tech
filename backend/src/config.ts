@@ -251,6 +251,8 @@ const envSchema = z.object({
   // --- Phase 6: Generative UI & Phase 7: Analytics ------------------------
   /** Master gate for structured Generative UI (render_ui tool). */
   ENABLE_GENERATIVE_UI: bool(true),
+  /** Master gate for image generation and editing via Gemini Image hierarchy. */
+  ENABLE_IMAGE_GENERATION: bool(true),
   /** Maximum bytes for a validated Generative UI response payload. */
   UI_MAX_RESPONSE_BYTES: int(100_000),
   /** Master gate for advanced data analytics sessions and profiling. */

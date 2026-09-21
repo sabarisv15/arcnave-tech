@@ -116,7 +116,16 @@ export const ERROR_CATALOG = {
     detail: 'Its content has none of the structure that format needs.',
   },
 
-  // --- provider / server ---------------------------------------------------
+  empty_response: {
+    status: 502,
+    title: 'No response generated',
+    detail: 'The model completed its operations but produced no written answer. You can retry.',
+  },
+  provider_payload_limit: {
+    status: 400,
+    title: 'Attachment exceeds model limits',
+    detail: 'This attachment exceeds the provider limit. Choose a smaller file or switch to Gemini Flash.',
+  },
   provider_error: {
     status: 502,
     title: 'The response could not finish',
