@@ -4317,15 +4317,15 @@ select:focus-visible {
 
 .composer-suggestion {
   position: absolute;
-  inset: 0 42px;
+  inset: 0 4px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 9px;
   color: color-mix(in srgb, var(--muted) 78%, white);
   font-size: 14px;
   line-height: 1.45;
-  text-align: center;
+  text-align: left;
   pointer-events: none;
   overflow: hidden;
 }
@@ -4379,7 +4379,20 @@ select:focus-visible {
 }
 
 .conversation-composer {
+  position: relative;
   background: transparent;
+}
+
+.conversation-composer::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 54px;
+  background: linear-gradient(to bottom, transparent, var(--surface) 82%);
+  pointer-events: none;
 }
 
 .conversation-composer .composer,

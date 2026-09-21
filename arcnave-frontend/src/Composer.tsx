@@ -23,6 +23,49 @@ import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
 
+export function deriveFollowUpSuggestion(
+  history: import("./types").Message[],
+): string {
+  const latestAssistant = [...history]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.status === "complete");
+  const supplied = latestAssistant?.questions?.find((question) => question.trim());
+  if (supplied) return supplied.trim();
+
+  const answer = latestAssistant?.text.trim() ?? "";
+  const answerQuestions = answer.match(/[^.!?\n]{8,150}\?/g);
+  if (answerQuestions?.length) {
+    return answerQuestions.at(-1)!.replace(/^[-*#\s]+/, "").trim();
+  }
+
+  const lines = answer.split("\n").map((line) => line.trim());
+  const nextStepHeading = lines.findIndex((line) =>
+    /^(?:#{1,4}\s*)?(?:recommended )?next step(?:s)?\s*:?$/i.test(line),
+  );
+  if (nextStepHeading >= 0) {
+    const action = lines
+      .slice(nextStepHeading + 1)
+      .find((line) => line && !/^#{1,4}\s/.test(line));
+    if (action) return action.replace(/^[-*\d.)\s]+/, "").trim();
+  }
+
+  const latestUser = [...history]
+    .reverse()
+    .find((message) => message.role === "user")
+    ?.text.toLowerCase();
+  if (!latestUser) return "";
+  if (/\b(your name|who are you|what can you do)\b/.test(latestUser))
+    return "What can you help me accomplish?";
+  if (/\b(error|failed?|bug|issue|broken|not working|fix)\b/.test(latestUser))
+    return "Show me the safest fix to try next.";
+  if (/\b(compare|comparison|versus|\bvs\b)\b/.test(latestUser))
+    return "Which option would you recommend for my situation?";
+  if (/\b(build|create|implement|deploy|set up|setup|plan)\b/.test(latestUser))
+    return "Turn this into the next concrete action.";
+  if (answer.length >= 220) return "What is the most practical next step from this?";
+  return "Show me a useful example.";
+}
+
 export function AttachmentChip({
   file,
   onRemove,
@@ -103,7 +146,6 @@ export default function Composer({
     toast,
     edit,
     setEdit,
-    chats,
     messages,
   } = useWorkspace();
   const { models } = useSession();
@@ -162,20 +204,8 @@ export default function Composer({
   const grounded = models?.capabilities.groundedSearch ?? true;
   const followUpSuggestion = useMemo(() => {
     if (!chatId) return "";
-    const history = messages[chatId] ?? [];
-    const related = [...history]
-      .reverse()
-      .find((message) => message.role === "assistant" && message.questions?.length)
-      ?.questions?.find((question) => question.trim());
-    if (related) return related.trim();
-
-    const title = chats.find((chat) => chat.id === chatId)?.title.trim();
-    if (title && !/^new (chat|conversation)$/i.test(title)) {
-      const topic = title.length > 68 ? `${title.slice(0, 65).trimEnd()}…` : title;
-      return `Go deeper on ${topic}`;
-    }
-    return "What should we explore next?";
-  }, [chatId, chats, messages]);
+    return deriveFollowUpSuggestion(messages[chatId] ?? []);
+  }, [chatId, messages]);
   const showFollowUp = inlineReply && !text && !files.length && !artifact && !edit;
 
   /**
