@@ -81,12 +81,13 @@ import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
-import type { SkillService } from './skills.js';
+import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
+import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -109,6 +110,7 @@ export type StreamEvent =
   | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'ui_block'; block: UIBlock }
+  | { type: 'debug'; trace: RuntimeDebugTrace }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
@@ -297,6 +299,35 @@ export class GenerationService {
       model: modelInfo,
     };
 
+    // --- Skill-First -> Tool-Second Routing --------------------------------
+    const candidateSkillSummaries = this.skills ? this.skills.listSkills() : [];
+    const routingDecision = routeTurn({
+      prompt: input.prompt,
+      mode: input.mode,
+      hasAttachments: input.hasAttachments,
+      attachmentMimeTypes: input.attachments.map((a) => a.mimeType),
+      attachmentNames: [],
+      candidateSkills: candidateSkillSummaries,
+      hasProject: project !== null,
+      imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
+      runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
+      webEnabled: Boolean(this.cfg.ENABLE_WEB),
+      memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
+    });
+
+    // Progressive Skill Disclosure: load full SKILL.md ONLY for selected skills
+    const loadedSkills: SkillDetail[] = [];
+    if (this.skills) {
+      for (const skillName of routingDecision.selectedSkills) {
+        const detail = this.skills.getSkill(skillName);
+        if (detail) loadedSkills.push(detail);
+      }
+    }
+    const skillsContext =
+      loadedSkills.length > 0
+        ? loadedSkills.map((s) => `### Skill: ${s.name}\n\n${s.content}`).join('\n\n---\n\n')
+        : undefined;
+
     // --- resolve available tools -------------------------------------------
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
@@ -315,22 +346,18 @@ export class GenerationService {
       imageEnabled,
     );
     const allowPython =
-      runPythonEnabled &&
-      shouldExposeRunPython({
-        prompt: input.prompt,
-        mode: input.mode,
-        hasAttachments: input.hasAttachments,
-      });
-    const allowDeliverable = shouldExposeGenerateDeliverable({
-      prompt: input.prompt,
-      hasAttachments: input.hasAttachments,
-    });
-    const availableTools = toolRegistry.getAvailableTools({
+      routingDecision.pythonExposed && routingDecision.exposedTools.includes('run_python');
+    const allowDeliverable = routingDecision.exposedTools.includes('generate_deliverable');
+    const rawAvailableTools = toolRegistry.getAvailableTools({
       userId: input.userId,
       projectId: project?.id ?? null,
       allowPython,
       allowDeliverable,
     });
+    // Tool-second gating: expose ONLY tools authorized by turn router
+    const availableTools = rawAvailableTools.filter((t) =>
+      routingDecision.exposedTools.includes(t.name),
+    );
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
     // --- assemble context -------------------------------------------------
@@ -339,6 +366,7 @@ export class GenerationService {
       prefs,
       project,
       availableTools,
+      skillsContext,
     );
     for (const event of contextEvents) {
       yield event;
@@ -548,6 +576,7 @@ export class GenerationService {
     let searchEntryPoint: string | undefined;
     let eventOrdinal = contextEvents.length;
     const pendingToolInputs = new Map<string, unknown>();
+    const toolsCalled: string[] = [];
 
     try {
       const stream = this.streamWithRetry(provider.stream.bind(provider), request);
@@ -581,6 +610,7 @@ export class GenerationService {
             break;
 
           case 'tool_use': {
+            toolsCalled.push(event.name);
             pendingToolInputs.set(event.toolCallId, event.input);
             yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
             break;
@@ -766,6 +796,18 @@ export class GenerationService {
     // A cancelled run has no terminal `done`: the client already knows it stopped, and
     // emitting "done" would claim a completion that did not happen.
     if (status === 'complete') {
+      const debugTrace: RuntimeDebugTrace = {
+        detectedIntent: routingDecision.detectedIntent,
+        candidateSkills: routingDecision.candidateSkills,
+        selectedSkills: routingDecision.selectedSkills,
+        loadedSkills: loadedSkills.map((s) => s.name),
+        exposedTools: availableTools.map((t) => t.name),
+        toolsCalled,
+        pythonExposed: routingDecision.pythonExposed,
+      };
+      log.info({ debugTrace }, 'Runtime debug trace');
+      yield { type: 'debug', trace: debugTrace };
+
       yield {
         type: 'done',
         questions,
@@ -1080,6 +1122,7 @@ export class GenerationService {
     prefs: PreferencesRow,
     project: { id: string; title: string; instructions: string } | null,
     availableTools: ToolDefinition[] = [],
+    skillsContext?: string,
   ): Promise<{
     systemInstruction: string;
     contextEvents: StreamEvent[];
@@ -1180,6 +1223,7 @@ export class GenerationService {
       attachmentManifest: input.attachmentManifest?.trim() || undefined,
       attachmentText: input.attachmentText?.trim() || undefined,
       modePrompt: modeDirective,
+      skillsContext,
     });
 
     return {

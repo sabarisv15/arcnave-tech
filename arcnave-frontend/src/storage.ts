@@ -12,6 +12,7 @@
  * `unsupported_media_type`.
  */
 import type { Attachment } from "./types";
+import { api } from "./api";
 
 /** Local, non-syncing interface state. Namespaced so it cannot collide with anything else. */
 const UI_PREFIX = "arcnave-ui:";
@@ -79,8 +80,45 @@ export function download(
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Universal authenticated file and image downloader.
+ *
+ * Fetches protected resources via fetch(api.url(path), { credentials: "include" }),
+ * converts to a Blob, creates an Object URL, and triggers browser download.
+ * Prevents direct browser navigations to Cloud Run download URLs which drop credentials.
+ */
+export async function downloadAuthenticated(
+  pathOrUrl: string,
+  filename: string,
+): Promise<void> {
+  const targetUrl =
+    pathOrUrl.startsWith("http://") ||
+    pathOrUrl.startsWith("https://") ||
+    pathOrUrl.startsWith("blob:")
+      ? pathOrUrl
+      : api.url(pathOrUrl);
+
+  const response = await fetch(targetUrl, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(`Download failed with status ${response.status}`);
+  }
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
 
 /**
@@ -91,7 +129,5 @@ export function download(
  * to the same download path as everything else.
  */
 export async function downloadFrom(href: string, name: string): Promise<void> {
-  const response = await fetch(href, { credentials: "include" });
-  if (!response.ok) throw new Error(`download failed: ${response.status}`);
-  download(await response.blob(), name, "application/octet-stream");
+  await downloadAuthenticated(href, name);
 }

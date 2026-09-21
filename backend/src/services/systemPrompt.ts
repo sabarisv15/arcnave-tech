@@ -514,13 +514,7 @@ export function buildDynamicRuntimeContext(cfg: Config, capabilities: Capability
         '- docx\n' +
         '- xlsx\n' +
         '- pptx\n' +
-        '- pdf\n' +
-        '- data-analysis\n' +
-        '- research-deep-dive\n' +
-        '- artifact-design\n' +
-        '- dataviz\n' +
-        '- python-sandbox-patterns\n' +
-        '- skill-creator\n',
+        '- pdf\n',
     );
   }
 
@@ -552,13 +546,7 @@ export function buildDynamicRuntimeContext(cfg: Config, capabilities: Capability
         `Word documents:\n→ docx\n\n` +
         `Spreadsheets:\n→ xlsx\n\n` +
         `Presentations:\n→ pptx\n\n` +
-        `PDF creation:\n→ pdf\n\n` +
-        `Data analysis:\n→ data-analysis\n\n` +
-        `Deep multi-source research:\n→ research-deep-dive\n\n` +
-        `Professional artifact visual design:\n→ artifact-design\n\n` +
-        `Charts and data visualization:\n→ dataviz\n\n` +
-        `Python execution patterns:\n→ python-sandbox-patterns\n\n` +
-        `Creating or improving a skill:\n→ skill-creator\n\n` +
+        `PDF creation and conversion:\n→ pdf\n\n` +
         `</skills>`,
     );
   }

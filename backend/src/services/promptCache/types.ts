@@ -30,6 +30,7 @@ export interface DynamicSuffix {
   retrievedContext?: string;
   modePrompt?: string;
   goalContext?: string;
+  skillsContext?: string;
 }
 
 export interface PromptAssembly {

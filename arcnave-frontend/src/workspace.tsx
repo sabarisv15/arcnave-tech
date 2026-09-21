@@ -477,6 +477,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               };
             });
           }
+          if (event.type === "debug") {
+            try {
+              (window as unknown as { __LAST_DEBUG_TRACE?: unknown }).__LAST_DEBUG_TRACE = event.trace;
+            } catch {
+              // Ignore in non-browser context
+            }
+          }
           if (event.type === "done") {
             completed = true;
             outcome = "complete";

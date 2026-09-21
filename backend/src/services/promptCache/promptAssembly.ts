@@ -111,6 +111,12 @@ export function assemblePrompt(
     dynamicParts.push(dynamicSuffix.modePrompt.trim());
   }
 
+  if (dynamicSuffix.skillsContext?.trim()) {
+    dynamicParts.push(
+      `<skills_guidance>\n${dynamicSuffix.skillsContext.trim()}\n</skills_guidance>`,
+    );
+  }
+
   const fullSystemInstruction = [stablePrefix.systemText, ...dynamicParts].join('\n\n');
 
   return {

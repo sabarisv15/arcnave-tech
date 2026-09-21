@@ -6,6 +6,7 @@ import rehypeHighlight from "rehype-highlight";
 import { ExternalLink, Download, Image as ImageIcon, AlertCircle } from "lucide-react";
 import type { Source } from "./types";
 import { url as resolveApiUrl } from "./api";
+import { downloadAuthenticated } from "./storage";
 
 export function AuthenticatedImage({
   src,
@@ -80,12 +81,26 @@ export function AuthenticatedImage({
       <div className="image-error-placeholder" role="alert">
         <AlertCircle size={18} />
         <span>Image preview unavailable</span>
-        <a href={downloadUrl} download className="image-download-link" target="_blank" rel="noopener noreferrer">
-          <Download size={14} /> Download
-        </a>
+        {src && (
+          <a
+            href={downloadUrl}
+            onClick={(e) => {
+              e.preventDefault();
+              void downloadAuthenticated(src, "generated_image.png");
+            }}
+            className="image-download-link"
+          >
+            <Download size={14} /> Download
+          </a>
+        )}
       </div>
     );
   }
+
+  const imageName = (alt || "generated_image")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_") + ".png";
 
   return (
     <figure className={`chat-image-container ${className || ""}`}>
@@ -99,11 +114,12 @@ export function AuthenticatedImage({
         <span>{alt || "Generated Image"}</span>
         <a
           href={downloadUrl}
-          download
+          onClick={(e) => {
+            e.preventDefault();
+            if (src) void downloadAuthenticated(src, imageName);
+          }}
           className="chat-image-download"
           title="Download full size"
-          target="_blank"
-          rel="noopener noreferrer"
         >
           <Download size={13} />
           Download
@@ -167,14 +183,46 @@ export function Markdown({
           a: ({ href, children }) => {
             const id = href?.match(/^#source-(\d+)$/)?.[1];
             const source = sources.find((s) => s.id === Number(id));
-            return source && onCitation ? (
-              <Citation
-                source={source}
-                onSelect={() => onCitation(source.id)}
-              />
-            ) : href?.startsWith("#source-") ? (
-              <span className="missing-citation">[reference unavailable]</span>
-            ) : (
+            if (source && onCitation) {
+              return (
+                <Citation
+                  source={source}
+                  onSelect={() => onCitation(source.id)}
+                />
+              );
+            }
+            if (href?.startsWith("#source-")) {
+              return <span className="missing-citation">[reference unavailable]</span>;
+            }
+
+            const isDownload =
+              href &&
+              (href.includes("/files/") ||
+                href.includes("/download") ||
+                href.includes("/artifacts/") ||
+                /\.(xlsx|docx|pptx|pdf|png|jpe?g|webp)$/i.test(href));
+
+            if (isDownload && href) {
+              const filename =
+                typeof children === "string" && children.trim().length > 0
+                  ? children.trim()
+                  : href.split("/").pop() || "download";
+              return (
+                <a
+                  href={href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void downloadAuthenticated(href, filename);
+                  }}
+                  className="download-link"
+                >
+                  {children}
+                  <Download size={11} />
+                </a>
+              );
+            }
+
+            return (
               <a href={href} target="_blank" rel="noopener noreferrer">
                 {children}
                 <ExternalLink size={11} />

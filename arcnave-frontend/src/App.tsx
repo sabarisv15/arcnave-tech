@@ -44,7 +44,7 @@ import Composer, { AttachmentChip } from "./Composer";
 import Settings from "./Settings";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
-import { readLocal, writeLocal } from "./storage";
+import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
 import type { Message, MessageUsage, Mode, ToolCall } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
@@ -1056,7 +1056,6 @@ function extractToolCardData(calls: ToolCall[]): {
 
 function DeliverableCard({ item }: { item: DeliverableData }) {
   const { setPanel } = useWorkspace();
-  const downloadHref = api.url(item.downloadUrl, { download: true });
   const formatUpper = (item.format || "FILE").toUpperCase();
 
   return (
@@ -1081,28 +1080,39 @@ function DeliverableCard({ item }: { item: DeliverableData }) {
             Artifact
           </button>
         )}
-        <a
+        <button
+          type="button"
           className="button button-primary deliverable-download-btn"
-          href={downloadHref}
-          download={item.filename}
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={() => void downloadAuthenticated(item.downloadUrl, item.filename)}
+          title={`Download ${item.filename}`}
         >
           <Download size={14} />
           Download
-        </a>
+        </button>
       </div>
     </div>
   );
 }
 
 function ImageCard({ item }: { item: ImageData }) {
+  const filename = item.filename || `${(item.prompt || "image").slice(0, 20).replace(/[^a-zA-Z0-9]/g, "_")}.png`;
   return (
     <div className="tool-image-card">
       <AuthenticatedImage
         src={item.downloadUrl}
         alt={item.prompt || item.filename || "Generated Image"}
       />
+      <div className="tool-image-actions" style={{ padding: "8px 0" }}>
+        <button
+          type="button"
+          className="button button-ghost image-download-btn"
+          onClick={() => void downloadAuthenticated(item.downloadUrl, filename)}
+          title="Download image"
+        >
+          <Download size={14} />
+          Download Image
+        </button>
+      </div>
     </div>
   );
 }

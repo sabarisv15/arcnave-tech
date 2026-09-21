@@ -29,6 +29,15 @@ export interface ModelInfo {
   grounded: boolean;
 }
 
+export interface RuntimeDebugTrace {
+  detectedIntent: string;
+  candidateSkills: string[];
+  selectedSkills: string[];
+  loadedSkills: string[];
+  exposedTools: string[];
+  toolsCalled: string[];
+}
+
 export type StreamEvent =
   | {
       type: "start";
@@ -57,6 +66,7 @@ export type StreamEvent =
       version: number;
     }
   | { type: "ui_block"; block: UIBlock }
+  | { type: "debug"; trace: RuntimeDebugTrace }
   | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
   | {
       type: "error";

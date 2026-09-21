@@ -1,8 +1,9 @@
 ---
 name: docx
-version: 1.1.0
+version: 1.2.0
 description: Professional Word document structure, formatting, typography, callouts, and clean layout guidelines.
 category: artifact
+scope: builtin
 requires:
   tools:
     - create_artifact
@@ -15,29 +16,57 @@ metadata:
 
 # Professional Document (DOCX) Authoring
 
-Use this skill when designing, structuring, or preparing content for Word documents (.docx) or formal reports.
+Use this skill whenever authoring, converting, editing, or formatting formal Word documents (.docx), executive briefs, whitepapers, legal summaries, or structured reports.
 
-## Core Principles (Claude & Word Standards)
+## Core Principles (ArcNave & Word Standards)
 
-- **Deliverable vs Cover Note**: The document is the deliverable; chat is the cover note. In chat, default to brevity (1-2 concise paragraphs or a short bullet summary) leading with what changed and where to look. Never dump full document text into chat.
-- **Structural Hierarchy**: Use clear headings (Title `#`, Heading 1 `##`, Heading 2 `###`). Keep heading nesting strictly sequential.
-- **Typography & Consistency**:
-  - Prefer clean, readable formatting (Segoe UI, Aptos, Calibri).
-  - Body text should maintain comfortable line spacing and paragraph margins.
+- **Deliverable vs Cover Note**: The Word document is the deliverable; chat is the cover note. In chat, default to brevity (1-2 concise paragraphs or bullet highlights) leading with what changed, key findings, and document sections. Never dump the entire text of the document into chat.
+- **Structural Hierarchy & Heading Order**:
+  - Always maintain strict, sequential heading levels: Title `#`, Heading 1 `##`, Heading 2 `###`, Heading 3 `####`.
+  - Never skip heading levels (e.g. do not jump directly from `#` to `###`).
+  - Use sentence case for section titles unless corporate branding requires title case.
+- **Typography & Clean Layout**:
+  - ArcNave's DOCX export engine compiles Markdown elements to clean, standards-compliant OpenXML structures using standard typography (Segoe UI, Aptos, Calibri).
   - Standard 1-inch margins (1440 twips) on all sides.
-- **Tables & Data Layout**:
+  - Body paragraphs maintain comfortable line spacing and distinct paragraph spacing without redundant blank lines.
+- **Data Tables & Alignment**:
   - Every table must have an explicit header row.
-  - Numeric columns must be right-aligned; text columns must be left-aligned.
+  - Right-align numeric columns (totals, amounts, metrics); left-align text and description columns.
   - Tables automatically receive styled headers, cell padding, and alternating row fills.
+  - Avoid ragged or unclosed table rows.
 - **Visual Callouts & Quotes**:
-  - Format callouts with `> ` blockquotes. They render with a distinctive left accent bar and light background.
-  - Highlight key takeaways, executive summaries, or warning notices cleanly.
-- **Lists**:
+  - Format callouts with `> ` blockquotes in Markdown.
+  - Callout blocks render with a distinctive accent bar and shaded background fill.
+  - Use callouts for Executive Summaries, Key Takeaways, Action Items, or Important Notices.
+- **Lists & Enumerations**:
   - Use structured bulleted or numbered lists for sequential steps or enumerations.
   - Keep list items concise and parallel in grammatical form.
+  - Avoid nested lists exceeding 2 levels of indentation.
 
-## Capability & Output Guidance
+## ArcNave Runtime Deliverable Execution
 
-- **Creating the Document**: Call the `create_artifact` tool with `kind: 'document'` and the complete Markdown content. This creates the editable workspace artifact and displays it in the side panel.
-- **Exporting to Word (.docx)**: ArcNave's document export layer converts the artifact's Markdown headings, paragraphs, bullet lists, callouts, and tables into a real, styled `.docx` file for the user to download.
-- **Never Tell Users to Copy-Paste**: When the user requests a Word document, report, or file deliverable, do NOT paste raw text into chat with "copy and paste this into Word". Always invoke `create_artifact`.
+ArcNave provides a dedicated, native document generation engine (`generate_deliverable`).
+
+### Mode A: Direct Document Generation
+When the user asks to write or draft a Word document or report:
+1. Construct well-structured Markdown containing clear headings (`#`, `##`, `###`), formatted paragraphs, callout quotes (`> `), and tables.
+2. Call `generate_deliverable` with:
+   - `format`: `'docx'`
+   - `title`: Clean document title (e.g. `"Market_Expansion_Strategy"`, `"Executive_Brief"`)
+   - `content`: Complete, structured Markdown content.
+   - `saveAsArtifact`: Set to `true` if the user explicitly requested an editable workspace artifact alongside the file.
+
+### Mode B: Source File Conversion (e.g. PDF → Word)
+When the user asks to convert an uploaded PDF or document into Word:
+1. Inspect the source attachment using `read_uploaded_file` if layout clarification or section extraction is required.
+2. Call `generate_deliverable` with:
+   - `format`: `'docx'`
+   - `sourceAttachmentId`: The UUID of the uploaded PDF or file.
+   - `instructions`: Specific guidance if restructuring or styling is needed.
+3. Do NOT route standard PDF → Word conversion to Python; use `generate_deliverable`.
+
+### Verification Checklist Before Responding
+- Does the document follow a clean, unbroken heading hierarchy?
+- Are tables formatted with explicit headers and proper column alignments?
+- Are key takeaways highlighted in callout blocks (`> `)?
+- Is the chat response a tight cover note rather than a raw text dump?

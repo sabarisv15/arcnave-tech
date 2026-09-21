@@ -1406,6 +1406,27 @@ verification command for each is in `mistakes.md`; summary:
     - `GET /readyz` -> `HTTP 200 OK`: `{"status":"ready","checks":{"database":true,"vertexConfigured":true,"groundingConfigured":true,"storageBackend":"gcs"}}`
     - `GET /v1/models` -> `HTTP 200 OK`: all 4 models (`gemini-3.8-flash`, `claude-sonnet-5`, `claude-opus-5`, `openai/gpt-oss-120b-maas`) report `available: true`.
 
+- **Batch 1: Progressive Skill Disclosure, Native Office Skills Enrichment & Routing (2026-09-21)**:
+  - **Enriched 4 Native Skills**:
+    - `xlsx`: Enforces uppercase formulas (`=SUM`, `=AVERAGE`, `=INDEX`, `=MATCH`), multi-sheet tabs (`# SheetName`), financial formats (`$#,##0.00`, percentages), and `generate_deliverable` procedures.
+    - `docx`: Enforces heading hierarchy (`#`, `##`, `###`), table column alignment, blockquote callouts (`> `), deliverable vs cover note split.
+    - `pptx`: Enforces strict typography floor (>=14pt across all slide text), takeaway slide titles stating conclusions, 3–5 point card/column layouts, 16:9 palettes.
+    - `pdf`: Enforces page budgeting, visual headers/footers with page numbering, multi-page tables, callout blocks.
+  - **Progressive Skill Disclosure & Turn Routing**:
+    - `TurnRouter` (`backend/src/services/routing/turnRouter.ts`) exposes only skill name + short description at request start.
+    - Classifies intent (`IMAGE_GENERATION`, `FILE_CONVERSION`, `OFFICE_DELIVERABLE_CREATION`, `EXPLANATION`, `COMPUTATION`, etc.) and loads full `SKILL.md` ONLY for selected skills.
+    - `run_python` hidden by default; exposed only for true computation/simulation/statistics. Hidden for image generation, PDF conversions, office deliverables, and ordinary chat.
+  - **Authenticated Downloads**:
+    - `downloadAuthenticated` helper in `arcnave-frontend/src/storage.ts` fetches protected resources via `fetch(..., { credentials: "include" }) -> Blob -> URL.createObjectURL -> click & revoke`.
+    - Wired into `App.tsx` cards, `Content.tsx` (`AuthenticatedImage` and Markdown `a` link interceptor), preventing unauthenticated direct browser navigations to Cloud Run.
+  - **Runtime Debug Trace**:
+    - Captures `detectedIntent`, `candidateSkills`, `selectedSkills`, `loadedSkills`, `exposedTools`, `toolsCalled`.
+    - Streamed via SSE `{ type: "debug", trace }` and captured in frontend on `window.__LAST_DEBUG_TRACE`.
+  - **Test & Code Quality Gates**:
+    - Backend Vitest: 45 files, 498 tests PASS.
+    - Frontend Vitest: 5 files, 48 tests PASS.
+    - Frontend Build (`tsc -b && vite build`): 0 errors.
+
 
 
 
