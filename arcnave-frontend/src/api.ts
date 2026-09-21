@@ -176,16 +176,32 @@ export function onUnauthorized(handler: (() => void) | null): void {
   unauthorizedHandler = handler;
 }
 
-/* -------------------------------------------------------------------------- transport */
-
 type Query = Record<string, string | number | boolean | undefined | null>;
 
 export function url(path: string, query?: Query): string {
+  // If already absolute HTTP/HTTPS or data URI, return as-is
+  if (/^(?:https?:|\/\/|data:)/i.test(path)) {
+    return path;
+  }
+
+  // Strip leading '/api' or '/v1' so callers can pass '/files/...', '/api/files/...', or '/v1/files/...' uniformly
+  let normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  if (normalizedPath.startsWith('/api/')) {
+    normalizedPath = normalizedPath.slice(4); // leaves '/...'
+  }
+  if (normalizedPath.startsWith('/v1/')) {
+    normalizedPath = normalizedPath.slice(3); // leaves '/...'
+  }
+
+  // Ensure base has no trailing slash and normalizedPath has leading slash
+  const base = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+  const cleanPath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {}))
     if (value !== undefined && value !== null) search.set(key, String(value));
   const suffix = search.toString();
-  return `${API_BASE}${path}${suffix ? `?${suffix}` : ""}`;
+  return `${base}${cleanPath}${suffix ? `?${suffix}` : ""}`;
 }
 
 interface RequestOptions {
@@ -803,4 +819,6 @@ export const api = {
     clearProject: (projectId: string) => del(`/memory/project/${projectId}`),
     clearAll: () => del("/memory/all"),
   },
+
+  url,
 };

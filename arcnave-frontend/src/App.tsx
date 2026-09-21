@@ -48,6 +48,7 @@ import { readLocal, writeLocal } from "./storage";
 import type { Message, MessageUsage, Mode, ToolCall } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
+import { AuthenticatedImage } from "./Content";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -613,6 +614,8 @@ const toolActivityLabels: Record<string, { running: string; complete: string }> 
   read_artifact: { running: "Reading the artifact", complete: "Artifact read" },
   update_artifact: { running: "Updating the artifact", complete: "Artifact updated" },
   web_search: { running: "Searching the web", complete: "Web search finished" },
+  generate_image: { running: "Generating image", complete: "Image generated" },
+  generate_deliverable: { running: "Compiling file deliverable", complete: "File ready" },
 };
 
 function toolActivity(name: string, running: boolean) {
@@ -831,6 +834,21 @@ function MessageView({
       {m.uiBlocks && m.uiBlocks.length > 0 && (
         <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />
       )}
+      {(() => {
+        if (!m.toolCalls?.length) return null;
+        const { deliverables, images } = extractToolCardData(m.toolCalls);
+        if (!deliverables.length && !images.length) return null;
+        return (
+          <div className="message-deliverable-tray">
+            {images.map((img) => (
+              <ImageCard key={img.attachmentId} item={img} />
+            ))}
+            {deliverables.map((del) => (
+              <DeliverableCard key={del.attachmentId} item={del} />
+            ))}
+          </div>
+        );
+      })()}
       {m.toolCalls && m.toolCalls.length > 0 && (
         <ToolCallList calls={m.toolCalls} />
       )}
@@ -991,12 +1009,106 @@ function MessageView({
   );
 }
 
+interface DeliverableData {
+  attachmentId: string;
+  filename: string;
+  format: string;
+  mimeType: string;
+  downloadUrl: string;
+  sizeBytes: number;
+  title?: string;
+  artifactId?: string;
+}
+
+interface ImageData {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  downloadUrl: string;
+  prompt?: string;
+  aspectRatio?: string;
+}
+
+function extractToolCardData(calls: ToolCall[]): {
+  deliverables: DeliverableData[];
+  images: ImageData[];
+} {
+  const deliverables: DeliverableData[] = [];
+  const images: ImageData[] = [];
+
+  for (const c of calls) {
+    if (c.ok && c.content) {
+      for (const block of c.content) {
+        if (block.type === "json" && block.data) {
+          const data = block.data as Record<string, any>;
+          if (c.name === "generate_deliverable" && data.downloadUrl && data.filename) {
+            deliverables.push(data as DeliverableData);
+          } else if (c.name === "generate_image" && data.downloadUrl) {
+            images.push(data as ImageData);
+          }
+        }
+      }
+    }
+  }
+
+  return { deliverables, images };
+}
+
+function DeliverableCard({ item }: { item: DeliverableData }) {
+  const { setPanel } = useWorkspace();
+  const downloadHref = api.url(item.downloadUrl, { download: true });
+  const formatUpper = (item.format || "FILE").toUpperCase();
+
+  return (
+    <div className="deliverable-card" role="region" aria-label={`Deliverable: ${item.filename}`}>
+      <div className="deliverable-card-icon">
+        <FileText size={24} />
+        <span className="deliverable-card-badge">{formatUpper}</span>
+      </div>
+      <div className="deliverable-card-info">
+        <strong className="deliverable-card-title">{item.title || item.filename}</strong>
+        <span className="deliverable-card-meta">
+          {item.filename} • {Math.round((item.sizeBytes || 0) / 1024)} KB
+        </span>
+      </div>
+      <div className="deliverable-card-actions">
+        {item.artifactId && (
+          <button
+            className="button button-ghost"
+            onClick={() => setPanel({ kind: "artifact", id: item.artifactId! })}
+            title="Open artifact"
+          >
+            Artifact
+          </button>
+        )}
+        <a
+          className="button button-primary deliverable-download-btn"
+          href={downloadHref}
+          download={item.filename}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Download size={14} />
+          Download
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ImageCard({ item }: { item: ImageData }) {
+  return (
+    <div className="tool-image-card">
+      <AuthenticatedImage
+        src={item.downloadUrl}
+        alt={item.prompt || item.filename || "Generated Image"}
+      />
+    </div>
+  );
+}
+
 /**
- * The `tool_use`/`tool_result` frames the backend streams for item 9's tool-calling loop —
- * previously invisible in the UI even though the backend ran them end to end. A call is
- * "running" once its `tool_use` frame arrives and has no `ok` yet; the matching `tool_result`
- * fills in `ok` and either a live wire `preview` or, after a reload, the full persisted
- * `content`.
+ * The `tool_use`/`tool_result` frames the backend streams for item 9's tool-calling loop.
  */
 function ToolCallList({ calls }: { calls: ToolCall[] }) {
   const visibleCalls = calls.filter((c) => c.name !== "render_ui");

@@ -8,6 +8,7 @@
  */
 import {
   ARTIFACT_TOOL_DEFINITIONS,
+  GENERATE_DELIVERABLE,
   GOAL_TOOL_DEFINITIONS,
   IMAGE_TOOL_DEFINITIONS,
   MEMORY_TOOL_DEFINITIONS,
@@ -26,6 +27,8 @@ export interface ToolContext {
   activeGoalId?: string | null;
   /** Per-turn authorization. Infrastructure availability alone never exposes code execution. */
   allowPython?: boolean;
+  /** Exposes generate_deliverable tool for document, spreadsheet, slide, and PDF requests */
+  allowDeliverable?: boolean;
 }
 
 export interface ToolRegistry {
@@ -62,6 +65,11 @@ export class ProjectToolRegistry implements ToolRegistry {
 
       // Upload file reading is available across all chats when tool use is on.
       tools.push(...UPLOAD_TOOL_DEFINITIONS);
+
+      // Deliverable generation (Mode A markdown or Mode B source extraction for XLSX/DOCX/PPTX/PDF)
+      if (context.allowDeliverable === true) {
+        tools.push(GENERATE_DELIVERABLE);
+      }
 
       // Image generation via Gemini Image hierarchy
       if (this.imageEnabled) {

@@ -58,9 +58,11 @@ import { AgentLoop } from './agentLoop.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
+import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
 import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
+import { shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
@@ -319,10 +321,15 @@ export class GenerationService {
         mode: input.mode,
         hasAttachments: input.hasAttachments,
       });
+    const allowDeliverable = shouldExposeGenerateDeliverable({
+      prompt: input.prompt,
+      hasAttachments: input.hasAttachments,
+    });
     const availableTools = toolRegistry.getAvailableTools({
       userId: input.userId,
       projectId: project?.id ?? null,
       allowPython,
+      allowDeliverable,
     });
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
@@ -493,6 +500,18 @@ export class GenerationService {
         'generate_image',
         new ImageGenerationExecutor(
           this.cfg,
+          this.storage,
+          this.db,
+          input.userId,
+          input.chatId,
+          input.messageId,
+        ),
+      );
+    }
+    if (this.cfg.ENABLE_TOOL_USE && allowDeliverable) {
+      toolMap.set(
+        'generate_deliverable',
+        new DeliverableToolExecutor(
           this.storage,
           this.db,
           input.userId,

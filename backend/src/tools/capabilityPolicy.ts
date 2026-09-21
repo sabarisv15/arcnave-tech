@@ -136,3 +136,56 @@ export function shouldExposeRunPython(input: RunPythonPolicyInput): boolean {
   return evaluateRunPythonPolicy(input).allowed;
 }
 
+export interface DeliverablePolicyInput {
+  prompt: string;
+  mode?: Mode;
+  hasAttachments: boolean;
+}
+
+export function evaluateDeliverablePolicy(input: DeliverablePolicyInput): { allowed: boolean; reason: string } {
+  const prompt = input.prompt.toLowerCase().trim();
+
+  // Explicit deliverable intent keywords
+  const hasDeliverableKeywords =
+    /\b(?:excel|xlsx|spreadsheet|word|docx|document|powerpoint|pptx|presentation|slides|pdf|csv|sheet|workbook|table)\b/.test(
+      prompt,
+    );
+
+  const hasActionIntent =
+    /\b(?:convert|export|generate|create|turn into|make|download|transform|extract|format|save as)\b/.test(
+      prompt,
+    );
+
+  if (hasDeliverableKeywords && hasActionIntent) {
+    return {
+      allowed: true,
+      reason: 'Explicit request for office document, spreadsheet, presentation, or file conversion.',
+    };
+  }
+
+  // File attached + action intent (e.g. "convert this file", "turn this into a table")
+  if (input.hasAttachments && (hasActionIntent || hasDeliverableKeywords)) {
+    return {
+      allowed: true,
+      reason: 'File attachment present with conversion or export intent.',
+    };
+  }
+
+  // Broad deliverable creation intent
+  if (/\b(?:generate|create|export)\s+(?:an?\s+)?(?:file|report|deliverable|workbook)\b/.test(prompt)) {
+    return {
+      allowed: true,
+      reason: 'Direct request to generate a file, report, or deliverable.',
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: 'No deliverable generation or file conversion requested.',
+  };
+}
+
+export function shouldExposeGenerateDeliverable(input: DeliverablePolicyInput): boolean {
+  return evaluateDeliverablePolicy(input).allowed;
+}
+

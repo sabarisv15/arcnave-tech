@@ -201,6 +201,9 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         tags: ['projects'],
         summary: 'Download the stored bytes of an attachment',
         params: uuidParam,
+        querystring: z.object({
+          download: z.preprocess((v) => v === 'true' || v === true, z.boolean()).optional(),
+        }),
       },
     },
     async (request, reply) => {
@@ -208,12 +211,15 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       const file = await loadAttachment(request, request.params.id);
       const data = await storage.get(file.storageKey);
 
+      // Safe raster images may be viewed inline; HTML and SVG remain strictly attachments to protect sessions.
+      const isInlineSafe = file.mimeType.startsWith('image/') && file.mimeType !== 'image/svg+xml';
+      const forceDownload = Boolean(request.query?.download);
+      const disposition = !forceDownload && isInlineSafe ? 'inline' : 'attachment';
+
       return reply
         .header('Content-Type', file.mimeType)
         .header('Content-Length', String(data.length))
-        // Always an attachment: serving user-uploaded HTML or SVG inline on this origin would
-        // let it run script against the session cookie.
-        .header('Content-Disposition', `attachment; filename="${safeDownloadName(file.filename)}"`)
+        .header('Content-Disposition', `${disposition}; filename="${safeDownloadName(file.filename)}"`)
         .header('X-Content-Type-Options', 'nosniff')
         .send(data);
     },

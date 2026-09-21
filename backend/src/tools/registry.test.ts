@@ -112,6 +112,7 @@ describe('ProjectToolRegistry', () => {
       ]);
     });
 
+
     it('omits render_ui when generativeUiEnabled is false', () => {
       const registry = new ProjectToolRegistry(true, false, false, false, false, false, false);
       const tools = registry.getAvailableTools({ projectId: null });
@@ -122,6 +123,15 @@ describe('ProjectToolRegistry', () => {
       const registry = new ProjectToolRegistry(true, false, false, false, false, false, true);
       const tools = registry.getAvailableTools({ projectId: null });
       expect(tools.map((t) => t.name)).toContain('render_ui');
+    });
+
+    it('exposes generate_deliverable when allowDeliverable is true on the turn', () => {
+      const registry = new ProjectToolRegistry(true, false, false, false, false, false, false);
+      const withoutDeliverable = registry.getAvailableTools({ projectId: null });
+      expect(withoutDeliverable.map((t) => t.name)).not.toContain('generate_deliverable');
+
+      const withDeliverable = registry.getAvailableTools({ projectId: null, allowDeliverable: true });
+      expect(withDeliverable.map((t) => t.name)).toContain('generate_deliverable');
     });
   });
 });

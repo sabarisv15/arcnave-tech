@@ -105,7 +105,7 @@ describe('ImageGenerationExecutor', () => {
     expect(onCard).toHaveBeenCalledWith(
       expect.objectContaining({
         attachmentId: 'generated-att-1',
-        downloadUrl: '/api/files/generated-att-1/download',
+        downloadUrl: '/files/generated-att-1/download',
         aspectRatio: '16:9',
       }),
     );

@@ -540,4 +540,50 @@ export const GENERATE_IMAGE: ToolDefinition = {
 
 export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [GENERATE_IMAGE];
 
+/* -------------------------------------------------------------------------- Deliverable Export */
+
+export const GENERATE_DELIVERABLE: ToolDefinition = {
+  name: 'generate_deliverable',
+  description:
+    'Generates, exports, and verifies an office document or spreadsheet deliverable (.xlsx, .docx, .pptx, or .pdf). ' +
+    'Supports two modes:\n' +
+    '1. Direct generation: Provide "format", "title", and Markdown "content" containing tables, headings, or slides.\n' +
+    '2. Source file conversion: Provide "sourceAttachmentId", "format", and conversion "instructions" to automatically transform uploaded PDFs, text, or data files into Excel spreadsheets or documents.\n' +
+    'Always call this tool when the user asks for a downloadable Excel file, Word doc, PowerPoint deck, or PDF. Returns a downloadable file card.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      format: {
+        type: 'string',
+        enum: ['xlsx', 'docx', 'pptx', 'pdf'],
+        description: 'The target deliverable format: "xlsx" for spreadsheets, "docx" for Word documents, "pptx" for slide presentations, "pdf" for documents.',
+      },
+      title: {
+        type: 'string',
+        description: 'Filename or document title (e.g. "kvbfedral", "Bank_Statement_Transactions", "Quarterly_Report").',
+      },
+      content: {
+        type: 'string',
+        description: 'Optional Markdown content (used for direct generation). For XLSX, format tabular data as Markdown tables with headers.',
+      },
+      sourceAttachmentId: {
+        type: 'string',
+        description: 'Optional UUID of an uploaded file/attachment to convert (e.g. converting an uploaded PDF statement to Excel).',
+      },
+      instructions: {
+        type: 'string',
+        description: 'Optional transformation instructions when converting from a source attachment (e.g. "Extract all statement transactions into columns: Date, Description, Amount, Balance").',
+      },
+      saveAsArtifact: {
+        type: 'boolean',
+        description: 'Set to true ONLY if the user explicitly commanded saving this deliverable as a workspace artifact. Defaults to false.',
+      },
+    },
+    required: ['format'],
+    additionalProperties: false,
+  },
+};
+
+export const DELIVERABLE_TOOL_DEFINITIONS: ToolDefinition[] = [GENERATE_DELIVERABLE];
+
 

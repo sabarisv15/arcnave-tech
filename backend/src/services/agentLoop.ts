@@ -37,7 +37,8 @@ import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
-import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
+import { shouldExposeRunPython, shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
+import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
@@ -218,6 +219,10 @@ export class AgentLoop {
         mode: input.mode,
         hasAttachments: input.hasAttachments,
       });
+    const allowDeliverable = shouldExposeGenerateDeliverable({
+      prompt: input.prompt,
+      hasAttachments: input.hasAttachments,
+    });
 
     const activeHistory: Turn[] = [...history];
     const loadedSkillNames = new Set<string>();
@@ -262,6 +267,7 @@ export class AgentLoop {
           projectId: project?.id ?? null,
           activeGoalId: activeGoal.id,
           allowPython,
+          allowDeliverable,
         });
 
         const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
@@ -379,6 +385,19 @@ export class AgentLoop {
             'generate_image',
             new ImageGenerationExecutor(
               this.cfg,
+              this.storage,
+              this.db,
+              input.userId,
+              input.chatId,
+              input.messageId,
+            ),
+          );
+        }
+
+        if (this.cfg.ENABLE_TOOL_USE && allowDeliverable) {
+          baseMap.set(
+            'generate_deliverable',
+            new DeliverableToolExecutor(
               this.storage,
               this.db,
               input.userId,

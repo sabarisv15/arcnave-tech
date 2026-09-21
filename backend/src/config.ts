@@ -212,7 +212,7 @@ const envSchema = z.object({
 
   // --- Skills System (Item 11) -------------------------------------------
   /** Master gate for the skills registry, progressive disclosure, and skill tools. */
-  ENABLE_SKILLS: bool(false),
+  ENABLE_SKILLS: bool(true),
   /** Directory path containing ArcNave production SKILL.md bundles (relative to backend root). */
   SKILLS_DIR: z.string().default('skills'),
   /** Maximum number of distinct skills that can be loaded in one step. */

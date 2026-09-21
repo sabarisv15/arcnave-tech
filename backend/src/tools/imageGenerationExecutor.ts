@@ -247,7 +247,7 @@ export class ImageGenerationExecutor implements ToolExecutor {
       attachmentId: created!.id,
       filename: created!.filename,
       mimeType: 'image/png',
-      downloadUrl: `/api/files/${created!.id}/download`,
+      downloadUrl: `/files/${created!.id}/download`,
       prompt,
       aspectRatio,
     };

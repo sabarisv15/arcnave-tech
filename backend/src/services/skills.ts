@@ -98,13 +98,30 @@ export class SkillService {
    */
   async load(): Promise<void> {
     this.skills.clear();
-    const skillsPath = path.resolve(this.rootDir, this.relativeSkillsDir);
 
-    let entries: string[];
-    try {
-      entries = await fs.readdir(skillsPath);
-    } catch (err) {
-      log.warn({ err, skillsPath }, 'skills directory not found or unreadable');
+    const candidatePaths = [
+      path.resolve(this.rootDir, this.relativeSkillsDir),
+      path.resolve(this.rootDir, 'backend', this.relativeSkillsDir),
+      path.resolve(this.rootDir, '..', this.relativeSkillsDir),
+      path.resolve(process.cwd(), this.relativeSkillsDir),
+      path.resolve(process.cwd(), 'backend', this.relativeSkillsDir),
+    ];
+
+    let skillsPath: string | null = null;
+    let entries: string[] = [];
+
+    for (const cand of candidatePaths) {
+      try {
+        entries = await fs.readdir(cand);
+        skillsPath = cand;
+        break;
+      } catch {
+        // Continue searching
+      }
+    }
+
+    if (!skillsPath) {
+      log.warn({ candidatePaths }, 'skills directory not found across candidate paths');
       this.loaded = true;
       return;
     }
