@@ -1425,9 +1425,9 @@ verification command for each is in `mistakes.md`; summary:
   - **Test & Code Quality Gates**:
     - Backend Vitest: 45 files, 498 tests PASS.
     - Frontend Vitest: 5 files, 48 tests PASS.
-    - Frontend Build (`tsc -b && vite build`): 0 errors.
-
-
-
-
+  - **Model Registry Lock to Gemini 3.8 Flash & Auto Default**:
+    - Disabled Claude models (`Sonnet 5`, `Opus 5`) and GPT models (`GPT-OSS 120B`) in `ModelRegistry`.
+    - Active routing routes exclusively to `Gemini 3.8 Flash`.
+    - Fallback mechanism in `resolveModel` transparently redirects disabled model requests to `Gemini 3.8 Flash`.
+    - Model selector in frontend workspace and preferences endpoint defaults to `"Auto"`.
 

@@ -152,7 +152,7 @@ function toDto(row: PrefsRow): z.infer<typeof preferencesSchema> {
   return {
     theme: row.theme,
     font: row.font,
-    modelAlias: row.modelAlias,
+    modelAlias: AUTO_ALIAS,
     instructions: row.instructions,
     enterToSend: row.enterToSend,
     reducedMotion: row.reducedMotion,

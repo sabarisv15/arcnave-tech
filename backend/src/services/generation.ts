@@ -836,26 +836,21 @@ export class GenerationService {
   ): Promise<{ entry: ModelEntry; routing: RoutingDecision | null }> {
     if (input.modelAlias !== AUTO_ALIAS) {
       const status = await this.registry.status(input.modelAlias);
-      if (!status) {
-        throw new ApiError('model_unavailable', {
-          detail: `"${input.modelAlias}" is not a known model.`,
-        });
+      if (status && status.available) {
+        if (requiresVision && !status.entry.supportsVision) {
+          throw new ApiError('capability_unavailable', {
+            detail:
+              `"${input.modelAlias}" cannot see images or PDFs. Choose a different model, or ` +
+              'remove the attachment.',
+            meta: { alias: input.modelAlias, capability: 'vision' },
+          });
+        }
+        return { entry: status.entry, routing: null };
       }
-      if (!status.available) {
-        throw new ApiError('model_unavailable', {
-          detail: status.detail,
-          meta: { alias: input.modelAlias, reason: status.reason },
-        });
-      }
-      if (requiresVision && !status.entry.supportsVision) {
-        throw new ApiError('capability_unavailable', {
-          detail:
-            `"${input.modelAlias}" cannot see images or PDFs. Choose a different model, or ` +
-            'remove the attachment.',
-          meta: { alias: input.modelAlias, capability: 'vision' },
-        });
-      }
-      return { entry: status.entry, routing: null };
+      log.info(
+        { requested: input.modelAlias },
+        'Requested model is disabled or unavailable; falling back to active Gemini 3.8 Flash via Auto',
+      );
     }
 
     const available = await this.registry.availableEntries();

@@ -197,7 +197,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshPreferences = useCallback(async () => {
-    setPreferences(toPreferences(await api.preferences.read()));
+    const p = toPreferences(await api.preferences.read());
+    setPreferences({ ...p, modelAlias: "Auto" });
   }, []);
 
   useEffect(() => {
@@ -217,7 +218,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setChats(chatPage.items.map(toChat));
         setProjects(projectPage.items.map(toProject));
         setArtifacts(artifactPage.items.map(toArtifact));
-        setPreferences(toPreferences(prefs));
+        const p = toPreferences(prefs);
+        setPreferences({ ...p, modelAlias: "Auto" });
       } catch (error) {
         if (!live) return;
         setLoadError(
