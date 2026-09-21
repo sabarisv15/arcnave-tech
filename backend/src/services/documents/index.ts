@@ -31,6 +31,7 @@ import { verifyDocx } from './verify/docxVerify.js';
 import { verifyPdf } from './verify/pdfVerify.js';
 import { verifyPptx } from './verify/pptxVerify.js';
 import { verifyXlsx } from './verify/xlsxVerify.js';
+import { verifyRenderVisuals } from './verify/visualVerify.js';
 import { renderSpreadsheet } from './xlsxRenderer.js';
 
 export type {
@@ -64,13 +65,16 @@ export {
   verifyPdf,
   verifyPptx,
   verifyXlsx,
+  verifyRenderVisuals,
 };
 
 /**
  * Universal export orchestrator:
  * 1. Semantic parsing into format-native spec
  * 2. Specialized format generation
- * 3. Automated post-generation verification
+ * 3. Two-Level post-generation verification:
+ *    - Level 1: Structural and Spec Conformance
+ *    - Level 2: Real Visual Render & Defect Verification
  */
 export async function renderMarkdownExport(markdown: string, format: ExportFormat): Promise<Buffer> {
   let buf: Buffer;
@@ -107,9 +111,13 @@ export async function renderMarkdownExport(markdown: string, format: ExportForma
     }
   }
 
-  if (!verification.ok) {
+  // Level 2: Real Visual Render Validation
+  const visualVerification = await verifyRenderVisuals(format, buf);
+
+  const allErrors = [...verification.errors, ...visualVerification.errors];
+  if (allErrors.length > 0) {
     throw new Error(
-      `Post-generation verification failed for ${format.toUpperCase()}: ${verification.errors.join('; ')}`,
+      `Deliverable verification failed for ${format.toUpperCase()}: ${allErrors.join('; ')}`,
     );
   }
 

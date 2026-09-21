@@ -288,8 +288,18 @@ export function toProjectFile(dto: ProjectFileDto): Attachment {
 }
 
 export function toMessage(dto: MessageDto): Message {
+  // A transcript can contain messages written before a field was introduced, or be read while
+  // the frontend and API revisions are rolling out independently. Evidence collections are
+  // optional at the wire boundary, so an absent collection means "not supplied", not a reason
+  // to take down the entire workspace.
+  const sources = Array.isArray(dto.sources) ? dto.sources : [];
+  const events = Array.isArray(dto.events) ? dto.events : [];
+  const toolCalls = Array.isArray(dto.toolCalls) ? dto.toolCalls : [];
+  const attachments = Array.isArray(dto.attachments) ? dto.attachments : [];
+  const questions = Array.isArray(dto.questions) ? dto.questions : [];
+
   let uiBlocks: UIBlock[] | undefined;
-  const renderCall = dto.toolCalls.find((c) => c.name === "render_ui");
+  const renderCall = toolCalls.find((c) => c.name === "render_ui");
   if (renderCall) {
     const jsonContent = renderCall.content?.find((c) => c.type === "json");
     if (jsonContent && typeof jsonContent.data === "object" && jsonContent.data !== null) {
@@ -313,15 +323,15 @@ export function toMessage(dto: MessageDto): Message {
     text: dto.text,
     mode: (dto.mode as Mode) ?? "chat",
     status: dto.status as RunStatus,
-    ...(dto.sources.length ? { sources: dto.sources.map(toSource) } : {}),
-    ...(dto.events.length ? { events: dto.events.map(toResearchEvent) } : {}),
-    ...(dto.toolCalls.length ? { toolCalls: dto.toolCalls.map(toToolCall) } : {}),
+    ...(sources.length ? { sources: sources.map(toSource) } : {}),
+    ...(events.length ? { events: events.map(toResearchEvent) } : {}),
+    ...(toolCalls.length ? { toolCalls: toolCalls.map(toToolCall) } : {}),
     ...(uiBlocks && uiBlocks.length ? { uiBlocks } : {}),
     ...(dto.researchStage ? { researchStage: dto.researchStage } : {}),
-    ...(dto.questions.length ? { questions: dto.questions } : {}),
+    ...(questions.length ? { questions } : {}),
     ...(dto.artifactId ? { artifactId: dto.artifactId } : {}),
-    ...(dto.attachments.length
-      ? { attachments: dto.attachments.map(toMessageAttachment) }
+    ...(attachments.length
+      ? { attachments: attachments.map(toMessageAttachment) }
       : {}),
     ...(dto.feedback === "up" || dto.feedback === "down"
       ? { feedback: dto.feedback }

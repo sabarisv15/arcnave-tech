@@ -35,7 +35,7 @@ const userResponse = z.object({
 function setSessionCookie(reply: FastifyReply, cfg: Config, token: string, expiresAt: Date): void {
   void reply.setCookie(cfg.SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: 'none',
+    sameSite: cfg.SESSION_COOKIE_SECURE ? 'none' : 'lax',
     secure: cfg.SESSION_COOKIE_SECURE,
     signed: true,
     path: '/',

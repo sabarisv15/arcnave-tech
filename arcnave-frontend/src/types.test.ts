@@ -67,6 +67,19 @@ describe("evidence integrity", () => {
 });
 
 describe("message mapping", () => {
+  it("does not crash when a legacy transcript omits optional evidence arrays", () => {
+    const legacyMessage = {
+      ...message(),
+      sources: undefined,
+      events: undefined,
+      toolCalls: undefined,
+      attachments: undefined,
+      questions: undefined,
+    } as unknown as MessageDto;
+
+    expect(toMessage(legacyMessage)).toMatchObject({ id: "m1", text: "Hello" });
+  });
+
   it("carries an error code through without turning it into prose", () => {
     const mapped = toMessage(
       message({ status: "error", errorCode: "budget_exceeded" }),

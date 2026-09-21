@@ -113,6 +113,22 @@ export class ArtifactToolExecutor implements ToolExecutor {
     }
 
     const { title, kind, content } = parsed.data;
+
+    // Reject dummy placeholder content (e.g. "derived content placeholder")
+    const trimmed = content.trim().toLowerCase();
+    const isPlaceholder =
+      trimmed === 'derived content placeholder' ||
+      trimmed === 'placeholder' ||
+      trimmed === 'to be updated' ||
+      trimmed === 'content placeholder';
+    if (isPlaceholder) {
+      return errorResult(
+        call,
+        'placeholder_content_rejected',
+        'Do not create placeholder artifacts. Provide complete, substantive content directly in create_artifact.',
+      );
+    }
+
     const byteLength = Buffer.byteLength(content, 'utf8');
     if (byteLength > this.maxContentBytes) {
       return errorResult(

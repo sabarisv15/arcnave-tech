@@ -508,4 +508,36 @@ export const RENDER_UI: ToolDefinition = {
 
 export const UI_TOOL_DEFINITIONS: ToolDefinition[] = [RENDER_UI];
 
+/* -------------------------------------------------------------------------- Image Generation */
+
+export const GENERATE_IMAGE: ToolDefinition = {
+  name: 'generate_image',
+  description:
+    'Generates or edits visual images using Google Vertex AI image models (gemini-3.1-flash-image). ' +
+    'Call this whenever the user asks to draw, generate, visualize, create, or edit an image. ' +
+    'Returns an image card in chat for display and download.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      prompt: {
+        type: 'string',
+        description: 'Detailed visual description of the image to generate or edit.',
+      },
+      aspectRatio: {
+        type: 'string',
+        enum: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+        description: 'Aspect ratio for the generated image. Defaults to 1:1.',
+      },
+      sourceImageAttachmentId: {
+        type: 'string',
+        description: 'Optional attachment UUID of an existing image to edit, modify, or restyle.',
+      },
+    },
+    required: ['prompt'],
+    additionalProperties: false,
+  },
+};
+
+export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [GENERATE_IMAGE];
+
 

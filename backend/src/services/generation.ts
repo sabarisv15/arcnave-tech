@@ -58,6 +58,7 @@ import { AgentLoop } from './agentLoop.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
+import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
@@ -300,6 +301,7 @@ export class GenerationService {
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
+    const imageEnabled = Boolean(this.cfg.ENABLE_IMAGE_GENERATION);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
@@ -308,6 +310,7 @@ export class GenerationService {
       webEnabled,
       memoryEnabled,
       generativeUiEnabled,
+      imageEnabled,
     );
     const allowPython =
       runPythonEnabled &&
@@ -485,6 +488,19 @@ export class GenerationService {
       toolMap.set('search_skills', skillToolExecutor);
       toolMap.set('read_skill', skillToolExecutor);
     }
+    if (imageEnabled) {
+      toolMap.set(
+        'generate_image',
+        new ImageGenerationExecutor(
+          this.cfg,
+          this.storage,
+          this.db,
+          input.userId,
+          input.chatId,
+          input.messageId,
+        ),
+      );
+    }
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
@@ -646,14 +662,53 @@ export class GenerationService {
     }
 
     // --- persist ----------------------------------------------------------
-    const text = collectedText.join('');
+    let text = collectedText.join('');
+
+    // Guaranteed Final Outcome: synthesize text if tool loop finished blank
+    if (status === 'complete' && text.trim().length === 0) {
+      try {
+        const synthesisRequest: GenerationRequest = {
+          ...request,
+          tools: [],
+          toolExecutor: undefined,
+          prompt: `${input.prompt}\n\n[System Instruction: Synthesize a complete final answer based on the previous tool results above. Do not call any further tools.]`,
+        };
+        const synthesisStream = provider.stream(synthesisRequest);
+        for await (const event of synthesisStream) {
+          if (event.type === 'delta' && event.text) {
+            collectedText.push(event.text);
+            yield { type: 'delta', text: event.text };
+          } else if (event.type === 'completed') {
+            usage = event.usage;
+            finishReason = event.finishReason;
+          }
+        }
+        text = collectedText.join('');
+      } catch (synthErr) {
+        log.warn({ err: synthErr }, 'Forced synthesis round failed');
+      }
+
+      if (text.trim().length === 0) {
+        status = 'error';
+        errorCode = 'empty_response';
+        const emptyApi = new ApiError('empty_response');
+        yield {
+          type: 'error',
+          code: emptyApi.code,
+          title: emptyApi.title,
+          detail: emptyApi.detail,
+          usage: toUsageDto(usage, null),
+        };
+      }
+    }
+
     const questions = status === 'complete' ? suggestFollowUps(input.mode, collectedSources) : [];
 
     await this.finalise(input, {
       text,
       sources: collectedSources,
       searchEntryPoint,
-      status: status === 'cancelled' ? 'stopped' : 'complete',
+      status: status === 'cancelled' ? 'stopped' : status === 'error' ? 'error' : 'complete',
       errorCode,
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
       entry,
@@ -673,7 +728,7 @@ export class GenerationService {
       providerModelId: entry.providerModelId!,
       usage,
       startedAt,
-      status: status === 'cancelled' ? 'cancelled' : 'complete',
+      status: status === 'cancelled' ? 'cancelled' : status === 'error' ? 'error' : 'complete',
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
     });
 
@@ -775,15 +830,41 @@ export class GenerationService {
     request: GenerationRequest,
   ): AsyncGenerator<ProviderEvent> {
     let attempt = 0;
+    const ttftBudgetMs =
+      request.mode === 'research' ? 20_000 : request.mode === 'search' ? 15_000 : 12_000;
+
     for (;;) {
       let emitted = false;
+      const ttftController = new AbortController();
+      const onParentAbort = () => ttftController.abort();
+      request.signal.addEventListener('abort', onParentAbort, { once: true });
+
+      const ttftTimer = setTimeout(() => {
+        if (!emitted && !ttftController.signal.aborted) {
+          ttftController.abort(
+            new ProviderError(`First token wait exceeded ${ttftBudgetMs}ms`, {
+              code: 'provider_timeout',
+              retryable: true,
+            }),
+          );
+        }
+      }, ttftBudgetMs);
+
       try {
-        for await (const event of open(request)) {
-          emitted = true;
+        const attemptRequest: GenerationRequest = {
+          ...request,
+          signal: ttftController.signal,
+        };
+        for await (const event of open(attemptRequest)) {
+          if (!emitted) {
+            emitted = true;
+            clearTimeout(ttftTimer);
+          }
           yield event;
         }
         return;
       } catch (err) {
+        clearTimeout(ttftTimer);
         if (isAbort(err) || request.signal.aborted) throw err;
         const retryable = err instanceof ProviderError && err.retryable;
         if (emitted || !retryable || attempt >= this.cfg.PROVIDER_MAX_RETRIES) throw err;
@@ -794,6 +875,9 @@ export class GenerationService {
         const delay = base + Math.random() * base * 0.5;
         log.warn({ attempt, delay, err: String(err) }, 'retrying provider call');
         await sleep(delay, request.signal);
+      } finally {
+        clearTimeout(ttftTimer);
+        request.signal.removeEventListener('abort', onParentAbort);
       }
     }
   }
@@ -857,7 +941,15 @@ export class GenerationService {
       .orderBy(desc(messages.seq))
       .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 12));
 
-    const ordered = rows.reverse().filter((r) => r.text.trim() !== '');
+    const ordered = rows
+      .reverse()
+      .map((r) => {
+        if (r.role === 'assistant' && r.text.trim() === '') {
+          return { ...r, text: '[Response stopped]' };
+        }
+        return r;
+      })
+      .filter((r) => r.text.trim() !== '');
 
     // Keep the newest complete context within a predictable character budget, exactly as
     // before attachments existed. A turn trimmed out here never gets its attachments fetched
@@ -881,6 +973,7 @@ export class GenerationService {
             mimeType: attachments.mimeType,
             storageKey: attachments.storageKey,
             sizeBytes: attachments.sizeBytes,
+            status: attachments.status,
           })
           .from(attachments)
           .where(
@@ -889,6 +982,7 @@ export class GenerationService {
                 attachments.messageId,
                 kept.map((r) => r.id),
               ),
+              eq(attachments.status, 'ready'),
               sql`(${attachments.mimeType} = 'application/pdf' or ${attachments.mimeType} like 'image/%')`,
             ),
           )
@@ -898,15 +992,22 @@ export class GenerationService {
     // Newest carried-forward attachment wins first claim on the byte budget; once the next one
     // wouldn't fit, everything older than it is dropped rather than skipped-and-continued past —
     // a simple, predictable "most recent that fit" rule rather than a bin-packing exercise.
+    // Also protects Claude against historical images that exceed the 5,242,880 byte base64 ceiling.
     let budgetBytes = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES;
     const byMessage = new Map<string, { mimeType: string; base64: string }[]>();
     for (const row of attachmentRows) {
       if (!row.messageId) continue;
       if (row.sizeBytes > budgetBytes) break;
       const data = await this.storage.get(row.storageKey);
+      const base64Str = data.toString('base64');
+      // If an image in history exceeds the 5 MB base64 ceiling (approx 5.24 MB), omit it from history
+      // so it never causes repetitive 400 Bad Request conversation poisoning on Claude.
+      if (row.mimeType.startsWith('image/') && Buffer.byteLength(base64Str, 'utf8') > 5_242_880) {
+        continue;
+      }
       budgetBytes -= row.sizeBytes;
       const list = byMessage.get(row.messageId) ?? [];
-      list.push({ mimeType: row.mimeType, base64: data.toString('base64') });
+      list.push({ mimeType: row.mimeType, base64: base64Str });
       byMessage.set(row.messageId, list);
     }
 
@@ -1041,11 +1142,13 @@ export class GenerationService {
 
     // 5. Mode directive
     const modeDirective =
-      input.mode !== 'chat'
-        ? 'Answer using the web search results available to you. Cite the sources you actually ' +
-          'used. Do not invent citations, and say plainly when the evidence does not settle ' +
-          'the question.'
-        : undefined;
+      input.mode === 'research'
+        ? 'Conduct deep, rigorous research using web search and web fetch. Answer with a comprehensive, well-structured research report complete with citations directly in the chat text stream. Do NOT call create_artifact unless the user explicitly commanded creating an artifact or saving to an artifact. If live web research fails or search providers are unavailable, state plainly: "Live web research could not be completed at this time due to search provider unavailability."'
+        : input.mode === 'search'
+          ? 'Answer using the web search results available to you. Cite the sources you actually ' +
+            'used. Do not invent citations, and say plainly when the evidence does not settle ' +
+            'the question.'
+          : undefined;
 
     // 6. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
@@ -1234,12 +1337,38 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
         'enabled for this project, or the configured region may not serve it.',
     };
   }
+  if (err instanceof ApiError) {
+    return { code: err.code, title: err.title, detail: err.detail };
+  }
   if (err instanceof ProviderError) {
+    const rawMessage = err.message || '';
+    if (
+      rawMessage.includes('image exceeds 5 MB maximum') ||
+      rawMessage.includes('exceeds 5 MB') ||
+      rawMessage.includes('image exceeds') ||
+      rawMessage.includes('request payload size exceeds')
+    ) {
+      const api = new ApiError('provider_payload_limit');
+      return {
+        code: 'provider_payload_limit',
+        title: 'Image exceeds provider 5 MB limit',
+        detail:
+          'This image exceeds the provider base64 limit (5 MB on Anthropic Claude). ' +
+          'Upload a smaller image or select Gemini 3.8 Flash, which supports larger files.',
+      };
+    }
     const api = new ApiError(err.code);
     return { code: err.code, title: api.title, detail: api.detail };
   }
-  if (err instanceof ApiError) {
-    return { code: err.code, title: err.title, detail: err.detail };
+  const errStr = String(err);
+  if (errStr.includes('image exceeds 5 MB') || errStr.includes('exceeds 5 MB maximum')) {
+    return {
+      code: 'provider_payload_limit',
+      title: 'Image exceeds provider 5 MB limit',
+      detail:
+        'This image exceeds the provider base64 limit (5 MB on Anthropic Claude). ' +
+        'Upload a smaller image or select Gemini 3.8 Flash, which supports larger files.',
+    };
   }
   const api = new ApiError('provider_error');
   return { code: api.code, title: api.title, detail: api.detail };

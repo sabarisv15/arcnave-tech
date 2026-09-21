@@ -481,68 +481,12 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         ? await resetForRetry(request, chat.id, retryMessageId)
         : await appendTurn(request, chat.id, user.id, prompt, mode, attachmentIds);
 
-      // --- gather attachments: text-extraction path vs. native path -----
-      let attachmentText = '';
-      let attachmentManifest = '';
-      let nativeAttachments: { mimeType: string; base64: string }[] = [];
-      if (attachmentIds.length > 0) {
-        const rows = await db
-          .select({
-            id: attachmentsTable.id,
-            filename: attachmentsTable.filename,
-            mimeType: attachmentsTable.mimeType,
-            sizeBytes: attachmentsTable.sizeBytes,
-            storageKey: attachmentsTable.storageKey,
-            extractedText: attachmentsTable.extractedText,
-          })
-          .from(attachmentsTable)
-          .where(
-            and(
-              inArray(attachmentsTable.id, attachmentIds),
-              eq(attachmentsTable.userId, user.id),
-            ),
-          );
-
-        attachmentManifest = rows
-          .map(
-            (r) =>
-              `- fileId: "${r.id}" | filename: "${r.filename}" | type: ${r.mimeType} | size: ${r.sizeBytes} bytes`,
-          )
-          .join('\n');
-
-        const isNative = (mimeType: string): boolean =>
-          mimeType === 'application/pdf' || mimeType.startsWith('image/');
-
-        attachmentText = rows
-          .filter((r) => !isNative(r.mimeType) && r.extractedText?.trim())
-          .map((r) => `--- ${r.filename} ---\n${r.extractedText}`)
-          .join('\n\n');
-
-        nativeAttachments = await Promise.all(
-          rows
-            .filter((r) => isNative(r.mimeType))
-            .map(async (r) => ({
-              mimeType: r.mimeType,
-              base64: (await request.services.storage.get(r.storageKey)).toString('base64'),
-            })),
-        );
-      }
-
-      // --- wire up cancellation -----------------------------------------
+      // --- wire up cancellation & immediate SSE streaming (SLO < 100ms) --
       const controller = new AbortController();
       activeRuns.set(chat.id, controller);
-      // A client that navigates away or presses stop closes the socket; that is the signal
-      // that must reach the provider, not merely stop us writing.
       const onClose = (): void => controller.abort();
       request.raw.on('close', onClose);
 
-      // `reply.raw.writeHead` bypasses Fastify's reply pipeline entirely, which is where
-      // `@fastify/cors` (registered in app.ts) injects Access-Control-* headers — so this SSE
-      // response gets none of them for free. Invisible whenever the frontend and API are
-      // same-origin; a hard failure the moment they are not, because the browser blocks the
-      // response outright before any event body is read. Replicate the same origin-matching
-      // decision here rather than reaching for `*`, which `@fastify/cors` already refuses to
-      // allow in production.
       const { cfg } = request.services;
       const origin = request.headers.origin;
       const corsHeaders: Record<string, string> =
@@ -556,10 +500,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
-        // Without no-cache an intermediary may buffer the whole stream and deliver it at once.
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
-        // Tells nginx not to buffer, which otherwise defeats streaming entirely.
         'X-Accel-Buffering': 'no',
         'X-Request-ID': request.id,
         ...corsHeaders,
@@ -570,13 +512,57 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
       };
 
-      // Comment-only heartbeat (no `data:` prefix) keeps proxies from dropping an idle
-      // stream during a long first-token wait.
       const heartbeat = setInterval(() => {
         if (!reply.raw.writableEnded) reply.raw.write(': heartbeat\n\n');
       }, 15_000);
 
       try {
+        // --- gather attachments: text-extraction path vs. native path -----
+        let attachmentText = '';
+        let attachmentManifest = '';
+        let nativeAttachments: { mimeType: string; base64: string }[] = [];
+        if (attachmentIds.length > 0) {
+          const rows = await db
+            .select({
+              id: attachmentsTable.id,
+              filename: attachmentsTable.filename,
+              mimeType: attachmentsTable.mimeType,
+              sizeBytes: attachmentsTable.sizeBytes,
+              storageKey: attachmentsTable.storageKey,
+              extractedText: attachmentsTable.extractedText,
+            })
+            .from(attachmentsTable)
+            .where(
+              and(
+                inArray(attachmentsTable.id, attachmentIds),
+                eq(attachmentsTable.userId, user.id),
+              ),
+            );
+
+          attachmentManifest = rows
+            .map(
+              (r) =>
+                `- fileId: "${r.id}" | filename: "${r.filename}" | type: ${r.mimeType} | size: ${r.sizeBytes} bytes`,
+            )
+            .join('\n');
+
+          const isNative = (mimeType: string): boolean =>
+            mimeType === 'application/pdf' || mimeType.startsWith('image/');
+
+          attachmentText = rows
+            .filter((r) => !isNative(r.mimeType) && r.extractedText?.trim())
+            .map((r) => `--- ${r.filename} ---\n${r.extractedText}`)
+            .join('\n\n');
+
+          nativeAttachments = await Promise.all(
+            rows
+              .filter((r) => isNative(r.mimeType))
+              .map(async (r) => ({
+                mimeType: r.mimeType,
+                base64: (await request.services.storage.get(r.storageKey)).toString('base64'),
+              })),
+          );
+        }
         for await (const event of generation.run({
           userId: user.id,
           requestId: request.id,

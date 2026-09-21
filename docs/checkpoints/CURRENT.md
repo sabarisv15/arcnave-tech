@@ -1,6 +1,6 @@
 # ArcNave — current checkpoint
 
-**Last updated:** 2026-09-20
+**Last updated:** 2026-09-21
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
@@ -113,6 +113,24 @@ Postgres. Cancellation flows the other way: socket close → `AbortController` �
 adapter aborts the real HTTP request.
 
 ## Completed work
+
+### High-density workspace clarity pass — 2026-09-21
+
+Preserved ArcNave's existing palette, spacing, layout, and interaction design while tightening
+the browser's rendering defaults: antialiased, kerned text; stable text sizing; common/contextual
+ligatures; and geometrically precise SVG strokes. The application root now fills the viewport
+against the existing background, preventing unpainted edges on tall or high-density displays.
+This is a visual-fidelity pass only; it adds no colour, content, or product behaviour changes.
+**Deployed and cache-bust verified at `www.arcnave.tech` on 2026-09-21**: the production CSS
+contains both the high-density typography and precise SVG rules.
+
+### Transcript compatibility guard — 2026-09-21
+
+The frontend now normalizes absent optional message collections (`sources`, `events`,
+`toolCalls`, `attachments`, and `questions`) while mapping a persisted chat. This prevents an
+older or incomplete transcript DTO from throwing `Cannot read properties of undefined (reading
+'map')` and taking down the entire workspace after an attachment-backed response. Covered in
+`arcnave-frontend/src/types.test.ts`; frontend tests and production build pass.
 
 ### Cheap wins — attachment text carry-forward, Gemini code UI, artifact export UI — 2026-09-20
 
