@@ -39,6 +39,7 @@ import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { shouldExposeRunPython, shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
 import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
+import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
@@ -343,6 +344,13 @@ export class AgentLoop {
 
         if (this.cfg.ENABLE_TOOL_USE) {
           baseMap.set('read_uploaded_file', new UploadToolExecutor(this.db, this.storage, input.userId));
+          const searchToolsExecutor = new SearchToolsExecutor(availableTools, (discoveredTool) => {
+            if (!availableTools.some((t) => t.name === discoveredTool.name)) {
+              availableTools.push(discoveredTool);
+              activeToolNames.add(discoveredTool.name);
+            }
+          });
+          baseMap.set('search_tools', searchToolsExecutor);
         }
 
         if (webEnabled) {
@@ -367,6 +375,7 @@ export class AgentLoop {
         baseMap.set('get_context_remaining', goalToolExecutor);
 
         if (skillToolExecutor) {
+          baseMap.set('load_skill', skillToolExecutor);
           baseMap.set('list_skills', skillToolExecutor);
           baseMap.set('search_skills', skillToolExecutor);
           baseMap.set('read_skill', skillToolExecutor);

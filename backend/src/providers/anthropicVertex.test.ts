@@ -51,12 +51,41 @@ describe('buildAnthropicMessages', () => {
 
   it('sends a PDF as a document block, not an image block', () => {
     const messages = buildAnthropicMessages(
-      baseRequest({ attachments: [{ mimeType: 'application/pdf', base64: 'BBBB' }] }),
+      baseRequest({ attachments: [{ mimeType: 'application/pdf', base64: 'BBBB', filename: 'report.pdf' }] }),
     );
-    const blocks = messages[0]!.content as Array<{ type: string; source?: { media_type?: string } }>;
+    const blocks = messages[0]!.content as Array<{ type: string; title?: string; source?: { media_type?: string } }>;
     expect(blocks[0]).toMatchObject({
       type: 'document',
+      title: 'report.pdf',
       source: { type: 'base64', media_type: 'application/pdf', data: 'BBBB' },
+    });
+  });
+
+  it('sends an extracted text attachment as a document block with PlainTextSource and title', () => {
+    const messages = buildAnthropicMessages(
+      baseRequest({
+        attachments: [
+          {
+            filename: 'financial_model.csv',
+            mimeType: 'text/csv',
+            extractedText: 'Q1,Q2,Q3\n10,20,30',
+          },
+        ],
+      }),
+    );
+    const blocks = messages[0]!.content as Array<{
+      type: string;
+      title?: string;
+      source?: { type: string; media_type: string; data: string };
+    }>;
+    expect(blocks[0]).toMatchObject({
+      type: 'document',
+      title: 'financial_model.csv',
+      source: {
+        type: 'text',
+        media_type: 'text/plain',
+        data: 'Q1,Q2,Q3\n10,20,30',
+      },
     });
   });
 

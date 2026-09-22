@@ -19,6 +19,7 @@ import {
   renderMarkdownExport,
   type ExportFormat,
 } from '../services/documents/index.js';
+import { deliverableValidator } from '../services/qa/deliverableValidator.js';
 import { generateStorageKey, type ObjectStorage } from '../services/storage.js';
 
 const log = logger.child({ module: 'deliverableExecutor' });
@@ -100,6 +101,28 @@ export class DeliverableToolExecutor implements ToolExecutor {
 
       let sourceText = sourceRow.extractedText || '';
       if (!sourceText) {
+        // Safe against Mode B raw binary corruption:
+        // Binary files (PDF, images, Office formats) must NEVER be naively stringified as UTF-8.
+        // Upstream understanding belongs to the AI Model via the Provider File Adapter.
+        const isBinaryMime =
+          sourceRow.mimeType === 'application/pdf' ||
+          sourceRow.mimeType.startsWith('image/') ||
+          sourceRow.mimeType.includes('officedocument') ||
+          sourceRow.mimeType.includes('octet-stream');
+
+        if (isBinaryMime) {
+          return {
+            toolCallId: call.id,
+            ok: false,
+            content: [
+              {
+                type: 'text',
+                text: `Source attachment "${sourceRow.filename}" requires structured parsing upstream. Please provide structured tabular markdown or document text directly to generate_deliverable.`,
+              },
+            ],
+          };
+        }
+
         try {
           const rawBytes = await this.storage.get(sourceRow.storageKey);
           sourceText = rawBytes.toString('utf8');
@@ -145,6 +168,26 @@ export class DeliverableToolExecutor implements ToolExecutor {
           {
             type: 'text',
             text: `Failed to render ${format.toUpperCase()} deliverable: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+
+    // 3-Level QA Validation
+    const qaReport = await deliverableValidator.validate(buffer, format, markdown);
+    if (!qaReport.passed) {
+      log.warn({ qaReport, format, title }, 'Deliverable QA validation failed');
+      return {
+        toolCallId: call.id,
+        ok: false,
+        content: [
+          {
+            type: 'text',
+            text: `Deliverable QA failed (${qaReport.recommendation}):\n${qaReport.diagnostics.join('\n')}\n\nPlease inspect the above QA diagnostics, self-repair the structured data or formatting, and retry.`,
+          },
+          {
+            type: 'json',
+            data: { qaReport },
           },
         ],
       };
@@ -222,11 +265,14 @@ export class DeliverableToolExecutor implements ToolExecutor {
       content: [
         {
           type: 'text',
-          text: `Generated ${format.toUpperCase()} file successfully: [Download ${card.filename}](${card.downloadUrl}) (${Math.round(card.sizeBytes / 1024)} KB)`,
+          text: `Generated ${format.toUpperCase()} file successfully: [Download ${card.filename}](${card.downloadUrl}) (${Math.round(card.sizeBytes / 1024)} KB). QA Status: Passed (score ${qaReport.overallScore}).`,
         },
         {
           type: 'json',
-          data: card,
+          data: {
+            ...card,
+            qaReport,
+          },
         },
       ],
     };

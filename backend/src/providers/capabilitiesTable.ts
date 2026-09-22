@@ -21,6 +21,8 @@ export interface ModelCapabilitySpec {
   supportsNativePdf: boolean;
   /** Native image generation capability (e.g. via dedicated image model / tool). */
   supportsImageGeneration: boolean;
+  /** Maximum context window size in tokens. */
+  contextWindowTokens: number;
 }
 
 export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
@@ -34,6 +36,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
     supportsNativeAudio: true,
     supportsNativePdf: true,
     supportsImageGeneration: true, // via Vertex Imagen / Gemini Image
+    contextWindowTokens: 1_048_576, // 1M tokens
   },
   'Sonnet 5': {
     alias: 'Sonnet 5',
@@ -45,6 +48,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
     supportsNativeAudio: false,
     supportsNativePdf: true,
     supportsImageGeneration: true, // routed via generate_image tool
+    contextWindowTokens: 200_000, // 200k tokens
   },
   'Opus 5': {
     alias: 'Opus 5',
@@ -56,6 +60,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
     supportsNativeAudio: false,
     supportsNativePdf: true,
     supportsImageGeneration: true,
+    contextWindowTokens: 200_000, // 200k tokens
   },
   'GPT-OSS 120B': {
     alias: 'GPT-OSS 120B',
@@ -67,6 +72,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
     supportsNativeAudio: false,
     supportsNativePdf: false,
     supportsImageGeneration: true,
+    contextWindowTokens: 128_000, // 128k tokens
   },
 };
 
@@ -85,5 +91,6 @@ export function getModelCapability(alias: string): ModelCapabilitySpec {
     supportsNativeAudio: false,
     supportsNativePdf: false,
     supportsImageGeneration: false,
+    contextWindowTokens: 128_000,
   };
 }

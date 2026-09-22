@@ -34,6 +34,7 @@ import type { ModelEntry, ModelRegistry } from '../providers/registry.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { RoutingDecision } from '../providers/routing.js';
 import { routeAuto } from '../providers/routing.js';
+import { getModelCapability } from '../providers/capabilitiesTable.js';
 import type {
   AttachmentBlock,
   GenerationRequest,
@@ -62,6 +63,7 @@ import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
 import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
+import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
@@ -236,7 +238,12 @@ export class GenerationService {
     // Loaded before model resolution (not its historical position) because whether this turn
     // needs a vision-capable model depends on what's carried forward, not only on what's newly
     // attached — and loadHistory has no dependency on which model gets picked.
-    const history = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq);
+    const history = await this.loadHistory(
+      input.chatId,
+      input.messageId,
+      latestCompaction?.throughSeq,
+      input.modelAlias,
+    );
 
     // --- resolve the model ------------------------------------------------
     const requiresGrounding = input.mode !== 'chat';
@@ -300,8 +307,10 @@ export class GenerationService {
     };
 
     // --- Skill-First -> Tool-Second Routing --------------------------------
-    const attachmentNames: string[] = [];
-    if (input.attachmentManifest) {
+    const attachmentNames: string[] = input.attachments
+      .map((a) => a.filename)
+      .filter((name): name is string => Boolean(name));
+    if (attachmentNames.length === 0 && input.attachmentManifest) {
       const matches = input.attachmentManifest.matchAll(/filename:\s*"([^"]+)"/g);
       for (const m of matches) {
         if (m[1]) attachmentNames.push(m[1]);
@@ -323,18 +332,42 @@ export class GenerationService {
       memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
     });
 
-    // Progressive Skill Disclosure: load full SKILL.md ONLY for selected skills
+    // Progressive Skill Disclosure:
+    // AI Model evaluates task first with lightweight skill metadata in context.
+    // If the model determines a domain skill is relevant, it invokes `load_skill` to disclose full instructions.
+    let skillsContext: string | undefined;
     const loadedSkills: SkillDetail[] = [];
     if (this.skills) {
+      const availableSkills = this.skills.listSkills();
+      const parts: string[] = [];
+
+      if (availableSkills.length > 0) {
+        const skillList = availableSkills
+          .map((s) => `- ${s.name}: ${s.description}`)
+          .join('\n');
+        parts.push(
+          `<available_skills>\n${skillList}\n</available_skills>\n` +
+            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.',
+        );
+      }
+
+      // If skills were pre-selected by routing or autoloaded, include their full instructions
       for (const skillName of routingDecision.selectedSkills) {
         const detail = this.skills.getSkill(skillName);
-        if (detail) loadedSkills.push(detail);
+        if (detail && !loadedSkills.some((s) => s.name === detail.name)) {
+          loadedSkills.push(detail);
+        }
+      }
+      if (loadedSkills.length > 0) {
+        parts.push(
+          loadedSkills.map((s) => `### Loaded Skill: ${s.name}\n\n${s.content}`).join('\n\n---\n\n'),
+        );
+      }
+
+      if (parts.length > 0) {
+        skillsContext = parts.join('\n\n');
       }
     }
-    const skillsContext =
-      loadedSkills.length > 0
-        ? loadedSkills.map((s) => `### Skill: ${s.name}\n\n${s.content}`).join('\n\n---\n\n')
-        : undefined;
 
     // --- resolve available tools -------------------------------------------
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
@@ -354,16 +387,22 @@ export class GenerationService {
       imageEnabled,
     );
     const allowPython =
-      routingDecision.pythonExposed && routingDecision.exposedTools.includes('run_python');
-    const allowDeliverable = routingDecision.exposedTools.includes('generate_deliverable');
+      routingDecision.pythonExposed && routingDecision.allowedTools.includes('run_python');
+    const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
     const rawAvailableTools = toolRegistry.getAvailableTools({
       userId: input.userId,
       projectId: project?.id ?? null,
       allowPython,
       allowDeliverable,
     });
-    // Tool-second gating: expose ONLY tools authorized by turn router
+    // Policy-approved tool catalog for deferred tool discovery
+    const policyCatalog = rawAvailableTools.filter((t) =>
+      routingDecision.allowedTools.includes(t.name),
+    );
+    // Initial active tools: deferred discovery tools + explicitly exposed tools
     const availableTools = rawAvailableTools.filter((t) =>
+      t.name === 'search_tools' ||
+      (skillsEnabled && t.name === 'load_skill') ||
       routingDecision.exposedTools.includes(t.name),
     );
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
@@ -416,19 +455,24 @@ export class GenerationService {
     };
 
     if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
-      yield* this.agentLoop.stream(input, {
-        entry,
-        provider,
-        maxOutputTokens,
-        prefs,
-        project: project ? { id: project.id, instructions: project.instructions } : null,
-        history,
-        systemInstruction,
-        startedAt,
-        releaseReservation,
-        grounded,
-        codeExecution,
-      });
+      const wireHistory = await this.hydrateHistoryAttachments(history);
+      const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
+      yield* this.agentLoop.stream(
+        { ...input, attachments: wireAttachments },
+        {
+          entry,
+          provider,
+          maxOutputTokens,
+          prefs,
+          project: project ? { id: project.id, instructions: project.instructions } : null,
+          history: wireHistory,
+          systemInstruction,
+          startedAt,
+          releaseReservation,
+          grounded,
+          codeExecution,
+        },
+      );
       return;
     }
 
@@ -527,6 +571,7 @@ export class GenerationService {
       );
     }
     if (skillToolExecutor) {
+      toolMap.set('load_skill', skillToolExecutor);
       toolMap.set('list_skills', skillToolExecutor);
       toolMap.set('search_skills', skillToolExecutor);
       toolMap.set('read_skill', skillToolExecutor);
@@ -557,12 +602,25 @@ export class GenerationService {
       );
     }
 
+    if (this.cfg.ENABLE_TOOL_USE) {
+      const searchToolsExecutor = new SearchToolsExecutor(policyCatalog, (discoveredTool) => {
+        if (!availableTools.some((t) => t.name === discoveredTool.name)) {
+          availableTools.push(discoveredTool);
+          activeToolNames.add(discoveredTool.name);
+        }
+      });
+      toolMap.set('search_tools', searchToolsExecutor);
+    }
+
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
+
+    const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
+    const wireHistory = await this.hydrateHistoryAttachments(history);
 
     const request: GenerationRequest = {
       prompt: input.prompt,
-      history,
-      attachments: input.attachments,
+      history: wireHistory,
+      attachments: wireAttachments,
       systemInstruction,
       promptAssembly,
       mode: input.mode,
@@ -809,6 +867,7 @@ export class GenerationService {
         candidateSkills: routingDecision.candidateSkills,
         selectedSkills: routingDecision.selectedSkills,
         loadedSkills: loadedSkills.map((s) => s.name),
+        allowedTools: routingDecision.allowedTools,
         exposedTools: availableTools.map((t) => t.name),
         toolsCalled,
         pythonExposed: routingDecision.pythonExposed,
@@ -989,6 +1048,7 @@ export class GenerationService {
     chatId: string,
     excludeMessageId: string,
     throughSeq?: number,
+    modelAlias?: string,
   ): Promise<Turn[]> {
     const conditions = [
       eq(messages.chatId, chatId),
@@ -1003,7 +1063,7 @@ export class GenerationService {
       .from(messages)
       .where(and(...conditions))
       .orderBy(desc(messages.seq))
-      .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 12));
+      .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 20));
 
     const ordered = rows
       .reverse()
@@ -1015,10 +1075,13 @@ export class GenerationService {
       })
       .filter((r) => r.text.trim() !== '');
 
-    // Keep the newest complete context within a predictable character budget, exactly as
-    // before attachments existed. A turn trimmed out here never gets its attachments fetched
-    // either — there is no point spending a storage read on a turn that was already dropped.
-    const budget = 24_000;
+    // Dynamic provider/model-aware context budget calculation:
+    // available budget = model context window - output reserve (4k tokens) - system/tools reserve (8k tokens)
+    const capability = getModelCapability(modelAlias ?? 'Gemini 3.8 Flash');
+    const contextLimitTokens = capability.contextWindowTokens || 128_000;
+    const availableHistoryTokens = Math.max(16_000, contextLimitTokens - 12_288);
+    const budget = availableHistoryTokens * 4; // ~4 characters per token average
+
     let used = 0;
     const kept: typeof ordered = [];
     for (let i = ordered.length - 1; i >= 0; i -= 1) {
@@ -1030,61 +1093,19 @@ export class GenerationService {
       used += cost;
     }
 
+    // Load attachments for all kept messages.
+    // Base64 bytes are NOT loaded into history to avoid consuming RAM; only metadata and storageKey
+    // are retained. Bytes are fetched on demand when constructing the wire payload.
     const attachmentRows = kept.length
       ? await this.db
           .select({
+            id: attachments.id,
             messageId: attachments.messageId,
+            filename: attachments.filename,
             mimeType: attachments.mimeType,
             storageKey: attachments.storageKey,
             sizeBytes: attachments.sizeBytes,
             status: attachments.status,
-          })
-          .from(attachments)
-          .where(
-            and(
-              inArray(
-                attachments.messageId,
-                kept.map((r) => r.id),
-              ),
-              eq(attachments.status, 'ready'),
-              sql`(${attachments.mimeType} = 'application/pdf' or ${attachments.mimeType} like 'image/%')`,
-            ),
-          )
-          .orderBy(desc(attachments.createdAt))
-      : [];
-
-    // Newest carried-forward attachment wins first claim on the byte budget; once the next one
-    // wouldn't fit, everything older than it is dropped rather than skipped-and-continued past —
-    // a simple, predictable "most recent that fit" rule rather than a bin-packing exercise.
-    // Also protects Claude against historical images that exceed the 5,242,880 byte base64 ceiling.
-    let budgetBytes = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES;
-    const byMessage = new Map<string, { mimeType: string; base64: string }[]>();
-    for (const row of attachmentRows) {
-      if (!row.messageId) continue;
-      if (row.sizeBytes > budgetBytes) break;
-      const data = await this.storage.get(row.storageKey);
-      const base64Str = data.toString('base64');
-      // If an image in history exceeds the 5 MB base64 ceiling (approx 5.24 MB), omit it from history
-      // so it never causes repetitive 400 Bad Request conversation poisoning on Claude.
-      if (row.mimeType.startsWith('image/') && Buffer.byteLength(base64Str, 'utf8') > 5_242_880) {
-        continue;
-      }
-      budgetBytes -= row.sizeBytes;
-      const list = byMessage.get(row.messageId) ?? [];
-      list.push({ mimeType: row.mimeType, base64: base64Str });
-      byMessage.set(row.messageId, list);
-    }
-
-    // The image/PDF path above re-attaches bytes so vision keeps "seeing" a photo on a later
-    // turn. This is the same idea for everything else: a plain text-extracted file's content is
-    // stored once at upload time (`attachments.extractedText`, files.ts) and would otherwise
-    // only ever reach the model on the turn it was uploaded — the model "forgets" it on the very
-    // next message, which is not a model limitation, it is this data never being re-sent.
-    const textAttachmentRows = kept.length
-      ? await this.db
-          .select({
-            messageId: attachments.messageId,
-            filename: attachments.filename,
             extractedText: attachments.extractedText,
           })
           .from(attachments)
@@ -1094,30 +1115,75 @@ export class GenerationService {
                 attachments.messageId,
                 kept.map((r) => r.id),
               ),
-              sql`${attachments.extractedText} is not null and ${attachments.mimeType} <> 'application/pdf' and ${attachments.mimeType} not like 'image/%'`,
+              eq(attachments.status, 'ready'),
             ),
           )
+          .orderBy(desc(attachments.createdAt))
       : [];
 
-    const extractedByMessage = new Map<string, string>();
-    for (const row of textAttachmentRows) {
-      if (!row.messageId || !row.extractedText) continue;
-      const capped = row.extractedText.slice(0, this.cfg.HISTORY_MAX_ATTACHMENT_TEXT_CHARS);
-      const block = `--- ${row.filename} ---\n${capped}`;
-      const existing = extractedByMessage.get(row.messageId);
-      extractedByMessage.set(row.messageId, existing ? `${existing}\n\n${block}` : block);
+    const byMessage = new Map<string, AttachmentBlock[]>();
+    for (const row of attachmentRows) {
+      if (!row.messageId) continue;
+      const list = byMessage.get(row.messageId) ?? [];
+      list.push({
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes,
+        storageKey: row.storageKey,
+        extractedText: row.extractedText,
+      });
+      byMessage.set(row.messageId, list);
     }
 
-    return kept.map((r): Turn => {
-      const extracted = extractedByMessage.get(r.id);
-      return {
-        role: r.role === 'user' ? 'user' : 'assistant',
-        text: extracted
-          ? `${r.text}\n\n[Text extracted from a file attached to this message]\n${extracted}`
-          : r.text,
-        ...(byMessage.has(r.id) ? { attachments: byMessage.get(r.id) } : {}),
-      };
-    });
+    return kept.map((r): Turn => ({
+      role: r.role === 'user' ? 'user' : 'assistant',
+      text: r.text,
+      ...(byMessage.has(r.id) ? { attachments: byMessage.get(r.id) } : {}),
+    }));
+  }
+
+  /**
+   * Hydrates raw storage bytes into base64 on-demand for binary attachments (PDF, images, media)
+   * specifically for the ephemeral wire request sent to the provider.
+   * Keeps conversation history in RAM free of large Base64 strings.
+   */
+  private async hydrateAttachmentBytes(
+    attachments: AttachmentBlock[] | undefined,
+  ): Promise<AttachmentBlock[]> {
+    if (!attachments || attachments.length === 0) return [];
+    return Promise.all(
+      attachments.map(async (att) => {
+        const isBinary =
+          att.mimeType === 'application/pdf' ||
+          att.mimeType.startsWith('image/') ||
+          att.mimeType.startsWith('audio/') ||
+          att.mimeType.startsWith('video/');
+        if (isBinary && !att.base64 && att.storageKey) {
+          try {
+            const data = await this.storage.get(att.storageKey);
+            return { ...att, base64: data.toString('base64') };
+          } catch (err) {
+            log.warn({ err, storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
+            return att;
+          }
+        }
+        return att;
+      }),
+    );
+  }
+
+  /**
+   * Hydrates attachment bytes across history turns for provider wire transmission.
+   */
+  private async hydrateHistoryAttachments(turns: Turn[]): Promise<Turn[]> {
+    return Promise.all(
+      turns.map(async (turn) => {
+        if (!turn.attachments || turn.attachments.length === 0) return turn;
+        const hydrated = await this.hydrateAttachmentBytes(turn.attachments);
+        return { ...turn, attachments: hydrated };
+      }),
+    );
   }
 
   private async buildSystemInstruction(

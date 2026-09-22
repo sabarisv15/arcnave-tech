@@ -68,6 +68,12 @@ does not apply yet — revisit before registration reopens. `ENABLE_TOOL_USE` st
 deferred per `tools/MAPPING.md`.
 **Progress:** ~75% of the brief in `ARCNAVE_BACKEND_CLAUDE_PROMPT.md`
 
+**Project workflow rule — local first, production second:** all workers must complete the
+applicable local typechecks, tests, builds, and smoke checks before requesting deployment.
+**Live deployment always requires the user's explicit approval in the current task.** A live
+deployment is never the first test; after approval and deployment, perform a separate live
+verification.
+
 > Read this first in a new session. It is the handoff. `CLAUDE.md` has the invariants;
 > `mistakes.md` has what has already gone wrong here; `docs/backend-research.md` has the
 > primary-source research; `docs/decisions/` has the ADRs.

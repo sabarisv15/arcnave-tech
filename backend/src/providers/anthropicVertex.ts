@@ -119,18 +119,51 @@ type CacheableBlock = Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam |
 
 function attachmentBlocks(attachments: GenerationRequest['attachments']): CacheableBlock[] {
   if (!attachments || attachments.length === 0) return [];
-  return attachments.map((a): CacheableBlock =>
-    a.mimeType === 'application/pdf'
-      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.base64 } }
-      : {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: a.mimeType as Anthropic.Base64ImageSource['media_type'],
-            data: a.base64,
-          },
+  return attachments.map((a): CacheableBlock => {
+    // 1. Native PDF (base64)
+    if (a.mimeType === 'application/pdf' && a.base64) {
+      const block: Anthropic.DocumentBlockParam = {
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: a.base64,
         },
-  );
+      };
+      if (a.filename) block.title = a.filename;
+      return block;
+    }
+
+    // 2. Native Image (base64)
+    if (a.mimeType.startsWith('image/') && a.base64) {
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: a.mimeType as Anthropic.Base64ImageSource['media_type'],
+          data: a.base64,
+        },
+      };
+    }
+
+    // 3. Text / Code / Extracted Office Text (DOCX, XLSX, TXT, CSV, JSON, MD, etc.)
+    const textData =
+      a.extractedText ??
+      (a.base64 && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/')
+        ? Buffer.from(a.base64, 'base64').toString('utf8')
+        : '');
+
+    const block: Anthropic.DocumentBlockParam = {
+      type: 'document',
+      source: {
+        type: 'text',
+        media_type: 'text/plain',
+        data: textData,
+      },
+    };
+    if (a.filename) block.title = a.filename;
+    return block;
+  });
 }
 
 /**
@@ -164,7 +197,7 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
   // Validate upfront that no newly attached image exceeds the model's base64 capacity
   const capability = getModelCapability('Sonnet 5');
   for (const att of request.attachments ?? []) {
-    if (att.mimeType.startsWith('image/')) {
+    if (att.mimeType.startsWith('image/') && att.base64) {
       const base64Bytes = Buffer.byteLength(att.base64, 'utf8');
       if (base64Bytes > capability.maxEncodedImageBytes) {
         throw new ApiError('provider_payload_limit', {
@@ -282,8 +315,14 @@ export class AnthropicVertexProvider implements Provider {
 
         // If on the final round, disable tools so the model is forced to synthesize text
         const isFinalRound = isLastRound(round, maxRounds);
-        const effectiveTools = isFinalRound ? [] : tools;
-        const effectiveUseTools = isFinalRound ? false : useTools;
+        const currentToolDefs = request.tools ?? toolDefs;
+        const currentUseTools = currentToolDefs.length > 0 && Boolean(request.toolExecutor);
+        const roundTools = [
+          ...(grounded ? [WEB_SEARCH_TOOL] : []),
+          ...(currentUseTools ? currentToolDefs.map(toAnthropicTool) : []),
+        ];
+        const effectiveTools = isFinalRound ? [] : roundTools;
+        const effectiveUseTools = isFinalRound ? false : currentUseTools;
 
         const stream = this.getClient().messages.stream(
           {

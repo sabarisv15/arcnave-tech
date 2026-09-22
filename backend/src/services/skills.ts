@@ -85,6 +85,7 @@ import type { CapabilityRegistry } from '../capabilities/registry.js';
 export class SkillService {
   private readonly skills = new Map<string, SkillEntry>();
   private loaded = false;
+  private skillsBaseDir: string | null = null;
 
   constructor(
     private readonly rootDir: string,
@@ -125,6 +126,8 @@ export class SkillService {
       this.loaded = true;
       return;
     }
+
+    this.skillsBaseDir = skillsPath;
 
     for (const entry of entries) {
       const entryPath = path.join(skillsPath, entry);
@@ -356,5 +359,30 @@ export class SkillService {
     }
 
     return autoloads;
+  }
+
+  /**
+   * Safely reads an optional resource or script from a skill directory (e.g. references, templates).
+   * Guarded strictly against path traversal.
+   */
+  async getSkillResource(skillName: string, resourcePath: string): Promise<string | null> {
+    if (!this.skillsBaseDir) return null;
+    const cleanSkill = path.basename(skillName).toLowerCase().trim();
+    if (!this.skills.has(cleanSkill)) return null;
+
+    const skillDir = path.resolve(this.skillsBaseDir, cleanSkill);
+    const resolvedPath = path.resolve(skillDir, resourcePath);
+
+    // Path traversal check: must stay strictly inside skillDir
+    if (!resolvedPath.startsWith(skillDir + path.sep) && resolvedPath !== skillDir) {
+      log.warn({ skillName, resourcePath }, 'path traversal attempt detected in getSkillResource');
+      return null;
+    }
+
+    try {
+      return await fs.readFile(resolvedPath, 'utf8');
+    } catch {
+      return null;
+    }
   }
 }

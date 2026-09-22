@@ -47,6 +47,29 @@ describe('buildGeminiContents', () => {
     ]);
   });
 
+  it('formats extracted text attachment as a structured document tag ahead of prompt text', () => {
+    const contents = buildGeminiContents(
+      baseRequest({
+        attachments: [
+          {
+            filename: 'data.csv',
+            mimeType: 'text/csv',
+            extractedText: 'col1,col2\nval1,val2',
+          },
+        ],
+      }),
+    );
+    expect(contents).toEqual([
+      {
+        role: 'user',
+        parts: [
+          { text: '<document filename="data.csv">\ncol1,col2\nval1,val2\n</document>' },
+          { text: 'What is this?' },
+        ],
+      },
+    ]);
+  });
+
   it('carries a history attachment forward as its own part, mapping assistant to model', () => {
     const contents = buildGeminiContents(
       baseRequest({

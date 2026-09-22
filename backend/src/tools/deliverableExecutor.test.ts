@@ -108,4 +108,47 @@ describe('DeliverableToolExecutor', () => {
       }),
     );
   });
+
+  it('rejects raw binary files with missing extractedText, requiring upstream structured parsing', async () => {
+    const rawBinaryDb = {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: 'binary-pdf-raw',
+                filename: 'scanned_statement.pdf',
+                mimeType: 'application/pdf',
+                storageKey: 'key-pdf',
+                extractedText: null, // raw unextracted binary
+              },
+            ]),
+          }),
+        }),
+      }),
+    } as any;
+
+    const executor = new DeliverableToolExecutor(
+      mockStorage,
+      rawBinaryDb,
+      'user-1',
+      'chat-1',
+      'msg-1',
+    );
+
+    const result = await executor.execute(
+      {
+        id: 'call-raw-binary',
+        name: 'generate_deliverable',
+        input: {
+          format: 'xlsx',
+          sourceAttachmentId: 'binary-pdf-raw',
+        },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect((result.content[0] as any).text).toContain('requires structured parsing upstream');
+  });
 });

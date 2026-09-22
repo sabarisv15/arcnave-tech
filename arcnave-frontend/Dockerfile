@@ -9,6 +9,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 COPY . .
+ARG VITE_API_BASE=/v1
+ENV VITE_API_BASE=$VITE_API_BASE
 # `npm run build` is `tsc -b && vite build`, so a type error fails the image rather than
 # shipping a bundle that does not typecheck.
 RUN npm run build
@@ -22,7 +24,6 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Port 8080 rather than 80 so the container needs no privileged port and can drop to the
 # unprivileged user the image already ships.
 EXPOSE 8080
-USER nginx
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ["sh", "-c", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/index.html || exit 1"]

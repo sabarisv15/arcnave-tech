@@ -64,13 +64,13 @@ describe('Prompt Caching Subsystem', () => {
       const tools = [toolA, toolB, toolC];
 
       const assembly1 = assemblePrompt(tools, {
-        attachmentManifest: 'file1.pdf',
+        projectInstructions: 'Project alpha guidelines',
         retrievedContext: 'chunk 1 text',
         modePrompt: 'Cite search sources',
       });
 
       const assembly2 = assemblePrompt(tools, {
-        attachmentManifest: 'file2.docx',
+        projectInstructions: 'Project beta guidelines',
         retrievedContext: 'chunk 99 text',
         modePrompt: 'Different mode hint',
       });
@@ -82,8 +82,20 @@ describe('Prompt Caching Subsystem', () => {
 
       // But full system instruction reflects dynamic context
       expect(assembly1.fullSystemInstruction).not.toBe(assembly2.fullSystemInstruction);
-      expect(assembly1.fullSystemInstruction).toContain('file1.pdf');
-      expect(assembly2.fullSystemInstruction).toContain('file2.docx');
+      expect(assembly1.fullSystemInstruction).toContain('Project alpha guidelines');
+      expect(assembly2.fullSystemInstruction).toContain('Project beta guidelines');
+    });
+
+    it('ensures attached files and attachment text never contaminate system prompt', () => {
+      const tools = [toolA, toolB, toolC];
+      const assembly = assemblePrompt(tools, {
+        attachmentManifest: 'sensitive_financial_model.xlsx',
+        attachmentText: 'REVENUE = 50000000',
+        retrievedContext: 'clean context',
+      });
+      expect(assembly.fullSystemInstruction).not.toContain('sensitive_financial_model.xlsx');
+      expect(assembly.fullSystemInstruction).not.toContain('REVENUE = 50000000');
+      expect(assembly.fullSystemInstruction).toContain('clean context');
     });
 
     it('places dynamic sections strictly after the stable system text', () => {

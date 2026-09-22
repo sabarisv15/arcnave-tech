@@ -208,11 +208,59 @@ export const READ_SKILL: ToolDefinition = {
   },
 };
 
+export const LOAD_SKILL: ToolDefinition = {
+  name: 'load_skill',
+  description:
+    'Internal progressive disclosure mechanism. Loads specialized instructions (SKILL.md) and ' +
+    'optional resource files (e.g. templates, reference docs, scripts) for a known skill into context. ' +
+    'Call this when a task involves specialized domain work (e.g. "pdf", "xlsx", "docx", "pptx", "data-analysis") ' +
+    'to receive detailed domain guidance before selecting execution tools.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description: 'The exact name of the skill to load (e.g. "pdf", "xlsx", "docx", "pptx", "data-analysis").',
+      },
+      resource: {
+        type: 'string',
+        description: 'Optional relative path to a specific skill resource (e.g. "reference.md", "scripts/validate.py").',
+      },
+    },
+    required: ['name'],
+    additionalProperties: false,
+  },
+};
+
 export const SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  LOAD_SKILL,
   LIST_SKILLS,
   SEARCH_SKILLS,
   READ_SKILL,
 ];
+
+/* -------------------------------------------------------------------------- Tool Discovery */
+
+export const SEARCH_TOOLS: ToolDefinition = {
+  name: 'search_tools',
+  description:
+    'Searches the policy-approved catalog of executable tools available in this workspace. ' +
+    'Call this when you evaluate that the task requires an execution tool (e.g. generating an Excel/Word/PPTX/PDF deliverable, running Python computations, web search, creating artifacts). ' +
+    'Returns matching tool definitions and parameter schemas that can be invoked.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Search query or capability keywords (e.g. "excel", "deliverable", "python", "image", "web_search", "artifact").',
+      },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+};
+
+export const DISCOVERY_TOOL_DEFINITIONS: ToolDefinition[] = [SEARCH_TOOLS];
 
 /* -------------------------------------------------------------------------- Artifacts */
 

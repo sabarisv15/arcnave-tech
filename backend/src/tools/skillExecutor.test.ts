@@ -125,4 +125,41 @@ describe('SkillToolExecutor', () => {
       expect(result.content[0].text).toContain('aborted');
     }
   });
+
+  it('load_skill executes progressive disclosure and loads optional resource safely', async () => {
+    let notifiedSkill = '';
+    const executor = new SkillToolExecutor(skillService, new Set(['create_artifact']), (s) => {
+      notifiedSkill = s.name;
+    });
+
+    // 1. Basic load_skill
+    const result = await executor.execute(
+      { id: 'c8', name: 'load_skill', input: { name: 'docx' } },
+      new AbortController().signal,
+    );
+    expect(result.ok).toBe(true);
+    const data = jsonContent(result.content);
+    expect(data.name).toBe('docx');
+    expect(data.content).toBeDefined();
+    expect(notifiedSkill).toBe('docx');
+
+    // 2. load_skill with resource that does not exist
+    const resWithMissing = await executor.execute(
+      { id: 'c9', name: 'load_skill', input: { name: 'docx', resource: 'template.docx' } },
+      new AbortController().signal,
+    );
+    expect(resWithMissing.ok).toBe(true);
+    const dataMissing = jsonContent(resWithMissing.content);
+    expect(dataMissing.resourcePath).toBe('template.docx');
+    expect(dataMissing.resourceContent).toBe('[Resource file not found]');
+
+    // 3. load_skill with path traversal resource attempt
+    const resWithTraversal = await executor.execute(
+      { id: 'c10', name: 'load_skill', input: { name: 'docx', resource: '../../package.json' } },
+      new AbortController().signal,
+    );
+    expect(resWithTraversal.ok).toBe(true);
+    const dataTraversal = jsonContent(resWithTraversal.content);
+    expect(dataTraversal.resourceContent).toBe('[Resource file not found]');
+  });
 });

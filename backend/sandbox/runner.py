@@ -45,6 +45,23 @@ def main() -> None:
     max_stdout = int(os.environ.get("MAX_STDOUT_BYTES", "65536"))
     max_stderr = int(os.environ.get("MAX_STDERR_BYTES", "65536"))
 
+    # Materialize input directory
+    input_dir = "/home/sandbox/input"
+    output_dir = "/home/sandbox/output"
+    os.makedirs(input_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    input_files_raw = os.environ.get("RUN_PYTHON_INPUT_FILES_JSON")
+    if input_files_raw:
+        try:
+            files_map = json.loads(input_files_raw)
+            for fname, b64content in files_map.items():
+                safe_name = os.path.basename(fname)
+                with open(os.path.join(input_dir, safe_name), "wb") as infile:
+                    infile.write(base64.b64decode(b64content))
+        except Exception as e:
+            sys.stderr.write(f"Warning: Failed to materialize input files: {e}\n")
+
     code = base64.b64decode(code_b64).decode("utf-8")
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(code)
@@ -56,6 +73,7 @@ def main() -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,  # own process group, so a timeout can kill descendants too
+        cwd="/home/sandbox",
     )
 
     stdout_out: dict = {}
@@ -77,6 +95,18 @@ def main() -> None:
     stderr_thread.join()
     os.unlink(script_path)
 
+    # Collect output files
+    output_files = {}
+    if os.path.exists(output_dir):
+        for fname in os.listdir(output_dir):
+            fpath = os.path.join(output_dir, fname)
+            if os.path.isfile(fpath) and os.path.getsize(fpath) <= 10 * 1024 * 1024:
+                try:
+                    with open(fpath, "rb") as outf:
+                        output_files[fname] = base64.b64encode(outf.read()).decode("ascii")
+                except Exception:
+                    pass
+
     result = {
         "type": "arcnave.run_python.result.v1",
         "executionId": execution_id,
@@ -88,6 +118,7 @@ def main() -> None:
         "stderrTruncated": stderr_out["truncated"],
         "timedOut": timed_out,
         "durationMs": int((time.monotonic() - start) * 1000),
+        "outputFiles": output_files,
     }
     print(RESULT_PREFIX + json.dumps(result), flush=True)
 

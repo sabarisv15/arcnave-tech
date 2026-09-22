@@ -12,6 +12,11 @@ import { z } from 'zod';
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { SkillDetail, SkillService } from '../services/skills.js';
 
+const loadSkillInput = z.object({
+  name: z.string().min(1),
+  resource: z.string().optional(),
+});
+
 const searchInput = z.object({
   query: z.string().min(1),
 });
@@ -41,12 +46,14 @@ export class SkillToolExecutor implements ToolExecutor {
     }
 
     switch (call.name) {
+      case 'load_skill':
+        return this.loadSkill(call);
+      case 'read_skill':
+        return this.loadSkill(call);
       case 'list_skills':
         return this.listSkills(call);
       case 'search_skills':
         return this.searchSkills(call);
-      case 'read_skill':
-        return this.readSkill(call);
       default:
         return textResult(call.id, false, `Unknown tool "${call.name}".`);
     }
@@ -67,8 +74,8 @@ export class SkillToolExecutor implements ToolExecutor {
     return jsonResult(call.id, { results });
   }
 
-  private async readSkill(call: ToolCall): Promise<ToolResult> {
-    const parsed = readInput.safeParse(call.input);
+  private async loadSkill(call: ToolCall): Promise<ToolResult> {
+    const parsed = loadSkillInput.safeParse(call.input);
     if (!parsed.success) {
       return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
     }
@@ -82,6 +89,14 @@ export class SkillToolExecutor implements ToolExecutor {
       await this.onSkillLoaded(skill);
     }
 
+    let resourceContent: string | null = null;
+    if (parsed.data.resource) {
+      resourceContent = await this.skillService.getSkillResource(
+        parsed.data.name,
+        parsed.data.resource,
+      );
+    }
+
     return jsonResult(call.id, {
       name: skill.name,
       version: skill.version,
@@ -90,6 +105,12 @@ export class SkillToolExecutor implements ToolExecutor {
       mode: skill.mode,
       missingCapabilities: skill.missingCapabilities,
       content: skill.content,
+      ...(parsed.data.resource
+        ? {
+            resourcePath: parsed.data.resource,
+            resourceContent: resourceContent ?? '[Resource file not found]',
+          }
+        : {}),
     });
   }
 }

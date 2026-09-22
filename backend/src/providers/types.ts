@@ -127,17 +127,22 @@ export type ProviderEvent =
   | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
-/** An image or PDF, ready to hand a provider as a native content block. */
+/** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */
 export interface AttachmentBlock {
+  id?: string;
+  filename?: string;
   mimeType: string;
-  base64: string;
+  base64?: string;
+  extractedText?: string | null;
+  sizeBytes?: number;
+  storageKey?: string;
 }
 
 export interface Turn {
   role: 'user' | 'assistant';
   text: string;
-  /** Present only for a turn that had an image/PDF attached; carried forward on every later
-   *  turn of the same chat so the model keeps "seeing" it, per the design's caching strategy. */
+  /** Attachments belonging to this turn (PDFs, images, or documents), carried forward across
+   *  turns so the model keeps "seeing" them with prompt caching. */
   attachments?: AttachmentBlock[];
 }
 

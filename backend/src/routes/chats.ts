@@ -28,6 +28,7 @@ import {
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
+import type { AttachmentBlock } from '../providers/types.js';
 import type { StreamEvent } from '../services/generation.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -517,10 +518,10 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       }, 15_000);
 
       try {
-        // --- gather attachments: text-extraction path vs. native path -----
+        // --- gather attachments: metadata + storage references for native and text paths -----
         let attachmentText = '';
         let attachmentManifest = '';
-        let nativeAttachments: { mimeType: string; base64: string }[] = [];
+        let turnAttachments: AttachmentBlock[] = [];
         if (attachmentIds.length > 0) {
           const rows = await db
             .select({
@@ -554,14 +555,15 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             .map((r) => `--- ${r.filename} ---\n${r.extractedText}`)
             .join('\n\n');
 
-          nativeAttachments = await Promise.all(
-            rows
-              .filter((r) => isNative(r.mimeType))
-              .map(async (r) => ({
-                mimeType: r.mimeType,
-                base64: (await request.services.storage.get(r.storageKey)).toString('base64'),
-              })),
-          );
+          // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
+          turnAttachments = rows.map((r) => ({
+            id: r.id,
+            filename: r.filename,
+            mimeType: r.mimeType,
+            sizeBytes: r.sizeBytes,
+            storageKey: r.storageKey,
+            extractedText: r.extractedText,
+          }));
         }
         for await (const event of generation.run({
           userId: user.id,
@@ -575,7 +577,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           hasAttachments: attachmentIds.length > 0,
           attachmentText,
           attachmentManifest,
-          attachments: nativeAttachments,
+          attachments: turnAttachments,
           codeExecution,
           signal: controller.signal,
         })) {

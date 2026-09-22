@@ -85,18 +85,6 @@ export function assemblePrompt(
     );
   }
 
-  if (dynamicSuffix.attachmentManifest?.trim()) {
-    dynamicParts.push(
-      `Attached files available to inspect:\n${dynamicSuffix.attachmentManifest.trim()}`,
-    );
-  }
-
-  if (dynamicSuffix.attachmentText?.trim()) {
-    dynamicParts.push(
-      `Text extracted from files attached to this message:\n${dynamicSuffix.attachmentText.trim()}`,
-    );
-  }
-
   if (dynamicSuffix.retrievedContext?.trim()) {
     dynamicParts.push(dynamicSuffix.retrievedContext.trim());
   }

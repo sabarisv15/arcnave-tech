@@ -93,4 +93,18 @@ describe('SkillService', () => {
     await service.reload();
     expect(service.listSkills().length).toBeGreaterThanOrEqual(7);
   });
+
+  it('safely accesses skill resources and strictly prevents path traversal in getSkillResource', async () => {
+    // Non-existent skill returns null
+    expect(await service.getSkillResource('non-existent-skill', 'ref.md')).toBeNull();
+
+    // Path traversal attempts return null
+    expect(await service.getSkillResource('docx', '../../package.json')).toBeNull();
+    expect(await service.getSkillResource('docx', '/etc/passwd')).toBeNull();
+    expect(await service.getSkillResource('docx', '..\\..\\package.json')).toBeNull();
+    expect(await service.getSkillResource('docx', 'sub/../../secret.txt')).toBeNull();
+
+    // Valid skill with non-existent file returns null
+    expect(await service.getSkillResource('docx', 'non-existent-resource.md')).toBeNull();
+  });
 });

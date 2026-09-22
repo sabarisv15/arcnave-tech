@@ -27,9 +27,40 @@ const log = logger.child({ module: 'provider:gemini' });
 
 function attachmentParts(attachments: GenerationRequest['attachments']): Part[] {
   if (!attachments || attachments.length === 0) return [];
-  return attachments.map((a): Part => ({
-    inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
-  }));
+  return attachments.map((a): Part => {
+    // 1. Binary / media (PDF, image, audio, video) with base64
+    if (
+      a.base64 &&
+      (a.mimeType === 'application/pdf' ||
+        a.mimeType.startsWith('image/') ||
+        a.mimeType.startsWith('audio/') ||
+        a.mimeType.startsWith('video/'))
+    ) {
+      return {
+        inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
+      };
+    }
+
+    // 2. Text / Code / Extracted Office Text
+    if (a.extractedText) {
+      const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
+      return {
+        text: `<document${nameAttr}>\n${a.extractedText}\n</document>`,
+      };
+    }
+
+    // 3. Fallback if base64 is present for other mimeTypes
+    if (a.base64) {
+      return {
+        inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
+      };
+    }
+
+    const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
+    return {
+      text: `<document${nameAttr}>\n[Empty or unreadable document]\n</document>`,
+    };
+  });
 }
 
 /**

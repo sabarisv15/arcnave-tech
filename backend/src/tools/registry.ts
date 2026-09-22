@@ -8,6 +8,7 @@
  */
 import {
   ARTIFACT_TOOL_DEFINITIONS,
+  DISCOVERY_TOOL_DEFINITIONS,
   GENERATE_DELIVERABLE,
   GOAL_TOOL_DEFINITIONS,
   IMAGE_TOOL_DEFINITIONS,
@@ -60,6 +61,9 @@ export class ProjectToolRegistry implements ToolRegistry {
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
     if (this.enabled) {
+      // Deferred tool discovery (search_tools) is available across all chats when tool use is on.
+      tools.push(...DISCOVERY_TOOL_DEFINITIONS);
+
       // Artifact tools (create, read, update) are available across all chats when tool use is on.
       tools.push(...ARTIFACT_TOOL_DEFINITIONS);
 
