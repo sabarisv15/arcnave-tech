@@ -1,12 +1,12 @@
 ---
 name: pdf
-version: 1.2.0
-description: Print-ready reports, multi-page layout, pagination, table of contents, and visual headers.
+version: 2.0.0
+description: PDF document understanding, page inspection, splitting, merging, and format-native print deliverable generation.
 category: artifact
 scope: builtin
 requires:
   tools:
-    - create_artifact
+    - generate_deliverable
   capabilities:
     - artifact.export.pdf
 autoload: false
@@ -14,54 +14,127 @@ metadata:
   source: arcnave
 ---
 
-# Printable Document (PDF) Report Architecture
+# PDF Document Intelligence & Deliverable Architecture
 
-Use this skill whenever designing print-ready reports, whitepapers, compliance documents, research papers, or formal deliverables intended for fixed-page document layout.
+Procedural knowledge for handling PDF documents in ArcNave: native document understanding, metadata inspection, deterministic page extraction (splitting), document combination (merging), and format-native PDF deliverable generation.
 
-## Page Layout & Formatting Guidelines (ArcNave & PDF Standards)
+---
 
-- **Deliverable vs Cover Note**: The PDF document is the deliverable; chat is the cover note. In chat, summarize the document's core findings and direct the user to the generated PDF.
-- **Page Budget & Structural Sections**:
-  - Plan multi-page documents deliberately with distinct sections:
-    1. Cover Page / Title Block.
-    2. Executive Summary / Abstract.
-    3. Table of Contents (for documents exceeding 3 pages).
-    4. Detailed Analysis & Core Content.
-    5. Findings, Recommendations, and Appendices.
-  - Prevent orphaned headings by ensuring new sections start with sufficient vertical headroom.
-- **Header & Footer Placement**:
-  - Header: Document title or active section name with a subtle divider rule.
-  - Footer: Clean page numbering ("Page X of Y"), generation date, and confidentiality status.
-- **Data Tables & Visual Elements**:
-  - Format data tables with clear borders and bold headers.
-  - For long tables spanning multiple pages, maintain column alignment and repeated header structure.
-  - Frame figures, charts, and diagrams with concise captions underneath.
-- **Visual Callout Blocks**:
-  - Use shaded callout boxes (`> ` blockquotes in Markdown) with left accent borders for executive takeaways, methodological assumptions, or critical notices.
+## 1. When to Use This Skill
 
-## ArcNave Runtime Deliverable Execution
+- Reading, analyzing, or summarizing uploaded PDF documents, invoices, or bank statements.
+- Inspecting PDF page count and document metadata (`inspectPdf`).
+- Merging multiple PDF files into a single unified document (`mergePdfFiles`).
+- Extracting specific page ranges or splitting pages (`splitPdfFile`).
+- Generating print-ready, multi-page PDF reports or compliance briefs via `generate_deliverable(format: 'pdf', title, content)`.
+- Extracting structured tabular data from PDF statements before handing off to `xlsx` or other downstream skills.
 
-ArcNave provides a dedicated, native `.pdf` binary generation engine powered by `pdf-lib` (`generate_deliverable`).
+---
 
-### Mode A: Direct PDF Generation
-When the user asks to generate or print a PDF deliverable:
-1. Construct structured Markdown with headings (`#`, `##`, `###`), body paragraphs, callout quotes (`> `), and data tables.
+## 2. When NOT to Use This Skill
+
+- The user asks for an editable Word document (`docx`), spreadsheet (`xlsx`), or presentation (`pptx`).
+- General chat Q&A where no PDF input or output is involved.
+- In-place text editing inside a compiled, fixed-layout PDF. (PDF text runs are raw vector/glyph coordinates; use DOCX for editable prose or regenerate the PDF from source markdown).
+
+---
+
+## 3. Understand & Inspect Existing Files
+
+### A. Provider-Native Direct Understanding
+When the user asks questions or requests a summary of an uploaded PDF ("What is the total revenue in this invoice?", "Summarize page 2"):
+- The AI model receives the document directly via the Provider File Adapter (provider-native multimodal/document representation where supported).
+- **No tool call is necessary.** Answer directly from native vision/understanding.
+- Do NOT invoke execution tools or Python simply to read or summarize a PDF.
+
+### B. Deterministic Structural Inspection
+When programmatic workflows require exact page counts or metadata:
+- Use the Skill operation `inspectPdf(inputBuffer)` to obtain:
+  - `pageCount`: Total page count.
+  - `title`: Embedded document title (if present).
+  - `author`: Embedded document author (if present).
+
+---
+
+## 4. Create New File
+
+When the user asks to generate, export, or print a PDF deliverable:
+1. Construct structured Markdown with headings (`#`, `##`, `###`), body paragraphs, callouts (`> `), and GFM tables.
 2. Call `generate_deliverable` with:
    - `format`: `'pdf'`
    - `title`: Document filename (e.g. `"Quarterly_Audit_Report"`, `"System_Architecture_Overview"`)
    - `content`: Complete Markdown content.
 
-### Mode B: Source File Conversion (e.g. Markdown / Document → PDF)
-When the user asks to convert an uploaded document or file into a PDF:
-1. Inspect the uploaded file using `read_uploaded_file` if needed.
-2. Call `generate_deliverable` with:
-   - `format`: `'pdf'`
-   - `sourceAttachmentId`: The UUID of the uploaded file.
-   - `instructions`: Clear formatting directions for the PDF output.
-3. Do NOT route standard PDF generation to Python; use `generate_deliverable`.
+### Native PDF Engine Standards
+ArcNave's format-native renderer (`pdfRenderer`) handles:
+- **Embedded Unicode TrueType Fonts**: Supports native currency symbols (₹, $, €, £), smart quotes, and accented characters.
+- **Multi-Page Table Layout**: Automatically calculates column widths and repeats bold header rows across page breaks.
+- **Page Budgeting & Footers**: Automatically balances vertical spacing and applies running "Page X of Y" footers.
+- **Executive Callouts**: Renders `> ` blockquotes with distinct left accent bars and shaded fills.
 
-### Verification Checklist Before Responding
-- Does the document structure follow standard page budgeting (Title, Executive Summary, Analysis)?
-- Are headers, footers, and page numbers properly planned?
-- Are tables and callouts formatted cleanly with no syntax artifacts?
-- Does the final chat response offer a concise summary and download link?
+---
+
+## 5. Edit Existing File & Format-Preserving Operations
+
+### A. Fixed-Layout Reality
+PDF is a compiled, fixed-layout vector format. It lacks reflowable paragraphs or XML DOM trees. Do NOT attempt arbitrary regex search-and-replace on raw PDF bytes.
+
+### B. Format-Preserving Page Operations
+When modifying existing PDF files, preserve unaffected pages and vector structures intact:
+- **Split / Extract Pages**: Use `splitPdfFile(inputBuffer, pageRanges)` where `pageRanges` is an array of 1-indexed `[startPage, endPage]` tuples (e.g. `[[1, 3], [5, 5]]`). Vector graphics, embedded fonts, and page elements are preserved with zero re-encoding loss.
+- **Merge Documents**: Use `mergePdfFiles(inputBuffers)` to concatenate native PDF buffers sequentially without re-rasterization.
+- **Extensive Revision**: If the textual content must be significantly rewritten, extract the text/data to Markdown and compile a new version via `generate_deliverable`.
+
+---
+
+## 6. Multi-File Operations
+
+- **Combining Multiple PDFs**: Collect buffers in the desired sequence and execute `mergePdfFiles`.
+- **Workspace Isolation**: When working with multiple uploaded files with identical filenames, rely on `ExecutionRuntime` workspace materialization (`materializeInputFiles`) to maintain scoped, distinct filesystem paths.
+
+---
+
+## 7. Cross-Skill Transformations
+
+No single skill owns an entire cross-format workflow. The source skill handles understanding/extraction; the target skill handles structuring and rendering.
+
+### PDF $\to$ XLSX (e.g. Bank Statement to Spreadsheet)
+1. **Source Phase (`pdf`)**: Inspect the PDF and extract tabular transactions, column definitions, and dates via native model understanding.
+2. **Target Phase (`xlsx`)**: Structure extracted records into a typed `StructuredWorkbook` with explicit cell types (`date`, `number`, `formula`), formatting (`$#,##0.00`), and source references (`provenance`).
+3. **Render Phase**: Call `generate_deliverable(format: 'xlsx', workbook: ...)`.
+4. **NEVER** pass raw PDF `sourceAttachmentId` directly into `generate_deliverable` expecting automatic conversion without upstream structured parsing.
+
+### PDF $\to$ DOCX / PPTX
+1. Extract executive themes, narrative paragraphs, or data points from the PDF.
+2. Format the extracted content as clean Markdown adhering to DOCX heading rules or PPTX slide card rules ($\ge$14pt font floor).
+3. Call `generate_deliverable(format: 'docx' | 'pptx', title, content)`.
+
+---
+
+## 8. Execution Strategy
+
+- **MODEL decides WHAT**: Evaluates user intent, plans workflow, and extracts semantic structures.
+- **SKILL teaches HOW**: Provides domain rules, format constraints, and operation choices.
+- **ExecutionRuntime performs deterministic work**: Executes isolated operations, sandboxes, and file generation.
+- **Chat is the Cover Note**: In chat, summarize key findings in 1–2 concise paragraphs and direct the user to the generated deliverable. Do NOT dump massive walls of text or raw data grids into chat.
+
+---
+
+## 9. Validation & Repair Loop
+
+- Generated deliverables undergo post-generation verification (valid PDF-1.4 header, uncorrupted cross-reference tables, non-empty pages, valid fonts).
+- **Repair Loop**: If a tool returns `status: 'warning'` and `repairable: true`, evaluate the diagnostic and issue a corrective tool call (e.g. adjust page ranges, fix table columns) rather than simply apologizing or outputting a text explanation.
+
+---
+
+## 10. Warnings & Limitations
+
+- **No Magic Binary Conversion**: `generate_deliverable` is a renderer, not an arbitrary binary converter. Source attachments without extracted text must be parsed into structured markdown or `StructuredWorkbook` upstream.
+- **No In-Place PDF Text Editing**: Compiled PDF text runs cannot be edited like Word documents; use `splitPdfFile`/`mergePdfFiles` for page-level modifications.
+- **No External CLI Dependencies**: ArcNave does NOT use `qpdf`, `pdftoppm`, `Pandoc`, or `LibreOffice`. All operations rely on native `pdf-lib` and `pdfRenderer`.
+
+---
+
+## 11. Available Resources & Scripts
+
+- No external script or template files currently exist in this skill package (`scripts = 0`, `templates = 0`). All operations run via native runtime functions.

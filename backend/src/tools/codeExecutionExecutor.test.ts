@@ -97,4 +97,45 @@ describe('CodeExecutionToolExecutor.execute', () => {
     expect((result.content[0] as { text: string }).text).toContain('aborted');
     expect(called).toBe(false);
   });
+
+  it('forwards expected_outputs and surfaces undeclaredOutputs with notice', async () => {
+    let capturedOptions: any = null;
+    const executor = new CodeExecutionToolExecutor(
+      {
+        runPython: async (_code, _signal, options) => {
+          capturedOptions = options;
+          return {
+            outputs: [
+              {
+                mimeType: 'application/json',
+                text: JSON.stringify({ msg_out: 'done\n', msg_err: '', undeclaredOutputs: ['surprise.csv'] }),
+              },
+            ],
+            undeclaredOutputs: ['surprise.csv'],
+          };
+        },
+      },
+      8000,
+    );
+
+    const result = await executor.execute(
+      {
+        id: 'call-6',
+        name: 'run_python',
+        input: { code: 'print("done")', expected_outputs: ['chart.png'] },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(capturedOptions?.expectedOutputs).toEqual(['chart.png']);
+    const block = result.content[0];
+    if (!block || block.type !== 'json') throw new Error('expected a json content block');
+    expect(block.data).toMatchObject({
+      stdout: 'done\n',
+      undeclaredOutputs: ['surprise.csv'],
+    });
+    expect((block.data as { notice?: string }).notice).toContain('surprise.csv');
+  });
 });
+

@@ -37,20 +37,20 @@ describe('SkillService', () => {
   });
 
   it('evaluates capability dependencies honestly (guidance_only vs full)', () => {
-    // 1. Without create_artifact -> pptx mode should be guidance_only and missing create_artifact
+    // 1. Without generate_deliverable -> pptx mode should be guidance_only and missing generate_deliverable
     const withoutTool = service.getSkill('pptx', []);
     expect(withoutTool).not.toBeNull();
     expect(withoutTool?.mode).toBe('guidance_only');
-    expect(withoutTool?.missingCapabilities).toEqual(['create_artifact']);
+    expect(withoutTool?.missingCapabilities).toEqual(['generate_deliverable']);
 
-    // 2. With create_artifact -> pptx has supported artifact.export.pptx capability -> full mode
-    const withTool = service.getSkill('pptx', ['create_artifact']);
+    // 2. With generate_deliverable -> pptx has supported artifact.export.pptx capability -> full mode
+    const withTool = service.getSkill('pptx', ['generate_deliverable']);
     expect(withTool).not.toBeNull();
     expect(withTool?.mode).toBe('full');
     expect(withTool?.missingCapabilities).toEqual([]);
 
-    // 3. PDF requires artifact.export.pdf which is NOT supported -> always guidance_only
-    const pdfSkill = service.getSkill('pdf', ['create_artifact']);
+    // 3. PDF requires artifact.export.pdf which is NOT supported in default set -> always guidance_only
+    const pdfSkill = service.getSkill('pdf', ['generate_deliverable']);
     expect(pdfSkill).not.toBeNull();
     expect(pdfSkill?.mode).toBe('guidance_only');
     expect(pdfSkill?.missingCapabilities).toEqual(['artifact.export.pdf']);
@@ -106,5 +106,20 @@ describe('SkillService', () => {
 
     // Valid skill with non-existent file returns null
     expect(await service.getSkillResource('docx', 'non-existent-resource.md')).toBeNull();
+  });
+
+  it('safely accesses binary skill resources via getSkillResourceBuffer without UTF-8 corruption', async () => {
+    // Non-existent skill returns null
+    expect(await service.getSkillResourceBuffer('non-existent-skill', 'template.dotx')).toBeNull();
+
+    // Path traversal attempts return null
+    expect(await service.getSkillResourceBuffer('docx', '../../package.json')).toBeNull();
+    expect(await service.getSkillResourceBuffer('docx', '/etc/passwd')).toBeNull();
+    expect(await service.getSkillResourceBuffer('docx', '..\\..\\package.json')).toBeNull();
+
+    // Reading an existing skill file returns raw Buffer
+    const buf = await service.getSkillResourceBuffer('docx', 'SKILL.md');
+    expect(buf).toBeInstanceOf(Buffer);
+    expect(buf!.length).toBeGreaterThan(0);
   });
 });

@@ -60,6 +60,8 @@ import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
+import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
+import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
@@ -82,6 +84,7 @@ import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
+import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -199,6 +202,7 @@ export interface PreferencesRow {
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
   private readonly capabilities: CapabilityRegistry;
+  private readonly executionRuntime: ExecutionRuntime;
 
   constructor(
     private readonly db: Database,
@@ -213,11 +217,13 @@ export class GenerationService {
     agentLoop?: AgentLoop,
     private readonly skills?: SkillService,
     capabilities?: CapabilityRegistry,
+    executionRuntime?: ExecutionRuntime,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
+    this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
     this.agentLoop =
       agentLoop ??
-      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills);
+      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime);
   }
 
   /**
@@ -229,7 +235,32 @@ export class GenerationService {
    */
   async *run(input: GenerateInput): AsyncGenerator<StreamEvent> {
     const startedAt = new Date();
-    const prefs = await this.loadPreferences(input.userId);
+    const runId = `${input.chatId}_${input.messageId}`;
+    const workspace = await this.executionRuntime.createWorkspace(runId);
+
+    try {
+      if (input.attachments && input.attachments.length > 0) {
+        for (const att of input.attachments) {
+          if (att.name) {
+            if (att.base64) {
+              await this.executionRuntime.materializeInputFiles(workspace, [
+                { filename: att.name, data: Buffer.from(att.base64, 'base64') },
+              ]);
+            } else if (att.storageKey) {
+              try {
+                const buf = await this.storage.get(att.storageKey);
+                await this.executionRuntime.materializeInputFiles(workspace, [
+                  { filename: att.name, data: buf },
+                ]);
+              } catch (storageErr) {
+                log.warn({ storageErr, name: att.name }, 'Failed to materialize attachment from storage');
+              }
+            }
+          }
+        }
+      }
+
+      const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
     const latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
@@ -248,7 +279,7 @@ export class GenerationService {
     // --- resolve the model ------------------------------------------------
     const requiresGrounding = input.mode !== 'chat';
     const requiresVision =
-      input.attachments.length > 0 || history.some((t) => (t.attachments?.length ?? 0) > 0);
+      (input.attachments?.length ?? 0) > 0 || history.some((t) => (t.attachments?.length ?? 0) > 0);
     const { entry, routing } = await this.resolveModel(
       input,
       prefs,
@@ -389,23 +420,49 @@ export class GenerationService {
     const allowPython =
       routingDecision.pythonExposed && routingDecision.allowedTools.includes('run_python');
     const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
-    const rawAvailableTools = toolRegistry.getAvailableTools({
+    const toolContext = {
       userId: input.userId,
       projectId: project?.id ?? null,
       allowPython,
       allowDeliverable,
-    });
+    };
     // Policy-approved tool catalog for deferred tool discovery
-    const policyCatalog = rawAvailableTools.filter((t) =>
-      routingDecision.allowedTools.includes(t.name),
-    );
-    // Initial active tools: deferred discovery tools + explicitly exposed tools
-    const availableTools = rawAvailableTools.filter((t) =>
-      t.name === 'search_tools' ||
-      (skillsEnabled && t.name === 'load_skill') ||
-      routingDecision.exposedTools.includes(t.name),
-    );
+    const policyCatalog = (
+      toolRegistry.getPolicyCatalog
+        ? toolRegistry.getPolicyCatalog(toolContext)
+        : toolRegistry.getAvailableTools(toolContext)
+    ).filter((t) => routingDecision.allowedTools.includes(t.name));
+
+    // Initial active tools: small core set sent in Round 0 (search_tools, load_skill if skills enabled)
+    const initialTools = toolRegistry.getInitialTools
+      ? toolRegistry.getInitialTools(toolContext)
+      : [];
+
+    const availableTools =
+      routingDecision.exposedTools.length > 0
+        ? initialTools.filter(
+            (t) =>
+              t.name === 'search_tools' ||
+              (skillsEnabled && t.name === 'load_skill') ||
+              routingDecision.exposedTools.includes(t.name),
+          )
+        : [];
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+
+    const isAgentMode =
+      Boolean(this.cfg.ENABLE_AGENT_LOOP) &&
+      (input.mode === 'research' ||
+        Boolean(routingDecision.pythonExposed && input.codeExecution && input.attachments.length > 0) ||
+        Boolean(
+          (input.prompt.toLowerCase().includes('compare') ||
+            input.prompt.toLowerCase().includes('synthesize') ||
+            input.prompt.toLowerCase().includes('investigate') ||
+            input.prompt.toLowerCase().includes('deep dive')) &&
+            (input.prompt.toLowerCase().includes('across') ||
+              input.prompt.toLowerCase().includes('sources') ||
+              input.prompt.toLowerCase().includes('evidence') ||
+              input.prompt.toLowerCase().includes('documents')),
+        ));
 
     // --- assemble context -------------------------------------------------
     const { systemInstruction, contextEvents, promptAssembly } = await this.buildSystemInstruction(
@@ -414,6 +471,7 @@ export class GenerationService {
       project,
       availableTools,
       skillsContext,
+      isAgentMode,
     );
     for (const event of contextEvents) {
       yield event;
@@ -455,10 +513,37 @@ export class GenerationService {
     };
 
     if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
-      const wireHistory = await this.hydrateHistoryAttachments(history);
+      const wireHistory = await this.hydrateHistoryAttachments(history, input.prompt);
       const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
+
+      const allAttachmentsMap = new Map<string, AttachmentBlock>();
+      for (const h of wireHistory) {
+        if (h.attachments) {
+          for (const att of h.attachments) {
+            if (att.id) allAttachmentsMap.set(att.id, att);
+          }
+        }
+      }
+      for (const att of wireAttachments) {
+        if (att.id) allAttachmentsMap.set(att.id, att);
+      }
+
+      const availableAttachments = Array.from(allAttachmentsMap.values());
+      let attachmentManifestBlock = '';
+      if (availableAttachments.length > 0) {
+        const lines = availableAttachments.map(
+          (a) =>
+            `- fileId: "${a.id}" | filename: "${a.filename}" | type: ${a.mimeType} | size: ${a.sizeBytes ?? 0} bytes`,
+        );
+        attachmentManifestBlock = `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\nUse fileId when filenames are ambiguous.\n</available_attachments>`;
+      }
+
+      const promptWithManifest = attachmentManifestBlock
+        ? `${attachmentManifestBlock}\n\n${input.prompt}`
+        : input.prompt;
+
       yield* this.agentLoop.stream(
-        { ...input, attachments: wireAttachments },
+        { ...input, prompt: promptWithManifest, attachments: wireAttachments },
         {
           entry,
           provider,
@@ -471,6 +556,7 @@ export class GenerationService {
           releaseReservation,
           grounded,
           codeExecution,
+          workspace,
         },
       );
       return;
@@ -567,7 +653,17 @@ export class GenerationService {
     if (allowPython) {
       toolMap.set(
         'run_python',
-        new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),
+        new CodeExecutionToolExecutor(
+          this.executionRuntime,
+          this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS,
+          {
+            workspace,
+            userId: input.userId,
+            messageId: input.messageId,
+            db: this.db,
+            storage: this.storage,
+          },
+        ),
       );
     }
     if (skillToolExecutor) {
@@ -598,11 +694,27 @@ export class GenerationService {
           input.userId,
           input.chatId,
           input.messageId,
+          undefined,
+          this.executionRuntime,
+          workspace,
         ),
       );
     }
 
     if (this.cfg.ENABLE_TOOL_USE) {
+      const fileOperationExecutor = new FileOperationExecutor({
+        db: this.db,
+        storage: this.storage,
+        executionRuntime: this.executionRuntime,
+        userId: input.userId,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        workspace,
+      });
+      for (const def of FILE_OPERATION_TOOL_DEFINITIONS) {
+        toolMap.set(def.name, fileOperationExecutor);
+      }
+
       const searchToolsExecutor = new SearchToolsExecutor(policyCatalog, (discoveredTool) => {
         if (!availableTools.some((t) => t.name === discoveredTool.name)) {
           availableTools.push(discoveredTool);
@@ -615,10 +727,38 @@ export class GenerationService {
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
     const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-    const wireHistory = await this.hydrateHistoryAttachments(history);
+    const wireHistory = await this.hydrateHistoryAttachments(history, input.prompt);
+
+    const allAttachmentsMap = new Map<string, AttachmentBlock>();
+    for (const h of wireHistory) {
+      if (h.attachments) {
+        for (const att of h.attachments) {
+          if (att.id) allAttachmentsMap.set(att.id, att);
+        }
+      }
+    }
+    for (const att of wireAttachments) {
+      if (att.id) allAttachmentsMap.set(att.id, att);
+    }
+
+    const availableAttachments = Array.from(allAttachmentsMap.values());
+    let attachmentManifestBlock = '';
+    if (availableAttachments.length > 0) {
+      const lines = availableAttachments.map(
+        (a) =>
+          `- fileId: "${a.id}" | filename: "${a.filename}" | type: ${a.mimeType} | size: ${a.sizeBytes ?? 0} bytes`,
+      );
+      attachmentManifestBlock = `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\nUse fileId when filenames are ambiguous.\n</available_attachments>`;
+    }
+
+    const promptParts: string[] = [];
+    if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
+    promptParts.push(input.prompt);
+    if (input.attachmentText) promptParts.push(input.attachmentText);
+    const effectivePrompt = promptParts.join('\n\n');
 
     const request: GenerationRequest = {
-      prompt: input.prompt,
+      prompt: effectivePrompt,
       history: wireHistory,
       attachments: wireAttachments,
       systemInstruction,
@@ -627,7 +767,7 @@ export class GenerationService {
       maxOutputTokens,
       providerModelId: entry.providerModelId!,
       grounded,
-      codeExecution: routingDecision.pythonExposed && codeExecution,
+      codeExecution: Boolean(input.codeExecution),
       ...(availableTools.length > 0 ? { tools: availableTools } : {}),
       ...(toolExecutor ? { toolExecutor } : {}),
       signal: input.signal,
@@ -882,6 +1022,9 @@ export class GenerationService {
         finishReason,
       };
     }
+    } finally {
+      await this.executionRuntime.cleanupWorkspace(workspace);
+    }
   }
 
   /* ------------------------------------------------------------------ model resolution */
@@ -953,17 +1096,20 @@ export class GenerationService {
     request: GenerationRequest,
   ): AsyncGenerator<ProviderEvent> {
     let attempt = 0;
+    let overflowRetried = false;
+    let currentRequest = request;
     const ttftBudgetMs =
       request.mode === 'research' ? 20_000 : request.mode === 'search' ? 15_000 : 12_000;
 
     for (;;) {
-      let emitted = false;
+      let firstEventReceived = false;
+      let userVisibleOutputEmitted = false;
       const ttftController = new AbortController();
       const onParentAbort = () => ttftController.abort();
-      request.signal.addEventListener('abort', onParentAbort, { once: true });
+      currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
 
       const ttftTimer = setTimeout(() => {
-        if (!emitted && !ttftController.signal.aborted) {
+        if (!firstEventReceived && !ttftController.signal.aborted) {
           ttftController.abort(
             new ProviderError(`First token wait exceeded ${ttftBudgetMs}ms`, {
               code: 'provider_timeout',
@@ -975,34 +1121,82 @@ export class GenerationService {
 
       try {
         const attemptRequest: GenerationRequest = {
-          ...request,
+          ...currentRequest,
           signal: ttftController.signal,
         };
         for await (const event of open(attemptRequest)) {
-          if (!emitted) {
-            emitted = true;
+          if (!firstEventReceived) {
+            firstEventReceived = true;
             clearTimeout(ttftTimer);
+          }
+          if (
+            (event.type === 'delta' && event.text.length > 0) ||
+            (event.type === 'code' && Boolean(event.code || event.output))
+          ) {
+            userVisibleOutputEmitted = true;
           }
           yield event;
         }
         return;
       } catch (err) {
         clearTimeout(ttftTimer);
-        if (isAbort(err) || request.signal.aborted) throw err;
+        if (isAbort(err) || currentRequest.signal.aborted) throw err;
+
+        // Context Overflow Recovery with Streaming Safety Rule:
+        // Retry is allowed strictly if no user-visible assistant output has been committed/emitted (userVisibleOutputEmitted === false).
+        // If partial output was emitted, do not silently restart and duplicate content.
+        if (!userVisibleOutputEmitted && isContextOverflowError(err)) {
+          if (!overflowRetried) {
+            overflowRetried = true;
+            log.warn(
+              { err: String(err) },
+              'provider context overflow detected; attempting single bounded history reduction retry',
+            );
+
+            const reducedHistory = this.reduceHistoryForOverflow(currentRequest.history);
+            const hasHydratedHistorical = currentRequest.history.some((t) =>
+              t.attachments?.some((a) => Boolean(a.base64)),
+            );
+
+            if (reducedHistory.length < currentRequest.history.length || hasHydratedHistorical) {
+              currentRequest = {
+                ...currentRequest,
+                history: reducedHistory,
+              };
+              continue;
+            }
+          }
+          throw new ProviderError(
+            'Conversation exceeded usable model context and could not be recovered after trimming',
+            { code: 'context_overflow', retryable: false },
+          );
+        }
+
+        if (isContextOverflowError(err)) {
+          throw new ProviderError(
+            'Conversation exceeded usable model context and could not be recovered after trimming',
+            { code: 'context_overflow', retryable: false },
+          );
+        }
+
         const retryable = err instanceof ProviderError && err.retryable;
-        if (emitted || !retryable || attempt >= this.cfg.PROVIDER_MAX_RETRIES) throw err;
+        if (userVisibleOutputEmitted || !retryable || attempt >= this.cfg.PROVIDER_MAX_RETRIES) throw err;
         attempt += 1;
         // Exponential backoff with jitter, so a burst of failed requests does not retry in
         // lockstep and re-create the spike that caused the failure.
         const base = 300 * 2 ** (attempt - 1);
         const delay = base + Math.random() * base * 0.5;
         log.warn({ attempt, delay, err: String(err) }, 'retrying provider call');
-        await sleep(delay, request.signal);
+        await sleep(delay, currentRequest.signal);
       } finally {
         clearTimeout(ttftTimer);
-        request.signal.removeEventListener('abort', onParentAbort);
+        currentRequest.signal.removeEventListener('abort', onParentAbort);
       }
     }
+  }
+
+  private reduceHistoryForOverflow(history: Turn[]): Turn[] {
+    return reduceHistoryForOverflow(history);
   }
 
   /* ------------------------------------------------------------------ context */
@@ -1078,7 +1272,8 @@ export class GenerationService {
     // Dynamic provider/model-aware context budget calculation:
     // available budget = model context window - output reserve (4k tokens) - system/tools reserve (8k tokens)
     const capability = getModelCapability(modelAlias ?? 'Gemini 3.8 Flash');
-    const contextLimitTokens = capability.contextWindowTokens || 128_000;
+    const contextLimitTokens =
+      capability.maxInputTokens ?? capability.contextWindowTokens ?? 128_000;
     const availableHistoryTokens = Math.max(16_000, contextLimitTokens - 12_288);
     const budget = availableHistoryTokens * 4; // ~4 characters per token average
 
@@ -1136,11 +1331,29 @@ export class GenerationService {
       byMessage.set(row.messageId, list);
     }
 
-    return kept.map((r): Turn => ({
-      role: r.role === 'user' ? 'user' : 'assistant',
-      text: r.text,
-      ...(byMessage.has(r.id) ? { attachments: byMessage.get(r.id) } : {}),
-    }));
+    return kept.map((r): Turn => {
+      const atts = byMessage.get(r.id);
+      let text = r.text;
+      if (atts && atts.length > 0) {
+        const textAtts = atts
+          .filter(
+            (a) =>
+              a.mimeType !== 'application/pdf' &&
+              !a.mimeType.startsWith('image/') &&
+              Boolean(a.extractedText?.trim()),
+          )
+          .map((a) => `--- ${a.filename} ---\n${a.extractedText}`)
+          .join('\n\n');
+        if (textAtts && !text.includes(textAtts)) {
+          text = `${text}\n\n${textAtts}`;
+        }
+      }
+      return {
+        role: r.role === 'user' ? 'user' : 'assistant',
+        text,
+        ...(atts ? { attachments: atts } : {}),
+      };
+    });
   }
 
   /**
@@ -1175,12 +1388,88 @@ export class GenerationService {
 
   /**
    * Hydrates attachment bytes across history turns for provider wire transmission.
+   * Enforces HISTORY_MAX_ATTACHMENT_BYTES (12 MB) budget.
+   * If budget is exceeded, historical identity and extracted text survive, but binary base64 is omitted.
+   * Explicitly referenced attachments (by fileId or unique filename) are promoted for hydration.
    */
-  private async hydrateHistoryAttachments(turns: Turn[]): Promise<Turn[]> {
+  private async hydrateHistoryAttachments(
+    turns: Turn[],
+    currentPrompt?: string,
+  ): Promise<Turn[]> {
+    const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
+    let cumulativeBytes = 0;
+
+    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []);
+
+    // Check for explicit promotions from currentPrompt
+    const promotedAttachmentIds = new Set<string>();
+    if (currentPrompt?.trim()) {
+      for (const att of allHistoricalAtts) {
+        if (!att.id) continue;
+        // Exact fileId match
+        if (currentPrompt.includes(att.id)) {
+          promotedAttachmentIds.add(att.id);
+        } else if (att.filename && currentPrompt.includes(att.filename)) {
+          // Check if filename is unique across historical attachments
+          const matching = allHistoricalAtts.filter((a) => a.filename === att.filename);
+          if (matching.length === 1) {
+            promotedAttachmentIds.add(att.id);
+          }
+          // If matching.length > 1, duplicate filename: do not auto-promote! Model must specify fileId.
+        }
+      }
+    }
+
+    const hydrationDecisions = new Map<string, boolean>();
+
+    // Pass 1: Promoted attachments always hydrated first
+    for (const att of allHistoricalAtts) {
+      if (att.id && promotedAttachmentIds.has(att.id)) {
+        const size = att.sizeBytes ?? 0;
+        if (cumulativeBytes + size <= maxBudget) {
+          cumulativeBytes += size;
+          hydrationDecisions.set(att.id, true);
+        }
+      }
+    }
+
+    // Pass 2: Remaining attachments from most recent turn to oldest
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turn = turns[i];
+      if (!turn?.attachments) continue;
+      for (const att of turn.attachments) {
+        if (!att.id || hydrationDecisions.has(att.id)) continue;
+        const size = att.sizeBytes ?? 0;
+        if (cumulativeBytes + size <= maxBudget) {
+          cumulativeBytes += size;
+          hydrationDecisions.set(att.id, true);
+        } else {
+          hydrationDecisions.set(att.id, false);
+        }
+      }
+    }
+
     return Promise.all(
       turns.map(async (turn) => {
         if (!turn.attachments || turn.attachments.length === 0) return turn;
-        const hydrated = await this.hydrateAttachmentBytes(turn.attachments);
+        const hydrated = await Promise.all(
+          turn.attachments.map(async (att) => {
+            const shouldHydrateBinary = att.id ? hydrationDecisions.get(att.id) ?? false : true;
+            if (shouldHydrateBinary) {
+              const [h] = await this.hydrateAttachmentBytes([att]);
+              return h ?? att;
+            }
+            // Retain full identity and extractedText, but omit base64 binary
+            return {
+              id: att.id,
+              filename: att.filename,
+              mimeType: att.mimeType,
+              sizeBytes: att.sizeBytes,
+              storageKey: att.storageKey,
+              extractedText: att.extractedText,
+            };
+          }),
+        );
         return { ...turn, attachments: hydrated };
       }),
     );
@@ -1192,6 +1481,7 @@ export class GenerationService {
     project: { id: string; title: string; instructions: string } | null,
     availableTools: ToolDefinition[] = [],
     skillsContext?: string,
+    isAgentMode: boolean = false,
   ): Promise<{
     systemInstruction: string;
     contextEvents: StreamEvent[];
@@ -1283,7 +1573,7 @@ export class GenerationService {
 
     // 6. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       relevantMemory: relevantMemoryText || undefined,
@@ -1459,6 +1749,47 @@ export function computeCostFor(cfg: Config, providerModelId: string, usage: Prov
   return Math.round(cost * 1e6) / 1e6;
 }
 
+export function reduceHistoryForOverflow(history: Turn[]): Turn[] {
+  if (history.length === 0) return [];
+  // Drop oldest half of completed history turns, keeping at least the most recent turn
+  const keepCount = Math.max(1, Math.floor(history.length / 2));
+  let slice = history.slice(history.length - keepCount);
+
+  // API safety: history must start with a user turn
+  while (slice.length > 1 && slice[0]!.role !== 'user') {
+    slice.shift();
+  }
+
+  // Dehydrate any remaining historical binary attachments in the kept turns (preserve text and metadata)
+  return slice.map((turn) => {
+    if (!turn.attachments || turn.attachments.length === 0) return turn;
+    return {
+      ...turn,
+      attachments: turn.attachments.map((a) => ({
+        id: a.id,
+        filename: a.filename,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        storageKey: a.storageKey,
+        extractedText: a.extractedText,
+      })),
+    };
+  });
+}
+
+export function isContextOverflowError(err: unknown): boolean {
+  if (err instanceof ProviderError && err.code === 'context_overflow') return true;
+  const str = String(err).toLowerCase();
+  return (
+    str.includes('input token count exceeds the maximum') ||
+    str.includes('token count exceeds') ||
+    str.includes('prompt is too long') ||
+    str.includes('maximum context length') ||
+    str.includes('context_length_exceeded') ||
+    str.includes('exceeds the context window')
+  );
+}
+
 export function mapProviderError(err: unknown): { code: string; title: string; detail: string } {
   if (err instanceof ModelNotFoundError) {
     return {
@@ -1474,6 +1805,17 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
   }
   if (err instanceof ProviderError) {
     const rawMessage = err.message || '';
+    if (
+      err.code === 'context_overflow' ||
+      rawMessage.includes('input token count exceeds the maximum') ||
+      rawMessage.includes('token count exceeds') ||
+      rawMessage.includes('prompt is too long') ||
+      rawMessage.includes('exceeds the maximum context length') ||
+      rawMessage.includes('context_length_exceeded')
+    ) {
+      const api = new ApiError('context_overflow');
+      return { code: api.code, title: api.title, detail: api.detail };
+    }
     if (
       rawMessage.includes('image exceeds 5 MB maximum') ||
       rawMessage.includes('exceeds 5 MB') ||
@@ -1493,6 +1835,16 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
     return { code: err.code, title: api.title, detail: api.detail };
   }
   const errStr = String(err);
+  if (
+    errStr.includes('input token count exceeds the maximum') ||
+    errStr.includes('token count exceeds') ||
+    errStr.includes('prompt is too long') ||
+    errStr.includes('exceeds the maximum context length') ||
+    errStr.includes('context_length_exceeded')
+  ) {
+    const api = new ApiError('context_overflow');
+    return { code: api.code, title: api.title, detail: api.detail };
+  }
   if (errStr.includes('image exceeds 5 MB') || errStr.includes('exceeds 5 MB maximum')) {
     return {
       code: 'provider_payload_limit',

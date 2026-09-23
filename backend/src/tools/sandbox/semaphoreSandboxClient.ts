@@ -6,7 +6,7 @@
  * ignorant of the limit, the same separation ADR-0005 already draws between the client and
  * `CodeExecutionToolExecutor`.
  */
-import type { SandboxClient, SandboxExecutionResult } from './client.js';
+import type { SandboxClient, SandboxExecutionOptions, SandboxExecutionResult } from './client.js';
 import type { SandboxSemaphore } from './semaphore.js';
 
 export class SemaphoreSandboxClient implements SandboxClient {
@@ -15,7 +15,11 @@ export class SemaphoreSandboxClient implements SandboxClient {
     private readonly semaphore: SandboxSemaphore,
   ) {}
 
-  async runPython(code: string, signal: AbortSignal): Promise<SandboxExecutionResult> {
+  async runPython(
+    code: string,
+    signal: AbortSignal,
+    options?: SandboxExecutionOptions,
+  ): Promise<SandboxExecutionResult> {
     const claimId = await this.semaphore.claim();
     if (claimId === null) {
       throw new Error(
@@ -23,7 +27,7 @@ export class SemaphoreSandboxClient implements SandboxClient {
       );
     }
     try {
-      return await this.inner.runPython(code, signal);
+      return await this.inner.runPython(code, signal, options);
     } finally {
       await this.semaphore.release(claimId);
     }

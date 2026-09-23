@@ -449,3 +449,185 @@ describe('CloudRunSandboxClient — orchestration timeout', () => {
     expect(envVars).toContainEqual({ name: 'RUN_PYTHON_CODE_TIMEOUT_MS', value: '7000' });
   });
 });
+
+describe('CloudRunSandboxClient — storage-based staging bridge', () => {
+  it('stages input files, passes references, downloads outputs via storage, and cleans up', async () => {
+    const savedFiles: Record<string, Buffer> = {};
+    const deletedPrefixes: string[] = [];
+
+    const fakeBucket = {
+      file: (name: string) => ({
+        save: async (data: Buffer) => {
+          savedFiles[name] = data;
+        },
+        download: async () => {
+          return [Buffer.from('PNG_IMAGE_BYTES')];
+        },
+      }),
+      deleteFiles: async (opts: { prefix: string }) => {
+        deletedPrefixes.push(opts.prefix);
+      },
+    };
+
+    const fakeStorage = {
+      bucket: (_name: string) => fakeBucket,
+    };
+
+    const runCalls: any[] = [];
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (u.endsWith(':run')) {
+        runCalls.push(typeof init?.body === 'string' ? JSON.parse(init.body) : undefined);
+        return jsonResponse({
+          done: true,
+          response: { name: 'projects/p/locations/us-central1/jobs/arcnave-python-sandbox/executions/e1' },
+        });
+      }
+      if (u.includes('/jobs/arcnave-python-sandbox/executions/e1') && method === 'GET') {
+        return jsonResponse({
+          name: 'projects/p/locations/us-central1/jobs/arcnave-python-sandbox/executions/e1',
+          completionTime: '2026-09-19T00:00:00Z',
+          succeededCount: 1,
+          failedCount: 0,
+        });
+      }
+      if (u.endsWith('/entries:list')) {
+        return jsonResponse({
+          entries: [
+            {
+              textPayload:
+                RESULT_PREFIX +
+                JSON.stringify({
+                  type: 'arcnave.run_python.result.v1',
+                  executionId: 'exec-1',
+                  ok: true,
+                  exitCode: 0,
+                  stdout: 'MEAN: 25.0\n',
+                  stderr: '',
+                  stdoutTruncated: false,
+                  stderrTruncated: false,
+                  timedOut: false,
+                  durationMs: 50,
+                  outputs: [
+                    {
+                      name: 'chart.png',
+                      size: 16,
+                      mimeType: 'image/png',
+                      temporaryRef: 'runs/exec-1/output/chart.png',
+                    },
+                  ],
+                }),
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected url: ${u}`);
+    });
+
+    const client = new CloudRunSandboxClient(
+      {
+        project: 'p',
+        location: 'us-central1',
+        jobName: 'arcnave-python-sandbox',
+        getAccessToken: async () => 'fake-token',
+        maxCodeBytes: 20 * 1024,
+        codeTimeoutMs: 10_000,
+        orchestrationTimeoutMs: 45_000,
+        maxStdoutBytes: 65_536,
+        maxStderrBytes: 65_536,
+        stagingBucket: 'test-staging-bucket',
+        storageClient: fakeStorage as any,
+      },
+      fetchMock as unknown as typeof fetch,
+    );
+
+    // Create temp workspace with an input file
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const fs = await import('node:fs/promises');
+    const wsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'test-ws-'));
+    const inputDir = path.join(wsDir, 'input');
+    await fs.mkdir(inputDir, { recursive: true });
+    await fs.writeFile(path.join(inputDir, 'data.csv'), 'a,b\n1,2');
+
+    try {
+      const res = await client.runPython('print(1)', new AbortController().signal, {
+        workspaceDir: wsDir,
+      });
+
+      expect(res.outputs[0]?.text).toContain('MEAN: 25.0');
+
+      // Verify input file was staged in fakeStorage
+      const stagedInputKey = Object.keys(savedFiles).find((k) => k.endsWith('/input/data.csv'));
+      expect(stagedInputKey).toBeDefined();
+      expect(savedFiles[stagedInputKey!]?.toString()).toBe('a,b\n1,2');
+
+      // Verify environment variables sent to jobs:run
+      const envVars = runCalls[0].overrides.containerOverrides[0].env;
+      expect(envVars).toContainEqual({ name: 'RUN_PYTHON_STAGE_BUCKET', value: 'test-staging-bucket' });
+      const inputsEnv = envVars.find((e: any) => e.name === 'RUN_PYTHON_INPUTS_JSON');
+      expect(inputsEnv).toBeDefined();
+      expect(JSON.parse(inputsEnv.value)).toEqual([
+        { name: 'data.csv', stagingRef: stagedInputKey },
+      ]);
+      // Verify legacy binary env var is NOT present
+      expect(envVars.find((e: any) => e.name === 'RUN_PYTHON_INPUT_FILES_JSON')).toBeUndefined();
+
+      // Verify output file was downloaded into workspace/output/chart.png
+      const downloadedOutput = await fs.readFile(path.join(wsDir, 'output', 'chart.png'));
+      expect(downloadedOutput.toString()).toBe('PNG_IMAGE_BYTES');
+
+      // Verify cleanup occurred
+      expect(deletedPrefixes.length).toBeGreaterThan(0);
+      expect(deletedPrefixes[0]).toMatch(/^runs\/.*\/$/);
+    } finally {
+      await fs.rm(wsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('validates expected output filenames and rejects traversal/abuse', async () => {
+    const { validateOutputFilenames } = await import('./cloudRunSandboxClient.js');
+
+    expect(validateOutputFilenames(['chart.png', 'output/report.csv'])).toEqual(['chart.png', 'report.csv']);
+    expect(validateOutputFilenames(undefined)).toEqual([]);
+    expect(validateOutputFilenames([])).toEqual([]);
+
+    expect(() => validateOutputFilenames(['../secret.txt'])).toThrow(/path traversal/);
+    expect(() => validateOutputFilenames(['sub/dir.png'])).toThrow(/path traversal/);
+    expect(() => validateOutputFilenames(['a'.repeat(129)])).toThrow(/exceeds maximum allowed length/);
+    expect(() =>
+      validateOutputFilenames(Array.from({ length: 21 }, (_, i) => `file${i}.txt`)),
+    ).toThrow(/Too many expected outputs/);
+  });
+
+  it('captures undeclaredOutputs from container result log', async () => {
+    const fetchMock = runningFullFlowFetch(() => [
+      {
+        textPayload:
+          RESULT_PREFIX +
+          JSON.stringify({
+            type: 'arcnave.run_python.result.v1',
+            executionId: 'exec-1',
+            ok: true,
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            timedOut: false,
+            durationMs: 30,
+            undeclaredOutputs: ['surprise.csv'],
+          }),
+      },
+    ]);
+    const client = makeClient(fetchMock as unknown as typeof fetch);
+    const result = await client.runPython('print(1)', new AbortController().signal, {
+      expectedOutputs: ['chart.png'],
+    });
+    expect(result.undeclaredOutputs).toEqual(['surprise.csv']);
+    const outputJson = JSON.parse(result.outputs[0]!.text as string);
+    expect(outputJson.undeclaredOutputs).toEqual(['surprise.csv']);
+  });
+});
+

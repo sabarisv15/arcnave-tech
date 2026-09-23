@@ -243,6 +243,50 @@ export class DeliverableValidator {
     }
 
     if (format === 'xlsx') {
+      // If structured spreadsheet, validate from buffer directly using ExcelJS
+      if (content.startsWith('Structured spreadsheet') || !content.includes('|')) {
+        try {
+          const ExcelJS = (await import('exceljs')).default;
+          const wb = new ExcelJS.Workbook();
+          await wb.xlsx.load(buffer as any);
+          if (wb.worksheets.length === 0) {
+            return {
+              level: 2,
+              name: 'Semantic QA',
+              passed: false,
+              score: 0.2,
+              details: 'Workbook contains zero worksheets.',
+            };
+          }
+          const totalRows = wb.worksheets.reduce((acc, ws) => acc + ws.rowCount, 0);
+          if (totalRows === 0) {
+            return {
+              level: 2,
+              name: 'Semantic QA',
+              passed: false,
+              score: 0.3,
+              details: 'Worksheet contains zero data rows.',
+            };
+          }
+          return {
+            level: 2,
+            name: 'Semantic QA',
+            passed: true,
+            score: 1.0,
+            details: `Valid structured spreadsheet with ${wb.worksheets.length} sheet(s) and ${totalRows} row(s).`,
+            diagnostics: { sheetsCount: wb.worksheets.length, totalRows },
+          };
+        } catch (err: any) {
+          return {
+            level: 2,
+            name: 'Semantic QA',
+            passed: false,
+            score: 0.2,
+            details: `Failed to inspect structured workbook: ${err.message}`,
+          };
+        }
+      }
+
       // Must contain table data
       const lines = content.split('\n').filter((l) => l.includes('|'));
       if (lines.length < 2) {

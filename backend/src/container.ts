@@ -24,10 +24,15 @@ import type { ObjectStorage } from './services/storage.js';
 import { buildStorage } from './services/storage.js';
 import { SkillService } from './services/skills.js';
 import { UsageService } from './services/usage.js';
+import { ExecutionRuntime } from './tools/execution/executionRuntime.js';
+import { ProcessSandboxClient } from './tools/sandbox/processSandboxClient.js';
 import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
 import type { SandboxClient } from './tools/sandbox/client.js';
 import { SandboxSemaphore } from './tools/sandbox/semaphore.js';
 import { SemaphoreSandboxClient } from './tools/sandbox/semaphoreSandboxClient.js';
+import { logger } from './logger.js';
+
+const log = logger.child({ module: 'container' });
 
 export interface Services {
   cfg: Config;
@@ -41,6 +46,7 @@ export interface Services {
   skills: SkillService;
   storage: ObjectStorage;
   retriever: Retriever;
+  executionRuntime: ExecutionRuntime;
   /**
    * The provider used for OCR and audio/video transcription during project-file indexing
    * (`retrieval.ts`'s `describeMedia` calls) — always the Gemini adapter, since it is the only
@@ -67,6 +73,7 @@ export interface BuildOptions {
   /** Test seam — a real `CloudRunSandboxClient` is never constructed unless a GCP project is
    *  configured, mirroring how the provider adapters lazily construct their own Vertex clients. */
   sandboxClient?: SandboxClient;
+  executionRuntime?: ExecutionRuntime;
 }
 
 export function buildServices(cfg: Config, options: BuildOptions = {}): Services {
@@ -82,17 +89,51 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const usage = new UsageService(db, cfg);
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
-  const rawSandboxClient =
-    options.sandboxClient ??
-    (cfg.GOOGLE_CLOUD_PROJECT
-      ? CloudRunSandboxClient.withAdc(cfg.GOOGLE_CLOUD_PROJECT, cfg.SANDBOX_LOCATION, cfg.SANDBOX_JOB_NAME, {
-          maxCodeBytes: cfg.MAX_CODE_BYTES,
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  let rawSandboxClient = options.sandboxClient;
+  if (!rawSandboxClient && cfg.ENABLE_RUN_PYTHON) {
+    const isCloudRunConfigured = Boolean(
+      cfg.GOOGLE_CLOUD_PROJECT && cfg.SANDBOX_LOCATION && cfg.SANDBOX_JOB_NAME,
+    );
+    const useCloudRun =
+      cfg.SANDBOX_ENGINE === 'cloud-run' || (cfg.SANDBOX_ENGINE === 'auto' && isCloudRunConfigured);
+
+    if (useCloudRun) {
+      if (!cfg.GOOGLE_CLOUD_PROJECT) {
+        log.warn('Cloud Run sandbox requested but GOOGLE_CLOUD_PROJECT is unset; failing closed (run_python disabled).');
+      } else {
+        rawSandboxClient = CloudRunSandboxClient.withAdc(
+          cfg.GOOGLE_CLOUD_PROJECT,
+          cfg.SANDBOX_LOCATION,
+          cfg.SANDBOX_JOB_NAME,
+          {
+            maxCodeBytes: cfg.MAX_CODE_BYTES,
+            codeTimeoutMs: cfg.RUN_PYTHON_CODE_TIMEOUT_MS,
+            orchestrationTimeoutMs: cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS,
+            maxStdoutBytes: cfg.MAX_STDOUT_BYTES,
+            maxStderrBytes: cfg.MAX_STDERR_BYTES,
+            stagingBucket: cfg.SANDBOX_STAGE_BUCKET,
+          },
+        );
+      }
+    } else if (cfg.SANDBOX_ENGINE === 'process') {
+      if (isProduction) {
+        log.error('ProcessSandboxClient is strictly forbidden in production mode; failing closed (run_python disabled).');
+      } else {
+        rawSandboxClient = new ProcessSandboxClient({
           codeTimeoutMs: cfg.RUN_PYTHON_CODE_TIMEOUT_MS,
-          orchestrationTimeoutMs: cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS,
           maxStdoutBytes: cfg.MAX_STDOUT_BYTES,
           maxStderrBytes: cfg.MAX_STDERR_BYTES,
-        })
-      : undefined);
+          maxCodeBytes: cfg.MAX_CODE_BYTES,
+        });
+      }
+    } else {
+      // Auto mode with no Cloud Run configured, or unknown engine
+      log.info('No secure sandbox engine configured; failing closed (run_python disabled).');
+    }
+  }
+
   // Every run_python call, real or test-injected, is capped by the same Postgres-backed
   // semaphore — the limit protects the project's shared Cloud Run quota, not just the real
   // client, so it applies uniformly rather than only when GOOGLE_CLOUD_PROJECT is set.
@@ -106,11 +147,23 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
         ),
       )
     : undefined;
+
+  const executionRuntime = options.executionRuntime ?? new ExecutionRuntime(sandboxClient);
   const capabilities = buildCapabilityRegistry(cfg);
   const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR, capabilities);
   void skills.load();
 
-  const agentLoop = new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills);
+  const agentLoop = new AgentLoop(
+    db,
+    cfg,
+    registry,
+    usage,
+    retriever,
+    storage,
+    sandboxClient,
+    skills,
+    executionRuntime,
+  );
   const generation = new GenerationService(
     db,
     cfg,
@@ -122,6 +175,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     agentLoop,
     skills,
     capabilities,
+    executionRuntime,
   );
 
   return {
@@ -136,6 +190,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     skills,
     storage,
     retriever,
+    executionRuntime,
     visionProvider: providers.google!,
     activeRuns: new Map(),
   };

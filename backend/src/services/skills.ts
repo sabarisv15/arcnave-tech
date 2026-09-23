@@ -385,4 +385,29 @@ export class SkillService {
       return null;
     }
   }
+
+  /**
+   * Safely reads an optional binary resource or template from a skill directory.
+   * Guarded strictly against path traversal. Returns raw Buffer without UTF-8 decode.
+   */
+  async getSkillResourceBuffer(skillName: string, resourcePath: string): Promise<Buffer | null> {
+    if (!this.skillsBaseDir) return null;
+    const cleanSkill = path.basename(skillName).toLowerCase().trim();
+    if (!this.skills.has(cleanSkill)) return null;
+
+    const skillDir = path.resolve(this.skillsBaseDir, cleanSkill);
+    const resolvedPath = path.resolve(skillDir, resourcePath);
+
+    // Path traversal check: must stay strictly inside skillDir
+    if (!resolvedPath.startsWith(skillDir + path.sep) && resolvedPath !== skillDir) {
+      log.warn({ skillName, resourcePath }, 'path traversal attempt detected in getSkillResourceBuffer');
+      return null;
+    }
+
+    try {
+      return await fs.readFile(resolvedPath);
+    } catch {
+      return null;
+    }
+  }
 }

@@ -23,7 +23,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
     expect(decision.detectedIntent).toBe('IMAGE_GENERATION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_image');
-    expect(decision.exposedTools).toEqual(['generate_image']);
+    expect(decision.exposedTools).toEqual(['search_tools']);
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -149,7 +149,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
 
     expect(decision.detectedIntent).toBe('COMPUTATION');
     expect(decision.allowedTools).toContain('run_python');
-    expect(decision.exposedTools).toContain('run_python');
+    expect(decision.exposedTools).toEqual(['search_tools']);
     expect(decision.pythonExposed).toBe(true);
   });
 

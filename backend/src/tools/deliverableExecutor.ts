@@ -17,10 +17,13 @@ import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
 import {
   MIME_BY_FORMAT,
   renderMarkdownExport,
+  renderStructuredSpreadsheet,
   type ExportFormat,
 } from '../services/documents/index.js';
-import { deliverableValidator } from '../services/qa/deliverableValidator.js';
+import { StructuredWorkbookSchema } from '../services/documents/structuredWorkbook.js';
+import { deliverableValidator, type SemanticExpectations } from '../services/qa/deliverableValidator.js';
 import { generateStorageKey, type ObjectStorage } from '../services/storage.js';
+import { readWorkspaceArtifact } from './execution/workspaceArtifacts.js';
 
 const log = logger.child({ module: 'deliverableExecutor' });
 
@@ -30,6 +33,9 @@ const deliverableInputSchema = z.object({
   content: z.string().optional(),
   sourceAttachmentId: z.string().optional(),
   instructions: z.string().optional(),
+  workbook: z.record(z.string(), z.unknown()).optional(),
+  artifactRef: z.string().optional(),
+  sourceProfile: z.record(z.string(), z.unknown()).optional(),
   saveAsArtifact: z.boolean().optional(),
 });
 
@@ -44,6 +50,8 @@ export interface DeliverableCardDto {
   artifactId?: string;
 }
 
+import type { ExecutionRuntime, WorkspaceFiles } from './execution/executionRuntime.js';
+
 export class DeliverableToolExecutor implements ToolExecutor {
   constructor(
     private readonly storage: ObjectStorage,
@@ -52,6 +60,8 @@ export class DeliverableToolExecutor implements ToolExecutor {
     private readonly chatId: string,
     private readonly assistantMessageId: string,
     private readonly onDeliverableGenerated?: (card: DeliverableCardDto) => void,
+    private readonly runtime?: ExecutionRuntime,
+    private readonly workspace?: WorkspaceFiles,
   ) {}
 
   async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
@@ -75,106 +85,214 @@ export class DeliverableToolExecutor implements ToolExecutor {
     const { format, title: rawTitle, content: rawContent, sourceAttachmentId, instructions, saveAsArtifact } = parsed.data;
     const title = (rawTitle?.trim() || `deliverable_${Date.now()}`).replace(/[\\/:*?"<>|]/g, '_');
 
-    let markdown = rawContent?.trim() || '';
-
-    // Mode B: Source-aware conversion from existing uploaded attachment
-    if (sourceAttachmentId && (!markdown || markdown.length < 20)) {
-      const [sourceRow] = await this.db
-        .select({
-          id: attachments.id,
-          filename: attachments.filename,
-          mimeType: attachments.mimeType,
-          storageKey: attachments.storageKey,
-          extractedText: attachments.extractedText,
-        })
-        .from(attachments)
-        .where(and(eq(attachments.id, sourceAttachmentId), eq(attachments.userId, this.userId)))
-        .limit(1);
-
-      if (!sourceRow) {
+    // Reject raw binary files passed directly as content
+    if (rawContent) {
+      if (
+        rawContent.startsWith('%PDF-') ||
+        rawContent.startsWith('PK\x03\x04') ||
+        /[\x00-\x08\x0E-\x1F]/.test(rawContent.slice(0, 100))
+      ) {
         return {
           toolCallId: call.id,
           ok: false,
-          content: [{ type: 'text', text: `Source attachment ${sourceAttachmentId} not found.` }],
+          content: [
+            {
+              type: 'text',
+              text: 'Deliverable generation rejected: raw binary data cannot be passed directly as content. Please provide structured data or markdown.',
+            },
+          ],
         };
       }
-
-      let sourceText = sourceRow.extractedText || '';
-      if (!sourceText) {
-        // Safe against Mode B raw binary corruption:
-        // Binary files (PDF, images, Office formats) must NEVER be naively stringified as UTF-8.
-        // Upstream understanding belongs to the AI Model via the Provider File Adapter.
-        const isBinaryMime =
-          sourceRow.mimeType === 'application/pdf' ||
-          sourceRow.mimeType.startsWith('image/') ||
-          sourceRow.mimeType.includes('officedocument') ||
-          sourceRow.mimeType.includes('octet-stream');
-
-        if (isBinaryMime) {
-          return {
-            toolCallId: call.id,
-            ok: false,
-            content: [
-              {
-                type: 'text',
-                text: `Source attachment "${sourceRow.filename}" requires structured parsing upstream. Please provide structured tabular markdown or document text directly to generate_deliverable.`,
-              },
-            ],
-          };
-        }
-
-        try {
-          const rawBytes = await this.storage.get(sourceRow.storageKey);
-          sourceText = rawBytes.toString('utf8');
-        } catch (err) {
-          log.warn({ err, sourceAttachmentId }, 'Could not read source attachment bytes for deliverable conversion');
-        }
-      }
-
-      if (format === 'xlsx') {
-        markdown = this.convertTextToSpreadsheetMarkdown(sourceText, title, instructions);
-      } else {
-        markdown = `# ${title}\n\n${sourceText}`;
-      }
     }
 
-    if (!markdown) {
-      return {
-        toolCallId: call.id,
-        ok: false,
-        content: [
-          {
-            type: 'text',
-            text: 'Deliverable generation failed: Neither content nor a readable source attachment was provided.',
-          },
-        ],
-      };
-    }
-
-    // Ensure format conformance for XLSX
-    if (format === 'xlsx' && !markdown.includes('|')) {
-      markdown = this.convertTextToSpreadsheetMarkdown(markdown, title, instructions);
+    // Resolve intermediate artifact if artifactRef is provided
+    let resolvedWorkbook = parsed.data.workbook;
+    if (parsed.data.artifactRef && this.workspace) {
+      try {
+        const rawArtifact = await readWorkspaceArtifact(this.workspace, parsed.data.artifactRef);
+        resolvedWorkbook = JSON.parse(rawArtifact.toString('utf8'));
+      } catch (err: any) {
+        return {
+          toolCallId: call.id,
+          ok: false,
+          content: [
+            {
+              type: 'text',
+              text: `Failed to resolve intermediate artifact "${parsed.data.artifactRef}": ${err.message}`,
+            },
+          ],
+        };
+      }
     }
 
     let buffer: Buffer;
-    try {
-      buffer = await renderMarkdownExport(markdown, format);
-    } catch (err) {
-      log.error({ err, format, title }, 'renderMarkdownExport failed');
-      return {
-        toolCallId: call.id,
-        ok: false,
-        content: [
-          {
-            type: 'text',
-            text: `Failed to render ${format.toUpperCase()} deliverable: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-      };
+    let validationSummary = rawContent?.trim() || '';
+
+    // Branch A: Structured Workbook rendering for XLSX
+    if (format === 'xlsx' && resolvedWorkbook) {
+      const parsedWb = StructuredWorkbookSchema.safeParse(resolvedWorkbook);
+      if (!parsedWb.success) {
+        return {
+          toolCallId: call.id,
+          ok: false,
+          content: [
+            {
+              type: 'text',
+              text: `Invalid structured workbook for XLSX: ${parsedWb.error.message}`,
+            },
+          ],
+        };
+      }
+
+      try {
+        buffer = await renderStructuredSpreadsheet(parsedWb.data);
+        const totalRows = parsedWb.data.sheets.reduce((acc, s) => acc + s.rows.length, 0);
+        validationSummary = `Structured spreadsheet with ${parsedWb.data.sheets.length} sheets and ${totalRows} rows.`;
+      } catch (err) {
+        log.error({ err, format, title }, 'renderStructuredSpreadsheet failed');
+        return {
+          toolCallId: call.id,
+          ok: false,
+          content: [
+            {
+              type: 'text',
+              text: `Failed to render structured spreadsheet: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    } else {
+      // Branch B: Markdown rendering or Mode B source attachment extraction
+      let markdown = rawContent?.trim() || '';
+
+      // Mode B: Source-aware conversion from existing uploaded attachment
+      if (sourceAttachmentId && (!markdown || markdown.length < 20)) {
+        const [sourceRow] = await this.db
+          .select({
+            id: attachments.id,
+            filename: attachments.filename,
+            mimeType: attachments.mimeType,
+            storageKey: attachments.storageKey,
+            extractedText: attachments.extractedText,
+          })
+          .from(attachments)
+          .where(and(eq(attachments.id, sourceAttachmentId), eq(attachments.userId, this.userId)))
+          .limit(1);
+
+        if (!sourceRow) {
+          return {
+            toolCallId: call.id,
+            ok: false,
+            content: [{ type: 'text', text: `Source attachment ${sourceAttachmentId} not found.` }],
+          };
+        }
+
+        let sourceText = sourceRow.extractedText || '';
+        if (!sourceText) {
+          const isBinaryMime =
+            sourceRow.mimeType === 'application/pdf' ||
+            sourceRow.mimeType.startsWith('image/') ||
+            sourceRow.mimeType.includes('officedocument') ||
+            sourceRow.mimeType.includes('octet-stream');
+
+          if (isBinaryMime) {
+            return {
+              toolCallId: call.id,
+              ok: false,
+              content: [
+                {
+                  type: 'text',
+                  text: `Source attachment "${sourceRow.filename}" requires structured parsing upstream. Please provide structured tabular markdown or document text directly to generate_deliverable.`,
+                },
+              ],
+            };
+          }
+
+          try {
+            const rawBytes = await this.storage.get(sourceRow.storageKey);
+            sourceText = rawBytes.toString('utf8');
+          } catch (err) {
+            log.warn({ err, sourceAttachmentId }, 'Could not read source attachment bytes for deliverable conversion');
+          }
+        }
+
+        if (format === 'xlsx') {
+          markdown = this.convertTextToSpreadsheetMarkdown(sourceText, title, instructions);
+        } else {
+          markdown = `# ${title}\n\n${sourceText}`;
+        }
+      }
+
+      if (!markdown) {
+        return {
+          toolCallId: call.id,
+          ok: false,
+          content: [
+            {
+              type: 'text',
+              text: 'Deliverable generation failed: Neither content, workbook, nor a readable source attachment was provided.',
+            },
+          ],
+        };
+      }
+
+      // Ensure format conformance for XLSX
+      if (format === 'xlsx' && !markdown.includes('|')) {
+        markdown = this.convertTextToSpreadsheetMarkdown(markdown, title, instructions);
+      }
+
+      validationSummary = markdown;
+
+      try {
+        if (this.runtime) {
+          const rendered = await this.runtime.renderDocument(markdown, format, this.workspace);
+          buffer = rendered.buffer;
+        } else {
+          buffer = await renderMarkdownExport(markdown, format);
+        }
+      } catch (err) {
+        log.error({ err, format, title }, 'renderMarkdownExport failed');
+        return {
+          toolCallId: call.id,
+          ok: false,
+          content: [
+            {
+              type: 'text',
+              text: `Failed to render ${format.toUpperCase()} deliverable: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+
+    // Extract semantic expectations from structured workbook or markdown table
+    let expectations: SemanticExpectations | undefined;
+    if (format === 'xlsx' && resolvedWorkbook) {
+      const parsedWb = StructuredWorkbookSchema.safeParse(resolvedWorkbook);
+      if (parsedWb.success) {
+        const totalRows = parsedWb.data.sheets.reduce((acc, s) => acc + s.rows.length, 0);
+        expectations = {
+          expectedMinSheets: parsedWb.data.sheets.length,
+          expectedMinRows: totalRows,
+          expectedHeaders: parsedWb.data.sheets[0]?.columns.map((c) => c.label),
+        };
+      }
+    } else if (rawContent) {
+      const lines = rawContent.split('\n').filter((l) => l.includes('|'));
+      if (lines.length >= 2) {
+        const headerCols = lines[0]?.split('|').map((c) => c.trim()).filter(Boolean);
+        const dataRowsCount = lines.filter((l) => !l.includes('---')).length - 1;
+        if (dataRowsCount > 0) {
+          expectations = {
+            expectedHeaders: headerCols,
+            expectedMinRows: dataRowsCount,
+          };
+        }
+      }
     }
 
     // 3-Level QA Validation
-    const qaReport = await deliverableValidator.validate(buffer, format, markdown);
+    const qaReport = await deliverableValidator.validate(buffer, format, validationSummary, expectations);
     if (!qaReport.passed) {
       log.warn({ qaReport, format, title }, 'Deliverable QA validation failed');
       return {
@@ -235,7 +353,7 @@ export class DeliverableToolExecutor implements ToolExecutor {
           await this.db.insert(artifactVersions).values({
             artifactId: createdArt.id,
             version: 1,
-            content: markdown,
+            content: validationSummary,
             format: 'markdown',
           });
         }
@@ -271,7 +389,9 @@ export class DeliverableToolExecutor implements ToolExecutor {
           type: 'json',
           data: {
             ...card,
+            fileRef: card.downloadUrl,
             qaReport,
+            sourceProfile: parsed.data.sourceProfile,
           },
         },
       ],

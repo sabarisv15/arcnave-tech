@@ -19,10 +19,89 @@
  * combined with the caller's signal through `AbortSignal.any(...)` — the same pattern
  * `VertexSandboxClient.runPython` already used for its single timeout.
  */
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { Storage as GcsStorage } from '@google-cloud/storage';
 import { GoogleAuth } from 'google-auth-library';
 
 import { ProviderError } from '../../providers/types.js';
-import type { SandboxClient, SandboxExecutionResult } from './client.js';
+import type { SandboxClient, SandboxExecutionOptions, SandboxExecutionResult } from './client.js';
+import { generateV4SignedUrl } from './signedUrl.js';
+
+export function validateOutputFilenames(names?: string[]): string[] {
+  if (!names || !Array.isArray(names)) return [];
+  if (names.length > 20) {
+    throw new ProviderError('Too many expected outputs declared (maximum 20).', {
+      code: 'provider_error',
+    });
+  }
+  const validated = new Set<string>();
+  for (const raw of names) {
+    if (typeof raw !== 'string') continue;
+    let trimmed = raw.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('output/') || trimmed.startsWith('output\\')) {
+      trimmed = trimmed.slice(7);
+    }
+    if (
+      trimmed.includes('..') ||
+      trimmed.includes('/') ||
+      trimmed.includes('\\') ||
+      path.isAbsolute(trimmed)
+    ) {
+      throw new ProviderError(
+        `Invalid output filename "${raw}": path traversal or absolute paths are not allowed.`,
+        { code: 'provider_error' },
+      );
+    }
+    if (trimmed.length > 128) {
+      throw new ProviderError(
+        `Output filename "${raw}" exceeds maximum allowed length of 128 characters.`,
+        { code: 'provider_error' },
+      );
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(trimmed) || trimmed.startsWith('.')) {
+      throw new ProviderError(
+        `Output filename "${raw}" contains disallowed characters. Only alphanumeric characters, dots, dashes, and underscores are allowed.`,
+        { code: 'provider_error' },
+      );
+    }
+    validated.add(trimmed);
+  }
+  return Array.from(validated);
+}
+
+export function detectExpectedOutputFiles(code: string): string[] {
+  const matches = new Set<string>();
+  const pattern1 = /output\/([a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = pattern1.exec(code)) !== null) {
+    if (m[1]) matches.add(m[1]);
+  }
+  const pattern2 =
+    /(?:savefig|to_csv|to_excel|to_json|open)\s*\(\s*['"](?:.*\/)?([a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+)['"]/g;
+  while ((m = pattern2.exec(code)) !== null) {
+    if (m[1]) matches.add(m[1]);
+  }
+  const defaults = [
+    'output.png',
+    'chart.png',
+    'sales_chart.png',
+    'plot.png',
+    'figure.png',
+    'output.csv',
+    'output.xlsx',
+    'output.docx',
+    'output.json',
+    'result.json',
+    'output.txt',
+    'doc.txt',
+  ];
+  for (const d of defaults) {
+    matches.add(d);
+  }
+  return Array.from(matches);
+}
 
 const SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const RUN_HOST = 'https://run.googleapis.com';
@@ -50,6 +129,16 @@ export interface CloudRunSandboxClientDeps {
   orchestrationTimeoutMs: number;
   maxStdoutBytes: number;
   maxStderrBytes: number;
+  stagingBucket?: string;
+  storageClient?: GcsStorage;
+  signingSaEmail?: string;
+}
+
+export interface SandboxResultOutput {
+  name: string;
+  size: number;
+  mimeType: string;
+  temporaryRef: string;
 }
 
 interface Operation {
@@ -87,6 +176,8 @@ interface SandboxResultLine {
   stderrTruncated: boolean;
   timedOut: boolean;
   durationMs: number;
+  outputs?: SandboxResultOutput[];
+  undeclaredOutputs?: string[];
 }
 
 function base64(s: string): string {
@@ -114,11 +205,19 @@ export class CloudRunSandboxClient implements SandboxClient {
     opts: Omit<CloudRunSandboxClientDeps, 'project' | 'location' | 'jobName' | 'getAccessToken'>,
   ): CloudRunSandboxClient {
     const auth = new GoogleAuth({ scopes: [SCOPE] });
+    const storageClient =
+      opts.storageClient ?? (opts.stagingBucket ? new GcsStorage({ projectId: project }) : undefined);
+    const signingSaEmail =
+      opts.signingSaEmail ??
+      process.env.SANDBOX_SIGNING_SA ??
+      'sandbox-invoker@project-8bcf740a-a7bd-4aea-974.iam.gserviceaccount.com';
     return new CloudRunSandboxClient({
       project,
       location,
       jobName,
       ...opts,
+      storageClient,
+      signingSaEmail,
       getAccessToken: async () => {
         const token = await auth.getAccessToken();
         if (!token) throw new Error('Application Default Credentials returned no access token');
@@ -127,7 +226,11 @@ export class CloudRunSandboxClient implements SandboxClient {
     });
   }
 
-  async runPython(code: string, signal: AbortSignal): Promise<SandboxExecutionResult> {
+  async runPython(
+    code: string,
+    signal: AbortSignal,
+    options?: SandboxExecutionOptions,
+  ): Promise<SandboxExecutionResult> {
     if (signal.aborted) {
       throw new ProviderError('The request was aborted before the sandbox started.', {
         code: 'provider_error',
@@ -142,6 +245,79 @@ export class CloudRunSandboxClient implements SandboxClient {
       );
     }
 
+    const runId = crypto.randomUUID();
+    const useStaging = Boolean(this.deps.stagingBucket && this.deps.storageClient);
+    const stagedInputs: { name: string; stagingRef: string; url?: string }[] = [];
+    const legacyInputFiles: Record<string, string> = {};
+
+    if (options?.workspaceDir) {
+      const inputDir = path.join(options.workspaceDir, 'input');
+      try {
+        const entries = await fs.readdir(inputDir);
+        for (const entry of entries) {
+          const fpath = path.join(inputDir, entry);
+          const st = await fs.stat(fpath);
+          if (st.isFile()) {
+            const buf = await fs.readFile(fpath);
+            const safeName = path.basename(entry).replace(/[^a-zA-Z0-9._-]/g, '_');
+            if (useStaging && this.deps.stagingBucket && this.deps.storageClient) {
+              const stagingRef = `runs/${runId}/input/${safeName}`;
+              await this.deps.storageClient
+                .bucket(this.deps.stagingBucket)
+                .file(stagingRef)
+                .save(buf, { resumable: false });
+
+              let url: string | undefined;
+              if (this.deps.signingSaEmail) {
+                try {
+                  const token = await this.deps.getAccessToken();
+                  url = await generateV4SignedUrl({
+                    method: 'GET',
+                    bucket: this.deps.stagingBucket,
+                    objectKey: stagingRef,
+                    expiresSeconds: 1800,
+                    token,
+                    saEmail: this.deps.signingSaEmail,
+                  });
+                } catch {
+                  // Fallback
+                }
+              }
+              stagedInputs.push({ name: safeName, stagingRef, url });
+            } else if (st.size <= 2 * 1024 * 1024) {
+              legacyInputFiles[entry] = buf.toString('base64');
+            }
+          }
+        }
+      } catch {
+        // Workspace input directory is empty or absent
+      }
+    }
+
+    const outputUrls: Record<string, string> = {};
+    if (useStaging && this.deps.stagingBucket && this.deps.signingSaEmail) {
+      const targetOutputs = validateOutputFilenames(options?.expectedOutputs);
+      if (targetOutputs.length > 0) {
+        try {
+          const token = await this.deps.getAccessToken();
+          for (const outName of targetOutputs) {
+            const outKey = `runs/${runId}/output/${outName}`;
+            const signedPutUrl = await generateV4SignedUrl({
+              method: 'PUT',
+              bucket: this.deps.stagingBucket,
+              objectKey: outKey,
+              expiresSeconds: 1800,
+              token,
+              saEmail: this.deps.signingSaEmail,
+            });
+            outputUrls[outName] = signedPutUrl;
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+    }
+
     // The caller's signal alone never bounds this call — nothing else in the chain enforces a
     // deadline on jobs:run -> Operation -> Execution -> Cloud Logging, so a slow or stuck step
     // would otherwise hang the whole generate request indefinitely (the exact failure mode
@@ -154,18 +330,55 @@ export class CloudRunSandboxClient implements SandboxClient {
 
     try {
       const executionId = crypto.randomUUID();
-      const operation = await this.runJob(executionId, code, combined);
+      const operation = await this.runJob(
+        executionId,
+        code,
+        stagedInputs,
+        legacyInputFiles,
+        runId,
+        outputUrls,
+        combined,
+      );
       const executionName = await this.resolveExecutionName(operation, combined);
       const execution = await this.pollExecutionUntilTerminal(executionName, combined);
       this.assertSucceeded(execution);
       const resultLine = await this.pollForResultLine(execution.name, executionId, combined);
+
+      // Materialize output files back into the workspace output/ directory
+      if (options?.workspaceDir) {
+        const outputDir = path.join(options.workspaceDir, 'output');
+        await fs.mkdir(outputDir, { recursive: true });
+
+        if (
+          resultLine.outputs &&
+          resultLine.outputs.length > 0 &&
+          useStaging &&
+          this.deps.stagingBucket &&
+          this.deps.storageClient
+        ) {
+          const bucket = this.deps.storageClient.bucket(this.deps.stagingBucket);
+          for (const out of resultLine.outputs) {
+            const safeName = path.basename(out.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+            if (safeName && out.temporaryRef.startsWith(`runs/${runId}/output/`)) {
+              const [buf] = await bucket.file(out.temporaryRef).download();
+              await fs.writeFile(path.join(outputDir, safeName), buf);
+            }
+          }
+        }
+      }
+
       return {
         outputs: [
           {
             mimeType: 'application/json',
-            text: JSON.stringify({ msg_out: resultLine.stdout, msg_err: resultLine.stderr }),
+            text: JSON.stringify({
+              msg_out: resultLine.stdout,
+              msg_err: resultLine.stderr,
+              undeclaredOutputs: resultLine.undeclaredOutputs,
+            }),
           },
         ],
+        undeclaredOutputs: resultLine.undeclaredOutputs,
       };
     } catch (err) {
       if (timeoutController.signal.aborted && !signal.aborted) {
@@ -177,26 +390,80 @@ export class CloudRunSandboxClient implements SandboxClient {
       throw err;
     } finally {
       clearTimeout(timer);
+      if (useStaging && this.deps.stagingBucket && this.deps.storageClient) {
+        try {
+          await this.deps.storageClient.bucket(this.deps.stagingBucket).deleteFiles({
+            prefix: `runs/${runId}/`,
+            force: true,
+          });
+        } catch {
+          // Non-blocking cleanup
+        }
+      }
     }
   }
 
-  private async runJob(executionId: string, code: string, signal: AbortSignal): Promise<Operation> {
+  private async runJob(
+    executionId: string,
+    code: string,
+    stagedInputsOrSignal: { name: string; stagingRef: string; url?: string }[] | AbortSignal = [],
+    legacyInputFiles: Record<string, string> = {},
+    runId = '',
+    outputUrlsOrSignal: Record<string, string> | AbortSignal = {},
+    signal?: AbortSignal,
+  ): Promise<Operation> {
+    let realSignal = new AbortController().signal;
+    if (stagedInputsOrSignal instanceof AbortSignal) {
+      realSignal = stagedInputsOrSignal;
+    } else if (outputUrlsOrSignal instanceof AbortSignal) {
+      realSignal = outputUrlsOrSignal;
+    } else if (signal) {
+      realSignal = signal;
+    }
+
+    const realStagedInputs = Array.isArray(stagedInputsOrSignal) ? stagedInputsOrSignal : [];
+    const realOutputUrls =
+      outputUrlsOrSignal && !(outputUrlsOrSignal instanceof AbortSignal) ? outputUrlsOrSignal : {};
+
     const url = `${RUN_HOST}/v2/projects/${this.deps.project}/locations/${this.deps.location}/jobs/${this.deps.jobName}:run`;
+    const env: { name: string; value: string }[] = [
+      { name: 'RUN_PYTHON_CODE_B64', value: base64(code) },
+      { name: 'RUN_PYTHON_CODE_TIMEOUT_MS', value: String(this.deps.codeTimeoutMs) },
+      { name: 'RUN_PYTHON_EXECUTION_ID', value: executionId },
+    ];
+    if (this.deps.stagingBucket) {
+      env.push({ name: 'RUN_PYTHON_STAGE_BUCKET', value: this.deps.stagingBucket });
+      env.push({ name: 'RUN_PYTHON_RUN_ID', value: runId });
+      if (realStagedInputs.length > 0) {
+        env.push({
+          name: 'RUN_PYTHON_INPUTS_JSON',
+          value: JSON.stringify(realStagedInputs),
+        });
+      }
+      if (Object.keys(realOutputUrls).length > 0) {
+        env.push({
+          name: 'RUN_PYTHON_OUTPUT_URLS_JSON',
+          value: JSON.stringify(realOutputUrls),
+        });
+      }
+    } else if (legacyInputFiles && Object.keys(legacyInputFiles).length > 0) {
+      env.push({
+        name: 'RUN_PYTHON_INPUT_FILES_JSON',
+        value: JSON.stringify(legacyInputFiles),
+      });
+    }
+
     const body = {
       overrides: {
         containerOverrides: [
           {
-            env: [
-              { name: 'RUN_PYTHON_CODE_B64', value: base64(code) },
-              { name: 'RUN_PYTHON_CODE_TIMEOUT_MS', value: String(this.deps.codeTimeoutMs) },
-              { name: 'RUN_PYTHON_EXECUTION_ID', value: executionId },
-            ],
+            env,
           },
         ],
         taskCount: 1,
       },
     };
-    const res = await this.request(url, 'POST', body, signal);
+    const res = await this.request(url, 'POST', body, realSignal);
     return (await res.json()) as Operation;
   }
 
@@ -276,18 +543,29 @@ export class CloudRunSandboxClient implements SandboxClient {
         `labels."run.googleapis.com/execution_name"="${String(executionShortName)}"`,
         `textPayload:"${RESULT_PREFIX}"`,
       ].join('\n');
-      const res = await this.request(
-        `${LOGGING_HOST}/v2/entries:list`,
-        'POST',
-        {
-          resourceNames: [`projects/${this.deps.project}`],
-          filter,
-          orderBy: 'timestamp desc',
-          pageSize: 10,
-        },
-        signal,
-      );
-      const body = (await res.json()) as { entries?: { textPayload?: string }[] };
+
+      let body: { entries?: { textPayload?: string }[] };
+      try {
+        const res = await this.request(
+          `${LOGGING_HOST}/v2/entries:list`,
+          'POST',
+          {
+            resourceNames: [`projects/${this.deps.project}`],
+            filter,
+            orderBy: 'timestamp desc',
+            pageSize: 10,
+          },
+          signal,
+        );
+        body = (await res.json()) as { entries?: { textPayload?: string }[] };
+      } catch (err: any) {
+        if (err?.statusCode === 429 && attempt < LOG_POLL_ATTEMPTS - 1) {
+          await sleep(2_500);
+          continue;
+        }
+        throw err;
+      }
+
       for (const entry of body.entries ?? []) {
         const line = entry.textPayload ?? '';
         const idx = line.indexOf(RESULT_PREFIX);
@@ -313,23 +591,34 @@ export class CloudRunSandboxClient implements SandboxClient {
     body: unknown,
     signal: AbortSignal,
   ): Promise<Response> {
-    const token = await this.deps.getAccessToken();
-    const res = await this.fetchImpl(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new ProviderError(`Sandbox API ${method} ${url} returned ${String(res.status)}: ${text}`, {
-        code: 'provider_error',
-        statusCode: res.status,
-      });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const token = await this.deps.getAccessToken();
+        const res = await this.fetchImpl(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Goog-User-Project': this.deps.project,
+            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          signal,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new ProviderError(`Sandbox API ${method} ${url} returned ${String(res.status)}: ${text}`, {
+            code: 'provider_error',
+            statusCode: res.status,
+          });
+        }
+        return res;
+      } catch (err: any) {
+        if (err instanceof ProviderError || signal.aborted || attempt === 2) {
+          throw err;
+        }
+        await sleep(500 * (attempt + 1));
+      }
     }
-    return res;
+    throw new ProviderError(`Sandbox request to ${url} failed after retries.`, { code: 'provider_error' });
   }
 }

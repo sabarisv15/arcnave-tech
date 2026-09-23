@@ -17,6 +17,8 @@ import { goalEvents, goals, messages, toolCalls as toolCallRows } from '../db/sc
 import { logger } from '../logger.js';
 import type { ModelEntry } from '../providers/registry.js';
 import { ModelRegistry } from '../providers/registry.js';
+import { getModelCapability } from '../providers/capabilitiesTable.js';
+import type { ContextRemainingMeasurement } from '../tools/goalExecutor.js';
 import type {
   GenerationRequest,
   Provider,
@@ -39,6 +41,8 @@ import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { shouldExposeRunPython, shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
 import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
+import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
+import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
@@ -76,6 +80,8 @@ function sumUsage(a: ProviderUsage, b: ProviderUsage): ProviderUsage {
   };
 }
 
+import { ExecutionRuntime, type WorkspaceFiles } from '../tools/execution/executionRuntime.js';
+
 export interface AgentLoopOptions {
   entry: ModelEntry;
   provider: Provider;
@@ -88,9 +94,12 @@ export interface AgentLoopOptions {
   releaseReservation: () => Promise<void>;
   grounded: boolean;
   codeExecution: boolean;
+  workspace?: WorkspaceFiles;
 }
 
 export class AgentLoop {
+  private readonly executionRuntime: ExecutionRuntime;
+
   constructor(
     private readonly db: Database,
     private readonly cfg: Config,
@@ -100,7 +109,10 @@ export class AgentLoop {
     private readonly storage: ObjectStorage,
     private readonly sandboxClient?: SandboxClient,
     private readonly skills?: SkillService,
-  ) {}
+    executionRuntime?: ExecutionRuntime,
+  ) {
+    this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
+  }
 
   /**
    * Resolves or creates the active goal for a chat.
@@ -178,6 +190,32 @@ export class AgentLoop {
     // Resolve active goal
     const activeGoal = await this.resolveGoal(input.chatId, input.prompt, input.messageId);
 
+    const runId = options.workspace ? '' : `agent_${input.chatId}_${input.messageId}`;
+    const workspace = options.workspace ?? (await this.executionRuntime.createWorkspace(runId));
+    const shouldCleanup = !options.workspace;
+
+    try {
+      if (shouldCleanup && input.attachments && input.attachments.length > 0) {
+        for (const att of input.attachments) {
+          if (att.name) {
+            if (att.base64) {
+              await this.executionRuntime.materializeInputFiles(workspace, [
+                { filename: att.name, data: Buffer.from(att.base64, 'base64') },
+              ]);
+            } else if (att.storageKey) {
+              try {
+                const buf = await this.storage.get(att.storageKey);
+                await this.executionRuntime.materializeInputFiles(workspace, [
+                  { filename: att.name, data: buf },
+                ]);
+              } catch (storageErr) {
+                log.warn({ storageErr, name: att.name }, 'Failed to materialize attachment in AgentLoop');
+              }
+            }
+          }
+        }
+      }
+
     // Timeout signal handling
     const timeoutController = new AbortController();
     const timeoutTimer = setTimeout(() => {
@@ -194,6 +232,7 @@ export class AgentLoop {
     const collectedText: string[] = [];
     const collectedSources: ProviderSource[] = [];
     let searchEntryPoint: string | undefined;
+    let lastStepUsage: ProviderUsage | null = null;
     let eventOrdinal = 0;
     let totalToolCalls = 0;
 
@@ -243,6 +282,32 @@ export class AgentLoop {
       }
     }
 
+    const toolContext = {
+      userId: input.userId,
+      projectId: project?.id ?? null,
+      activeGoalId: activeGoal.id,
+      allowPython,
+      allowDeliverable,
+    };
+
+    // Policy-approved catalog of tools that can be discovered on-demand via search_tools
+    const policyCatalog: ToolDefinition[] = toolRegistry.getPolicyCatalog
+      ? toolRegistry.getPolicyCatalog(toolContext)
+      : toolRegistry.getAvailableTools(toolContext);
+
+    // Initial active tools for Round 0: small core tool set (search_tools, load_skill if skills enabled, and goal tools)
+    const availableTools: ToolDefinition[] = toolRegistry.getInitialTools
+      ? toolRegistry.getInitialTools(toolContext)
+      : policyCatalog.filter((t) =>
+          t.name === 'search_tools' ||
+          t.name === 'load_skill' ||
+          t.name === 'get_goal' ||
+          t.name === 'update_goal' ||
+          t.name === 'get_context_remaining',
+        );
+
+    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+
     try {
       stepLoop: for (let step = 0; step < this.cfg.AGENT_MAX_STEPS; step++) {
         if (timeoutController.signal.aborted || input.signal.aborted) {
@@ -252,26 +317,30 @@ export class AgentLoop {
 
         const runId = `run-${input.messageId}-step-${step}`;
 
-        // Exact context remaining calculation if usage is exact
-        const exactContextRemaining = cumulativeUsage.exact
-          ? {
-              contextLimit: 128000,
-              tokensUsed: cumulativeUsage.inputTokens + cumulativeUsage.outputTokens,
-              tokensRemaining: Math.max(
-                0,
-                128000 - (cumulativeUsage.inputTokens + cumulativeUsage.outputTokens),
-              ),
-            }
-          : null;
+        // Exact context remaining calculation:
+        // Truthful semantics: previous-request prompt tokens are historical telemetry for that completed
+        // request, not current exact request size. If exact current-request measurement is available,
+        // populate activeInputTokensExact; otherwise mark available=false and expose lastRequestPromptTokensExact.
+        const modelCapability = getModelCapability(entry.providerModelId ?? entry.alias);
+        const resolvedMaxInput =
+          modelCapability.maxInputTokens ??
+          modelCapability.contextWindowTokens ??
+          entry.contextWindow ??
+          128_000;
+        const resolvedCombinedWindow = modelCapability.contextWindowTokens ?? null;
 
-        const availableTools = toolRegistry.getAvailableTools({
-          projectId: project?.id ?? null,
-          activeGoalId: activeGoal.id,
-          allowPython,
-          allowDeliverable,
-        });
-
-        const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+        const exactContextRemaining: ContextRemainingMeasurement = {
+          available: false,
+          maxInputTokens: resolvedMaxInput,
+          contextWindowTokens: resolvedCombinedWindow,
+          activeInputTokensExact: null,
+          inputTokensRemainingExact: null,
+          lastRequestPromptTokensExact: lastStepUsage?.exact ? lastStepUsage.inputTokens : null,
+          exact: false,
+          contextLimit: resolvedMaxInput,
+          tokensUsed: null,
+          tokensRemaining: null,
+        };
 
         const projectToolExecutor =
           project !== null && this.cfg.ENABLE_TOOL_USE
@@ -344,7 +413,19 @@ export class AgentLoop {
 
         if (this.cfg.ENABLE_TOOL_USE) {
           baseMap.set('read_uploaded_file', new UploadToolExecutor(this.db, this.storage, input.userId));
-          const searchToolsExecutor = new SearchToolsExecutor(availableTools, (discoveredTool) => {
+          const fileOperationExecutor = new FileOperationExecutor({
+            db: this.db,
+            storage: this.storage,
+            executionRuntime: this.executionRuntime,
+            userId: input.userId,
+            chatId: input.chatId,
+            messageId: input.messageId,
+            workspace,
+          });
+          for (const def of FILE_OPERATION_TOOL_DEFINITIONS) {
+            baseMap.set(def.name, fileOperationExecutor);
+          }
+          const searchToolsExecutor = new SearchToolsExecutor(policyCatalog, (discoveredTool) => {
             if (!availableTools.some((t) => t.name === discoveredTool.name)) {
               availableTools.push(discoveredTool);
               activeToolNames.add(discoveredTool.name);
@@ -367,7 +448,17 @@ export class AgentLoop {
         if (allowPython) {
           baseMap.set(
             'run_python',
-            new CodeExecutionToolExecutor(this.sandboxClient!, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS),
+            new CodeExecutionToolExecutor(
+              this.executionRuntime,
+              this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS,
+              {
+                workspace,
+                userId: input.userId,
+                messageId: input.messageId,
+                db: this.db,
+                storage: this.storage,
+              },
+            ),
           );
         }
         baseMap.set('get_goal', goalToolExecutor);
@@ -412,6 +503,9 @@ export class AgentLoop {
               input.userId,
               input.chatId,
               input.messageId,
+              undefined,
+              this.executionRuntime,
+              workspace,
             ),
           );
         }
@@ -596,6 +690,7 @@ export class AgentLoop {
 
         // Token accounting: exact accounting per step
         cumulativeUsage = sumUsage(cumulativeUsage, stepUsage);
+        lastStepUsage = stepUsage;
         const stepTotalTokens = (stepUsage.inputTokens ?? 0) + (stepUsage.outputTokens ?? 0);
 
         if (stepTotalTokens > 0) {
@@ -741,6 +836,11 @@ export class AgentLoop {
         usage: toUsageDto(cumulativeUsage, computeCostFor(this.cfg, entry.providerModelId!, cumulativeUsage)),
         finishReason,
       };
+    }
+    } finally {
+      if (shouldCleanup) {
+        await this.executionRuntime.cleanupWorkspace(workspace);
+      }
     }
   }
 

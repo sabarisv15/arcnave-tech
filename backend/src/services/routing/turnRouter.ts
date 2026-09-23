@@ -20,6 +20,7 @@ import { evaluateRunPythonPolicy } from '../../tools/capabilityPolicy.js';
 export type DetectedIntent =
   | 'IMAGE_GENERATION'
   | 'FILE_CONVERSION'
+  | 'FILE_OPERATION'
   | 'OFFICE_DELIVERABLE_CREATION'
   | 'EXPLANATION'
   | 'COMPUTATION'
@@ -102,6 +103,20 @@ function computeAllowedTools(input: RouteTurnInput, pythonAllowed: boolean): str
   allowed.add('read_artifact');
   allowed.add('update_artifact');
 
+  // File operations (inspection & manipulation for PDF, XLSX, DOCX, PPTX)
+  allowed.add('inspectPdf');
+  allowed.add('mergePdfFiles');
+  allowed.add('splitPdfFile');
+  allowed.add('inspectSpreadsheet');
+  allowed.add('editSpreadsheetCells');
+  allowed.add('combineWorkbooks');
+  allowed.add('inspectDocxStructure');
+  allowed.add('editDocxContent');
+  allowed.add('appendDocxSection');
+  allowed.add('inspectPptxStructure');
+  allowed.add('reorderPptxSlides');
+  allowed.add('editPptxSlideText');
+
   // File reading if attachments present
   if (input.hasAttachments) {
     allowed.add('read_uploaded_file');
@@ -148,18 +163,18 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: input.imageEnabled ? ['generate_image'] : ['search_tools'],
+      exposedTools: ['search_tools'],
       pythonExposed: false,
       reason: 'User requested image creation or generation. Allowed catalog includes generate_image.',
     };
   }
 
-  // 2. Purely Explanatory / Conceptual / Summary Query (e.g. "explain Monte Carlo", "summarize this PDF")
+  // 2. Purely Explanatory / Conceptual / Summary Query (e.g. "explain Monte Carlo", "summarize this PDF", "what does this PDF say")
   const isExplanatory =
-    /\b(?:explain|what is|what are|how does|define|history of|overview of|theory behind|describe|summarize|summary)\b/i.test(
+    /\b(?:explain|what is|what are|what does|how does|define|history of|overview of|theory behind|describe|summarize|summary)\b/i.test(
       prompt,
     ) &&
-    !/\b(?:run|execute|calculate|compute|plot|graph|chart|regress|verify with code|debug|implement|write code|code this)\b/i.test(
+    !/\b(?:run|execute|calculate|compute|plot|graph|chart|regress|verify with code|debug|implement|write code|code this|change|modify|edit|update|replace|merge|split|reorder|combine)\b/i.test(
       prompt,
     );
 
@@ -212,9 +227,26 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools', 'run_python'],
+      exposedTools: ['search_tools'],
       pythonExposed: true,
       reason: `Computation requested: ${pythonDecision.reason}. Exposing run_python in allowed catalog.`,
+    };
+  }
+
+  // 4b. File Operations (Inspection & Manipulation for PDF, XLSX, DOCX, PPTX)
+  const isFileOpVerb = /\b(?:merge|combine|split|extract pages|reorder|inspect|examine|update cells?|edit cells?|replace text|append section|change|modify|edit)\b/i.test(prompt);
+  if (
+    (hasOfficeTargetKeyword && isFileOpVerb) ||
+    (input.hasAttachments && isFileOpVerb)
+  ) {
+    return {
+      detectedIntent: 'FILE_OPERATION',
+      candidateSkills: candidateSkillNames,
+      selectedSkills: [],
+      allowedTools,
+      exposedTools: ['search_tools'],
+      pythonExposed: false,
+      reason: 'File operation intent detected. Tools placed in policy catalog; model evaluates task first.',
     };
   }
 
@@ -237,18 +269,14 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
 
   // 6. Research / Search Mode
   if (input.mode === 'research' || input.mode === 'search') {
-    const exposed: string[] = ['search_tools'];
-    if (input.webEnabled) {
-      exposed.push('web_search', 'web_fetch');
-    }
     return {
       detectedIntent: 'RESEARCH',
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: exposed,
+      exposedTools: ['search_tools'],
       pythonExposed: false,
-      reason: 'Research or search mode active. Exposing web search tools and catalog discovery.',
+      reason: 'Research or search mode active. Exposing web search tools in catalog discovery.',
     };
   }
 
@@ -259,9 +287,9 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools', 'search_project_files', 'read_project_file'],
+      exposedTools: ['search_tools'],
       pythonExposed: false,
-      reason: 'Project knowledge search requested. Exposing project search tools.',
+      reason: 'Project knowledge search requested. Exposing project search tools in catalog.',
     };
   }
 

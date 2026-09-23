@@ -32,7 +32,7 @@ import { verifyPdf } from './verify/pdfVerify.js';
 import { verifyPptx } from './verify/pptxVerify.js';
 import { verifyXlsx } from './verify/xlsxVerify.js';
 import { verifyRenderVisuals } from './verify/visualVerify.js';
-import { renderSpreadsheet } from './xlsxRenderer.js';
+import { renderSpreadsheet, renderStructuredSpreadsheet } from './xlsxRenderer.js';
 
 export type {
   ArtifactImage,
@@ -60,6 +60,7 @@ export {
   renderPdf,
   renderSlides,
   renderSpreadsheet,
+  renderStructuredSpreadsheet,
   resolveArtifactImage,
   verifyDocx,
   verifyPdf,
