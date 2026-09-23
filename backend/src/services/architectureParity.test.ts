@@ -322,7 +322,7 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
 
     expect(decision.detectedIntent).toBe('IMAGE_GENERATION');
     expect(decision.allowedTools).toContain('generate_image');
-    expect(decision.exposedTools).toContain('generate_image');
+    expect(decision.exposedTools).toContain('search_tools');
   });
 
   // Scenario 9: Update DOCX Styles

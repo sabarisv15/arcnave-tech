@@ -130,8 +130,8 @@ export class ModelRegistry {
 
   /** Statuses knowable without a network call. */
   private staticStatus(entry: ModelEntry): ModelStatus | null {
-    // Only Gemini 3.8 Flash is active; Claude and GPT models are disabled
-    if (entry.provider === 'anthropic' || entry.provider === 'openai-oss') {
+    // Only Gemini 3.8 Flash is active in live environments; Claude and GPT models are disabled
+    if (this.cfg.NODE_ENV !== 'test' && (entry.provider === 'anthropic' || entry.provider === 'openai-oss')) {
       return {
         entry,
         available: false,

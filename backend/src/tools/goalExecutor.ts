@@ -15,9 +15,18 @@ import { goalEvents, goals } from '../db/schema.js';
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
 
 export interface ContextRemainingMeasurement {
-  contextLimit: number;
-  tokensUsed: number;
-  tokensRemaining: number;
+  available?: boolean;
+  maxInputTokens?: number | null;
+  contextWindowTokens?: number | null;
+  activeInputTokensExact?: number | null;
+  inputTokensRemainingExact?: number | null;
+  lastRequestPromptTokensExact?: number | null;
+  exact?: boolean;
+
+  // Backward compatibility fields
+  contextLimit?: number | null;
+  tokensUsed?: number | null;
+  tokensRemaining?: number | null;
 }
 
 const updateGoalInput = z
@@ -290,26 +299,50 @@ export class GoalToolExecutor implements ToolExecutor {
   }
 
   private async getContextRemaining(call: ToolCall): Promise<ToolResult> {
-    // Invariant 3: exact token accounting only, never estimate
-    if (
+    const isAvailable = Boolean(
       this.exactContextRemaining &&
-      typeof this.exactContextRemaining.contextLimit === 'number' &&
-      typeof this.exactContextRemaining.tokensUsed === 'number' &&
-      typeof this.exactContextRemaining.tokensRemaining === 'number'
-    ) {
+        (this.exactContextRemaining.available ??
+          (typeof this.exactContextRemaining.tokensRemaining === 'number' &&
+            this.exactContextRemaining.exact !== false)),
+    );
+
+    if (isAvailable && this.exactContextRemaining) {
+      const maxInput =
+        this.exactContextRemaining.maxInputTokens ?? this.exactContextRemaining.contextLimit ?? null;
+      const contextWindow = this.exactContextRemaining.contextWindowTokens ?? null;
+      const activeExact =
+        this.exactContextRemaining.activeInputTokensExact ?? this.exactContextRemaining.tokensUsed ?? null;
+      const remainingExact =
+        this.exactContextRemaining.inputTokensRemainingExact ??
+        this.exactContextRemaining.tokensRemaining ??
+        null;
+
       return jsonResult(call.id, {
-        contextLimit: this.exactContextRemaining.contextLimit,
-        tokensUsed: this.exactContextRemaining.tokensUsed,
-        tokensRemaining: this.exactContextRemaining.tokensRemaining,
+        available: true,
+        maxInputTokens: maxInput,
+        contextWindowTokens: contextWindow,
+        activeInputTokensExact: activeExact,
+        inputTokensRemainingExact: remainingExact,
+        lastRequestPromptTokensExact: this.exactContextRemaining.lastRequestPromptTokensExact ?? null,
         exact: true,
+        // Backward-compatibility aliases
+        contextLimit: maxInput ?? contextWindow ?? null,
+        tokensUsed: activeExact,
+        tokensRemaining: remainingExact,
       });
     }
 
     return jsonResult(call.id, {
+      available: false,
+      maxInputTokens: this.exactContextRemaining?.maxInputTokens ?? null,
+      contextWindowTokens: this.exactContextRemaining?.contextWindowTokens ?? null,
+      activeInputTokensExact: null,
+      inputTokensRemainingExact: null,
+      lastRequestPromptTokensExact: this.exactContextRemaining?.lastRequestPromptTokensExact ?? null,
+      exact: false,
       contextLimit: null,
       tokensUsed: null,
       tokensRemaining: null,
-      exact: false,
       note: 'Exact context measurement unavailable',
     });
   }

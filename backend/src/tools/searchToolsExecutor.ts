@@ -11,6 +11,7 @@
 import { z } from 'zod';
 
 import type { ToolCall, ToolDefinition, ToolExecutor, ToolResult } from '../providers/types.js';
+import { TOOL_CATALOG_ENTRIES } from './catalog.js';
 
 const searchToolsInput = z.object({
   query: z.string().min(1),
@@ -30,8 +31,8 @@ export class SearchToolsExecutor implements ToolExecutor {
     private readonly onToolDiscovered?: (tool: ToolDefinition) => void | Promise<void>,
   ) {}
 
-  async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
-    if (signal.aborted) {
+  async execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+    if (signal?.aborted) {
       return textResult(call.id, false, 'The request was aborted before search_tools completed.');
     }
 
@@ -44,8 +45,9 @@ export class SearchToolsExecutor implements ToolExecutor {
       return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
     }
 
-    const query = parsed.data.query.toLowerCase().trim();
-    const tokens = query.split(/\s+/).filter(Boolean);
+    const rawQuery = parsed.data.query.toLowerCase().trim();
+    const cleanQuery = rawQuery.replace(/[^a-z0-9_-]+/g, ' ').trim();
+    const tokens = cleanQuery.split(/\s+/).filter(Boolean);
 
     const scored: { tool: ToolDefinition; score: number }[] = [];
 
@@ -57,28 +59,140 @@ export class SearchToolsExecutor implements ToolExecutor {
       const name = tool.name.toLowerCase();
       const desc = tool.description.toLowerCase();
 
-      for (const token of tokens) {
-        if (name === token) score += 10;
-        else if (name.includes(token)) score += 5;
+      // Look up matching catalog metadata if available
+      const catalogEntry = TOOL_CATALOG_ENTRIES.find((e) => e.name === tool.name);
 
+      // Exact or partial name match
+      if (cleanQuery === name || rawQuery === name) {
+        score += 30;
+      } else if (tokens.includes(name)) {
+        score += 20;
+      } else if (tokens.some((token) => name.includes(token))) {
+        score += 10;
+      }
+
+      // Catalog entry keyword & description matching
+      if (catalogEntry) {
+        for (const kw of catalogEntry.keywords) {
+          const kwLower = kw.toLowerCase();
+          if (cleanQuery === kwLower || cleanQuery.includes(kwLower)) {
+            score += 15;
+          } else if (tokens.some((t) => t === kwLower || kwLower.includes(t))) {
+            score += 8;
+          }
+        }
+        if (tokens.some((t) => catalogEntry.shortDescription.toLowerCase().includes(t))) {
+          score += 4;
+        }
+      }
+
+      // General description token matching
+      for (const token of tokens) {
         if (desc.includes(token)) score += 3;
       }
 
-      // Keyword associations for common tasks
-      if (tokens.some((t) => ['excel', 'spreadsheet', 'xlsx', 'sheet'].includes(t)) && name === 'generate_deliverable') {
-        score += 8;
+      // Semantic / Domain Keyword Associations
+      if (
+        tokens.some((t) =>
+          ['excel', 'spreadsheet', 'xlsx', 'sheet', 'workbook', 'word', 'doc', 'docx', 'document', 'powerpoint', 'presentation', 'pptx', 'slide', 'slides', 'deck', 'pdf', 'report', 'deliverable', 'export'].includes(t)
+        ) &&
+        name === 'generate_deliverable'
+      ) {
+        score += 15;
       }
-      if (tokens.some((t) => ['word', 'doc', 'docx', 'document'].includes(t)) && name === 'generate_deliverable') {
-        score += 8;
+
+      if (
+        tokens.some((t) =>
+          ['python', 'code', 'calculate', 'compute', 'simulate', 'numpy', 'pandas', 'statistics', 'math', 'regression', 'script'].includes(t)
+        ) &&
+        name === 'run_python'
+      ) {
+        score += 15;
       }
-      if (tokens.some((t) => ['pptx', 'powerpoint', 'slide', 'presentation', 'deck'].includes(t)) && name === 'generate_deliverable') {
-        score += 8;
+
+      if (
+        tokens.some((t) => ['file', 'read', 'upload', 'uploaded', 'attachment', 'pdf'].includes(t)) &&
+        name === 'read_uploaded_file'
+      ) {
+        score += 12;
       }
-      if (tokens.some((t) => ['pdf', 'report'].includes(t)) && name === 'generate_deliverable') {
-        score += 8;
+
+      if (
+        tokens.some((t) => ['web', 'search', 'internet', 'google', 'online', 'lookup', 'research'].includes(t)) &&
+        name === 'web_search'
+      ) {
+        score += 15;
       }
-      if (tokens.some((t) => ['python', 'code', 'calculate', 'compute', 'simulate'].includes(t)) && name === 'run_python') {
-        score += 8;
+
+      if (
+        tokens.some((t) => ['fetch', 'url', 'http', 'https', 'webpage', 'site', 'website'].includes(t)) &&
+        name === 'web_fetch'
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['image', 'photo', 'picture', 'drawing', 'illustration', 'draw'].includes(t)) &&
+        name === 'generate_image'
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['artifact', 'report', 'draft'].includes(t)) &&
+        ['create_artifact', 'read_artifact', 'update_artifact'].includes(name)
+      ) {
+        score += 10;
+      }
+
+      if (
+        tokens.some((t) => ['memory', 'remember', 'recall'].includes(t)) &&
+        name === 'search_memory'
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['ui', 'render', 'dashboard', 'interactive'].includes(t)) &&
+        name === 'render_ui'
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['project', 'repo', 'files'].includes(t)) &&
+        ['search_project_files', 'read_project_file'].includes(name)
+      ) {
+        score += 12;
+      }
+
+      // File Operations (PDF, XLSX, DOCX, PPTX)
+      if (
+        tokens.some((t) => ['pdf', 'merge', 'split', 'page', 'pages', 'inspect'].includes(t)) &&
+        ['inspectPdf', 'mergePdfFiles', 'splitPdfFile'].includes(name)
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['excel', 'xlsx', 'spreadsheet', 'sheet', 'workbook', 'cell', 'cells', 'formula'].includes(t)) &&
+        ['inspectSpreadsheet', 'editSpreadsheetCells', 'combineWorkbooks'].includes(name)
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['docx', 'word', 'document', 'paragraph', 'paragraphs', 'heading', 'headings', 'section'].includes(t)) &&
+        ['inspectDocxStructure', 'editDocxContent', 'appendDocxSection'].includes(name)
+      ) {
+        score += 15;
+      }
+
+      if (
+        tokens.some((t) => ['pptx', 'powerpoint', 'presentation', 'slide', 'slides', 'deck', 'reorder'].includes(t)) &&
+        ['inspectPptxStructure', 'reorderPptxSlides', 'editPptxSlideText'].includes(name)
+      ) {
+        score += 15;
       }
 
       if (score > 0) {

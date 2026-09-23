@@ -1,12 +1,12 @@
 ---
 name: xlsx
-version: 1.2.0
-description: Professional spreadsheet architecture, formula conventions, financial modeling, summary sheets, and grid formatting.
+version: 2.0.0
+description: Professional spreadsheet architecture, formula conventions, typed StructuredWorkbook contracts, targeted cell editing, and format-native Excel generation.
 category: artifact
 scope: builtin
 requires:
   tools:
-    - create_artifact
+    - generate_deliverable
   capabilities:
     - artifact.export.xlsx
 autoload: false
@@ -14,59 +14,130 @@ metadata:
   source: arcnave
 ---
 
-# Spreadsheet (XLSX) Design & Financial Modeling
+# Spreadsheet (XLSX) Architecture & Financial Modeling
 
-Use this skill whenever generating, converting, editing, or structuring spreadsheets (.xlsx), financial models, budgets, tables, or tabular datasets.
+Procedural knowledge for authoring, editing, inspecting, and consolidating Excel spreadsheets (.xlsx). Teaches typed `StructuredWorkbook` modeling, formula conventions, targeted cell updates, multi-sheet consolidation, and provenance-based deduplication.
 
-## Core Principles (ArcNave & Excel Standards)
+---
 
-- **Deliverable vs Cover Note**: The spreadsheet is the deliverable; chat is the cover note. In chat, default to brevity (1-2 tight paragraphs or bullet highlights) leading with key sheets, totals, and formula logic. Never dump giant walls of CSV data or raw cells into chat. Direct the user to the generated spreadsheet.
-- **Show Your Work (Formulas First)**:
-  - Users speak Excel, not Python. Any calculation producing an outcome the user sees in the spreadsheet must be an explicit UPPERCASE formula (e.g. `=SUM(B2:B10)`, `=AVERAGE(C2:C20)`, `=B2*C2`, `=IF(D2>0, D2*0.1, 0)`, `=SUMIFS(...)`, `=INDEX(...)`, `=MATCH(...)`), NEVER hardcoded dead numbers typed externally.
-  - The user must be able to click any cell and inspect its exact mathematical derivation.
-  - Formula function names must be strictly UPPERCASE.
-- **Multi-Sheet Workbook Architecture**:
-  - For substantial models or conversions, organize content into logical worksheets using `# SheetName` headings in Markdown.
-  - Recommended sheet structure:
-    1. `# Summary` or `# Dashboard`: High-level KPIs, executive totals, and aggregated metrics.
-    2. `# Data` or `# Transactions`: Detailed line items or converted statement entries.
-    3. `# Assumptions` or `# Calculations`: Underlying growth rates, tax brackets, or sensitivity inputs.
-  - ArcNave's exporter creates a dedicated worksheet tab for each `# SheetName` heading.
-- **Cell Formatting & Data Semantics**:
-  - Currency: Format monetary values with currency symbols and standard decimals (`$1,250.00`).
-  - Percentages: Format percentages explicitly (`15.0%`), stored as decimal fractions (`0.15`).
-  - Multiples: Format valuation multiples as `0.0x` (e.g. `8.5x`).
-  - Integers / Quantities: Use comma separators (`1,500`).
-  - Financial Negatives: Use parentheses `($500.00)` or standard negative sign.
-  - Dates: Standard ISO `YYYY-MM-DD` or `MM/DD/YYYY`.
-- **Row & Column Layout**:
-  - Every table must have a distinct, bold header row.
-  - Text columns must be left-aligned; numeric and monetary columns must be right-aligned.
-  - ArcNave's export layer auto-fits column widths, freezes the top header row, and applies professional zebra striping.
+## 1. When to Use This Skill
 
-## ArcNave Runtime Deliverable Execution
+- Creating new financial models, operating budgets, ledgers, or data sheets.
+- Modifying specific cells or formulas in an existing `.xlsx` workbook (`editSpreadsheetCells`).
+- Combining multiple workbooks into a unified multi-sheet workbook (`combineWorkbooks`).
+- Inspecting sheets, row counts, and cell types in an existing spreadsheet (`inspectSpreadsheet`).
+- Formatting tabular data extracted from PDFs or documents into format-native spreadsheets.
 
-ArcNave provides a dedicated, native document and spreadsheet generation engine (`generate_deliverable`).
+---
 
-### Mode A: Direct Spreadsheet Generation
-When the user asks to create a spreadsheet from prompt instructions or conversation context:
-1. Construct complete, valid GFM Markdown tables with explicit header rows and uppercase formulas (`=SUM(...)`).
-2. Call the `generate_deliverable` tool with:
-   - `format`: `'xlsx'`
-   - `title`: Short, clean filename (e.g. `"Financial_Projections_2026"`, `"Q3_Budget_Model"`)
-   - `content`: Markdown text with `# SheetName` headings and table rows.
+## 2. When NOT to Use This Skill
 
-### Mode B: Source File Conversion (e.g. PDF → Excel)
-When the user asks to convert an uploaded PDF, document, or statement into Excel:
-1. Inspect the uploaded file using `read_uploaded_file` if page-level verification or column layout inspection is needed.
-2. Call `generate_deliverable` with:
-   - `format`: `'xlsx'`
-   - `sourceAttachmentId`: The UUID of the uploaded source attachment.
-   - `instructions`: Clear transformation directions (e.g. `"Extract all statement transactions into columns: Date, Description, Reference, Debit, Credit, Balance"`).
-3. Do NOT route normal PDF → Excel conversion to Python; use `generate_deliverable`.
+- Non-tabular prose reports, legal agreements, or narrative memos (use `docx` or `pdf`).
+- Slide presentations or pitch materials (use `pptx`).
+- General conversational Q&A where no tabular spreadsheet output is desired.
 
-### Verification Checklist Before Responding
-- Did every sheet tab receive an explicit header row?
-- Are derived sums, averages, and margins implemented as uppercase Excel formulas rather than hardcoded numbers?
-- Are currency values and percentages formatted with proper notation?
-- Does the final chat response provide a concise cover note and direct download affordance without dumping raw cell grids?
+---
+
+## 3. Understand & Inspect Existing Files
+
+### A. Provider File Adapter & Extracted Representation
+Uploaded spreadsheets (.xlsx) are ingested via ArcNave's Provider File Adapter as extracted text/tabular document representation. When extracted sheet data is present in context, answer factual questions ("What was the total operating expense in 2025?") directly from this extracted representation without unnecessary tool calls. Do not imply or expect that providers consume raw binary OpenXML spreadsheet files natively.
+
+### B. Deterministic Structural Inspection
+When programmatic workflows require exact sheet names, row counts, or cell type profiles:
+- Call `inspectSpreadsheet(inputBuffer)` to obtain:
+  - `sheetNames`: Array of active worksheet names.
+  - `totalRows`: Total row count across sheets.
+  - `cellTypes`: Dictionary mapping cell addresses (`Sheet!A1`) to value types (`number`, `string`, `formula`, `date`, `boolean`).
+
+---
+
+## 4. Create New File
+
+### Approach A: Format-Native `StructuredWorkbook` (Recommended)
+For structured data, accounting sheets, and financial models, construct a `StructuredWorkbook` object passed to `generate_deliverable(format: 'xlsx', workbook: ...)`:
+- `sheets`: Array of worksheet objects, each containing:
+  - `name`: Clean sheet name (e.g. `'Summary'`, `'Transactions'`).
+  - `columns`: Array of `{ key: string, label: string, type: string, format?: string, width?: number }`.
+  - `rows`: Array of `{ cells: { [colKey]: { value: TypedValue, source?: SourceReference } } }`.
+- **Explicit Typed Values**:
+  - `number`: `{ type: 'number', value: 12500, format: '$#,##0.00' }`
+  - `date`: `{ type: 'date', value: '2026-03-31', format: 'YYYY-MM-DD' }`
+  - `formula`: `{ type: 'formula', value: '=SUM(C2:C10)' }`
+  - `integer`, `boolean`, `string`, `null`.
+  - **NEVER** stringify numbers or dates into dead text.
+
+### Approach B: Markdown Tables with `# SheetName` Headings
+For simple spreadsheets:
+- Use `# SheetName` headings in Markdown, followed by GFM tables.
+- Call `generate_deliverable(format: 'xlsx', title, content)`.
+
+### Formula Conventions (Mandatory)
+- **Formulas First**: Calculations producing an outcome the user sees in the sheet must be explicit UPPERCASE formulas (e.g. `=SUM(B2:B10)`, `=AVERAGE(C2:C20)`, `=B2*C2`, `=IF(D2>0, D2*0.1, 0)`), NEVER hardcoded dead numbers.
+- Users must be able to click any cell and inspect its mathematical derivation.
+- Formula names must be strictly UPPERCASE.
+
+---
+
+## 5. Edit Existing File & Format-Preserving Operations
+
+### Targeted Cell Editing (`editSpreadsheetCells`)
+When modifying an existing workbook (e.g. updating an assumption, changing a cell value, inserting a formula):
+- Use `editSpreadsheetCells(inputBuffer, edits)`:
+  - `edits`: Array of `{ sheet: string, cell: string, value: unknown, type?: string, format?: string }`.
+  - Example: `[{ sheet: 'Q1', cell: 'B8', value: 15000, type: 'number', format: '$#,##0' }, { sheet: 'Q1', cell: 'B9', value: '=B8*1.1', type: 'formula' }]`.
+- **Preservation Principle**: Preserves all untouched sheets, formulas, cell styles, fonts, and grid dimensions intact. **Do NOT convert an existing workbook to Markdown and rebuild it from scratch.**
+
+---
+
+## 6. Multi-File Operations & Deduplication
+
+### Combining Workbooks (`combineWorkbooks`)
+- Use `combineWorkbooks(inputBuffers)` to merge sheets from multiple workbooks into a single consolidated workbook.
+- Name collisions are automatically disambiguated (e.g. `Data` and `Data_2`).
+
+### Chunk Deduplication Rule
+- **Preserve Legitimate Duplicates**: Legitimate identical data rows (e.g. multiple distinct $50 deposits on the same day) must **ALWAYS** be preserved.
+- **Provenance Deduplication Only**: Deduplicate rows **ONLY** when proven by identical source provenance (`attachmentId:page:sheet:table:row`) across chunk boundaries. Never deduplicate solely by matching cell values.
+
+---
+
+## 7. Cross-Skill Transformations
+
+No single skill owns an entire cross-format workflow. The source skill extracts; the target skill structures and renders.
+
+### PDF / Document $\to$ XLSX
+1. **Source Phase (`pdf` / `docx`)**: Understand the source document and extract table headers, row values, and dates.
+2. **Target Phase (`xlsx`)**: Map extracted data into a `StructuredWorkbook` with typed numbers, dates, and uppercase formulas.
+3. **Render Phase**: Call `generate_deliverable(format: 'xlsx', workbook: ...)`.
+4. **NEVER** pass raw PDF `sourceAttachmentId` directly into `generate_deliverable` expecting automatic binary conversion without structured parsing.
+
+---
+
+## 8. Execution Strategy
+
+- **MODEL decides WHAT**: Selects rows, columns, and financial calculations.
+- **SKILL teaches HOW**: Enforces typed values, uppercase formulas, and targeted edits.
+- **ExecutionRuntime performs deterministic work**: Executes native Excel operations and format renderers.
+- **Chat is the Cover Note**: In chat, summarize key metrics, sheet names, and formula totals in 1–2 concise paragraphs. Direct the user to the generated spreadsheet; do NOT dump raw cell grids into chat.
+
+---
+
+## 9. Validation & Repair Loop
+
+- Generated workbooks undergo post-generation verification (valid OpenXML zip package, worksheets load cleanly in ExcelJS, formulas parse without syntax errors, date types are native Date instances, numbers are numeric).
+- **Repair Loop**: If a tool reports a schema or column warning (`status: 'warning'`, `repairable: true`), evaluate the missing column or type mismatch and make a corrective tool call with the updated schema.
+
+---
+
+## 10. Warnings & Limitations
+
+- **No Magic Binary Conversion**: `generate_deliverable` requires structured markdown or `StructuredWorkbook` upstream; it does not transcode binary source files directly.
+- **No Native OpenXML Charts**: Native Excel chart generation via DrawingML is not currently exposed in `generate_deliverable`. Present visual charts via `render_ui` in chat.
+- **No External Links**: Formulas referencing external workbooks (`='[other.xlsx]Sheet1'!A1`) are unsupported.
+
+---
+
+## 11. Available Resources & Scripts
+
+- No external script or template files currently exist in this skill package (`scripts = 0`, `templates = 0`). All operations run via native runtime functions.

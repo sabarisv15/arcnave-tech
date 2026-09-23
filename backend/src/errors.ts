@@ -126,6 +126,11 @@ export const ERROR_CATALOG = {
     title: 'Attachment exceeds model limits',
     detail: 'This attachment exceeds the provider limit. Choose a smaller file or switch to Gemini Flash.',
   },
+  context_overflow: {
+    status: 400,
+    title: 'Conversation exceeded context limit',
+    detail: 'The conversation exceeded the maximum context window for this model and could not be completed after trimming history. Please shorten the conversation or start a new chat.',
+  },
   provider_error: {
     status: 502,
     title: 'The response could not finish',

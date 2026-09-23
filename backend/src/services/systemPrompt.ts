@@ -467,7 +467,11 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
  * Builds the dynamic runtime context containing runtime capability reflections
  * and conditional skill/tool trigger guidance. Placed after the cacheable boundary.
  */
-export function buildDynamicRuntimeContext(cfg: Config, capabilities: CapabilityRegistry): string {
+export function buildDynamicRuntimeContext(
+  cfg: Config,
+  capabilities: CapabilityRegistry,
+  isAgentMode: boolean = false,
+): string {
   const sections: string[] = [];
 
   // ArcNave Capabilities (Truthfully reflecting runtime capability registry)
@@ -476,6 +480,16 @@ export function buildDynamicRuntimeContext(cfg: Config, capabilities: Capability
     'ArcNave provides a small set of powerful tools.\n',
     'Available core tool families include:\n',
   ];
+
+  if (cfg.ENABLE_TOOL_USE) {
+    const discoverableExamples = ['computation (run_python)', 'deliverables (generate_deliverable)', 'artifacts', 'and file operations'];
+    if (capabilities.isAvailable('web.search') || capabilities.isAvailable('web.fetch')) {
+      discoverableExamples.push('web research (web_search, web_fetch)');
+    }
+    capabilityLines.push(
+      `Tool Discovery:\n- search_tools: Discover policy-approved tools on-demand for ${discoverableExamples.join(', ')}. When the user requests a task requiring an execution tool not yet in your parameter declarations, invoke search_tools to discover and load its schema.\n`,
+    );
+  }
 
   if (capabilities.isAvailable('project.search')) {
     capabilityLines.push('Project knowledge:\n- search_project_files\n- read_project_file\n');
@@ -501,10 +515,12 @@ export function buildDynamicRuntimeContext(cfg: Config, capabilities: Capability
   }
 
   if (capabilities.isAvailable('skills.discover')) {
-    capabilityLines.push('Skills:\n- list_skills\n- search_skills\n- read_skill\n');
+    capabilityLines.push('Skills:\n- load_skill\n- list_skills\n- search_skills\n- read_skill\n');
   }
 
-  capabilityLines.push('Agent goal/context tools:\n- get_goal\n- update_goal\n- get_context_remaining\n');
+  if (isAgentMode && capabilities.isAvailable('agent.goal')) {
+    capabilityLines.push('Agent goal/context tools:\n- get_goal\n- update_goal\n- get_context_remaining\n');
+  }
 
   capabilityLines.push('Professional deliverable capabilities are fully supported:\n- DOCX\n- XLSX\n- PPTX\n- PDF\n');
 
@@ -528,15 +544,17 @@ export function buildDynamicRuntimeContext(cfg: Config, capabilities: Capability
     sections.push(
       `<skills>\n\n` +
         `Skills are procedural knowledge for specialized work.\n\n` +
-        `Use skills through progressive disclosure.\n\n` +
+        `Use skills through progressive disclosure via load_skill.\n\n` +
         `Do not inject every skill into every request.\n\n` +
         `When specialized work would benefit from a skill:\n` +
         `1. identify the relevant skill,\n` +
-        `2. search for it if needed,\n` +
-        `3. read the relevant SKILL.md,\n` +
-        `4. follow its applicable workflow,\n` +
+        `2. load it using load_skill,\n` +
+        `3. follow its applicable procedural workflow,\n` +
+        `4. discover tools via search_tools if needed,\n` +
         `5. use ArcNave's actual tools to perform the work.\n\n` +
-        `Avoid re-reading a skill that is already reliably available in the current context.\n\n` +
+        `Rule for file-domain operations:\n` +
+        `Before using a domain-specific file operation (PDF, XLSX, DOCX, PPTX), load the relevant Skill (via load_skill) unless it is already loaded in this generation/session.\n\n` +
+        `Avoid reloading a skill that is already reliably available in the current context.\n\n` +
         `Use only the smallest useful set of skills.\n\n` +
         `Several skills may be used together when the task genuinely requires them.\n\n` +
         `The user's explicit instruction takes priority over skill guidance.\n\n` +
@@ -686,8 +704,12 @@ export function buildDynamicRuntimeContext(cfg: Config, capabilities: Capability
  * Backward-compatible full system prompt builder.
  * Composes the 100% static frozen behavioral prompt with the dynamic runtime capability context.
  */
-export function buildBaseSystemPrompt(cfg: Config, capabilities: CapabilityRegistry): string {
-  const dynamic = buildDynamicRuntimeContext(cfg, capabilities);
+export function buildBaseSystemPrompt(
+  cfg: Config,
+  capabilities: CapabilityRegistry,
+  isAgentMode: boolean = false,
+): string {
+  const dynamic = buildDynamicRuntimeContext(cfg, capabilities, isAgentMode);
   return dynamic
     ? `${STATIC_BASE_SYSTEM_PROMPT_V1}\n\n${dynamic}`
     : STATIC_BASE_SYSTEM_PROMPT_V1;

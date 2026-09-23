@@ -151,4 +151,85 @@ describe('DeliverableToolExecutor', () => {
     expect(result.ok).toBe(false);
     expect((result.content[0] as any).text).toContain('requires structured parsing upstream');
   });
+
+  it('generates an XLSX deliverable from typed StructuredWorkbook input', async () => {
+    const onCard = vi.fn();
+    const executor = new DeliverableToolExecutor(
+      mockStorage,
+      mockDb,
+      'user-1',
+      'chat-1',
+      'msg-1',
+      onCard,
+    );
+
+    const result = await executor.execute(
+      {
+        id: 'call-structured-wb',
+        name: 'generate_deliverable',
+        input: {
+          format: 'xlsx',
+          title: 'Structured_Ledger',
+          workbook: {
+            sheets: [
+              {
+                name: 'Ledger',
+                columns: [
+                  { key: 'date', label: 'Date', type: 'date' },
+                  { key: 'amount', label: 'Amount', type: 'number', format: '$#,##0.00' },
+                ],
+                rows: [
+                  {
+                    cells: {
+                      date: { value: { type: 'date', value: '2026-09-23' } },
+                      amount: { value: { type: 'number', value: 2500 } },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          sourceProfile: {
+            attachmentIds: ['att-source-1'],
+            sourceType: 'pdf',
+            mimeTypes: ['application/pdf'],
+            unitsProcessed: { pages: 1, rows: 1 },
+          },
+        },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(mockStorage.put).toHaveBeenCalled();
+    const data = (result.content[1] as any).data;
+    expect(data).toHaveProperty('sourceProfile');
+    expect(data.sourceProfile.sourceType).toBe('pdf');
+  });
+
+  it('rejects raw binary files passed directly as content', async () => {
+    const executor = new DeliverableToolExecutor(
+      mockStorage,
+      mockDb,
+      'user-1',
+      'chat-1',
+      'msg-1',
+    );
+
+    const result = await executor.execute(
+      {
+        id: 'call-raw-binary-content',
+        name: 'generate_deliverable',
+        input: {
+          format: 'xlsx',
+          title: 'Corrupt',
+          content: '%PDF-1.4 binary content stream ...',
+        },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect((result.content[0] as any).text).toContain('raw binary data cannot be passed directly as content');
+  });
 });

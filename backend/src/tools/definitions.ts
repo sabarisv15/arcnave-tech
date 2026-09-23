@@ -80,13 +80,21 @@ export const RUN_PYTHON: ToolDefinition = {
     'Runs Python code in an isolated, single-use sandbox with outbound network access but no ' +
     "access to this project's files or any other tool's data. Use it for computation — " +
     'arithmetic, data transformation, verifying a calculation — not for anything that needs ' +
-    'project context; combine with search_project_files/read_project_file first if the code ' +
-    'needs data from the project. Output is captured stdout/stderr, truncated if large. The ' +
-    'sandbox has no persisted state between calls — each call starts fresh.',
+    'project context. If the code generates deliverable files (e.g. charts, spreadsheets, reports, data files), ' +
+    'save them to the "output/" directory and explicitly declare their exact filenames in "expected_outputs". ' +
+    'Only declared output files will be authorized and uploaded from the sandbox; undeclared files are rejected. ' +
+    'Output is captured stdout/stderr, truncated if large. The sandbox has no persisted state between calls — each call starts fresh.',
   inputSchema: {
     type: 'object',
     properties: {
       code: { type: 'string', description: 'Python source to execute.' },
+      expected_outputs: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Optional list of output filenames expected to be written to "output/" (e.g. ["sales_chart.png", "summary.csv"]). ' +
+          'Only declared filenames will be authorized and uploaded from the sandbox.',
+      },
     },
     required: ['code'],
   },
@@ -213,8 +221,8 @@ export const LOAD_SKILL: ToolDefinition = {
   description:
     'Internal progressive disclosure mechanism. Loads specialized instructions (SKILL.md) and ' +
     'optional resource files (e.g. templates, reference docs, scripts) for a known skill into context. ' +
-    'Call this when a task involves specialized domain work (e.g. "pdf", "xlsx", "docx", "pptx", "data-analysis") ' +
-    'to receive detailed domain guidance before selecting execution tools.',
+    'Call this before using domain-specific file operations (e.g. "pdf", "xlsx", "docx", "pptx", "data-analysis") ' +
+    'to receive detailed domain guidance before discovering and selecting execution tools, unless already loaded in this session.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -233,7 +241,6 @@ export const LOAD_SKILL: ToolDefinition = {
 };
 
 export const SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
-  LOAD_SKILL,
   LIST_SKILLS,
   SEARCH_SKILLS,
   READ_SKILL,
@@ -622,6 +629,18 @@ export const GENERATE_DELIVERABLE: ToolDefinition = {
         type: 'string',
         description: 'Optional transformation instructions when converting from a source attachment (e.g. "Extract all statement transactions into columns: Date, Description, Amount, Balance").',
       },
+      workbook: {
+        type: 'object',
+        description: 'Optional structured workbook object containing typed sheets, columns, and rows (for format-native XLSX generation).',
+      },
+      artifactRef: {
+        type: 'string',
+        description: 'Optional opaque workspace intermediate artifact reference (e.g. "artifact_8f27c4...") containing prepared structured JSON.',
+      },
+      sourceProfile: {
+        type: 'object',
+        description: 'Optional source profile metadata describing processed units, structure, and warnings.',
+      },
       saveAsArtifact: {
         type: 'boolean',
         description: 'Set to true ONLY if the user explicitly commanded saving this deliverable as a workspace artifact. Defaults to false.',
@@ -633,5 +652,383 @@ export const GENERATE_DELIVERABLE: ToolDefinition = {
 };
 
 export const DELIVERABLE_TOOL_DEFINITIONS: ToolDefinition[] = [GENERATE_DELIVERABLE];
+
+/* -------------------------------------------------------------------------- File Operations (Batch 4) */
+
+export const INSPECT_PDF: ToolDefinition = {
+  name: 'inspectPdf',
+  description:
+    'Inspects a PDF document to extract structural properties, total page count, embedded title, and author metadata. ' +
+    'Returns structured JSON metadata. Does not generate new deliverable files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded PDF file attachment to inspect.',
+      },
+    },
+    required: ['fileId'],
+    additionalProperties: false,
+  },
+};
+
+export const MERGE_PDF_FILES: ToolDefinition = {
+  name: 'mergePdfFiles',
+  description:
+    'Deterministically merges two or more PDF files into a single consolidated PDF document. ' +
+    'Preserves the exact input order of files, all pages, vector fonts, and layout styling intact. ' +
+    'Requires at least 2 input files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileIds: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 2,
+        description: 'Array of PDF attachment UUIDs to merge in sequential order (minimum 2 files).',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the merged PDF (e.g. "consolidated_reports.pdf").',
+      },
+    },
+    required: ['fileIds'],
+    additionalProperties: false,
+  },
+};
+
+export const SPLIT_PDF_FILE: ToolDefinition = {
+  name: 'splitPdfFile',
+  description:
+    'Extracts specific page ranges from an uploaded PDF document into one or more separate PDF files. ' +
+    'Each range is specified as a 1-based [startPage, endPage] pair (e.g. [[1, 3], [5, 5]]).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded PDF file attachment to split.',
+      },
+      pageRanges: {
+        type: 'array',
+        items: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 2,
+          maxItems: 2,
+        },
+        minItems: 1,
+        description: 'List of 1-based [startPage, endPage] pairs to extract (e.g. [[1, 5], [8, 10]]).',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional base filename for the extracted PDF files (e.g. "extracted_pages.pdf").',
+      },
+    },
+    required: ['fileId', 'pageRanges'],
+    additionalProperties: false,
+  },
+};
+
+export const INSPECT_SPREADSHEET: ToolDefinition = {
+  name: 'inspectSpreadsheet',
+  description:
+    'Inspects an Excel spreadsheet (.xlsx) to discover active worksheet names, total row counts, ' +
+    'and sample cell data types (number, string, formula, date, boolean). Returns structured JSON without generating output files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .xlsx spreadsheet attachment to inspect.',
+      },
+    },
+    required: ['fileId'],
+    additionalProperties: false,
+  },
+};
+
+export const EDIT_SPREADSHEET_CELLS: ToolDefinition = {
+  name: 'editSpreadsheetCells',
+  description:
+    'Performs targeted cell updates in an existing Excel (.xlsx) workbook. ' +
+    'Preserves all untouched sheets, formulas, cell styles, fonts, and dimensions intact without rebuilding the spreadsheet. ' +
+    'Supports typed values: number, formula (e.g. "=SUM(B2:B10)"), date, boolean, or string.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .xlsx workbook attachment to modify.',
+      },
+      edits: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sheet: {
+              type: 'string',
+              description: 'The worksheet name containing the cell (e.g. "Summary", "Q3_Data").',
+            },
+            cell: {
+              type: 'string',
+              description: 'The cell coordinate address in standard A1 notation (e.g. "B8", "D14").',
+            },
+            value: {
+              description: 'The new value to write to the cell. For formulas, provide the formula string (e.g. "=B2*C2").',
+            },
+            type: {
+              type: 'string',
+              enum: ['string', 'number', 'boolean', 'date', 'formula'],
+              description: 'Optional explicit value type. Must be "formula" for calculated derivations.',
+            },
+            format: {
+              type: 'string',
+              description: 'Optional Excel number format string (e.g. "$#,##0.00", "0.0%", "YYYY-MM-DD").',
+            },
+          },
+          required: ['sheet', 'cell', 'value'],
+          additionalProperties: false,
+        },
+        minItems: 1,
+        description: 'List of targeted cell modifications to apply.',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the modified spreadsheet (e.g. "updated_financials.xlsx").',
+      },
+    },
+    required: ['fileId', 'edits'],
+    additionalProperties: false,
+  },
+};
+
+export const COMBINE_WORKBOOKS: ToolDefinition = {
+  name: 'combineWorkbooks',
+  description:
+    'Combines sheets from two or more Excel workbooks into a single consolidated .xlsx workbook. ' +
+    'Preserves sheet order and automatically disambiguates duplicate sheet names (e.g. "Data", "Data_2"). ' +
+    'Requires at least 2 input files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileIds: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 2,
+        description: 'Array of .xlsx attachment UUIDs to combine in sequential order (minimum 2 files).',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the consolidated workbook (e.g. "consolidated_master.xlsx").',
+      },
+    },
+    required: ['fileIds'],
+    additionalProperties: false,
+  },
+};
+
+export const INSPECT_DOCX_STRUCTURE: ToolDefinition = {
+  name: 'inspectDocxStructure',
+  description:
+    'Inspects a Word document (.docx) to extract paragraph counts, table counts, and detected section headings. ' +
+    'Returns structured JSON metadata without modifying or generating files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .docx document attachment to inspect.',
+      },
+    },
+    required: ['fileId'],
+    additionalProperties: false,
+  },
+};
+
+export const EDIT_DOCX_CONTENT: ToolDefinition = {
+  name: 'editDocxContent',
+  description:
+    'Performs targeted search-and-replace text modifications inside an existing Word document (.docx). ' +
+    'Preserves the entire existing OOXML package structure, styles, headers, footers, margins, and embedded media intact. ' +
+    'Never rebuilds a document from scratch when targeted edits are requested.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .docx document attachment to edit.',
+      },
+      replacements: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            search: {
+              type: 'string',
+              description: 'Exact text string to find.',
+            },
+            replace: {
+              type: 'string',
+              description: 'Replacement text to insert.',
+            },
+          },
+          required: ['search', 'replace'],
+          additionalProperties: false,
+        },
+        minItems: 1,
+        description: 'List of search-and-replace text pairs.',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the edited Word document (e.g. "modified_contract.docx").',
+      },
+    },
+    required: ['fileId', 'replacements'],
+    additionalProperties: false,
+  },
+};
+
+export const APPEND_DOCX_SECTION: ToolDefinition = {
+  name: 'appendDocxSection',
+  description:
+    'Appends a new titled section and paragraphs to an existing Word document (.docx). ' +
+    'Appends content before the end of the body without disturbing prior document sections or styles.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .docx document attachment to append to.',
+      },
+      heading: {
+        type: 'string',
+        description: 'Heading title for the new section (e.g. "Addendum A: Terms of Service").',
+      },
+      paragraphs: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        description: 'Array of paragraph text strings to append under the new section.',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the updated document (e.g. "agreement_appended.docx").',
+      },
+    },
+    required: ['fileId', 'heading', 'paragraphs'],
+    additionalProperties: false,
+  },
+};
+
+export const INSPECT_PPTX_STRUCTURE: ToolDefinition = {
+  name: 'inspectPptxStructure',
+  description:
+    'Inspects a PowerPoint presentation (.pptx) to extract total slide count and slide title strings. ' +
+    'Returns structured JSON metadata without modifying or generating files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .pptx presentation attachment to inspect.',
+      },
+    },
+    required: ['fileId'],
+    additionalProperties: false,
+  },
+};
+
+export const REORDER_PPTX_SLIDES: ToolDefinition = {
+  name: 'reorderPptxSlides',
+  description:
+    'Reorders slides in an existing PowerPoint presentation (.pptx) by adjusting slide list sequencing in presentation.xml. ' +
+    'Preserves all underlying slide layouts, media, master slides, themes, and animations intact without re-encoding slide XMLs.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .pptx presentation attachment to reorder.',
+      },
+      newOrder: {
+        type: 'array',
+        items: { type: 'integer' },
+        minItems: 1,
+        description: 'Array of 1-based slide indices representing the desired sequence (e.g. [2, 1, 3, 4]).',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the reordered presentation (e.g. "reordered_deck.pptx").',
+      },
+    },
+    required: ['fileId', 'newOrder'],
+    additionalProperties: false,
+  },
+};
+
+export const EDIT_PPTX_SLIDE_TEXT: ToolDefinition = {
+  name: 'editPptxSlideText',
+  description:
+    'Performs targeted text replacements on a specific slide in an existing PowerPoint presentation (.pptx). ' +
+    'Preserves master layouts, themes, animations, vector shapes, and all other slides intact.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'The UUID of the uploaded .pptx presentation attachment to edit.',
+      },
+      slideIndex: {
+        type: 'integer',
+        minimum: 1,
+        description: '1-based index of the slide to edit (e.g. 1 for first slide, 2 for second slide).',
+      },
+      replacements: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            search: {
+              type: 'string',
+              description: 'Exact text string to find on the specified slide.',
+            },
+            replace: {
+              type: 'string',
+              description: 'Replacement text to insert.',
+            },
+          },
+          required: ['search', 'replace'],
+          additionalProperties: false,
+        },
+        minItems: 1,
+        description: 'List of search-and-replace text pairs for the specified slide.',
+      },
+      outputFilename: {
+        type: 'string',
+        description: 'Optional output filename for the updated presentation (e.g. "deck_updated.pptx").',
+      },
+    },
+    required: ['fileId', 'slideIndex', 'replacements'],
+    additionalProperties: false,
+  },
+};
+
+export const FILE_OPERATION_TOOL_DEFINITIONS: ToolDefinition[] = [
+  INSPECT_PDF,
+  MERGE_PDF_FILES,
+  SPLIT_PDF_FILE,
+  INSPECT_SPREADSHEET,
+  EDIT_SPREADSHEET_CELLS,
+  COMBINE_WORKBOOKS,
+  INSPECT_DOCX_STRUCTURE,
+  EDIT_DOCX_CONTENT,
+  APPEND_DOCX_SECTION,
+  INSPECT_PPTX_STRUCTURE,
+  REORDER_PPTX_SLIDES,
+  EDIT_PPTX_SLIDE_TEXT,
+];
+
 
 

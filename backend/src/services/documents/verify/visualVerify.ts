@@ -1,10 +1,13 @@
 /**
- * Level 2: Surface Render & Structural/Defect Verification.
+ * Deterministic Layout Heuristics & Structural Property Verification.
  *
- * Inspects rendered deliverable surfaces for structural and visual defects:
- * 1. PDF: Structural & Text-Density Verification (blank page detection, page count, non-empty text extraction via pdf-parse; note: does NOT perform full raster pixel rendering).
+ * Inspects deliverable structures and style properties for layout defects:
+ * 1. PDF: Structural & Text-Density Verification (blank page detection, page count, non-empty text extraction via pdf-parse).
  * 2. PPTX: Severe Text Clipping & Canvas Boundary Overflow (EMU coordinate boundary checks via OOXML inspection).
  * 3. PPTX/DOCX: Missing Media Placeholders (0-byte or corrupt image streams).
+ *
+ * NOTE: These are deterministic structural/style-property heuristics. Real rendered visual inspection
+ * (page rasterization -> vision model inspection) is handled separately in `src/services/qa/visualQaEngine.ts`.
  */
 import JSZip from 'jszip';
 import type { ExportFormat, VerificationResult } from '../types.js';
@@ -15,7 +18,7 @@ const PPTX_MAX_Y_EMU = 6_858_000;
 /** Allowed slack (5%) for border styling before flagging boundary clipping */
 const OVERFLOW_SLACK_FACTOR = 1.05;
 
-export async function verifyRenderVisuals(
+export async function verifyLayoutHeuristics(
   format: ExportFormat,
   buffer: Buffer,
 ): Promise<VerificationResult> {
@@ -164,3 +167,7 @@ export async function verifyRenderVisuals(
     metrics,
   };
 }
+
+/** Backward-compatibility alias for verifyLayoutHeuristics */
+export const verifyRenderVisuals = verifyLayoutHeuristics;
+

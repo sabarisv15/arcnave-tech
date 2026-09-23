@@ -131,6 +131,7 @@ export type ProviderEvent =
 export interface AttachmentBlock {
   id?: string;
   filename?: string;
+  name?: string;
   mimeType: string;
   base64?: string;
   extractedText?: string | null;
@@ -177,14 +178,14 @@ export interface GenerationRequest {
  */
 export class ProviderError extends Error {
   readonly retryable: boolean;
-  readonly code: 'provider_error' | 'provider_timeout' | 'model_unavailable';
+  readonly code: 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow';
   readonly statusCode: number | undefined;
 
   constructor(
     message: string,
     options: {
       retryable?: boolean;
-      code?: 'provider_error' | 'provider_timeout' | 'model_unavailable';
+      code?: 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow';
       statusCode?: number;
     } = {},
   ) {

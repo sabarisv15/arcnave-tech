@@ -163,11 +163,15 @@ const envSchema = z.object({
    * independently toggleable. Both must be true for run_python to appear in the tool list.
    */
   ENABLE_RUN_PYTHON: bool(false),
+  /** Sandbox engine to use: 'process' (local isolated runner), 'cloud-run' (Cloud Run Job), or 'auto'. */
+  SANDBOX_ENGINE: z.enum(['cloud-run', 'process', 'auto']).default('auto'),
   /** Region for the arcnave-python-sandbox Cloud Run Job, independent of VERTEX_LOCATION/
    *  GEMINI_LOCATION (which cover only the two model APIs). See docs/decisions/0005-cloud-run-sandbox.md. */
   SANDBOX_LOCATION: z.string().default('us-central1'),
   /** Name of the Cloud Run Job resource run_python launches a fresh execution of per call. */
   SANDBOX_JOB_NAME: z.string().default('arcnave-python-sandbox'),
+  /** Dedicated GCS bucket for temporary per-run staging (runs/<runId>/input/ and runs/<runId>/output/). */
+  SANDBOX_STAGE_BUCKET: optionalStr,
   /** Raw UTF-8 byte ceiling on submitted code, enforced client-side before any network call.
    *  Cloud Run caps a single env-var value at 32,768 bytes and base64 expands by ~33%, so the
    *  real ceiling is ~24.5 KiB; this stays comfortably under that. */

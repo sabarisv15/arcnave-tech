@@ -10,11 +10,21 @@ export interface SandboxExecutionResult {
    *  more file chunks — joining would lose that structure before CodeExecutionToolExecutor
    *  decides how to bound and present it. */
   outputs: { mimeType: string; text: string }[];
+  undeclaredOutputs?: string[];
+}
+
+export interface SandboxExecutionOptions {
+  workspaceDir?: string;
+  expectedOutputs?: string[];
 }
 
 export interface SandboxClient {
   /** Runs `code` in a fresh, single-use sandbox: create reasoning engine → create sandbox →
    *  execute → delete both, in that order, always deleting even on execute failure. Callers
    *  never see the intermediate resource names. */
-  runPython(code: string, signal: AbortSignal): Promise<SandboxExecutionResult>;
+  runPython(
+    code: string,
+    signal: AbortSignal,
+    options?: SandboxExecutionOptions,
+  ): Promise<SandboxExecutionResult>;
 }

@@ -12,6 +12,7 @@ import {
   GENERATE_DELIVERABLE,
   GOAL_TOOL_DEFINITIONS,
   IMAGE_TOOL_DEFINITIONS,
+  LOAD_SKILL,
   MEMORY_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
@@ -19,6 +20,7 @@ import {
   UI_TOOL_DEFINITIONS,
   UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
+  FILE_OPERATION_TOOL_DEFINITIONS,
 } from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 
@@ -34,6 +36,8 @@ export interface ToolContext {
 
 export interface ToolRegistry {
   getAvailableTools(context: ToolContext): ToolDefinition[];
+  getInitialTools?(context: ToolContext): ToolDefinition[];
+  getPolicyCatalog?(context: ToolContext, allowedToolNames?: string[]): ToolDefinition[];
 }
 
 export class ProjectToolRegistry implements ToolRegistry {
@@ -58,12 +62,39 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly imageEnabled: boolean = false,
   ) {}
 
+  /**
+   * Returns the small initial core tool set sent in Round 0 of provider requests.
+   * Only search_tools (plus load_skill if skills enabled; plus goal tools if in AgentLoop with active goal).
+   * Heavy tools (run_python, generate_deliverable, web_search, read_uploaded_file, etc.) are NOT included.
+   */
+  getInitialTools(context: ToolContext): ToolDefinition[] {
+    if (!this.enabled) return [];
+    const tools: ToolDefinition[] = [...DISCOVERY_TOOL_DEFINITIONS];
+    if (this.skillsEnabled) {
+      tools.push(LOAD_SKILL);
+    }
+    if (this.agentLoopEnabled && context.activeGoalId) {
+      tools.push(...GOAL_TOOL_DEFINITIONS);
+    }
+    return tools;
+  }
+
+  /**
+   * Returns the complete policy-approved catalog of executable tools that can be discovered
+   * on-demand via search_tools for the current context and permissions.
+   */
+  getPolicyCatalog(context: ToolContext, allowedToolNames?: string[]): ToolDefinition[] {
+    if (!this.enabled) return [];
+    const available = [...this.getAvailableTools(context), ...FILE_OPERATION_TOOL_DEFINITIONS];
+    if (allowedToolNames) {
+      return available.filter((t) => allowedToolNames.includes(t.name));
+    }
+    return available;
+  }
+
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
     if (this.enabled) {
-      // Deferred tool discovery (search_tools) is available across all chats when tool use is on.
-      tools.push(...DISCOVERY_TOOL_DEFINITIONS);
-
       // Artifact tools (create, read, update) are available across all chats when tool use is on.
       tools.push(...ARTIFACT_TOOL_DEFINITIONS);
 
