@@ -193,7 +193,6 @@ export interface GenerateInput {
   modelAlias: string;
   projectId: string | null;
   hasAttachments: boolean;
-  attachmentText: string;
   attachmentManifest?: string;
   /** This turn's attachments, normalised once by `toAttachmentRef`. */
   attachments: AttachmentRef[];
@@ -266,12 +265,15 @@ export class GenerationService {
     // Loaded before model resolution (not its historical position) because whether this turn
     // needs a vision-capable model depends on what's carried forward, not only on what's newly
     // attached — and loadHistory has no dependency on which model gets picked.
-    const history = await this.loadHistory(
+    const { turns: history, currentUserAttachments } = await this.loadHistory(
       input.chatId,
       input.messageId,
       latestCompaction?.throughSeq,
       input.modelAlias,
     );
+    if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
+      input = { ...input, attachments: currentUserAttachments, hasAttachments: true };
+    }
 
     // --- resolve the model ------------------------------------------------
     const requiresGrounding = input.mode !== 'chat';
@@ -746,7 +748,6 @@ export class GenerationService {
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
     promptParts.push(input.prompt);
-    if (input.attachmentText) promptParts.push(input.attachmentText);
     const effectivePrompt = promptParts.join('\n\n');
 
     const request: GenerationRequest = {
@@ -1230,16 +1231,32 @@ export class GenerationService {
   }
 
   /** Prior turns, oldest first, excluding the assistant row we are about to fill. */
+  /**
+   * Prior turns only. The current user message (the row just before this assistant row) is the
+   * turn being answered: its prompt and attachments reach the provider as the current turn, so
+   * it must not also appear in history. It used to, which sent every prompt and every current
+   * attachment twice (G27).
+   */
   private async loadHistory(
     chatId: string,
     excludeMessageId: string,
     throughSeq?: number,
     modelAlias?: string,
-  ): Promise<Turn[]> {
+  ): Promise<{ turns: Turn[]; currentUserAttachments: AttachmentRef[] }> {
+    const [self] = await this.db
+      .select({ seq: messages.seq })
+      .from(messages)
+      .where(eq(messages.id, excludeMessageId))
+      .limit(1);
+    const currentUserSeq = self ? self.seq - 1 : undefined;
+
     const conditions = [
       eq(messages.chatId, chatId),
       sql`${messages.id} <> ${excludeMessageId}`,
     ];
+    if (currentUserSeq !== undefined) {
+      conditions.push(sql`${messages.seq} < ${currentUserSeq}`);
+    }
     if (throughSeq !== undefined && throughSeq > 0) {
       conditions.push(sql`${messages.seq} > ${throughSeq}`);
     }
@@ -1316,29 +1333,45 @@ export class GenerationService {
       byMessage.set(row.messageId, list);
     }
 
-    return kept.map((r): Turn => {
+    const turns = kept.map((r): Turn => {
       const atts = byMessage.get(r.id);
-      let text = r.text;
-      if (atts && atts.length > 0) {
-        const textAtts = atts
-          .filter(
-            (a) =>
-              a.mimeType !== 'application/pdf' &&
-              !a.mimeType.startsWith('image/') &&
-              Boolean(a.extractedText?.trim()),
-          )
-          .map((a) => `--- ${a.filename} ---\n${a.extractedText}`)
-          .join('\n\n');
-        if (textAtts && !text.includes(textAtts)) {
-          text = `${text}\n\n${textAtts}`;
-        }
-      }
+      // Extracted text travels once, on the attachment itself; the adapters render it (G16).
       return {
         role: r.role === 'user' ? 'user' : 'assistant',
-        text,
+        text: r.text,
         ...(atts ? { attachments: atts } : {}),
       };
     });
+
+    // The current user message's own attachments. A retry may not resend attachmentIds, and
+    // until G27 those files only reached the provider through the duplicated history copy.
+    const currentUserAttachments =
+      currentUserSeq === undefined
+        ? []
+        : (
+            await this.db
+              .select({
+                id: attachments.id,
+                filename: attachments.filename,
+                mimeType: attachments.mimeType,
+                storageKey: attachments.storageKey,
+                sizeBytes: attachments.sizeBytes,
+                extractedText: attachments.extractedText,
+              })
+              .from(attachments)
+              .innerJoin(messages, eq(attachments.messageId, messages.id))
+              .where(
+                and(
+                  eq(messages.chatId, chatId),
+                  eq(messages.seq, currentUserSeq),
+                  eq(messages.role, 'user'),
+                  eq(attachments.status, 'ready'),
+                ),
+              )
+              .orderBy(attachments.createdAt)
+          ).map(toAttachmentRef);
+
+    return { turns, currentUserAttachments };
   }
 
   /**
@@ -1564,7 +1597,6 @@ export class GenerationService {
       compactionSummary: compactionText || undefined,
       retrievedContext: retrievedContextText,
       attachmentManifest: input.attachmentManifest?.trim() || undefined,
-      attachmentText: input.attachmentText?.trim() || undefined,
       modePrompt: modeDirective,
       skillsContext,
     });

@@ -90,7 +90,6 @@ describe('Prompt Caching Subsystem', () => {
       const tools = [toolA, toolB, toolC];
       const assembly = assemblePrompt(tools, {
         attachmentManifest: 'sensitive_financial_model.xlsx',
-        attachmentText: 'REVENUE = 50000000',
         retrievedContext: 'clean context',
       });
       expect(assembly.fullSystemInstruction).not.toContain('sensitive_financial_model.xlsx');

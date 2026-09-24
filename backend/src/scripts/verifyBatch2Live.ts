@@ -150,7 +150,6 @@ async function main() {
     modelAlias: 'Gemini 3.8 Flash',
     projectId: null,
     hasAttachments: true,
-    attachmentText: 'monthly_sales.xlsx (Month, Sales: Jan 10, Feb 20, Mar 30, Apr 40)',
     attachments: [
       {
         id: uploadedAttachment!.id,
@@ -158,6 +157,7 @@ async function main() {
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         sizeBytes: xlsxBuffer.length,
         storageKey,
+        extractedText: 'monthly_sales.xlsx (Month, Sales: Jan 10, Feb 20, Mar 30, Apr 40)',
       },
     ],
     codeExecution: false,
@@ -280,7 +280,6 @@ async function main() {
     modelAlias: 'Gemini 3.8 Flash',
     projectId: null,
     hasAttachments: false,
-    attachmentText: '',
     attachments: [],
     codeExecution: false,
     signal: new AbortController().signal,

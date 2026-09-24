@@ -11,6 +11,8 @@ import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { toolCalls } from '../db/schema.js';
+import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildGeminiContents } from '../providers/gemini.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp, sleep, sseText } from '../test/harness.js';
 
@@ -826,8 +828,12 @@ describe('attachment text across turns', () => {
 
     expect(ctx.provider.seen.length - startCount).toBe(2);
     const secondRequest = ctx.provider.seen[ctx.provider.seen.length - 1]!;
-    const historyText = secondRequest.history.map((t) => t.text).join('\n');
-    expect(historyText).toContain('The refund window is 45 days for annual plans.');
+    // G16/G27: the text rides on the history turn's attachment, and each adapter renders it once.
+    const historyAttachment = secondRequest.history.flatMap((t) => t.attachments ?? []).find((a) => a.id === attachmentId);
+    expect(historyAttachment?.extractedText).toContain('The refund window is 45 days for annual plans.');
+    for (const wire of [JSON.stringify(buildAnthropicMessages(secondRequest)), JSON.stringify(buildGeminiContents(secondRequest))]) {
+      expect(wire.split('The refund window is 45 days for annual plans.').length - 1).toBe(1);
+    }
   });
 });
 

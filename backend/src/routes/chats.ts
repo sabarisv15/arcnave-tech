@@ -520,7 +520,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       try {
         // --- gather attachments: metadata + storage references for native and text paths -----
-        let attachmentText = '';
         let attachmentManifest = '';
         let turnAttachments: AttachmentRef[] = [];
         if (attachmentIds.length > 0) {
@@ -548,13 +547,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             )
             .join('\n');
 
-          const isNative = (mimeType: string): boolean =>
-            mimeType === 'application/pdf' || mimeType.startsWith('image/');
-
-          attachmentText = rows
-            .filter((r) => !isNative(r.mimeType) && r.extractedText?.trim())
-            .map((r) => `--- ${r.filename} ---\n${r.extractedText}`)
-            .join('\n\n');
 
           // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
           turnAttachments = rows.map(toAttachmentRef);
@@ -569,7 +561,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           modelAlias: model,
           projectId: chat.projectId,
           hasAttachments: attachmentIds.length > 0,
-          attachmentText,
           attachmentManifest,
           attachments: turnAttachments,
           codeExecution,
