@@ -84,17 +84,56 @@ Built-in skills: `artifact-design`, `dashboard-design`, `data-analysis`, `data-q
 `dataviz`, `docx`, `pdf`, `pptx`, `python-sandbox-patterns`, `research-deep-dive`,
 `skill-creator`, `xlsx`.
 
-## Gaps found while tracing
+## Gaps against Claude's reference architecture
 
-1. **`render_ui` is unreachable in the chat path.** `computeAllowedTools` never adds it, and the
-   policy catalog is filtered by `allowedTools`, so `search_tools` can never surface it.
-2. **Skills are advertised when `load_skill` is not sent.** On `EXPLANATION` and `ORDINARY_CHAT`
-   intents `exposedTools` is `[]`, so no tools go to the provider — but `skillsContext` still
-   tells the model to call `load_skill`.
-3. **`evaluateDeliverablePolicy` is dead.** `shouldExposeGenerateDeliverable` is imported but
-   unused; `allowDeliverable` is always true because the router always allows
-   `generate_deliverable`.
-4. **"Summarize this PDF" gets no tools.** It matches `EXPLANATION`, so `read_uploaded_file` is
-   not reachable; only inlined `attachmentText` is available.
-5. **Agent-loop routing is duplicated.** `isAgentMode` and `shouldRouteToAgentLoop` repeat the
-   same heuristic separately and can drift.
+Reference: Claude's tool-use pipeline as documented in the `claude-api` skill
+(`shared/agent-design.md`, `shared/platform-availability.md`): skill descriptions always in
+context, tool search always present with the rest deferred, one model-driven loop, parallel tool
+calls, gates decide only *allowed*. Vertex constraint: tool search is available; Agent Skills,
+code execution, web fetch and programmatic tool calling are not — so a custom skill registry and
+sandbox are correct, not gaps.
+
+Verified by running `routeTurn()` with a PDF attached and `runPythonEnabled: true`:
+"Count every transaction exactly and classify them" → `ORDINARY_CHAT`, exposed `[]`, python
+`false`; "Summarize this PDF" → `EXPLANATION`, `[]`, `false`.
+
+### Router acting as a second brain (blocks the locked flow)
+
+| # | Gap | Where |
+|---|---|---|
+| G1 | `EXPLANATION` / `ORDINARY_CHAT` return `exposedTools: []`, so the model gets no `load_skill` and no `search_tools` | `services/routing/turnRouter.ts` (EXPLANATION and default branches), `services/generation.ts` `availableTools` |
+| G2 | `run_python` is removed from the policy catalog by prompt-text regex; a non-tabular PDF never qualifies, so `search_tools` can never find it | `tools/capabilityPolicy.ts` `evaluateRunPythonPolicy`, `turnRouter.ts` `computeAllowedTools` |
+| G3 | `render_ui` is never added to `allowedTools`, so it is undiscoverable in the chat path | `turnRouter.ts` `computeAllowedTools` |
+| G4 | Chat path and AgentLoop gate differently: chat always allows `generate_deliverable`; AgentLoop uses `shouldExposeGenerateDeliverable` and calls `shouldExposeRunPython` without MIME types. Same prompt, different tools per path | `generation.ts` vs `services/agentLoop.ts` |
+| G5 | Chat vs AgentLoop is chosen by keyword regex, and that regex is written twice (`isAgentMode`, `shouldRouteToAgentLoop`) | `generation.ts` |
+
+### Context
+
+| # | Gap | Where |
+|---|---|---|
+| G6 | `hasAttachments` is current-turn only. A follow-up about a file attached earlier gets no `read_uploaded_file` in the catalog | `routes/chats.ts` (`attachmentIds.length > 0`) |
+
+### Skills
+
+| # | Gap | Where |
+|---|---|---|
+| G7 | `<available_skills>` + "call load_skill" is always in the system prompt, even on turns where `load_skill` is not sent | `generation.ts` skillsContext |
+| G8 | `selectedSkills` is always `[]`, so the preload branch is dead; AgentLoop hard-codes one autoload by name | `turnRouter.ts`, `agentLoop.ts` |
+
+### Discovery and the loop
+
+| # | Gap | Where |
+|---|---|---|
+| G9 | Discovered tools are appended to `tools`, which renders before `system` — every discovery (and the tool-less final round) invalidates the Claude prompt cache. Claude's native tool search, available on Vertex, appends without breaking the prefix | `generation.ts` onToolDiscovered, `providers/anthropicVertex.ts` final-round `effectiveTools` |
+| G10 | One tool call per round (`disable_parallel_tool_use: true`, extras get a deferred error). Claude's guidance: splitting results trains the model to stop making parallel calls | `providers/toolLoopPolicy.ts`, `anthropicVertex.ts`, `gemini.ts` |
+| G11 | `TOOL_MAX_ROUNDS=8` in chat; load_skill + search_tools + work + QA + repair each cost a round | `config.ts` |
+| G12 | A failed call is blocked from retry with identical input and the model is told to stop and answer — a transient failure cannot be retried | `anthropicVertex.ts` failedToolCalls guard |
+| G13 | No handling of `stop_reason: "refusal"` (Opus 5 / Sonnet 5 can return it); it ends as an ordinary finish — Invariant 1 | `anthropicVertex.ts` finishReason |
+
+### QA
+
+| # | Gap | Where |
+|---|---|---|
+| G14 | Visual QA never runs vision: no caller passes `visionProvider`, so it falls back to a PNG magic-header check and reports pass. The locked architecture's "vision checks layout" does not happen | `services/qa/visualQaEngine.ts`, callers in `tools/fileOperationExecutor.ts`, `tools/codeExecutionExecutor.ts` |
+
+Not audited here: provider file adapters (locked layer 4), execution runtime isolation.

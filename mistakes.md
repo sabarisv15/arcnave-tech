@@ -1183,3 +1183,7 @@ practice, not canon.
   (`GET /chats/:id`) and a live-verified frontend UI for `tool_use`/`tool_result` frames — the
   gap flagged repeatedly in `docs/checkpoints/CURRENT.md` since item 9 phase 1 shipped. **40
   entries, at the cap.**
+- **2026-09-24** — No new heading (42 entries, over the cap). While tracing the tools pipeline, called
+  `evaluateDeliverablePolicy` "dead" after grepping only `generation.ts`; `agentLoop.ts` calls it.
+  Same lesson as "Tested against the concrete class": before calling code unused, grep the whole
+  `src/` tree for every caller, not the file you happen to be reading.
