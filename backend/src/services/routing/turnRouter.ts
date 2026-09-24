@@ -1,17 +1,13 @@
 /**
- * TurnRouter: ArcNave Hard Policy Filter & Model-Driven Tool Gating Engine.
+ * TurnRouter: the policy boundary. ADR-0006.
  *
- * Implements:
- * 1. Hard Policy Filter: Evaluates capability flags, user authorization, and quotas to
- *    produce the policy-approved Allowed Tool Catalog (`allowedTools: string[]`).
- * 2. Model-Driven Progressive Gating:
- *    - Eliminates blanket-exposure rules: Attachments or keywords do NOT auto-expose
- *      or force-execute `read_uploaded_file`, `generate_deliverable`, or `run_python`.
- *    - The AI model evaluates the task first.
- *    - Domain skills are loaded progressively via internal `load_skill`.
- *    - Executable tools are discovered on-demand via `search_tools`.
- * 3. Telemetry & Intent Detection: Classifies user intent for observability and metrics.
- * 4. Runtime Debug Trace generation.
+ * It answers one question: which tools is this turn *allowed* to use. That comes from flags,
+ * permissions and the infrastructure present, never from the prompt's wording. The model
+ * decides what it needs: every turn gets the same core (`search_tools`, plus `load_skill` when
+ * skills exist) and discovers the rest from `allowedTools`.
+ *
+ * Intent detection below is telemetry only. `detectedIntent` and `pythonExposed` feed the debug
+ * trace; neither adds or removes a tool. `turnRouter.locked.test.ts` fails if that changes.
  */
 
 import type { Mode } from '../../providers/types.js';
@@ -38,6 +34,7 @@ export interface RouteTurnInput {
   hasProject: boolean;
   imageEnabled?: boolean;
   runPythonEnabled?: boolean;
+  generativeUiEnabled?: boolean;
   webEnabled?: boolean;
   memoryEnabled?: boolean;
 }
@@ -48,6 +45,7 @@ export interface TurnRoutingDecision {
   selectedSkills: string[];
   allowedTools: string[];
   exposedTools: string[];
+  /** Telemetry only: the prompt reads as computational. Does not gate `run_python`. */
   pythonExposed: boolean;
   reason: string;
 }
@@ -66,7 +64,7 @@ export interface RuntimeDebugTrace {
 /**
  * Computes the complete policy-approved tool catalog authorized for this turn.
  */
-function computeAllowedTools(input: RouteTurnInput, pythonAllowed: boolean): string[] {
+function computeAllowedTools(input: RouteTurnInput): string[] {
   const allowed = new Set<string>(['search_tools']);
 
   if (input.candidateSkills.length > 0) {
@@ -122,12 +120,21 @@ function computeAllowedTools(input: RouteTurnInput, pythonAllowed: boolean): str
     allowed.add('read_uploaded_file');
   }
 
-  // Code execution strictly if enabled and policy allows
-  if (input.runPythonEnabled && pythonAllowed) {
+  // Permission and infrastructure only (ENABLE_RUN_PYTHON + a sandbox client), never wording.
+  if (input.runPythonEnabled) {
     allowed.add('run_python');
   }
 
+  if (input.generativeUiEnabled) {
+    allowed.add('render_ui');
+  }
+
   return Array.from(allowed);
+}
+
+/** The tools every turn starts with, whatever its intent (ADR-0006). */
+function coreTools(input: RouteTurnInput): string[] {
+  return input.candidateSkills.length > 0 ? ['search_tools', 'load_skill'] : ['search_tools'];
 }
 
 export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
@@ -143,7 +150,8 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
   });
   const pythonAllowed = Boolean(input.runPythonEnabled && pythonDecision.allowed);
 
-  const allowedTools = computeAllowedTools(input, pythonAllowed);
+  const allowedTools = computeAllowedTools(input);
+  const exposedTools = coreTools(input);
 
   // 1. Image Generation Intent
   const isImageRequest =
@@ -163,7 +171,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools'],
+      exposedTools,
       pythonExposed: false,
       reason: 'User requested image creation or generation. Allowed catalog includes generate_image.',
     };
@@ -184,9 +192,9 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: [],
+      exposedTools,
       pythonExposed: false,
-      reason: 'Explanatory and conceptual query. No tools required; Python hidden.',
+      reason: 'Explanatory or conceptual query (telemetry). Model decides whether to use tools.',
     };
   }
 
@@ -214,7 +222,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [], // Model progressively loads skills via load_skill
       allowedTools,
-      exposedTools: ['search_tools'], // Model discovers tools on-demand via search_tools
+      exposedTools,
       pythonExposed: false,
       reason: 'File conversion intent detected. Tools placed in policy catalog; model evaluates task first.',
     };
@@ -227,9 +235,9 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools'],
+      exposedTools,
       pythonExposed: true,
-      reason: `Computation requested: ${pythonDecision.reason}. Exposing run_python in allowed catalog.`,
+      reason: `Computation requested (telemetry): ${pythonDecision.reason}.`,
     };
   }
 
@@ -244,7 +252,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools'],
+      exposedTools,
       pythonExposed: false,
       reason: 'File operation intent detected. Tools placed in policy catalog; model evaluates task first.',
     };
@@ -261,7 +269,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools'],
+      exposedTools,
       pythonExposed: false,
       reason: 'Deliverable creation intent detected. Tools placed in catalog; model evaluates task first.',
     };
@@ -274,7 +282,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools'],
+      exposedTools,
       pythonExposed: false,
       reason: 'Research or search mode active. Exposing web search tools in catalog discovery.',
     };
@@ -287,7 +295,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
       candidateSkills: candidateSkillNames,
       selectedSkills: [],
       allowedTools,
-      exposedTools: ['search_tools'],
+      exposedTools,
       pythonExposed: false,
       reason: 'Project knowledge search requested. Exposing project search tools in catalog.',
     };
@@ -299,8 +307,8 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
     candidateSkills: candidateSkillNames,
     selectedSkills: [],
     allowedTools,
-    exposedTools: [],
+    exposedTools,
     pythonExposed: false,
-    reason: 'Ordinary chat or general inquiry. No tools required; Python hidden.',
+    reason: 'Ordinary chat or general inquiry (telemetry). Model decides whether to use tools.',
   };
 }

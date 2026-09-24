@@ -1187,3 +1187,9 @@ practice, not canon.
   `evaluateDeliverablePolicy` "dead" after grepping only `generation.ts`; `agentLoop.ts` calls it.
   Same lesson as "Tested against the concrete class": before calling code unused, grep the whole
   `src/` tree for every caller, not the file you happen to be reading.
+- **2026-09-24** — No new heading (over the cap). Said "Phases 1 + 2 done → the bank-statement
+  acceptance test passes" when the audit had already shown there is no row-extraction capability
+  for scanned PDFs. The review caught it. Routing and attachment fixes only let the model
+  *reach* tools; they create no capability. Before promising an end-to-end result, trace every
+  step of it to code that exists: here, scanned PDF → rendered pages → rows → count. Verify: each
+  step in an acceptance test names the file that does it.

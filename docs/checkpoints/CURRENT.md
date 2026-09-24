@@ -1,6 +1,16 @@
 # ArcNave — current checkpoint
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-24
+**2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The
+running pipeline was audited against the locked architecture and Claude's tool-use pipeline:
+26 gaps are listed in [`docs/tools-skills-architecture.md`](../tools-skills-architecture.md),
+and the fix plan is [`2026-09-24-tools-pipeline-gap-fixes.md`](../superpowers/plans/2026-09-24-tools-pipeline-gap-fixes.md).
+ADR-0006 makes the router a policy boundary only. ADR-0007 decides the sandbox has no general
+egress; that decision is not implemented yet. Phase 1 (G1, G2, G3, G7) is fixed: every
+tool-enabled turn gets `search_tools` + `load_skill`; `run_python` is gated by permission
+only; `render_ui` is discoverable; skills are advertised only when `load_skill` is sent. Full
+suite 704/704. Next: Phase 2 (attachment continuity, including G26, the `att.name`/`filename`
+bug that leaves the sandbox `input/` empty).
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,

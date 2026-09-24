@@ -67,7 +67,7 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     expect(geminiParts[0]?.inlineData?.mimeType).toBe('application/pdf');
     expect(geminiParts[1]?.text).toContain('Please provide a comprehensive summary');
 
-    // 3. Routing decision: purely explanatory task, zero tools force-exposed
+    // 3. Routing decision: explanatory intent is telemetry; only the core is exposed, nothing forced
     const routing = routeTurn({
       prompt: request.prompt,
       mode: 'chat',
@@ -77,7 +77,8 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
       hasProject: false,
     });
     expect(routing.detectedIntent).toBe('EXPLANATION');
-    expect(routing.exposedTools).toEqual([]);
+    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
+    expect(routing.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(routing.pythonExposed).toBe(false);
   });
 
@@ -246,7 +247,8 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     });
 
     expect(decision.detectedIntent).toBe('EXPLANATION');
-    expect(decision.exposedTools).toEqual([]);
+    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -306,7 +308,8 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
       hasProject: false,
     });
     expect(routing.detectedIntent).toBe('EXPLANATION');
-    expect(routing.exposedTools).toEqual([]);
+    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
+    expect(routing.exposedTools).toEqual(['search_tools', 'load_skill']);
   });
 
   // Scenario 8: Generate Image

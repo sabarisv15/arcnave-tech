@@ -348,7 +348,8 @@ export class GenerationService {
       }
     }
 
-    const candidateSkillSummaries = this.skills ? this.skills.listSkills() : [];
+    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
+    const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
     const routingDecision = routeTurn({
       prompt: input.prompt,
       mode: input.mode,
@@ -359,6 +360,7 @@ export class GenerationService {
       hasProject: project !== null,
       imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
       runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
+      generativeUiEnabled: Boolean(this.cfg.ENABLE_GENERATIVE_UI),
       webEnabled: Boolean(this.cfg.ENABLE_WEB),
       memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
     });
@@ -402,7 +404,6 @@ export class GenerationService {
 
     // --- resolve available tools -------------------------------------------
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
@@ -417,8 +418,8 @@ export class GenerationService {
       generativeUiEnabled,
       imageEnabled,
     );
-    const allowPython =
-      routingDecision.pythonExposed && routingDecision.allowedTools.includes('run_python');
+    // ADR-0006: permission alone decides. `pythonExposed` is telemetry and gates nothing.
+    const allowPython = routingDecision.allowedTools.includes('run_python');
     const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
     const toolContext = {
       userId: input.userId,
@@ -438,16 +439,14 @@ export class GenerationService {
       ? toolRegistry.getInitialTools(toolContext)
       : [];
 
-    const availableTools =
-      routingDecision.exposedTools.length > 0
-        ? initialTools.filter(
-            (t) =>
-              t.name === 'search_tools' ||
-              (skillsEnabled && t.name === 'load_skill') ||
-              routingDecision.exposedTools.includes(t.name),
-          )
-        : [];
+    const availableTools = initialTools.filter((t) => routingDecision.exposedTools.includes(t.name));
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+
+    // Never advertise skills the model has no way to load (Invariant 1). This holds when tool use
+    // is off: the registry then sends no tools at all, `load_skill` included.
+    if (!activeToolNames.has('load_skill')) {
+      skillsContext = undefined;
+    }
 
     const isAgentMode =
       Boolean(this.cfg.ENABLE_AGENT_LOOP) &&

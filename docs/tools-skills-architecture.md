@@ -101,9 +101,9 @@ Verified by running `routeTurn()` with a PDF attached and `runPythonEnabled: tru
 
 | # | Gap | Where |
 |---|---|---|
-| G1 | `EXPLANATION` / `ORDINARY_CHAT` return `exposedTools: []`, so the model gets no `load_skill` and no `search_tools` | `services/routing/turnRouter.ts` (EXPLANATION and default branches), `services/generation.ts` `availableTools` |
-| G2 | `run_python` is removed from the policy catalog by prompt-text regex; a non-tabular PDF never qualifies, so `search_tools` can never find it | `tools/capabilityPolicy.ts` `evaluateRunPythonPolicy`, `turnRouter.ts` `computeAllowedTools` |
-| G3 | `render_ui` is never added to `allowedTools`, so it is undiscoverable in the chat path | `turnRouter.ts` `computeAllowedTools` |
+| G1 ✅ Phase 1 | `EXPLANATION` / `ORDINARY_CHAT` return `exposedTools: []`, so the model gets no `load_skill` and no `search_tools` | `services/routing/turnRouter.ts` (EXPLANATION and default branches), `services/generation.ts` `availableTools` |
+| G2 ✅ Phase 1 | `run_python` is removed from the policy catalog by prompt-text regex; a non-tabular PDF never qualifies, so `search_tools` can never find it | `tools/capabilityPolicy.ts` `evaluateRunPythonPolicy`, `turnRouter.ts` `computeAllowedTools` |
+| G3 ✅ Phase 1 | `render_ui` is never added to `allowedTools`, so it is undiscoverable in the chat path | `turnRouter.ts` `computeAllowedTools` |
 | G4 | Chat path and AgentLoop gate differently: chat always allows `generate_deliverable`; AgentLoop uses `shouldExposeGenerateDeliverable` and calls `shouldExposeRunPython` without MIME types. Same prompt, different tools per path | `generation.ts` vs `services/agentLoop.ts` |
 | G5 | Chat vs AgentLoop is chosen by keyword regex, and that regex is written twice (`isAgentMode`, `shouldRouteToAgentLoop`) | `generation.ts` |
 
@@ -117,7 +117,7 @@ Verified by running `routeTurn()` with a PDF attached and `runPythonEnabled: tru
 
 | # | Gap | Where |
 |---|---|---|
-| G7 | `<available_skills>` + "call load_skill" is always in the system prompt, even on turns where `load_skill` is not sent | `generation.ts` skillsContext |
+| G7 ✅ Phase 1 | `<available_skills>` + "call load_skill" is always in the system prompt, even on turns where `load_skill` is not sent | `generation.ts` skillsContext |
 | G8 | `selectedSkills` is always `[]`, so the preload branch is dead; AgentLoop hard-codes one autoload by name | `turnRouter.ts`, `agentLoop.ts` |
 
 ### Discovery and the loop

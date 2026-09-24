@@ -1,8 +1,7 @@
 /**
  * ADR-0006: the router is a policy boundary only. These cases encode the locked architecture.
- * The ones marked `it.fails` describe behaviour the router does not have yet. Phase 1 of
- * docs/superpowers/plans/2026-09-24-tools-pipeline-gap-fixes.md turns them into plain `it`.
- * If one starts passing before that, vitest reports it, which is how the fix is proven.
+ * They were `it.fails` in Phase 0 (proving the bug) and became plain `it` with the Phase 1 fix
+ * in docs/superpowers/plans/2026-09-24-tools-pipeline-gap-fixes.md.
  */
 import { describe, expect, it } from 'vitest';
 import { routeTurn, type RouteTurnInput } from './turnRouter.js';
@@ -34,14 +33,14 @@ describe('routeTurn — ADR-0006 locked architecture', () => {
     'hi',
   ];
   for (const prompt of prompts) {
-    it.fails(`"${prompt}" exposes search_tools and load_skill`, () => {
+    it(`"${prompt}" exposes search_tools and load_skill`, () => {
       const decision = routeTurn(withPdf(prompt));
       expect(decision.exposedTools).toEqual(expect.arrayContaining(['search_tools', 'load_skill']));
     });
   }
 
   // G2: permission, not wording, decides whether run_python is in the catalog.
-  it.fails('bank-statement PDF prompt has run_python in the allowed catalog when the sandbox is enabled', () => {
+  it('bank-statement PDF prompt has run_python in the allowed catalog when the sandbox is enabled', () => {
     const decision = routeTurn(withPdf('Count every transaction exactly and classify them'));
     expect(decision.allowedTools).toContain('run_python');
   });
@@ -52,6 +51,23 @@ describe('routeTurn — ADR-0006 locked architecture', () => {
       withPdf('run this python script with pandas', { runPythonEnabled: false }),
     );
     expect(decision.allowedTools).not.toContain('run_python');
+  });
+
+  // G3: render_ui is discoverable whenever generative UI is enabled.
+  it('render_ui is in the allowed catalog when generative UI is enabled, and only then', () => {
+    expect(routeTurn(withPdf('hi', { generativeUiEnabled: true })).allowedTools).toContain('render_ui');
+    expect(routeTurn(withPdf('hi')).allowedTools).not.toContain('render_ui');
+  });
+
+  it('without skills the core is search_tools alone', () => {
+    expect(routeTurn(withPdf('hi', { candidateSkills: [] })).exposedTools).toEqual(['search_tools']);
+  });
+
+  it('intent stays as telemetry: classification still happens but gates nothing', () => {
+    const decision = routeTurn(withPdf('explain Monte Carlo simulation'));
+    expect(decision.detectedIntent).toBe('EXPLANATION');
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.allowedTools).toContain('run_python');
   });
 
   it('load_skill is not allowed when there are no skills to load', () => {

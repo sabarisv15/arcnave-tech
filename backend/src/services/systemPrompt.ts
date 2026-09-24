@@ -488,6 +488,11 @@ export function buildDynamicRuntimeContext(
     }
     capabilityLines.push(
       `Tool Discovery:\n- search_tools: Discover policy-approved tools on-demand for ${discoverableExamples.join(', ')}. When the user requests a task requiring an execution tool not yet in your parameter declarations, invoke search_tools to discover and load its schema.\n`,
+      // ADR-0006: the core is always declared; nothing else is until search_tools discovers it.
+      'Declared on every turn: search_tools' +
+        (capabilities.isAvailable('skills.discover') ? ' and load_skill' : '') +
+        '. The other tools named below are discoverable, not declared: find them with search_tools before calling them.\n' +
+        'Decide what the task needs. When a direct answer is enough, answer directly without tools.\n',
     );
   }
 
@@ -514,7 +519,7 @@ export function buildDynamicRuntimeContext(
     capabilityLines.push('Artifacts:\n- create_artifact\n- read_artifact\n- update_artifact\n');
   }
 
-  if (capabilities.isAvailable('skills.discover')) {
+  if (cfg.ENABLE_TOOL_USE && capabilities.isAvailable('skills.discover')) {
     capabilityLines.push('Skills:\n- load_skill\n- list_skills\n- search_skills\n- read_skill\n');
   }
 
@@ -522,9 +527,11 @@ export function buildDynamicRuntimeContext(
     capabilityLines.push('Agent goal/context tools:\n- get_goal\n- update_goal\n- get_context_remaining\n');
   }
 
-  capabilityLines.push('Professional deliverable capabilities are fully supported:\n- DOCX\n- XLSX\n- PPTX\n- PDF\n');
+  if (cfg.ENABLE_TOOL_USE) {
+    capabilityLines.push('Professional deliverable capabilities are fully supported:\n- DOCX\n- XLSX\n- PPTX\n- PDF\n');
+  }
 
-  if (capabilities.isAvailable('skills.discover')) {
+  if (cfg.ENABLE_TOOL_USE && capabilities.isAvailable('skills.discover')) {
     capabilityLines.push(
       'ArcNave skills include:\n' +
         '- docx\n' +
@@ -539,8 +546,8 @@ export function buildDynamicRuntimeContext(
   );
   sections.push(capabilityLines.join('\n'));
 
-  // Skills Section (when enabled)
-  if (capabilities.isAvailable('skills.discover')) {
+  // Skills Section (when enabled). Without tool use there is no load_skill to follow it with.
+  if (cfg.ENABLE_TOOL_USE && capabilities.isAvailable('skills.discover')) {
     sections.push(
       `<skills>\n\n` +
         `Skills are procedural knowledge for specialized work.\n\n` +
