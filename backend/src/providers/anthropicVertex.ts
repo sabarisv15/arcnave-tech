@@ -346,6 +346,10 @@ export class AnthropicVertexProvider implements Provider {
         const final = await stream.finalMessage();
         usage = merge(usage, usageFrom(final.usage as AnthropicUsage));
         if (final.stop_reason) finishReason = String(final.stop_reason);
+        if (final.stop_reason === 'refusal') {
+          const details = final.stop_details ?? null;
+          yield { type: 'refusal', category: details?.category ?? null, explanation: details?.explanation ?? null };
+        }
         for (const block of final.content ?? []) searchBlocks.push(...collectSearchResults(block));
 
         const toolUseBlocks = (final.content ?? []).filter(

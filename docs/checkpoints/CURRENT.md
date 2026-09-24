@@ -19,6 +19,20 @@ also sent as history, so every prompt and attachment went twice. Backend 734/734
 48/48. Phase 2 continues files; it adds no extraction capability. Scanned-table extraction
 and the bank-statement acceptance test are Phase 3. `docs/openapi.json` is stale from earlier
 work (memory routes, a `download` query param) and not regenerated in this change.
+**Phase 3 (exact document intelligence) done the same day, local only.** Table rows are
+extracted from scanned PDFs generically: pdftoppm renders each page in the sandbox (trusted
+CLI, no Python needed), the backend asks the vision provider (Gemini Flash via
+`describeMedia`) for rows page by page, low-confidence rows are re-read from a 300 dpi crop,
+and a pdf skill script normalises and indexes them (`extract_scanned_table_rows`). Counts,
+sums and running-balance reconciliation come from `analyze_table_rows` (a second skill
+script), never from the model's reading. G20's permission split (`ENABLE_TRUSTED_CLI`,
+`ENABLE_SKILL_SCRIPTS`), G14 (visual QA is `passed`/`failed`/`not_checked`, overall
+`unverified` when a required visual check did not happen) and G13 (`model_refused` typed
+error) are done. Backend 754/754, frontend 48/48. **Not yet verified:** the real
+`kvbfedral.pdf` against the live vision model, and the skill-script/pdftoppm path on the
+Cloud Run sandbox (the 10 s code timeout and 512 Mi job are G23 risks for large statements).
+Production needs `ENABLE_TRUSTED_CLI=true` and `ENABLE_SKILL_SCRIPTS=true` for the tools to
+appear; neither is set anywhere yet.
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,

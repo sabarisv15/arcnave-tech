@@ -88,8 +88,12 @@ export class FakeProvider implements Provider {
     return this.codeExecutionSupported;
   }
 
+  /** Set to answer `describeMedia` per call (e.g. per page of a table extraction). */
+  mediaHandler: ((parts: AttachmentBlock[], prompt: string) => Promise<string>) | null = null;
+
   async describeMedia(parts: AttachmentBlock[], prompt: string): Promise<string> {
     this.mediaSeen.push({ parts, prompt });
+    if (this.mediaHandler) return this.mediaHandler(parts, prompt);
     return this.mediaDescription;
   }
 

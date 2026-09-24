@@ -1201,3 +1201,9 @@ practice, not canon.
   must not be there as well as what must, and count occurrences of anything that should appear
   exactly once. Verify: `officeTextOnce.integration.test.ts` counts the prompt and the attachment
   text in the Claude and Gemini wire, on the attaching turn, the next turn and a retry.
+- **2026-09-24** — No new heading (over the cap). Stored table extractions under a key I made up
+  (`extractions/<user>/<id>.json`); `ObjectStorage` rejects any key not in `generateStorageKey`'s
+  shape (`SAFE_KEY` in `services/storage.ts`), so every extraction failed with "Invalid storage
+  key". The end-to-end test caught it on its first run; a unit test with a mocked store would
+  not have. Before writing to a shared store, read its key validator, not just its interface.
+  Verify: `tableExtraction.integration.test.ts` runs against the real `LocalObjectStorage`.

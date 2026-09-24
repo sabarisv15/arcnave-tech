@@ -399,6 +399,69 @@ export const READ_UPLOADED_FILE: ToolDefinition = {
 
 export const UPLOAD_TOOL_DEFINITIONS: ToolDefinition[] = [READ_UPLOADED_FILE];
 
+/* -------------------------------------------------------------------------- Table extraction */
+
+/**
+ * Phase 3: generic exact extraction of table rows from PDF pages, scanned or digital. The
+ * description states what the tool guarantees and what it does not (vision is probabilistic;
+ * low-confidence rows and failed pages are reported, never hidden).
+ */
+export const EXTRACT_SCANNED_TABLE_ROWS: ToolDefinition = {
+  name: 'extract_scanned_table_rows',
+  description:
+    'Extracts every table row from the pages of an uploaded PDF, including scanned PDFs with no text layer, ' +
+    'as structured rows: {page, rowIndex, cells[], confidence, sourceRegion}. Use it whenever an answer needs exact ' +
+    'counts, totals or every row of a table (statements, registers, ledgers, attendance sheets, invoices), not a summary. ' +
+    'Pages are rendered and read one by one; rows read with low confidence are re-read from a high-resolution crop. ' +
+    'The result lists every page processed, failed pages, low-confidence rows, possible cross-page duplicates, and an ' +
+    'extractionId. Reading is probabilistic: report low-confidence rows and failed pages to the user, and reconcile with ' +
+    'analyze_table_rows before stating an exact figure. To re-read suspicious pages, call again with "pages" and the same ' +
+    'extractionId; those pages are re-rendered at higher resolution and replace the earlier reading.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'fileId of the uploaded PDF (from the conversation attachment list).' },
+      pages: {
+        type: 'array',
+        items: { type: 'integer' },
+        description: 'Optional 1-based page numbers. Omit to extract every page.',
+      },
+      extractionId: {
+        type: 'string',
+        description: 'Optional. An earlier extraction of the same file to add these pages to, or replace them in.',
+      },
+    },
+    required: ['fileId'],
+  },
+};
+
+export const ANALYZE_TABLE_ROWS: ToolDefinition = {
+  name: 'analyze_table_rows',
+  description:
+    'Deterministically counts, sums and reconciles the rows of an extraction from extract_scanned_table_rows. ' +
+    'You decide which column means what; this tool only computes, so every count and total it returns comes from the ' +
+    'row array. Operations: {"op":"count","name","where"?,"expected"?}, {"op":"sum","name","column","where"?,"expected"?}, ' +
+    '{"op":"running_balance","name","balanceColumn","increaseColumn"?,"decreaseColumn"?,"tolerance"?}. ' +
+    'Columns are 0-based cell indexes. "where" is a list of filters that must all hold: ' +
+    '{"column","test":"nonEmpty"|"empty"|"numeric"|"matches"|"notMatches"|"equals","value"?} ("matches" is a ' +
+    'case-insensitive regular expression). Give "expected" when the document prints its own figure (a count or total) so ' +
+    'the result says pass or fail. Failed checks list the rows and "suspiciousPages" to re-extract.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      extractionId: { type: 'string', description: 'The extractionId returned by extract_scanned_table_rows.' },
+      operations: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'The counts, sums and balance checks to run, in order.',
+      },
+    },
+    required: ['extractionId', 'operations'],
+  },
+};
+
+export const TABLE_EXTRACTION_TOOL_DEFINITIONS: ToolDefinition[] = [EXTRACT_SCANNED_TABLE_ROWS, ANALYZE_TABLE_ROWS];
+
 /* -------------------------------------------------------------------------- Web */
 
 export const WEB_SEARCH: ToolDefinition = {

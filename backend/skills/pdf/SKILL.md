@@ -1,6 +1,6 @@
 ---
 name: pdf
-version: 2.0.0
+version: 2.1.0
 description: PDF document understanding, page inspection, splitting, merging, and format-native print deliverable generation.
 category: artifact
 scope: builtin
@@ -23,6 +23,7 @@ Procedural knowledge for handling PDF documents in ArcNave: native document unde
 ## 1. When to Use This Skill
 
 - Reading, analyzing, or summarizing uploaded PDF documents, invoices, or bank statements.
+- Exact counts, totals or complete row lists from PDF tables, scanned or digital (section 3B).
 - Inspecting PDF page count and document metadata (`inspectPdf`).
 - Merging multiple PDF files into a single unified document (`mergePdfFiles`).
 - Extracting specific page ranges or splitting pages (`splitPdfFile`).
@@ -47,7 +48,37 @@ When the user asks questions or requests a summary of an uploaded PDF ("What is 
 - **No tool call is necessary.** Answer directly from native vision/understanding.
 - Do NOT invoke execution tools or Python simply to read or summarize a PDF.
 
-### B. Deterministic Structural Inspection
+### B. Exact and Exhaustive Work — Counting, Totals, "Every Row"
+Native reading is fine for a summary. It is **not** enough when the answer is a number that must
+be exact or a list that must be complete: "count every transaction", "how many rows", "total of
+the debit column", "list every entry", "classify all of them". A model reading a page image can
+skip or merge a row without noticing. For these tasks:
+
+1. Find the extraction tool with `search_tools` (e.g. "extract table rows") and call
+   `extract_scanned_table_rows(fileId)`. It works on scanned PDFs with no text layer, reads every
+   page, and returns rows `{page, rowIndex, cells, confidence}` plus an `extractionId`.
+2. Check the result before using it:
+   - `complete` must be true. If `failedPages` or `missingPages` is non-empty, call the tool
+     again for those pages with the same `extractionId`. Never answer as if they were read.
+   - `lowConfidenceRows` and `possibleDuplicates` must be looked at and mentioned to the user.
+3. Decide what each column means from `header` and the rows (date, description, debit,
+   credit, balance, name…). That understanding is yours; the counting is not.
+4. Compute every count and total with `analyze_table_rows(extractionId, operations)`. Never
+   count rows by reading them yourself. For a classification ("with a party name / without"),
+   express the rule as a `where` filter (column + test) and count with it; state the rule you
+   used.
+5. Reconcile against the document's own figures whenever it prints any:
+   - a printed count or total → pass it as `expected` on the matching `count` / `sum`;
+   - a running balance column → run `running_balance` (previous balance + credits − debits =
+     balance).
+6. If a check fails, the extraction is suspect, not the document. Re-extract the
+   `suspiciousPages` with `pages` and the same `extractionId` (they are re-read at higher
+   resolution), then analyze again. Repeat at most twice.
+7. In the answer, give the computed figures, which checks passed, and anything that stayed
+   unreconciled or low-confidence, with page numbers. If a figure could not be verified, say so;
+   do not present it as exact.
+
+### C. Deterministic Structural Inspection
 When programmatic workflows require exact page counts or metadata:
 - Use the Skill operation `inspectPdf(inputBuffer)` to obtain:
   - `pageCount`: Total page count.
@@ -131,10 +162,12 @@ No single skill owns an entire cross-format workflow. The source skill handles u
 
 - **No Magic Binary Conversion**: `generate_deliverable` is a renderer, not an arbitrary binary converter. Source attachments without extracted text must be parsed into structured markdown or `StructuredWorkbook` upstream.
 - **No In-Place PDF Text Editing**: Compiled PDF text runs cannot be edited like Word documents; use `splitPdfFile`/`mergePdfFiles` for page-level modifications.
-- **No External CLI Dependencies**: ArcNave does NOT use `qpdf`, `pdftoppm`, `Pandoc`, or `LibreOffice`. All operations rely on native `pdf-lib` and `pdfRenderer`.
+- **Page rendering for extraction** uses `pdftoppm` as a trusted CLI in the execution sandbox (no network). Page reading is done by a vision model called from the backend, so extracted rows are probabilistic until reconciled.
 
 ---
 
 ## 11. Available Resources & Scripts
 
-- No external script or template files currently exist in this skill package (`scripts = 0`, `templates = 0`). All operations run via native runtime functions.
+- `scripts/normalize_table_rows.py`: deterministic post-processing behind `extract_scanned_table_rows` (normalise cells, drop repeated header rows across pages, index rows, flag low-confidence, ragged and possibly duplicated rows).
+- `scripts/analyze_table_rows.py`: deterministic `count`, `sum` and `running_balance` behind `analyze_table_rows`.
+- Both run as trusted skill scripts in the sandbox; you call them through the tools, not directly.

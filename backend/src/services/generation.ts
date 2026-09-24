@@ -40,6 +40,7 @@ import type {
   AttachmentRef,
   GenerationRequest,
   Mode,
+  Provider,
   ProviderEvent,
   ProviderSource,
   ProviderUsage,
@@ -88,6 +89,7 @@ import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
+import { TableExtractionToolExecutor, tableExtractionAvailable } from '../tools/tableExtractionExecutor.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -233,12 +235,18 @@ export class GenerationService {
     private readonly skills?: SkillService,
     capabilities?: CapabilityRegistry,
     executionRuntime?: ExecutionRuntime,
+    /** Reads page images for table extraction (a backend call; never from the sandbox). */
+    private readonly visionProvider?: Provider,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
     this.agentLoop =
       agentLoop ??
-      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime);
+      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime, visionProvider);
+  }
+
+  private tableExtractionEnabled(): boolean {
+    return tableExtractionAvailable(this.cfg.ENABLE_TOOL_USE, this.executionRuntime, this.visionProvider, this.skills);
   }
 
   /**
@@ -357,6 +365,7 @@ export class GenerationService {
       imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
       runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
       generativeUiEnabled: Boolean(this.cfg.ENABLE_GENERATIVE_UI),
+      tableExtractionEnabled: this.tableExtractionEnabled(),
       webEnabled: Boolean(this.cfg.ENABLE_WEB),
       memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
     });
@@ -413,6 +422,7 @@ export class GenerationService {
       memoryEnabled,
       generativeUiEnabled,
       imageEnabled,
+      this.tableExtractionEnabled(),
     );
     // ADR-0006: permission alone decides. `pythonExposed` is telemetry and gates nothing.
     const allowPython = routingDecision.allowedTools.includes('run_python');
@@ -662,9 +672,26 @@ export class GenerationService {
             messageId: input.messageId,
             db: this.db,
             storage: this.storage,
+            visionProvider: this.visionProvider,
           },
         ),
       );
+    }
+    if (routingDecision.allowedTools.includes('extract_scanned_table_rows')) {
+      const tableExecutor = new TableExtractionToolExecutor(
+        {
+          runtime: this.executionRuntime,
+          workspace,
+          visionProvider: this.visionProvider!,
+          skills: this.skills!,
+          storage: this.storage,
+          db: this.db,
+          userId: input.userId,
+        },
+        this.cfg.TABLE_EXTRACTION_MAX_PAGES,
+      );
+      toolMap.set('extract_scanned_table_rows', tableExecutor);
+      toolMap.set('analyze_table_rows', tableExecutor);
     }
     if (skillToolExecutor) {
       toolMap.set('load_skill', skillToolExecutor);
@@ -704,6 +731,7 @@ export class GenerationService {
     if (this.cfg.ENABLE_TOOL_USE) {
       const fileOperationExecutor = new FileOperationExecutor({
         db: this.db,
+        visionProvider: this.visionProvider,
         storage: this.storage,
         executionRuntime: this.executionRuntime,
         userId: input.userId,
@@ -866,6 +894,9 @@ export class GenerationService {
             await this.persistEvent(input.messageId, out, eventOrdinal++);
             break;
           }
+
+          case 'refusal':
+            throw refusalError(event);
 
           case 'completed':
             usage = event.usage;
@@ -1833,6 +1864,15 @@ export function isContextOverflowError(err: unknown): boolean {
     str.includes('context_length_exceeded') ||
     str.includes('exceeds the context window')
   );
+}
+
+/** G13: a provider refusal as the typed error the client switches on. */
+export function refusalError(event: { category: string | null; explanation: string | null }): ApiError {
+  const why = event.explanation ?? (event.category ? `Category: ${event.category}.` : null);
+  return new ApiError('model_refused', {
+    ...(why ? { detail: `The model declined to answer. ${why}` } : {}),
+    meta: { category: event.category },
+  });
 }
 
 export function mapProviderError(err: unknown): { code: string; title: string; detail: string } {

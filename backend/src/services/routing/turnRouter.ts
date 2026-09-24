@@ -35,6 +35,8 @@ export interface RouteTurnInput {
   imageEnabled?: boolean;
   runPythonEnabled?: boolean;
   generativeUiEnabled?: boolean;
+  /** Trusted CLI, skill scripts and a vision provider are all available (Phase 3). */
+  tableExtractionEnabled?: boolean;
   webEnabled?: boolean;
   memoryEnabled?: boolean;
 }
@@ -127,6 +129,11 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
 
   if (input.generativeUiEnabled) {
     allowed.add('render_ui');
+  }
+
+  if (input.tableExtractionEnabled) {
+    allowed.add('extract_scanned_table_rows');
+    allowed.add('analyze_table_rows');
   }
 
   return Array.from(allowed);

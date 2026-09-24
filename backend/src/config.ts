@@ -163,6 +163,16 @@ const envSchema = z.object({
    * independently toggleable. Both must be true for run_python to appear in the tool list.
    */
   ENABLE_RUN_PYTHON: bool(false),
+  /** G20: the allowlisted CLI utilities (pdftoppm, soffice, pandoc, pdftotext, pdfinfo) in the
+   *  same sandbox, independent of ENABLE_RUN_PYTHON. Page rendering for table extraction and
+   *  Office visual QA needs this, not arbitrary code. */
+  ENABLE_TRUSTED_CLI: bool(false),
+  /** G20: packaged `.py` scripts shipped inside skills (`backend/skills/<skill>/scripts/`),
+   *  independent of ENABLE_RUN_PYTHON. Model-written code never runs through this grant. */
+  ENABLE_SKILL_SCRIPTS: bool(false),
+  /** Pages one extract_scanned_table_rows call reads. Larger PDFs are extracted in chunks the
+   *  model asks for, accumulating under one extractionId. */
+  TABLE_EXTRACTION_MAX_PAGES: int(30),
   /** Sandbox engine to use: 'process' (local isolated runner), 'cloud-run' (Cloud Run Job), or 'auto'. */
   SANDBOX_ENGINE: z.enum(['cloud-run', 'process', 'auto']).default('auto'),
   /** Region for the arcnave-python-sandbox Cloud Run Job, independent of VERTEX_LOCATION/

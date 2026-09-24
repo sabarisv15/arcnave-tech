@@ -76,7 +76,24 @@ after (spends quota, so it needs the user's approval).
 | G17 | No raw-binary fallback. An Office file without extracted text becomes an explicit "could not be read: <reason>" note | Adapter tests on both providers |
 | G18 | Check PDF page count and image size at upload; reject with typed `ApiError` codes shown by the frontend | Route integration tests + `npm run openapi` + frontend test |
 
-## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13)
+## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13) ✅ locally
+
+**Done 2026-09-24, local only.** Decision taken at the start of the phase: vision first, called
+from the backend; deterministic work in skill scripts; no offline OCR engine added (it stays a
+possible later fallback or second signal). Delivered:
+
+- G20 permission split: `ENABLE_TRUSTED_CLI`, `ENABLE_SKILL_SCRIPTS` beside `ENABLE_RUN_PYTHON`;
+  the runtime enforces each grant, and the sandbox client is built when any is on.
+- `extract_scanned_table_rows` (pdftoppm per page in the sandbox → one backend vision call per
+  page → pass 2 re-reads low-confidence rows from a 300 dpi crop → `normalize_table_rows.py`),
+  results stored under an `extractionId`; re-extracting pages re-renders them at 300 dpi.
+- `analyze_table_rows` (`analyze_table_rows.py`): `count`, `sum`, `running_balance`, with
+  `expected` → pass/fail and `suspiciousPages` for repair.
+- PDF skill section 3B: exact/exhaustive rules. G14 and G13 as below.
+- Acceptance: `routes/tableExtraction.integration.test.ts` runs the natural prompt on a
+  scanned fixture with the real router, tools, pdftoppm and scripts; only the model and the
+  vision replies are faked. The real `kvbfedral.pdf` against the live vision model has not run:
+  that needs the file and approval to spend quota.
 
 **Generic scanned-table extraction.** One capability, not a bank-statement path:
 

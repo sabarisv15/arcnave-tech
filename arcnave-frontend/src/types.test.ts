@@ -203,6 +203,7 @@ describe("error copy", () => {
       "capability_unavailable",
       "provider_error",
       "provider_payload_limit",
+      "model_refused",
       "provider_timeout",
       "rate_limit",
       "unauthorized",

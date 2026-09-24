@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import type { Database } from '../db/client.js';
 import { logger } from '../logger.js';
-import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
+import type { Provider, ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { ObjectStorage } from '../services/storage.js';
 import { verifyPdf } from '../services/documents/verify/pdfVerify.js';
 import { verifyXlsx } from '../services/documents/verify/xlsxVerify.js';
@@ -51,6 +51,8 @@ export interface CodeExecutionOptions {
   messageId?: string;
   db?: Database;
   storage?: ObjectStorage;
+  /** Looks at rendered output pages for visual QA (G14). Without it the visual layer is `not_checked`. */
+  visionProvider?: Provider;
 }
 
 export class CodeExecutionToolExecutor implements ToolExecutor {
@@ -61,6 +63,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
   private readonly messageId?: string;
   private readonly db?: Database;
   private readonly storage?: ObjectStorage;
+  private readonly visionProvider?: Provider;
   /** fileId → path under input/, so a second call in the same turn reuses the same path. */
   private readonly materialized = new Map<string, string>();
 
@@ -78,6 +81,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     this.userId = options?.userId;
     this.messageId = options?.messageId;
     this.db = options?.db;
+    this.visionProvider = options?.visionProvider;
     this.storage = options?.storage;
   }
 
@@ -190,6 +194,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
                 format,
                 runtime: this.runtime,
                 workspace: this.workspace,
+                visionProvider: this.visionProvider,
                 signal,
               });
 
@@ -202,6 +207,15 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
                     repairable: defect.repairable,
                   });
                 }
+              }
+
+              if (visualReport.previewAvailable && visualReport.status === 'not_checked') {
+                structuralWarnings.push({
+                  severity: 'info',
+                  type: 'visual_not_checked',
+                  message: `Visual layout of "${fname}" was not checked: ${visualReport.diagnostics.join('; ')}`,
+                  repairable: false,
+                });
               }
 
               if (!visualReport.previewAvailable && visualReport.diagnostics.length > 0) {

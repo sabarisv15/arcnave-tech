@@ -30,6 +30,8 @@ import {
   READ_UPLOADED_FILE,
   RENDER_UI,
   RUN_PYTHON,
+  EXTRACT_SCANNED_TABLE_ROWS,
+  ANALYZE_TABLE_ROWS,
   SEARCH_MEMORY,
   SEARCH_PROJECT_FILES,
   SEARCH_SKILLS,
@@ -206,6 +208,31 @@ export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
     isInitialCore: false,
     isFeatureEnabled: (cfg, flags) => Boolean(cfg.ENABLE_TOOL_USE && flags.runPythonEnabled),
     isAuthorized: (ctx) => ctx.allowPython === true,
+  },
+
+  // 4b. Exact table extraction (DEFERRED). Permission: trusted CLI + skill scripts + vision.
+  {
+    name: 'extract_scanned_table_rows',
+    category: 'files',
+    shortDescription: 'Extracts every table row from PDF pages, scanned or digital, with page and confidence per row.',
+    keywords: [
+      'table', 'rows', 'extract', 'scanned', 'ocr', 'pdf', 'statement', 'transactions', 'count', 'exact',
+      'every row', 'ledger', 'register', 'invoice', 'attendance', 'marksheet',
+    ],
+    definition: EXTRACT_SCANNED_TABLE_ROWS,
+    isInitialCore: false,
+    isFeatureEnabled: (cfg) => cfg.ENABLE_TOOL_USE,
+    isAuthorized: () => true,
+  },
+  {
+    name: 'analyze_table_rows',
+    category: 'computation',
+    shortDescription: 'Counts, sums and reconciles extracted table rows deterministically.',
+    keywords: ['count', 'sum', 'total', 'reconcile', 'balance', 'verify', 'rows', 'table', 'exact', 'classify'],
+    definition: ANALYZE_TABLE_ROWS,
+    isInitialCore: false,
+    isFeatureEnabled: (cfg) => cfg.ENABLE_TOOL_USE,
+    isAuthorized: () => true,
   },
 
   // 5. Deliverable Export (DEFERRED: discovered via search_tools)

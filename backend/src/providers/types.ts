@@ -125,6 +125,8 @@ export type ProviderEvent =
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
   | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
+  /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
+  | { type: 'refusal'; category: string | null; explanation: string | null }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
 /** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */

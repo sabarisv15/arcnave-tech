@@ -17,6 +17,7 @@ import {
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
   SKILL_TOOL_DEFINITIONS,
+  TABLE_EXTRACTION_TOOL_DEFINITIONS,
   UI_TOOL_DEFINITIONS,
   UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
@@ -60,6 +61,8 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly generativeUiEnabled: boolean = false,
     /** Modern Gemini Image gate — exposes generate_image across all chats. */
     private readonly imageEnabled: boolean = false,
+    /** Phase 3 table extraction: trusted CLI + skill scripts + a vision provider all present. */
+    private readonly tableExtractionEnabled: boolean = false,
   ) {}
 
   /**
@@ -130,6 +133,10 @@ export class ProjectToolRegistry implements ToolRegistry {
       // deployment and the current request's deterministic capability policy allow it.
       if (this.runPythonEnabled && context.allowPython === true) {
         tools.push(RUN_PYTHON);
+      }
+
+      if (this.tableExtractionEnabled) {
+        tools.push(...TABLE_EXTRACTION_TOOL_DEFINITIONS);
       }
 
       // Project knowledge tools require an active project

@@ -208,6 +208,7 @@ describe('Python Output QA & Corruption Persistence Blocking', () => {
     const validDocxBytes = await zip.generateAsync({ type: 'nodebuffer' });
 
     const evalSpy = vi.spyOn(visualQaEngine, 'evaluateVisualQa').mockResolvedValueOnce({
+      status: 'not_checked',
       passed: false,
       defects: [],
       previewAvailable: false,

@@ -128,13 +128,13 @@ Verified by running `routeTurn()` with a PDF attached and `runPythonEnabled: tru
 | G10 | One tool call per round (`disable_parallel_tool_use: true`, extras get a deferred error). Claude's guidance: splitting results trains the model to stop making parallel calls | `providers/toolLoopPolicy.ts`, `anthropicVertex.ts`, `gemini.ts` |
 | G11 | `TOOL_MAX_ROUNDS=8` in chat; load_skill + search_tools + work + QA + repair each cost a round | `config.ts` |
 | G12 | A failed call is blocked from retry with identical input and the model is told to stop and answer — a transient failure cannot be retried | `anthropicVertex.ts` failedToolCalls guard |
-| G13 | No handling of `stop_reason: "refusal"` (Opus 5 / Sonnet 5 can return it); it ends as an ordinary finish — Invariant 1 | `anthropicVertex.ts` finishReason |
+| G13 ✅ Phase 3 | No handling of `stop_reason: "refusal"` (Opus 5 / Sonnet 5 can return it); it ends as an ordinary finish — Invariant 1 | `anthropicVertex.ts` finishReason |
 
 ### QA
 
 | # | Gap | Where |
 |---|---|---|
-| G14 | Visual QA never runs vision: no caller passes `visionProvider`, so it falls back to a PNG magic-header check and reports pass. The locked architecture's "vision checks layout" does not happen | `services/qa/visualQaEngine.ts`, callers in `tools/fileOperationExecutor.ts`, `tools/codeExecutionExecutor.ts` |
+| G14 ✅ Phase 3 | Visual QA never runs vision: no caller passes `visionProvider`, so it falls back to a PNG magic-header check and reports pass. The locked architecture's "vision checks layout" does not happen | `services/qa/visualQaEngine.ts`, callers in `tools/fileOperationExecutor.ts`, `tools/codeExecutionExecutor.ts` |
 
 ### Provider file adapters (locked layer 4)
 
@@ -161,11 +161,11 @@ Code-read against `tools/execution/executionRuntime.ts`, `tools/sandbox/*`, `san
 | # | Gap | Where |
 |---|---|---|
 | G19 | Office rendering cannot work through the Cloud Run sandbox. Visual QA writes the file to `temp/` and runs `soffice` with `cwd: temp/`; the client stages only `<cwd>/input/` (which does not exist), and the converted PDF is written inside the job container and never returned. Office visual QA therefore ends in "produced no PDF output" whenever the Cloud Run engine is in use | `services/qa/visualQaEngine.ts` render, `tools/sandbox/cloudRunSandboxClient.ts` staging |
-| G20 | Trusted CLI capabilities (LibreOffice, pdftoppm, pandoc) exist only through the `run_python` sandbox: host CLI is blocked in production and Cloud Run has no Docker. With `ENABLE_RUN_PYTHON` off, they are all off, so "trusted tools" depend on the arbitrary-code flag | `executionRuntime.ts` `executeControlledCli` |
+| G20 ◐ Phase 3 (permission split done; rest in Phase 6) | Trusted CLI capabilities (LibreOffice, pdftoppm, pandoc) exist only through the `run_python` sandbox: host CLI is blocked in production and Cloud Run has no Docker. With `ENABLE_RUN_PYTHON` off, they are all off, so "trusted tools" depend on the arbitrary-code flag | `executionRuntime.ts` `executeControlledCli` |
 | G21 | The sandbox has open outbound network (ADR-0005). **Decided 2026-09-24: no general egress** ([ADR-0007](decisions/0007-sandbox-no-general-egress.md)); open until the infrastructure change lands | ADR-0005 "Runtime image" |
 | G22 | Silent drops: without a staging bucket, input files over 2 MB are skipped with no message; signed-URL and staging failures are swallowed as "non-blocking", so outputs can go missing without a reason (Invariant 1) | `cloudRunSandboxClient.ts` input staging and output URLs |
 | G23 | The job's limits in the setup doc are 1 CPU, 512 Mi, `--task-timeout=15s`. The CLI bridge asks for 30 s, and LibreOffice or pandas on a long statement can easily exceed 15 s and 512 Mi | setup doc, `executeControlledCli` |
-| G24 | Skill scripts and references are unreachable: no skill ships any file besides `SKILL.md`, and nothing calls `executeTrustedSkillScript`. "references/scripts only when required" from the locked design does not exist yet | `backend/skills/*`, `executionRuntime.ts` |
+| G24 ✅ Phase 3 (`pdf/scripts/normalize_table_rows.py`, `analyze_table_rows.py`) | Skill scripts and references are unreachable: no skill ships any file besides `SKILL.md`, and nothing calls `executeTrustedSkillScript`. "references/scripts only when required" from the locked design does not exist yet | `backend/skills/*`, `executionRuntime.ts` |
 | G25 | The local Docker path builds an `sh -c` string by joining args; the guard misses newlines and quotes. Callers pass fixed filenames today, so this is latent, but it becomes an injection path if a model-supplied argument ever reaches it. Dev only | `executeControlledCli` Docker branch |
 
 Matches the locked design: non-root `sandbox` user, a fresh container per run, per-run
