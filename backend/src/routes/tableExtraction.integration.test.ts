@@ -10,7 +10,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { AttachmentBlock, GenerationRequest, ToolResult } from '../providers/types.js';
-import { buildScannedPdf, pageWidthPt, pngWidth } from '../test/fixtures/scannedPdf.js';
+import { buildScannedPdf, imageSize, PAGE_HEIGHT_PT, pageWidthPt } from '../test/fixtures/scannedPdf.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, multipart, signUp } from '../test/harness.js';
 
@@ -50,7 +50,7 @@ function pageReply(page: number, overrides: { confidence?: Record<number, number
 
 let ctx: TestContext;
 let user: TestUser;
-const visionCalls: Array<{ prompt: string; width: number }> = [];
+const visionCalls: Array<{ prompt: string; width: number; height: number }> = [];
 
 beforeAll(async () => {
   ctx = await createTestApp({
@@ -66,8 +66,9 @@ beforeAll(async () => {
 
   const page3Reads = { n: 0 };
   ctx.provider.mediaHandler = async (parts: AttachmentBlock[], prompt: string) => {
-    const width = pngWidth(parts[0]!.base64!);
-    visionCalls.push({ prompt, width });
+    const { width, height } = imageSize(parts[0]!.base64!);
+    expect(parts[0]!.mimeType).toBe('image/jpeg');
+    visionCalls.push({ prompt, width, height });
     // Upload-time OCR of the scanned PDF (retrieval), not part of the extraction.
     if (!prompt.includes('Extract every table row')) return 'scanned statement text';
     const page = Number(/page (\d+)/.exec(prompt)![1]);
@@ -184,7 +185,9 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
     expect(firstPass.map((c) => Number(/page (\d+)/.exec(c.prompt)![1]))).toEqual(expect.arrayContaining([1, 2, 3]));
     for (const c of firstPass.slice(0, 3)) {
       const page = Number(/page (\d+)/.exec(c.prompt)![1]);
-      expect(c.width).toBe(Math.ceil((pageWidthPt(page) * 150) / 72));
+      // Long side scaled to 2000 px; the page's own aspect ratio sets the other side.
+      expect(c.width).toBe(2000);
+      expect(Math.abs(c.height - (2000 * PAGE_HEIGHT_PT) / pageWidthPt(page))).toBeLessThanOrEqual(1);
     }
 
     const first = json(trace[2]!.result);

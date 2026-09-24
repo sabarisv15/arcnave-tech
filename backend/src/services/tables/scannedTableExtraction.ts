@@ -31,8 +31,18 @@ const log = logger.child({ module: 'scannedTableExtraction' });
 
 export const LOW_CONFIDENCE_THRESHOLD = 0.8;
 export const EXTRACTION_ID = /^tx_(\d{4})(\d{2})_([a-f0-9]{16})$/;
-const PAGE_DPI = 150;
+/**
+ * First pass: each page scaled so its long side is this many pixels, whatever its physical size.
+ * A fixed dpi does not work: a phone-scanned statement arrived as 1413 x 2000 pt pages, so 150
+ * dpi meant 2944 x 4167 px (up-sampled from a ~75 ppi photo, no new detail) and 18 s per page.
+ */
+const PAGE_LONG_SIDE_PX = 2000;
+/** Pass 2 and re-extraction: pages and crops at this resolution. */
 const RECHECK_DPI = 300;
+/** JPEG, not PNG: PNG encoding of a large page took 4-17 s; JPEG takes well under a second. */
+const RENDER_FORMAT = ['-jpeg', '-jpegopt', 'quality=92'];
+const IMAGE_EXT = 'jpg';
+const IMAGE_MIME = 'image/jpeg';
 /** A remote sandbox returns at most 20 declared outputs per run. */
 const RENDER_BATCH = 20;
 const VISION_CONCURRENCY = 4;
@@ -308,8 +318,8 @@ export class ScannedTableExtractor {
     }
 
     const pdfRel = path.relative(workspace.workspaceDir, file.path);
-    const dpi = previous ? RECHECK_DPI : PAGE_DPI;
-    const images = await this.renderPages(pdfRel, requested, pageCount, dpi, signal);
+    const resolution = previous ? ['-r', String(RECHECK_DPI)] : ['-scale-to', String(PAGE_LONG_SIDE_PX)];
+    const images = await this.renderPages(pdfRel, requested, pageCount, resolution, signal);
 
     const rawPages = await mapLimit(requested, VISION_CONCURRENCY, async (page) => {
       const image = images.get(page);
@@ -374,7 +384,7 @@ export class ScannedTableExtractor {
     pdfRel: string,
     pages: number[],
     pageCount: number,
-    dpi: number,
+    resolution: string[],
     signal: AbortSignal,
   ): Promise<Map<number, Buffer>> {
     const { runtime, workspace } = this.deps;
@@ -383,10 +393,10 @@ export class ScannedTableExtractor {
     const images = new Map<number, Buffer>();
     for (const [from, to] of renderBatches(pages)) {
       const names: string[] = [];
-      for (let p = from; p <= to; p++) names.push(`${prefix}-${String(p).padStart(width, '0')}.png`);
+      for (let p = from; p <= to; p++) names.push(`${prefix}-${String(p).padStart(width, '0')}.${IMAGE_EXT}`);
       const res = await runtime.executeControlledCli(
         'pdftoppm',
-        ['-r', String(dpi), '-png', '-f', String(from), '-l', String(to), pdfRel, `output/${prefix}`],
+        [...resolution, ...RENDER_FORMAT, '-f', String(from), '-l', String(to), pdfRel, `output/${prefix}`],
         { cwd: workspace.workspaceDir, expectedOutputs: names, timeoutMs: 60_000, signal },
       );
       if (res.exitCode !== 0) log.warn({ from, to, stderr: res.stderr }, 'pdftoppm failed for a page batch');
@@ -417,16 +427,16 @@ export class ScannedTableExtractor {
     const res = await runtime.executeControlledCli(
       'pdftoppm',
       [
-        '-r', String(RECHECK_DPI), '-png', '-f', String(page), '-l', String(page),
+        '-r', String(RECHECK_DPI), ...RENDER_FORMAT, '-f', String(page), '-l', String(page),
         '-x', String(Math.floor(region.x * width * scale)),
         '-y', String(Math.floor(region.y * height * scale)),
         '-W', String(Math.ceil(region.width * width * scale)),
         '-H', String(Math.ceil(region.height * height * scale)),
         '-singlefile', pdfRel, `output/${name}`,
       ],
-      { cwd: workspace.workspaceDir, expectedOutputs: [`${name}.png`], timeoutMs: 60_000, signal },
+      { cwd: workspace.workspaceDir, expectedOutputs: [`${name}.${IMAGE_EXT}`], timeoutMs: 60_000, signal },
     );
-    const file = path.join(workspace.outputDir, `${name}.png`);
+    const file = path.join(workspace.outputDir, `${name}.${IMAGE_EXT}`);
     try {
       return res.exitCode === 0 ? await fs.readFile(file) : null;
     } catch {
@@ -443,7 +453,7 @@ export class ScannedTableExtractor {
     let lastError = '';
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const text = await describe([{ mimeType: 'image/png', base64: image.toString('base64') }], prompt, signal);
+        const text = await describe([{ mimeType: IMAGE_MIME, base64: image.toString('base64') }], prompt, signal);
         const reply = parseVisionReply(text);
         if (reply) return reply;
         lastError = 'The vision model did not return rows in the required format.';

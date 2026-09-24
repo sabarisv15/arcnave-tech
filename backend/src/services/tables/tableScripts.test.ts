@@ -85,6 +85,34 @@ describe('analyze_table_rows.py', () => {
     expect(out.results[1].value).toBe(2);
   });
 
+  it('a rule capture reads names containing "/", and running_balance checks one statement at a time', async () => {
+    const rows = [
+      row(1, 1, ['FT IMPS/IFI/530016117197/M/S ARUN SANITARY WARES/F', '', '100.00']),
+      row(1, 2, ['x', '10.00', '90.00']),
+      row(2, 3, ['y', '', '5000.00']),
+      row(2, 4, ['z', '1000.00', '4000.00']),
+    ];
+    const out = await run('scripts/analyze_table_rows.py', {
+      rows,
+      operations: [
+        {
+          op: 'classify',
+          name: 'p',
+          where: [{ pageFrom: 1, pageTo: 1 }],
+          rules: [{ label: 'WITH_PARTY', where: [{ column: 0, test: 'matches', value: '^FT IMPS/IFI/' }], capture: { column: 0, pattern: '^FT IMPS/IFI/\\d+/(.+)/[^/]*$' } }],
+        },
+        { op: 'running_balance', name: 'first', balanceColumn: 2, decreaseColumn: 1, where: [{ pageFrom: 1, pageTo: 1 }] },
+        { op: 'running_balance', name: 'second', balanceColumn: 2, decreaseColumn: 1, where: [{ pageFrom: 2, pageTo: 2 }] },
+        { op: 'running_balance', name: 'both', balanceColumn: 2, decreaseColumn: 1 },
+      ],
+    });
+    expect(out.results[0].rows[0].value).toBe('M/S ARUN SANITARY WARES');
+    expect(out.results[1]).toMatchObject({ status: 'pass', checkedTransitions: 1 });
+    expect(out.results[2]).toMatchObject({ status: 'pass', checkedTransitions: 1 });
+    // Across the two statements the chain breaks, which is why a multi-statement PDF needs `where`.
+    expect(out.results[3].status).toBe('fail');
+  });
+
   it('an unknown op is an error, not a pass', async () => {
     const out = await run('scripts/analyze_table_rows.py', { rows: [], operations: [{ op: 'guess', name: 'g' }] });
     expect(out.results[0].status).toBe('error');

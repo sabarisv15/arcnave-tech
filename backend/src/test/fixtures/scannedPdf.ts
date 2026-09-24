@@ -45,7 +45,18 @@ export async function buildScannedPdf(pages: string[][][]): Promise<Buffer> {
   }
 }
 
-/** Width in pixels from a PNG's IHDR chunk. */
-export function pngWidth(base64: string): number {
-  return Buffer.from(base64, 'base64').readUInt32BE(16);
+/** Pixel size of a PNG (IHDR) or JPEG (first SOF marker) image. */
+export function imageSize(base64: string): { width: number; height: number } {
+  const b = Buffer.from(base64, 'base64');
+  if (b[0] === 0x89) return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  let i = 2;
+  while (i < b.length) {
+    const marker = b[i + 1]!;
+    const len = b.readUInt16BE(i + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+    }
+    i += 2 + len;
+  }
+  throw new Error('not a PNG or JPEG');
 }

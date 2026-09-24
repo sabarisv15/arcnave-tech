@@ -11,10 +11,10 @@
 #              "operations": [op, ...]}
 # op:  {"op": "count", "name", "where"?: [filter], "expected"?: number}
 #      {"op": "sum", "name", "column": int, "where"?: [filter], "expected"?: number}
-#      {"op": "classify", "name", "where"?: [filter], "rules": [{"label", "reason", "where": [filter]}],
+#      {"op": "classify", "name", "where"?: [filter], "rules": [{"label", "reason", "where": [filter], "capture"?}],
 #       "default"?: "UNKNOWN", "capture"?: {"column": int, "pattern": regex with one group}}
 #      {"op": "running_balance", "name", "balanceColumn": int,
-#       "increaseColumn"?: int, "decreaseColumn"?: int, "tolerance"?: number}
+#       "increaseColumn"?: int, "decreaseColumn"?: int, "tolerance"?: number, "where"?: [filter]}
 # filter: {"column": int, "test": "nonEmpty"|"empty"|"numeric"|"matches"|"notMatches"|"equals",
 #          "value"?: str}   (a where-list is AND; "matches" is a case-insensitive regex)
 #         or {"pageFrom"?: int, "pageTo"?: int} to select rows by page
@@ -138,14 +138,18 @@ for op in input_data.get("operations", []):
             labelled = []
             for r in selected:
                 label, reason = default, op.get("defaultReason", "no rule matched")
+                rule_capture = None
                 for rule in rules:
                     if all(passes(r, f) for f in rule.get("where", [])):
                         label, reason = rule["label"], rule.get("reason", rule["label"])
+                        rule_capture = rule.get("capture")
                         break
                 counts[label] = counts.get(label, 0) + 1
                 entry = {**ref(r), "label": label, "reason": reason, "cells": r.get("cells", [])}
-                if capture and label != default:
-                    m = re.search(str(capture["pattern"]), cell(r, int(capture["column"])), re.IGNORECASE)
+                # A rule's own capture wins: different narration formats name the party differently.
+                cap = rule_capture or (capture if label != default else None)
+                if cap:
+                    m = re.search(str(cap["pattern"]), cell(r, int(cap["column"])), re.IGNORECASE)
                     entry["value"] = (m.group(1) if m and m.groups() else (m.group(0) if m else None))
                 labelled.append(entry)
             total = len(selected)
@@ -168,7 +172,7 @@ for op in input_data.get("operations", []):
             mismatches = []
             checked = 0
             prev = None
-            for r in rows:
+            for r in select(rows, op.get("where")):
                 bal = parse_number(cell(r, bal_col))
                 if bal is None:
                     continue

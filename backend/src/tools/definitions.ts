@@ -441,10 +441,10 @@ export const ANALYZE_TABLE_ROWS: ToolDefinition = {
     'Deterministically counts, sums and reconciles the rows of an extraction from extract_scanned_table_rows. ' +
     'You decide which column means what; this tool only computes, so every count and total it returns comes from the ' +
     'row array. Operations: {"op":"count","name","where"?,"expected"?}, {"op":"sum","name","column","where"?,"expected"?}, ' +
-    '{"op":"running_balance","name","balanceColumn","increaseColumn"?,"decreaseColumn"?,"tolerance"?}, ' +
-    '{"op":"classify","name","where"?,"rules":[{"label","reason","where"}],"default"?,"capture"?:{"column","pattern"}} — ' +
+    '{"op":"running_balance","name","balanceColumn","increaseColumn"?,"decreaseColumn"?,"tolerance"?,"where"?}, ' +
+    '{"op":"classify","name","where"?,"rules":[{"label","reason","where","capture"?}],"default"?,"capture"?:{"column","pattern"}} — ' +
     'every selected row gets the first matching rule\'s label (else the default, "UNKNOWN"), with per-label counts that ' +
-    'add up to the total; "capture" pulls a value such as a party name from a column with a regex group. ' +
+    'add up to the total; "capture" pulls a value such as a party name from a column with a regex group (a rule\'s own "capture" overrides the operation\'s). ' +
     'Columns are 0-based cell indexes. "where" is a list of filters that must all hold: ' +
     '{"column","test":"nonEmpty"|"empty"|"numeric"|"matches"|"notMatches"|"equals","value"?} ("matches" is a ' +
     'case-insensitive regular expression), or {"pageFrom","pageTo"} to select a page range (e.g. one of two statements in one PDF). Give "expected" when the document prints its own figure (a count or total) so ' +

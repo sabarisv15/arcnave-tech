@@ -1212,3 +1212,10 @@ practice, not canon.
   Each carried a note, but an "every transaction" answer built from a cut list is still wrong.
   Rule: on an exact/exhaustive path, bound size by chunking the input (pages per call), never by
   cutting the output. Verify: `tableExtractionExecutor.test.ts` returns all 1200 rows.
+- **2026-09-24** — No new heading (over the cap). Phase 3 rendered pages at a fixed 150 dpi PNG,
+  tested only on letter-size fixtures. The real scanned statement has 1413 x 2000 pt pages
+  holding ~75 ppi photos: 150 dpi meant 2944 x 4167 px up-sampled PNGs, ~18 s per page, 3.5 min
+  for 12 pages, far past the sandbox's 10 s code timeout, so the live run would have died at
+  render. Rule: size renders in pixels, not dpi, and encode as JPEG; test on the real document's
+  page size before calling a pipeline done. Verify: `pdfinfo` page size + a timed render of the
+  real file; the first pass now takes ~0.7 s for all 12 pages.

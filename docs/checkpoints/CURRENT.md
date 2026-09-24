@@ -43,6 +43,15 @@ because this cloud container has neither the PDF nor Vertex credentials; it must
 ADC exists (`gcloud auth application-default login`). Added for it: pass-2 now records both
 readings (`rechecks`, `changedOnRecheck`), and `analyze_table_rows` gained `classify` (one
 label per row, counts that add up) and page-range filters.
+**Real kvbfedral.pdf checked (2026-09-24), Gemini path still not run.** The file (12 phone-photo
+pages, no text layer, 1413 x 2000 pt) was read in full and every row verified against the
+statements themselves: KVB 48 rows (Debit 41 + Credit 7, printed totals and closing balance
+match, 0 balance mismatches); Federal 277 rows (printed deposit total, derived withdrawal total
+and closing balance match, 0 mismatches, 0 duplicates). The real file exposed a render bug:
+fixed-dpi PNG took 18 s per page; renders are now pixel-bounded JPEG (0.7 s for all pages).
+Classification ran through `analyze_table_rows.py` (`classify`, per-rule capture, per-statement
+`running_balance`). The live model + Gemini vision run still needs ADC on a machine with
+credentials. The per-row report is kept outside the repo (client financial data).
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
