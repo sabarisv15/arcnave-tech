@@ -88,14 +88,25 @@ export class FakeProvider implements Provider {
     return this.codeExecutionSupported;
   }
 
+  /** Set to answer `describeMedia` per call (e.g. per page of a table extraction). */
+  mediaHandler: ((parts: AttachmentBlock[], prompt: string) => Promise<string>) | null = null;
+
   async describeMedia(parts: AttachmentBlock[], prompt: string): Promise<string> {
     this.mediaSeen.push({ parts, prompt });
+    if (this.mediaHandler) return this.mediaHandler(parts, prompt);
     return this.mediaDescription;
   }
+
+  /**
+   * Runs inside `stream`, while the turn's workspace still exists. Lets a test drive the real
+   * `toolExecutor` the way a provider adapter would, without a real model.
+   */
+  onRequest: ((request: GenerationRequest) => Promise<void>) | null = null;
 
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     this.seen.push(request);
     if (this.streamError) throw this.streamError;
+    if (this.onRequest) await this.onRequest(request);
 
     for (const event of this.script) {
       if (request.signal.aborted) {

@@ -27,7 +27,16 @@ export interface RenderedPageImage {
   mimeType: 'image/png';
 }
 
+/**
+ * G14: what the visual layer actually established. `not_checked` means no vision model looked
+ * at the rendering (none configured, it failed, or nothing could be rendered). It is never
+ * reported as `passed`, and it never changes the structural result.
+ */
+export type VisualQaStatus = 'passed' | 'failed' | 'not_checked';
+
 export interface VisualQaReport {
+  status: VisualQaStatus;
+  /** Exactly `status === 'passed'`. Kept for callers that read a boolean. */
   passed: boolean;
   defects: VisualDefect[];
   previewAvailable: boolean;
@@ -257,10 +266,10 @@ export class VisualQaEngine {
     format: ExportFormat,
     provider?: Provider,
     signal?: AbortSignal,
-  ): Promise<{ passed: boolean; defects: VisualDefect[]; diagnostics: string[] }> {
+  ): Promise<{ status: VisualQaStatus; defects: VisualDefect[]; diagnostics: string[] }> {
     if (images.length === 0) {
       return {
-        passed: true,
+        status: 'not_checked',
         defects: [],
         diagnostics: ['No rendered images were provided for visual inspection.'],
       };
@@ -277,8 +286,9 @@ export class VisualQaEngine {
           img.buffer[3] === 0x47,
       );
 
+      // A valid PNG proves the renderer produced an image, not that the layout is right.
       return {
-        passed: validImages,
+        status: validImages ? 'not_checked' : 'failed',
         defects: validImages
           ? []
           : [
@@ -292,7 +302,7 @@ export class VisualQaEngine {
             ],
         diagnostics: [
           validImages
-            ? `Deterministic image integrity verified across ${images.length} rendered surface(s).`
+            ? `Visual layout not checked: no vision provider is configured (${String(images.length)} rendered image(s) are valid PNGs).`
             : 'Image buffer integrity failed.',
         ],
       };
@@ -335,9 +345,9 @@ Respond strictly in valid JSON format:
       const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         return {
-          passed: true,
+          status: 'not_checked',
           defects: [],
-          diagnostics: ['Vision provider returned unstructured assessment: ' + rawResponse.slice(0, 100)],
+          diagnostics: ['Visual layout not checked: the vision provider returned an unstructured assessment: ' + rawResponse.slice(0, 100)],
         };
       }
 
@@ -356,7 +366,7 @@ Respond strictly in valid JSON format:
       const passed = parsed.passed !== false && defects.length === 0;
 
       return {
-        passed,
+        status: passed ? 'passed' : 'failed',
         defects,
         diagnostics: [
           passed
@@ -365,11 +375,11 @@ Respond strictly in valid JSON format:
         ],
       };
     } catch (err: unknown) {
-      log.warn({ err }, 'Vision model inspection failed; falling back to deterministic check');
+      log.warn({ err }, 'Vision model inspection failed; visual layer not checked');
       return {
-        passed: true,
+        status: 'not_checked',
         defects: [],
-        diagnostics: [`Vision model inspection skipped due to API error: ${err instanceof Error ? err.message : String(err)}`],
+        diagnostics: [`Visual layout not checked: the vision call failed: ${err instanceof Error ? err.message : String(err)}`],
       };
     }
   }
@@ -414,6 +424,7 @@ Respond strictly in valid JSON format:
 
     if (!previewAvailable || images.length === 0) {
       return {
+        status: 'not_checked',
         passed: false,
         defects: [],
         previewAvailable: false,
@@ -425,7 +436,8 @@ Respond strictly in valid JSON format:
     diagnostics.push(...visionResult.diagnostics);
 
     const report: VisualQaReport = {
-      passed: visionResult.passed,
+      status: visionResult.status,
+      passed: visionResult.status === 'passed',
       defects: visionResult.defects,
       previewAvailable: true,
       diagnostics,
@@ -440,3 +452,21 @@ Respond strictly in valid JSON format:
 }
 
 export const visualQaEngine = new VisualQaEngine();
+
+export type OverallQaStatus = 'verified' | 'passed_with_warnings' | 'unverified' | 'failed';
+
+/**
+ * G14: the layers stay separate and `overall` is derived, never assumed. A structural or
+ * visual failure fails. When the task needed visual verification and no vision model looked,
+ * the result is `unverified`, however good the structure is.
+ */
+export function overallQaStatus(input: {
+  structuralPassed: boolean;
+  semanticPassed: boolean;
+  visual: VisualQaStatus;
+  visualRequired: boolean;
+}): OverallQaStatus {
+  if (!input.structuralPassed || input.visual === 'failed') return 'failed';
+  if (input.visualRequired && input.visual === 'not_checked') return 'unverified';
+  return input.semanticPassed ? 'verified' : 'passed_with_warnings';
+}

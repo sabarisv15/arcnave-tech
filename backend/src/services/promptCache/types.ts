@@ -26,7 +26,6 @@ export interface DynamicSuffix {
   relevantMemory?: string;
   compactionSummary?: string;
   attachmentManifest?: string;
-  attachmentText?: string;
   retrievedContext?: string;
   modePrompt?: string;
   goalContext?: string;

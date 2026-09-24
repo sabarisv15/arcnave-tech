@@ -14,8 +14,6 @@ import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import { sourcesFromAnthropicBlocks } from './grounding.js';
-import { ApiError } from '../errors.js';
-import { getModelCapability } from './capabilitiesTable.js';
 import type {
   GenerationRequest,
   Provider,
@@ -26,6 +24,7 @@ import type {
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -146,23 +145,18 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
       };
     }
 
-    // 3. Text / Code / Extracted Office Text (DOCX, XLSX, TXT, CSV, JSON, MD, etc.)
-    const textData =
-      a.extractedText ??
-      (a.base64 && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/')
-        ? Buffer.from(a.base64, 'base64').toString('utf8')
-        : '');
-
-    const block: Anthropic.DocumentBlockParam = {
-      type: 'document',
-      source: {
-        type: 'text',
-        media_type: 'text/plain',
-        data: textData,
-      },
-    };
-    if (a.filename) block.title = a.filename;
-    return block;
+    // 3. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
+    const text = attachmentText(a);
+    if (text !== null) {
+      const block: Anthropic.DocumentBlockParam = {
+        type: 'document',
+        source: { type: 'text', media_type: 'text/plain', data: text },
+      };
+      if (a.filename) block.title = a.filename;
+      return block;
+    }
+    // 4. Nothing sendable: say so, never an empty document or decoded binary (G15, G17).
+    return { type: 'text', text: unavailableAttachmentNote(a) };
   });
 }
 
@@ -193,21 +187,6 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
 
   // The API requires the sequence to start with a user turn.
   while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
-
-  // Validate upfront that no newly attached image exceeds the model's base64 capacity
-  const capability = getModelCapability('Sonnet 5');
-  for (const att of request.attachments ?? []) {
-    if (att.mimeType.startsWith('image/') && att.base64) {
-      const base64Bytes = Buffer.byteLength(att.base64, 'utf8');
-      if (base64Bytes > capability.maxEncodedImageBytes) {
-        throw new ApiError('provider_payload_limit', {
-          title: 'Image exceeds Claude 5 MB limit',
-          detail: `This image is ${(base64Bytes / 1_000_000).toFixed(1)} MB when encoded, exceeding Anthropic's 5 MB limit on Vertex AI. Choose a smaller image or select Gemini 3.8 Flash, which supports up to 20 MB.`,
-          meta: { base64Bytes, limitBytes: capability.maxEncodedImageBytes, model: 'Sonnet 5' },
-        });
-      }
-    }
-  }
 
   const currentBlocks = attachmentBlocks(request.attachments);
   if (currentBlocks.length === 0) {
@@ -367,6 +346,10 @@ export class AnthropicVertexProvider implements Provider {
         const final = await stream.finalMessage();
         usage = merge(usage, usageFrom(final.usage as AnthropicUsage));
         if (final.stop_reason) finishReason = String(final.stop_reason);
+        if (final.stop_reason === 'refusal') {
+          const details = final.stop_details ?? null;
+          yield { type: 'refusal', category: details?.category ?? null, explanation: details?.explanation ?? null };
+        }
         for (const block of final.content ?? []) searchBlocks.push(...collectSearchResults(block));
 
         const toolUseBlocks = (final.content ?? []).filter(

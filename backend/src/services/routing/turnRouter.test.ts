@@ -8,7 +8,8 @@ const candidateSkills = [
   { name: 'xlsx', description: 'Professional spreadsheet architecture' },
 ];
 
-describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
+// ADR-0006: exposedTools is the fixed core on every intent; intent is telemetry.
+describe('routeTurn — policy boundary, intent as telemetry', () => {
   it('A: "generate a clock image" -> IMAGE_GENERATION, allowedTools contains generate_image', () => {
     const decision = routeTurn({
       prompt: 'generate a clock image',
@@ -23,7 +24,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
     expect(decision.detectedIntent).toBe('IMAGE_GENERATION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_image');
-    expect(decision.exposedTools).toEqual(['search_tools']);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -46,7 +47,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
     expect(decision.allowedTools).toContain('read_uploaded_file');
     expect(decision.allowedTools).toContain('search_tools');
     // Model evaluates first, discovers tools on demand
-    expect(decision.exposedTools).toEqual(['search_tools']);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -65,7 +66,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_deliverable');
     expect(decision.allowedTools).toContain('read_uploaded_file');
-    expect(decision.exposedTools).toEqual(['search_tools']);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -83,7 +84,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
     expect(decision.detectedIntent).toBe('FILE_CONVERSION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_deliverable');
-    expect(decision.exposedTools).toEqual(['search_tools']);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -101,11 +102,11 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
     expect(decision.detectedIntent).toBe('FILE_CONVERSION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_deliverable');
-    expect(decision.exposedTools).toEqual(['search_tools']);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
-  it('E: "explain Monte Carlo simulation" -> EXPLANATION, no skills, no tools, no Python', () => {
+  it('E: "explain Monte Carlo simulation" -> EXPLANATION (telemetry), core tools still exposed', () => {
     const decision = routeTurn({
       prompt: 'explain Monte Carlo simulation',
       mode: 'chat',
@@ -117,11 +118,11 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
 
     expect(decision.detectedIntent).toBe('EXPLANATION');
     expect(decision.selectedSkills).toEqual([]);
-    expect(decision.exposedTools).toEqual([]);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
-  it('Ordinary chat -> ORDINARY_CHAT, no skills, no tools, no Python', () => {
+  it('Ordinary chat -> ORDINARY_CHAT (telemetry), core tools still exposed', () => {
     const decision = routeTurn({
       prompt: 'Hi there, how are you today?',
       mode: 'chat',
@@ -133,11 +134,11 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
 
     expect(decision.detectedIntent).toBe('ORDINARY_CHAT');
     expect(decision.selectedSkills).toEqual([]);
-    expect(decision.exposedTools).toEqual([]);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(false);
   });
 
-  it('Computation request -> COMPUTATION, exposes run_python in catalog and exposedTools', () => {
+  it('Computation request -> COMPUTATION, run_python in the allowed catalog, core exposed', () => {
     const decision = routeTurn({
       prompt: 'Run a Monte Carlo simulation with 10,000 trials to calculate option price',
       mode: 'chat',
@@ -149,7 +150,7 @@ describe('routeTurn — Hard Policy Filter & Model-Driven Tool Gating', () => {
 
     expect(decision.detectedIntent).toBe('COMPUTATION');
     expect(decision.allowedTools).toContain('run_python');
-    expect(decision.exposedTools).toEqual(['search_tools']);
+    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
     expect(decision.pythonExposed).toBe(true);
   });
 

@@ -278,7 +278,7 @@ async function main() {
     'TRACE-5.1-PDF-REPAIR',
     'PDF Out-Of-Bounds Split Error -> Model Repair Loop',
     (atts) =>
-      `Extract pages 10 to 12 from my attached PDF ${atts[0]!.name} (attachmentId: "${atts[0]!.id}"). ` +
+      `Extract pages 10 to 12 from my attached PDF ${atts[0]!.filename} (attachmentId: "${atts[0]!.id}"). ` +
       `If that page range fails because the document is shorter, inspect the document to determine the actual page count, and then extract pages 1 to 2 instead.`,
     async () => {
       const doc = await PDFDocument.create();
@@ -297,7 +297,7 @@ async function main() {
       return [
         {
           id: att.id,
-          name: att.filename,
+          filename: att.filename,
           mimeType: att.mimeType,
           sizeBytes: att.sizeBytes,
         },
@@ -324,7 +324,7 @@ async function main() {
     'TRACE-5.2-DOCX-REPAIR',
     'DOCX Zero-Replacement Warning -> Model Text Repair Loop',
     (atts) =>
-      `In my attached Word document ${atts[0]!.name} (id: "${atts[0]!.id}"), replace "NonExistentDraftHeader" with "Final Approved Specs". ` +
+      `In my attached Word document ${atts[0]!.filename} (id: "${atts[0]!.id}"), replace "NonExistentDraftHeader" with "Final Approved Specs". ` +
       `If you receive a warning that the search string was not found, inspect the document structure to see the actual headings/content, and then replace "Project Alpha Initial Specifications" with "Final Approved Specs".`,
     async () => {
       const md = '# Project Alpha Initial Specifications\n\nThis is the authoritative system design.';
@@ -340,7 +340,7 @@ async function main() {
       return [
         {
           id: att.id,
-          name: att.filename,
+          filename: att.filename,
           mimeType: att.mimeType,
           sizeBytes: att.sizeBytes,
         },
@@ -366,7 +366,7 @@ async function main() {
     'TRACE-5.3-PPTX-REPAIR',
     'PPTX Zero-Replacement Warning -> Model Slide Text Repair Loop',
     (atts) =>
-      `In my presentation ${atts[0]!.name} (id: "${atts[0]!.id}"), on slide 1, replace "Wrong Slide Header" with "Executive Summary 2026". ` +
+      `In my presentation ${atts[0]!.filename} (id: "${atts[0]!.id}"), on slide 1, replace "Wrong Slide Header" with "Executive Summary 2026". ` +
       `If the tool warns that the search string was not found, replace "Quarterly Strategy Deck" with "Executive Summary 2026" on slide 1 instead.`,
     async () => {
       const md = '# Quarterly Strategy Deck\n\nKey accomplishments and roadmap.';
@@ -382,7 +382,7 @@ async function main() {
       return [
         {
           id: att.id,
-          name: att.filename,
+          filename: att.filename,
           mimeType: att.mimeType,
           sizeBytes: att.sizeBytes,
         },
@@ -406,7 +406,7 @@ async function main() {
     'TRACE-5.4-XLSX-QA',
     'XLSX Cell Edit with Multi-Tier Structural & Semantic Verification',
     (atts) =>
-      `In my spreadsheet ${atts[0]!.name} (id: "${atts[0]!.id}"), update cell B2 in "Finance" to 75000 as a number formatted as "$#,##0".`,
+      `In my spreadsheet ${atts[0]!.filename} (id: "${atts[0]!.id}"), update cell B2 in "Finance" to 75000 as a number formatted as "$#,##0".`,
     async () => {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('Finance');
@@ -424,7 +424,7 @@ async function main() {
       return [
         {
           id: att.id,
-          name: att.filename,
+          filename: att.filename,
           mimeType: att.mimeType,
           sizeBytes: att.sizeBytes,
         },
@@ -469,7 +469,7 @@ async function main() {
       attachments: [
         {
           id: 'rendered-page-1',
-          name: 'page_1.png',
+          filename: 'page_1.png',
           mimeType: 'image/png',
           sizeBytes: imageBuffer.length,
           base64: imageBuffer.toString('base64'),

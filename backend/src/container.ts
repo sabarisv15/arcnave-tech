@@ -92,7 +92,15 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
 
   const isProduction = process.env.NODE_ENV === 'production';
   let rawSandboxClient = options.sandboxClient;
-  if (!rawSandboxClient && cfg.ENABLE_RUN_PYTHON) {
+  // G20: one sandbox, built when any of its three grants is on. Each grant is enforced by the
+  // runtime, so building it for pdftoppm never exposes run_python.
+  const runtimePermissions = {
+    pythonAllowed: cfg.ENABLE_RUN_PYTHON,
+    trustedCliAllowed: cfg.ENABLE_TRUSTED_CLI,
+    skillScriptAllowed: cfg.ENABLE_SKILL_SCRIPTS,
+  };
+  const anySandboxGrant = Object.values(runtimePermissions).some(Boolean);
+  if (!rawSandboxClient && anySandboxGrant) {
     const isCloudRunConfigured = Boolean(
       cfg.GOOGLE_CLOUD_PROJECT && cfg.SANDBOX_LOCATION && cfg.SANDBOX_JOB_NAME,
     );
@@ -148,7 +156,8 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
       )
     : undefined;
 
-  const executionRuntime = options.executionRuntime ?? new ExecutionRuntime(sandboxClient);
+  const executionRuntime =
+    options.executionRuntime ?? new ExecutionRuntime(sandboxClient, undefined, runtimePermissions);
   const capabilities = buildCapabilityRegistry(cfg);
   const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR, capabilities);
   void skills.load();
@@ -163,6 +172,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     sandboxClient,
     skills,
     executionRuntime,
+    providers.google,
   );
   const generation = new GenerationService(
     db,
@@ -176,6 +186,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     skills,
     capabilities,
     executionRuntime,
+    providers.google,
   );
 
   return {

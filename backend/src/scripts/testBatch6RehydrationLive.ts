@@ -124,7 +124,6 @@ async function main() {
     prompt: userMsg1!.text,
     projectId: null,
     hasAttachments: true,
-    attachmentText: '',
     codeExecution: false,
     attachments: [
       {
@@ -204,7 +203,6 @@ async function main() {
     prompt: userMsg2!.text,
     projectId: null,
     hasAttachments: false,
-    attachmentText: '',
     codeExecution: false,
     attachments: [], // No new attachments attached on turn 2!
     mode: 'chat',

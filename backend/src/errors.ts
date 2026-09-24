@@ -121,6 +121,11 @@ export const ERROR_CATALOG = {
     title: 'No response generated',
     detail: 'The model completed its operations but produced no written answer. You can retry.',
   },
+  model_refused: {
+    status: 422,
+    title: 'The model declined this request',
+    detail: 'The model stopped and declined to answer. Rephrase the request or choose another model.',
+  },
   provider_payload_limit: {
     status: 400,
     title: 'Attachment exceeds model limits',

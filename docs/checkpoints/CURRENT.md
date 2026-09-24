@@ -1,6 +1,96 @@
 # ArcNave — current checkpoint
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-24
+**2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The
+running pipeline was audited against the locked architecture and Claude's tool-use pipeline:
+26 gaps are listed in [`docs/tools-skills-architecture.md`](../tools-skills-architecture.md),
+and the fix plan is [`2026-09-24-tools-pipeline-gap-fixes.md`](../superpowers/plans/2026-09-24-tools-pipeline-gap-fixes.md).
+ADR-0006 makes the router a policy boundary only. ADR-0007 decides the sandbox has no general
+egress; that decision is not implemented yet. Phase 1 (G1, G2, G3, G7) is fixed: every
+tool-enabled turn gets `search_tools` + `load_skill`; `run_python` is gated by permission
+only; `render_ui` is discoverable; skills are advertised only when `load_skill` is sent. Full
+suite 704/704. **Phase 2 (attachment continuity) done the same day**: one `AttachmentRef`
+identity (G26); `run_python` materialises files by fileId on the chat and AgentLoop paths;
+earlier-turn files stay discoverable (G6); over-budget history files keep their identity and
+are described with their fileId, never sent empty (G15); Office text is sent once (G16); no
+binary-as-text fallback (G17); per-model limits from the capability table with a typed
+`provider_payload_limit` (G18). G27 was found and fixed along the way: the current turn was
+also sent as history, so every prompt and attachment went twice. Backend 734/734, frontend
+48/48. Phase 2 continues files; it adds no extraction capability. Scanned-table extraction
+and the bank-statement acceptance test are Phase 3. `docs/openapi.json` is stale from earlier
+work (memory routes, a `download` query param) and not regenerated in this change.
+**Phase 3 (exact document intelligence) done the same day, local only.** Table rows are
+extracted from scanned PDFs generically: pdftoppm renders each page in the sandbox (trusted
+CLI, no Python needed), the backend asks the vision provider (Gemini Flash via
+`describeMedia`) for rows page by page, low-confidence rows are re-read from a 300 dpi crop,
+and a pdf skill script normalises and indexes them (`extract_scanned_table_rows`). Counts,
+sums and running-balance reconciliation come from `analyze_table_rows` (a second skill
+script), never from the model's reading. G20's permission split (`ENABLE_TRUSTED_CLI`,
+`ENABLE_SKILL_SCRIPTS`), G14 (visual QA is `passed`/`failed`/`not_checked`, overall
+`unverified` when a required visual check did not happen) and G13 (`model_refused` typed
+error) are done. Backend 754/754, frontend 48/48. **Not yet verified:** the real
+`kvbfedral.pdf` against the live vision model, and the skill-script/pdftoppm path on the
+Cloud Run sandbox (the 10 s code timeout and 512 Mi job are G23 risks for large statements).
+Production needs `ENABLE_TRUSTED_CLI=true` and `ENABLE_SKILL_SCRIPTS=true` for the tools to
+appear; neither is set anywhere yet.
+**Phase 3 live acceptance prepared, not run (2026-09-24).** Before Phase 4 the pipeline must
+pass on the real `kvbfedral.pdf` with real Gemini vision, locally.
+`backend/src/scripts/verifyPhase3KvbFederalLive.ts` does that with the natural prompt only.
+It then checks the stored rows independently: 12 pages read; KVB debit/credit rows against
+the printed 41 + 7; Federal running balance, duplicates and low-confidence rows; classify
+totals per bank and combined; no reuse of 163/211/277. It writes `evidence.md`. It has not run
+because this cloud container has neither the PDF nor Vertex credentials; it must run where
+ADC exists (`gcloud auth application-default login`). Added for it: pass-2 now records both
+readings (`rechecks`, `changedOnRecheck`), and `analyze_table_rows` gained `classify` (one
+label per row, counts that add up) and page-range filters.
+**Real kvbfedral.pdf checked (2026-09-24), Gemini path still not run.** The file (12 phone-photo
+pages, no text layer, 1413 x 2000 pt) was read in full and every row verified against the
+statements themselves: KVB 48 rows (Debit 41 + Credit 7, printed totals and closing balance
+match, 0 balance mismatches); Federal 277 rows (printed deposit total, derived withdrawal total
+and closing balance match, 0 mismatches, 0 duplicates). The real file exposed a render bug:
+fixed-dpi PNG took 18 s per page; renders are now pixel-bounded JPEG (0.7 s for all pages).
+Classification ran through `analyze_table_rows.py` (`classify`, per-rule capture, per-statement
+`running_balance`). The live model + Gemini vision run still needs ADC on a machine with
+credentials. The per-row report is kept outside the repo (client financial data).
+**Next step: the live run moves to the user's own machine (2026-09-24).** The cloud container
+cannot run it: no `gcloud`, no ADC, and the pasted `.env` files carry settings only (project
+`GOOGLE_CLOUD_PROJECT`, `VERTEX_LOCATION=global`), never a credential. A service-account key in
+the environment would break invariant 6, so it is not an option. The plan: the user runs
+`gcloud auth application-default login` on their Windows machine, starts `claude remote-control`
+in the repo on this branch, and has that session run
+`npx tsx src/scripts/verifyPhase3KvbFederalLive.ts --pdf <path> --kvb-pages 1-3 --out var/phase3-live 2>&1 | Tee-Object run.log`
+(PowerShell) without interrupting it. Then it compares `evidence.md`, `evidence.json` and
+`run.log` against the document's verified numbers and reports before any fix. Expected from
+the document: KVB (PDF pages 1–3) 48 rows = Debit 41 + Credit 7, rows per page 1:20 2:19 3:9;
+Federal (pages 4–12) 277 rows = 244 withdrawals + 33 deposits, rows per page 4:21 5:32 6–9:33
+10:32 11:32 12:28, 0 balance mismatches, two same-text CHRG pairs with different Tran Ids that
+are not duplicates; combined 325. The totals and closing balances are in the handoff prompt,
+not here (client data). Before the run, check three things:
+- The Windows path is untested: `pdftoppm` (Poppler) and `python` must be on PATH, because the
+  process sandbox spawns `python`, not `python3`. A Windows path failure is a finding.
+- The user's `backend/.env` has `DATABASE_URL=postgres://arcnave:arcnave@…`, but the docker
+  `.env` sets `POSTGRES_PASSWORD` to something else. `arcnave-pg` must accept the URL's password.
+- The harness forces `SANDBOX_ENGINE=process` and `ENABLE_RUN_PYTHON=false`, so the local
+  `.env`'s cloud-run sandbox settings do not reach Cloud Run.
+
+The result line decides the next step. PASS freezes Phase 3 and allows Phase 4 (G4, G5, G8).
+FAIL means fixing it in Phase 3 and running again. Phase 4 has not started.
+**User's local run (2026-09-24) did not test this branch.** A local session gave the PDF to a
+running backend, but that backend was an older checkout, not this branch. The evidence: 693–694
+tests there against 762 here; the turn carried no tools and loaded no skill; and it hit G27
+(current turn sent twice), which Phase 2 fixed here. So Phase 3's extract/analyze path and
+`verifyPhase3KvbFederalLive.ts` are still unexercised, and acceptance is still pending. That
+session left its fixes uncommitted. Its G27 fix duplicates the one already here, so those
+changes must be discarded, not merged.
+
+One of its findings was real on this branch too, and is fixed here. When the first-token budget
+expired, the AbortError was rethrown as a user cancel: the stream ended after `start`, the row
+was `stopped`, and nothing was retried. It is now a retryable `provider_timeout`.
+`PROVIDER_TTFT_BUDGET_MS` (default 12000) is the base budget; search adds 3 s, research adds
+8 s, and turns carrying media get 3× (see `mistakes.md`). Also from that session, still open:
+failed turns replay to the model as `[Response stopped]`; the `artifact-design` and
+`dashboard-design` skill frontmatter was reported failing validation on boot, which is unverified
+here. Backend 762/762.
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,

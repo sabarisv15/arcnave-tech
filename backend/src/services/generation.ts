@@ -37,8 +37,10 @@ import { routeAuto } from '../providers/routing.js';
 import { getModelCapability } from '../providers/capabilitiesTable.js';
 import type {
   AttachmentBlock,
+  AttachmentRef,
   GenerationRequest,
   Mode,
+  Provider,
   ProviderEvent,
   ProviderSource,
   ProviderUsage,
@@ -80,11 +82,14 @@ import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compactionService } from './compaction/compactionService.js';
+import { toAttachmentRef } from './attachments/attachmentRef.js';
+import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
+import { TableExtractionToolExecutor, tableExtractionAvailable } from '../tools/tableExtractionExecutor.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -167,6 +172,19 @@ export function toUsageDto(usage: ProviderUsage, costUsd: number | null): UsageD
 
 /* -------------------------------------------------------------------------- input */
 
+/** Attachments the providers receive as raw bytes rather than as extracted text. */
+function sentAsBytes(att: { mimeType: string }): boolean {
+  return (
+    att.mimeType === 'application/pdf' ||
+    att.mimeType.startsWith('image/') ||
+    att.mimeType.startsWith('audio/') ||
+    att.mimeType.startsWith('video/')
+  );
+}
+
+/** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
+export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & { attachments: AttachmentBlock[] };
+
 export interface GenerateInput {
   userId: string;
   requestId: string;
@@ -178,10 +196,9 @@ export interface GenerateInput {
   modelAlias: string;
   projectId: string | null;
   hasAttachments: boolean;
-  attachmentText: string;
   attachmentManifest?: string;
-  /** This turn's image/PDF attachments, ready as native content blocks. */
-  attachments: AttachmentBlock[];
+  /** This turn's attachments, normalised once by `toAttachmentRef`. */
+  attachments: AttachmentRef[];
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
   codeExecution: boolean;
   signal: AbortSignal;
@@ -218,12 +235,18 @@ export class GenerationService {
     private readonly skills?: SkillService,
     capabilities?: CapabilityRegistry,
     executionRuntime?: ExecutionRuntime,
+    /** Reads page images for table extraction (a backend call; never from the sandbox). */
+    private readonly visionProvider?: Provider,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
     this.agentLoop =
       agentLoop ??
-      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime);
+      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime, visionProvider);
+  }
+
+  private tableExtractionEnabled(): boolean {
+    return tableExtractionAvailable(this.cfg.ENABLE_TOOL_USE, this.executionRuntime, this.visionProvider, this.skills);
   }
 
   /**
@@ -239,27 +262,9 @@ export class GenerationService {
     const workspace = await this.executionRuntime.createWorkspace(runId);
 
     try {
-      if (input.attachments && input.attachments.length > 0) {
-        for (const att of input.attachments) {
-          if (att.name) {
-            if (att.base64) {
-              await this.executionRuntime.materializeInputFiles(workspace, [
-                { filename: att.name, data: Buffer.from(att.base64, 'base64') },
-              ]);
-            } else if (att.storageKey) {
-              try {
-                const buf = await this.storage.get(att.storageKey);
-                await this.executionRuntime.materializeInputFiles(workspace, [
-                  { filename: att.name, data: buf },
-                ]);
-              } catch (storageErr) {
-                log.warn({ storageErr, name: att.name }, 'Failed to materialize attachment from storage');
-              }
-            }
-          }
-        }
-      }
-
+      // Attachments are not copied into the workspace up front. A tool that needs one names its
+      // fileId and the runtime materialises exactly that file (G26, G15): current and historical
+      // attachments take the same path, and nothing is downloaded for turns that never use it.
       const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
@@ -269,12 +274,15 @@ export class GenerationService {
     // Loaded before model resolution (not its historical position) because whether this turn
     // needs a vision-capable model depends on what's carried forward, not only on what's newly
     // attached — and loadHistory has no dependency on which model gets picked.
-    const history = await this.loadHistory(
+    const { turns: history, currentUserAttachments } = await this.loadHistory(
       input.chatId,
       input.messageId,
       latestCompaction?.throughSeq,
       input.modelAlias,
     );
+    if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
+      input = { ...input, attachments: currentUserAttachments, hasAttachments: true };
+    }
 
     // --- resolve the model ------------------------------------------------
     const requiresGrounding = input.mode !== 'chat';
@@ -338,27 +346,26 @@ export class GenerationService {
     };
 
     // --- Skill-First -> Tool-Second Routing --------------------------------
-    const attachmentNames: string[] = input.attachments
+    // G6: a file attached on an earlier turn is still available on this one.
+    const historyAttachments = history.flatMap((t) => t.attachments ?? []);
+    const attachmentNames: string[] = [...input.attachments, ...historyAttachments]
       .map((a) => a.filename)
       .filter((name): name is string => Boolean(name));
-    if (attachmentNames.length === 0 && input.attachmentManifest) {
-      const matches = input.attachmentManifest.matchAll(/filename:\s*"([^"]+)"/g);
-      for (const m of matches) {
-        if (m[1]) attachmentNames.push(m[1]);
-      }
-    }
 
-    const candidateSkillSummaries = this.skills ? this.skills.listSkills() : [];
+    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
+    const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
     const routingDecision = routeTurn({
       prompt: input.prompt,
       mode: input.mode,
-      hasAttachments: input.hasAttachments,
-      attachmentMimeTypes: input.attachments.map((a) => a.mimeType),
+      hasAttachments: input.hasAttachments || historyAttachments.length > 0,
+      attachmentMimeTypes: [...input.attachments, ...historyAttachments].map((a) => a.mimeType),
       attachmentNames,
       candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
       imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
       runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
+      generativeUiEnabled: Boolean(this.cfg.ENABLE_GENERATIVE_UI),
+      tableExtractionEnabled: this.tableExtractionEnabled(),
       webEnabled: Boolean(this.cfg.ENABLE_WEB),
       memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
     });
@@ -402,7 +409,6 @@ export class GenerationService {
 
     // --- resolve available tools -------------------------------------------
     const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
@@ -416,9 +422,10 @@ export class GenerationService {
       memoryEnabled,
       generativeUiEnabled,
       imageEnabled,
+      this.tableExtractionEnabled(),
     );
-    const allowPython =
-      routingDecision.pythonExposed && routingDecision.allowedTools.includes('run_python');
+    // ADR-0006: permission alone decides. `pythonExposed` is telemetry and gates nothing.
+    const allowPython = routingDecision.allowedTools.includes('run_python');
     const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
     const toolContext = {
       userId: input.userId,
@@ -438,16 +445,14 @@ export class GenerationService {
       ? toolRegistry.getInitialTools(toolContext)
       : [];
 
-    const availableTools =
-      routingDecision.exposedTools.length > 0
-        ? initialTools.filter(
-            (t) =>
-              t.name === 'search_tools' ||
-              (skillsEnabled && t.name === 'load_skill') ||
-              routingDecision.exposedTools.includes(t.name),
-          )
-        : [];
+    const availableTools = initialTools.filter((t) => routingDecision.exposedTools.includes(t.name));
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+
+    // Never advertise skills the model has no way to load (Invariant 1). This holds when tool use
+    // is off: the registry then sends no tools at all, `load_skill` included.
+    if (!activeToolNames.has('load_skill')) {
+      skillsContext = undefined;
+    }
 
     const isAgentMode =
       Boolean(this.cfg.ENABLE_AGENT_LOOP) &&
@@ -513,8 +518,13 @@ export class GenerationService {
     };
 
     if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
-      const wireHistory = await this.hydrateHistoryAttachments(history, input.prompt);
       const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
+      const wireHistory = await this.limitToModel(
+        entry.alias,
+        wireAttachments,
+        await this.hydrateHistoryAttachments(history, input.prompt),
+        releaseReservation,
+      );
 
       const allAttachmentsMap = new Map<string, AttachmentBlock>();
       for (const h of wireHistory) {
@@ -662,9 +672,26 @@ export class GenerationService {
             messageId: input.messageId,
             db: this.db,
             storage: this.storage,
+            visionProvider: this.visionProvider,
           },
         ),
       );
+    }
+    if (routingDecision.allowedTools.includes('extract_scanned_table_rows')) {
+      const tableExecutor = new TableExtractionToolExecutor(
+        {
+          runtime: this.executionRuntime,
+          workspace,
+          visionProvider: this.visionProvider!,
+          skills: this.skills!,
+          storage: this.storage,
+          db: this.db,
+          userId: input.userId,
+        },
+        this.cfg.TABLE_EXTRACTION_MAX_PAGES,
+      );
+      toolMap.set('extract_scanned_table_rows', tableExecutor);
+      toolMap.set('analyze_table_rows', tableExecutor);
     }
     if (skillToolExecutor) {
       toolMap.set('load_skill', skillToolExecutor);
@@ -704,6 +731,7 @@ export class GenerationService {
     if (this.cfg.ENABLE_TOOL_USE) {
       const fileOperationExecutor = new FileOperationExecutor({
         db: this.db,
+        visionProvider: this.visionProvider,
         storage: this.storage,
         executionRuntime: this.executionRuntime,
         userId: input.userId,
@@ -727,7 +755,12 @@ export class GenerationService {
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
     const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-    const wireHistory = await this.hydrateHistoryAttachments(history, input.prompt);
+    const wireHistory = await this.limitToModel(
+      entry.alias,
+      wireAttachments,
+      await this.hydrateHistoryAttachments(history, input.prompt),
+      releaseReservation,
+    );
 
     const allAttachmentsMap = new Map<string, AttachmentBlock>();
     for (const h of wireHistory) {
@@ -754,7 +787,6 @@ export class GenerationService {
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
     promptParts.push(input.prompt);
-    if (input.attachmentText) promptParts.push(input.attachmentText);
     const effectivePrompt = promptParts.join('\n\n');
 
     const request: GenerationRequest = {
@@ -862,6 +894,9 @@ export class GenerationService {
             await this.persistEvent(input.messageId, out, eventOrdinal++);
             break;
           }
+
+          case 'refusal':
+            throw refusalError(event);
 
           case 'completed':
             usage = event.usage;
@@ -1098,8 +1133,13 @@ export class GenerationService {
     let attempt = 0;
     let overflowRetried = false;
     let currentRequest = request;
-    const ttftBudgetMs =
-      request.mode === 'research' ? 20_000 : request.mode === 'search' ? 15_000 : 12_000;
+    const ttftBase = this.cfg.PROVIDER_TTFT_BUDGET_MS;
+    const modeBudget = request.mode === 'research' ? ttftBase + 8_000 : request.mode === 'search' ? ttftBase + 3_000 : ttftBase;
+    // A multi-page scanned PDF or large image is read before the first token; a 12-page
+    // statement measured 6.7 s bare, so the text-only budget is too tight for it.
+    const carriesMedia =
+      (request.attachments?.length ?? 0) > 0 || request.history.some((t) => t.attachments?.some((a) => Boolean(a.base64)));
+    const ttftBudgetMs = carriesMedia ? modeBudget * 3 : modeBudget;
 
     for (;;) {
       let firstEventReceived = false;
@@ -1140,7 +1180,13 @@ export class GenerationService {
         return;
       } catch (err) {
         clearTimeout(ttftTimer);
-        if (isAbort(err) || currentRequest.signal.aborted) throw err;
+        if (currentRequest.signal.aborted) throw err;
+        // Our own first-token timer aborted the attempt: that is a retryable provider timeout,
+        // not a user cancel. Rethrowing the AbortError stored the turn as `stopped` with no
+        // error event and left the client waiting.
+        const timeout = ttftController.signal.reason;
+        if (timeout instanceof ProviderError && timeout.code === 'provider_timeout') err = timeout;
+        else if (isAbort(err)) throw err;
 
         // Context Overflow Recovery with Streaming Safety Rule:
         // Retry is allowed strictly if no user-visible assistant output has been committed/emitted (userVisibleOutputEmitted === false).
@@ -1238,16 +1284,32 @@ export class GenerationService {
   }
 
   /** Prior turns, oldest first, excluding the assistant row we are about to fill. */
+  /**
+   * Prior turns only. The current user message (the row just before this assistant row) is the
+   * turn being answered: its prompt and attachments reach the provider as the current turn, so
+   * it must not also appear in history. It used to, which sent every prompt and every current
+   * attachment twice (G27).
+   */
   private async loadHistory(
     chatId: string,
     excludeMessageId: string,
     throughSeq?: number,
     modelAlias?: string,
-  ): Promise<Turn[]> {
+  ): Promise<{ turns: Turn[]; currentUserAttachments: AttachmentRef[] }> {
+    const [self] = await this.db
+      .select({ seq: messages.seq })
+      .from(messages)
+      .where(eq(messages.id, excludeMessageId))
+      .limit(1);
+    const currentUserSeq = self ? self.seq - 1 : undefined;
+
     const conditions = [
       eq(messages.chatId, chatId),
       sql`${messages.id} <> ${excludeMessageId}`,
     ];
+    if (currentUserSeq !== undefined) {
+      conditions.push(sql`${messages.seq} < ${currentUserSeq}`);
+    }
     if (throughSeq !== undefined && throughSeq > 0) {
       conditions.push(sql`${messages.seq} > ${throughSeq}`);
     }
@@ -1320,40 +1382,49 @@ export class GenerationService {
     for (const row of attachmentRows) {
       if (!row.messageId) continue;
       const list = byMessage.get(row.messageId) ?? [];
-      list.push({
-        id: row.id,
-        filename: row.filename,
-        mimeType: row.mimeType,
-        sizeBytes: row.sizeBytes,
-        storageKey: row.storageKey,
-        extractedText: row.extractedText,
-      });
+      list.push(toAttachmentRef(row));
       byMessage.set(row.messageId, list);
     }
 
-    return kept.map((r): Turn => {
+    const turns = kept.map((r): Turn => {
       const atts = byMessage.get(r.id);
-      let text = r.text;
-      if (atts && atts.length > 0) {
-        const textAtts = atts
-          .filter(
-            (a) =>
-              a.mimeType !== 'application/pdf' &&
-              !a.mimeType.startsWith('image/') &&
-              Boolean(a.extractedText?.trim()),
-          )
-          .map((a) => `--- ${a.filename} ---\n${a.extractedText}`)
-          .join('\n\n');
-        if (textAtts && !text.includes(textAtts)) {
-          text = `${text}\n\n${textAtts}`;
-        }
-      }
+      // Extracted text travels once, on the attachment itself; the adapters render it (G16).
       return {
         role: r.role === 'user' ? 'user' : 'assistant',
-        text,
+        text: r.text,
         ...(atts ? { attachments: atts } : {}),
       };
     });
+
+    // The current user message's own attachments. A retry may not resend attachmentIds, and
+    // until G27 those files only reached the provider through the duplicated history copy.
+    const currentUserAttachments =
+      currentUserSeq === undefined
+        ? []
+        : (
+            await this.db
+              .select({
+                id: attachments.id,
+                filename: attachments.filename,
+                mimeType: attachments.mimeType,
+                storageKey: attachments.storageKey,
+                sizeBytes: attachments.sizeBytes,
+                extractedText: attachments.extractedText,
+              })
+              .from(attachments)
+              .innerJoin(messages, eq(attachments.messageId, messages.id))
+              .where(
+                and(
+                  eq(messages.chatId, chatId),
+                  eq(messages.seq, currentUserSeq),
+                  eq(messages.role, 'user'),
+                  eq(attachments.status, 'ready'),
+                ),
+              )
+              .orderBy(attachments.createdAt)
+          ).map(toAttachmentRef);
+
+    return { turns, currentUserAttachments };
   }
 
   /**
@@ -1367,18 +1438,13 @@ export class GenerationService {
     if (!attachments || attachments.length === 0) return [];
     return Promise.all(
       attachments.map(async (att) => {
-        const isBinary =
-          att.mimeType === 'application/pdf' ||
-          att.mimeType.startsWith('image/') ||
-          att.mimeType.startsWith('audio/') ||
-          att.mimeType.startsWith('video/');
-        if (isBinary && !att.base64 && att.storageKey) {
+        if (sentAsBytes(att) && !att.base64 && att.storageKey) {
           try {
             const data = await this.storage.get(att.storageKey);
             return { ...att, base64: data.toString('base64') };
           } catch (err) {
             log.warn({ err, storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
-            return att;
+            return { ...att, omittedReason: 'storage_unavailable' as const };
           }
         }
         return att;
@@ -1392,6 +1458,24 @@ export class GenerationService {
    * If budget is exceeded, historical identity and extracted text survive, but binary base64 is omitted.
    * Explicitly referenced attachments (by fileId or unique filename) are promoted for hydration.
    */
+  /**
+   * G18: the selected model's limits, applied to what is about to be sent. Runs after the budget
+   * reservation, so a refusal here must release it before propagating.
+   */
+  private async limitToModel(
+    alias: string,
+    current: AttachmentBlock[],
+    history: Turn[],
+    releaseReservation: () => Promise<void>,
+  ): Promise<Turn[]> {
+    try {
+      return await enforceModelLimits(getModelCapability(alias), current, history);
+    } catch (err) {
+      await releaseReservation();
+      throw err;
+    }
+  }
+
   private async hydrateHistoryAttachments(
     turns: Turn[],
     currentPrompt?: string,
@@ -1399,7 +1483,8 @@ export class GenerationService {
     const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
     let cumulativeBytes = 0;
 
-    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []);
+    // Only files sent as bytes spend the budget; Office and text files travel as extracted text.
+    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []).filter(sentAsBytes);
 
     // Check for explicit promotions from currentPrompt
     const promotedAttachmentIds = new Set<string>();
@@ -1438,7 +1523,7 @@ export class GenerationService {
       const turn = turns[i];
       if (!turn?.attachments) continue;
       for (const att of turn.attachments) {
-        if (!att.id || hydrationDecisions.has(att.id)) continue;
+        if (!sentAsBytes(att) || !att.id || hydrationDecisions.has(att.id)) continue;
         const size = att.sizeBytes ?? 0;
         if (cumulativeBytes + size <= maxBudget) {
           cumulativeBytes += size;
@@ -1454,12 +1539,14 @@ export class GenerationService {
         if (!turn.attachments || turn.attachments.length === 0) return turn;
         const hydrated = await Promise.all(
           turn.attachments.map(async (att) => {
+            if (!sentAsBytes(att)) return att;
             const shouldHydrateBinary = att.id ? hydrationDecisions.get(att.id) ?? false : true;
             if (shouldHydrateBinary) {
               const [h] = await this.hydrateAttachmentBytes([att]);
               return h ?? att;
             }
-            // Retain full identity and extractedText, but omit base64 binary
+            // Over budget: keep full identity and any genuine extracted text, never the bytes.
+            // The adapter tells the model why and how to rehydrate it by fileId (G15).
             return {
               id: att.id,
               filename: att.filename,
@@ -1467,6 +1554,7 @@ export class GenerationService {
               sizeBytes: att.sizeBytes,
               storageKey: att.storageKey,
               extractedText: att.extractedText,
+              omittedReason: 'history_budget' as const,
             };
           }),
         );
@@ -1580,7 +1668,6 @@ export class GenerationService {
       compactionSummary: compactionText || undefined,
       retrievedContext: retrievedContextText,
       attachmentManifest: input.attachmentManifest?.trim() || undefined,
-      attachmentText: input.attachmentText?.trim() || undefined,
       modePrompt: modeDirective,
       skillsContext,
     });
@@ -1788,6 +1875,15 @@ export function isContextOverflowError(err: unknown): boolean {
     str.includes('context_length_exceeded') ||
     str.includes('exceeds the context window')
   );
+}
+
+/** G13: a provider refusal as the typed error the client switches on. */
+export function refusalError(event: { category: string | null; explanation: string | null }): ApiError {
+  const why = event.explanation ?? (event.category ? `Category: ${event.category}.` : null);
+  return new ApiError('model_refused', {
+    ...(why ? { detail: `The model declined to answer. ${why}` } : {}),
+    meta: { category: event.category },
+  });
 }
 
 export function mapProviderError(err: unknown): { code: string; title: string; detail: string } {

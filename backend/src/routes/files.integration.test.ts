@@ -10,6 +10,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { attachments } from '../db/schema.js';
+import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildGeminiContents } from '../providers/gemini.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
 
@@ -161,9 +163,12 @@ describe('claiming by a message', () => {
     });
     expect(parseSse(stream.body).at(-1)!.event).toBe('done');
 
-    // The extracted text was actually put in front of the model, not merely stored.
+    // The extracted text was actually put in front of the model, not merely stored: each
+    // adapter renders it from the attachment, exactly once (G16).
     const seen = ctx.provider.seen.at(-1)!;
-    expect(`${seen.prompt}\n${seen.systemInstruction}`).toContain('western route has shade');
+    for (const wire of [JSON.stringify(buildAnthropicMessages(seen)), JSON.stringify(buildGeminiContents(seen))]) {
+      expect(wire.split('western route has shade').length - 1).toBe(1);
+    }
 
     // And the row now belongs to the user turn.
     const read = await ctx.app.inject({ url: `/v1/files/${attachmentId}`, headers });

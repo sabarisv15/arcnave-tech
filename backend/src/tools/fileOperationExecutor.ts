@@ -18,7 +18,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { attachments } from '../db/schema.js';
 import { logger } from '../logger.js';
-import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
+import type { Provider, ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { ObjectStorage } from '../services/storage.js';
 import {
   inspectPdf,
@@ -52,7 +52,12 @@ import { verifyPdf } from '../services/documents/verify/pdfVerify.js';
 import { verifyXlsx } from '../services/documents/verify/xlsxVerify.js';
 import { verifyDocx } from '../services/documents/verify/docxVerify.js';
 import { verifyPptx } from '../services/documents/verify/pptxVerify.js';
-import { visualQaEngine } from '../services/qa/visualQaEngine.js';
+import {
+  overallQaStatus,
+  visualQaEngine,
+  type OverallQaStatus,
+  type VisualQaStatus,
+} from '../services/qa/visualQaEngine.js';
 import type { CommonOperationResult, DeliverableWarning } from '../services/documents/primitives.js';
 import type {
   ExecutionRuntime,
@@ -70,6 +75,8 @@ export interface FileOperationExecutorOptions {
   chatId: string;
   messageId: string;
   workspace?: WorkspaceFiles;
+  /** Looks at rendered pages for visual QA (G14). Without it the visual layer is `not_checked`. */
+  visionProvider?: Provider;
 }
 
 /* -------------------------------------------------------------------------- Zod Schemas */
@@ -194,6 +201,7 @@ export class FileOperationExecutor implements ToolExecutor {
   private readonly chatId: string;
   private readonly messageId: string;
   private readonly workspace?: WorkspaceFiles;
+  private readonly visionProvider?: Provider;
 
   constructor(options: FileOperationExecutorOptions) {
     this.db = options.db;
@@ -203,6 +211,7 @@ export class FileOperationExecutor implements ToolExecutor {
     this.chatId = options.chatId;
     this.messageId = options.messageId;
     this.workspace = options.workspace;
+    this.visionProvider = options.visionProvider;
   }
 
   async execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
@@ -277,7 +286,9 @@ export class FileOperationExecutor implements ToolExecutor {
     structErrors: string[];
     structural: { passed: boolean; errors: string[]; warnings?: string[]; metrics?: Record<string, unknown> };
     semantic: { passed: boolean; warnings: DeliverableWarning[]; metrics?: Record<string, unknown> };
-    visual: { passed: boolean; defects: any[]; previewAvailable: boolean; inspectedPages?: number; inspectedSlides?: number; inspectedSheets?: number; diagnostics?: string[] };
+    visual: { status: VisualQaStatus; passed: boolean; defects: any[]; previewAvailable: boolean; inspectedPages?: number; inspectedSlides?: number; inspectedSheets?: number; diagnostics?: string[] };
+    /** Derived from the three layers; a document's layout always needs a visual check. */
+    overall: OverallQaStatus;
     warnings: DeliverableWarning[];
     repairable: boolean;
   }> {
@@ -321,6 +332,7 @@ export class FileOperationExecutor implements ToolExecutor {
       workspace: ws,
       selectedSheet: options?.selectedSheet,
       selectedSlides: options?.selectedSlides,
+      visionProvider: this.visionProvider,
     });
 
     const semanticWarnings = options?.semanticWarnings ?? [];
@@ -356,6 +368,7 @@ export class FileOperationExecutor implements ToolExecutor {
         metrics: options?.semanticMetrics,
       },
       visual: {
+        status: visualReport.status,
         passed: visualReport.passed,
         defects: visualReport.defects,
         previewAvailable: visualReport.previewAvailable,
@@ -364,6 +377,12 @@ export class FileOperationExecutor implements ToolExecutor {
         inspectedSheets: visualReport.inspectedSheets,
         diagnostics: visualReport.diagnostics,
       },
+      overall: overallQaStatus({
+        structuralPassed: structOk,
+        semanticPassed: semanticWarnings.length === 0,
+        visual: visualReport.status,
+        visualRequired: true,
+      }),
       warnings: allWarnings,
       repairable,
     };
@@ -487,6 +506,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -538,6 +558,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },
@@ -760,6 +781,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -810,6 +832,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },
@@ -865,6 +888,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -915,6 +939,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },
@@ -1017,6 +1042,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -1068,6 +1094,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },
@@ -1116,6 +1143,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -1166,6 +1194,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },
@@ -1256,6 +1285,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -1305,6 +1335,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },
@@ -1373,6 +1404,7 @@ export class FileOperationExecutor implements ToolExecutor {
                 structural: qa.structural,
                 semantic: qa.semantic,
                 visual: qa.visual,
+                overall: qa.overall,
                 warnings: qa.warnings,
                 repairable: true,
                 error: errMsg,
@@ -1425,6 +1457,7 @@ export class FileOperationExecutor implements ToolExecutor {
               structural: qa.structural,
               semantic: qa.semantic,
               visual: qa.visual,
+              overall: qa.overall,
               warnings: qa.warnings,
               repairable: qa.repairable,
             },

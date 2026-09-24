@@ -76,16 +76,53 @@ export interface OoxmlValidationResult {
   errors: string[];
 }
 
+/** The attachment does not exist or belongs to someone else. Distinct from a storage failure. */
+export class AttachmentNotFoundError extends Error {
+  constructor(readonly attachmentId: string) {
+    super(`Attachment "${attachmentId}" not found or not authorized for user.`);
+    this.name = 'AttachmentNotFoundError';
+  }
+}
+
+/**
+ * What the one sandbox may run (G20). Arbitrary model-written Python, the allowlisted CLI
+ * utilities, and packaged skill scripts are separate grants, so rendering a PDF with `pdftoppm`
+ * never depends on the arbitrary-code flag.
+ */
+export interface RuntimePermissions {
+  pythonAllowed: boolean;
+  trustedCliAllowed: boolean;
+  skillScriptAllowed: boolean;
+}
+
+/** Thrown when a runtime engine is asked for work its permission does not grant. */
+export class RuntimePermissionError extends Error {
+  constructor(readonly permission: keyof RuntimePermissions) {
+    super(`Execution runtime permission "${permission}" is not granted in this deployment.`);
+    this.name = 'RuntimePermissionError';
+  }
+}
+
 export class ExecutionRuntime {
   private readonly sandboxClient?: SandboxClient;
   private readonly baseTempDir: string;
+  readonly permissions: RuntimePermissions;
 
   constructor(
     sandboxClient?: SandboxClient,
     baseTempDir: string = path.join(os.tmpdir(), 'arcnave-workspaces'),
+    // Omitted only by tests and scripts that build a runtime by hand; `buildServices` always
+    // passes the deployment's real grants.
+    permissions: RuntimePermissions = { pythonAllowed: true, trustedCliAllowed: true, skillScriptAllowed: true },
   ) {
     this.sandboxClient = sandboxClient;
     this.baseTempDir = baseTempDir;
+    this.permissions = permissions;
+  }
+
+  /** The sandbox exists and may run this kind of work. */
+  can(permission: keyof RuntimePermissions): boolean {
+    return this.sandboxClient !== undefined && this.permissions[permission];
   }
 
   /* -------------------------------------------------------------------------- 1. File Workspace Engine */
@@ -162,7 +199,7 @@ export class ExecutionRuntime {
       .limit(1);
 
     if (!row) {
-      throw new Error(`Attachment "${attachmentId}" not found or not authorized for user.`);
+      throw new AttachmentNotFoundError(attachmentId);
     }
 
     const data = await storage.get(row.storageKey);
@@ -317,6 +354,7 @@ export class ExecutionRuntime {
     if (!this.sandboxClient) {
       throw new Error('Python sandbox execution is disabled or unavailable.');
     }
+    if (!this.permissions.pythonAllowed) throw new RuntimePermissionError('pythonAllowed');
     const execSignal = signal ?? new AbortController().signal;
     return this.sandboxClient.runPython(code, execSignal, {
       workspaceDir: workspace?.workspaceDir,
@@ -359,8 +397,11 @@ export class ExecutionRuntime {
       allowlist?: Set<string>;
       timeoutMs?: number;
       signal?: AbortSignal;
+      /** Files the command writes under `output/`, so a remote sandbox returns them. */
+      expectedOutputs?: string[];
     },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    if (!this.permissions.trustedCliAllowed) throw new RuntimePermissionError('trustedCliAllowed');
     const allowlist =
       options?.allowlist ?? new Set(['pdftotext', 'pdfinfo', 'pandoc', 'soffice', 'pdftoppm']);
     if (!allowlist.has(utility)) {
@@ -379,7 +420,7 @@ export class ExecutionRuntime {
 
     // Priority 1: Execute in container sandbox if sandbox client is available
     if (this.sandboxClient) {
-      const execSignal = (options as any)?.signal ?? new AbortController().signal;
+      const execSignal = options?.signal ?? new AbortController().signal;
       // We run the CLI utility inside the isolated sandbox container via a secure python bridge script
       const bridgeScript = `
 import subprocess
@@ -415,6 +456,7 @@ except Exception as e:
 
       const result = await this.sandboxClient.runPython(bridgeScript, execSignal, {
         workspaceDir: options?.cwd,
+        expectedOutputs: options?.expectedOutputs,
       });
 
       // Parse JSON from output
@@ -609,6 +651,9 @@ except Exception as e:
     if (!this.sandboxClient) {
       return { ok: false, error: 'Python sandbox execution is disabled or unavailable.' };
     }
+    if (!this.permissions.skillScriptAllowed) {
+      return { ok: false, error: new RuntimePermissionError('skillScriptAllowed').message };
+    }
     const wrappedCode = `
 import json
 import sys
@@ -666,5 +711,64 @@ ${scriptContent}
     }
 
     return this.executeDeterministicSkillScript(scriptContent, inputData, workspace);
+  }
+
+  /**
+   * Runs a packaged skill script with its input and output as JSON files in the workspace, not
+   * inlined into the code: a remote sandbox caps the submitted code at ~20 KB, and a page of
+   * extracted rows alone can exceed that. The script sees `input_data` and must write its result
+   * with `json.dump(result, open(OUTPUT_PATH, 'w'))`.
+   */
+  async runSkillScriptJson(
+    skillRef: { skill: string; resource: string },
+    inputData: unknown,
+    workspace: WorkspaceFiles,
+    skillService: SkillService,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true; output: unknown } | { ok: false; error: string }> {
+    if (!this.sandboxClient) return { ok: false, error: 'The execution sandbox is not configured.' };
+    if (!this.permissions.skillScriptAllowed) {
+      return { ok: false, error: new RuntimePermissionError('skillScriptAllowed').message };
+    }
+    if (path.extname(skillRef.resource).toLowerCase() !== '.py') {
+      return { ok: false, error: 'Only packaged ".py" skill scripts can run.' };
+    }
+    const script = await skillService.getSkillResource(skillRef.skill, skillRef.resource);
+    if (!script) {
+      return { ok: false, error: `Skill script "${skillRef.skill}/${skillRef.resource}" was not found.` };
+    }
+
+    const stem = `skill_${path.basename(skillRef.resource, '.py').replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now().toString(36)}`;
+    const inName = `${stem}_in.json`;
+    const outName = `${stem}_out.json`;
+    await fs.writeFile(path.join(workspace.inputDir, inName), JSON.stringify(inputData));
+    const code = `import json\nwith open('input/${inName}') as _f:\n    input_data = json.load(_f)\nOUTPUT_PATH = 'output/${outName}'\n${script}\n`;
+
+    const outPath = path.join(workspace.outputDir, outName);
+    try {
+      const res = await this.sandboxClient.runPython(code, signal ?? new AbortController().signal, {
+        workspaceDir: workspace.workspaceDir,
+        expectedOutputs: [outName],
+      });
+      let raw: string;
+      try {
+        raw = await fs.readFile(outPath, 'utf8');
+      } catch {
+        let stderr = '';
+        try {
+          stderr = (JSON.parse(res.outputs[0]?.text ?? '{}') as { msg_err?: string }).msg_err ?? '';
+        } catch {
+          // Unstructured sandbox output; report without it.
+        }
+        return { ok: false, error: `Skill script produced no result. ${stderr.slice(-1500)}`.trim() };
+      }
+      return { ok: true, output: JSON.parse(raw) as unknown };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      // Neither file is a deliverable; leaving them would let persistOutputFiles publish them.
+      await fs.rm(outPath, { force: true });
+      await fs.rm(path.join(workspace.inputDir, inName), { force: true });
+    }
   }
 }

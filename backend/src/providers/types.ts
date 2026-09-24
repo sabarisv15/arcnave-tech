@@ -125,14 +125,31 @@ export type ProviderEvent =
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
   | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
+  /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
+  | { type: 'refusal'; category: string | null; explanation: string | null }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
 /** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */
+/**
+ * Canonical identity of a stored attachment (G26). Built only by `toAttachmentRef` in
+ * `services/attachments/attachmentRef.ts`; every executor and adapter reads these field names.
+ */
+export interface AttachmentRef {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storageKey: string;
+  extractedText?: string | null;
+}
+
+/** An attachment as sent to a provider: its identity plus, when hydrated, its bytes. */
 export interface AttachmentBlock {
   id?: string;
   filename?: string;
-  name?: string;
   mimeType: string;
+  /** Why the bytes were deliberately not loaded for this request. Adapters say so (G15). */
+  omittedReason?: 'history_budget' | 'storage_unavailable' | 'model_limit';
   base64?: string;
   extractedText?: string | null;
   sizeBytes?: number;

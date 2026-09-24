@@ -58,8 +58,9 @@ import type { Retriever } from './retrieval.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { UsageService } from './usage.js';
-import type { GenerateInput, ModelInfo, PreferencesRow, SourceDto, StreamEvent, UsageDto } from './generation.js';
-import { computeCostFor, toSourceDto, toUsageDto } from './generation.js';
+import type { AgentLoopInput, ModelInfo, PreferencesRow, SourceDto, StreamEvent, UsageDto } from './generation.js';
+import { computeCostFor, refusalError, toSourceDto, toUsageDto } from './generation.js';
+import { ApiError } from '../errors.js';
 
 const log = logger.child({ module: 'agentLoop' });
 
@@ -81,6 +82,7 @@ function sumUsage(a: ProviderUsage, b: ProviderUsage): ProviderUsage {
 }
 
 import { ExecutionRuntime, type WorkspaceFiles } from '../tools/execution/executionRuntime.js';
+import { TableExtractionToolExecutor, tableExtractionAvailable } from '../tools/tableExtractionExecutor.js';
 
 export interface AgentLoopOptions {
   entry: ModelEntry;
@@ -110,6 +112,7 @@ export class AgentLoop {
     private readonly sandboxClient?: SandboxClient,
     private readonly skills?: SkillService,
     executionRuntime?: ExecutionRuntime,
+    private readonly visionProvider?: Provider,
   ) {
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
   }
@@ -170,7 +173,7 @@ export class AgentLoop {
    * Executes the multi-step agent loop across steps and tools.
    */
   async *stream(
-    input: GenerateInput,
+    input: AgentLoopInput,
     options: AgentLoopOptions,
   ): AsyncGenerator<StreamEvent, void, undefined> {
     const {
@@ -195,26 +198,7 @@ export class AgentLoop {
     const shouldCleanup = !options.workspace;
 
     try {
-      if (shouldCleanup && input.attachments && input.attachments.length > 0) {
-        for (const att of input.attachments) {
-          if (att.name) {
-            if (att.base64) {
-              await this.executionRuntime.materializeInputFiles(workspace, [
-                { filename: att.name, data: Buffer.from(att.base64, 'base64') },
-              ]);
-            } else if (att.storageKey) {
-              try {
-                const buf = await this.storage.get(att.storageKey);
-                await this.executionRuntime.materializeInputFiles(workspace, [
-                  { filename: att.name, data: buf },
-                ]);
-              } catch (storageErr) {
-                log.warn({ storageErr, name: att.name }, 'Failed to materialize attachment in AgentLoop');
-              }
-            }
-          }
-        }
-      }
+      // Attachments reach the workspace only when a tool names their fileId (G26); see generation.ts.
 
     // Timeout signal handling
     const timeoutController = new AbortController();
@@ -242,6 +226,12 @@ export class AgentLoop {
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const imageEnabled = Boolean(this.cfg.ENABLE_IMAGE_GENERATION);
+    const tableExtractionEnabled = tableExtractionAvailable(
+      this.cfg.ENABLE_TOOL_USE,
+      this.executionRuntime,
+      this.visionProvider,
+      this.skills,
+    );
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
@@ -251,6 +241,7 @@ export class AgentLoop {
       memoryEnabled,
       generativeUiEnabled,
       imageEnabled,
+      tableExtractionEnabled,
     );
     const allowPython =
       runPythonEnabled &&
@@ -415,6 +406,7 @@ export class AgentLoop {
           baseMap.set('read_uploaded_file', new UploadToolExecutor(this.db, this.storage, input.userId));
           const fileOperationExecutor = new FileOperationExecutor({
             db: this.db,
+            visionProvider: this.visionProvider,
             storage: this.storage,
             executionRuntime: this.executionRuntime,
             userId: input.userId,
@@ -457,9 +449,26 @@ export class AgentLoop {
                 messageId: input.messageId,
                 db: this.db,
                 storage: this.storage,
+                visionProvider: this.visionProvider,
               },
             ),
           );
+        }
+        if (tableExtractionEnabled) {
+          const tableExecutor = new TableExtractionToolExecutor(
+            {
+              runtime: this.executionRuntime,
+              workspace,
+              visionProvider: this.visionProvider!,
+              skills: this.skills!,
+              storage: this.storage,
+              db: this.db,
+              userId: input.userId,
+            },
+            this.cfg.TABLE_EXTRACTION_MAX_PAGES,
+          );
+          baseMap.set('extract_scanned_table_rows', tableExecutor);
+          baseMap.set('analyze_table_rows', tableExecutor);
         }
         baseMap.set('get_goal', goalToolExecutor);
         baseMap.set('update_goal', goalToolExecutor);
@@ -681,6 +690,9 @@ export class AgentLoop {
               break;
             }
 
+            case 'refusal':
+              throw refusalError(event);
+
             case 'completed':
               stepUsage = event.usage;
               finishReason = event.finishReason;
@@ -747,13 +759,15 @@ export class AgentLoop {
         status = 'cancelled';
       } else {
         status = 'error';
-        errorCode = 'generation_failed';
+        // A typed failure (a refusal, a payload limit) keeps its code for the client.
+        const typed = err instanceof ApiError ? err : null;
+        errorCode = typed?.code ?? 'generation_failed';
         log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'agent loop step failed');
         yield {
           type: 'error',
-          code: 'generation_failed',
-          title: 'Agent Loop Failure',
-          detail: err instanceof Error ? err.message : String(err),
+          code: errorCode,
+          title: typed?.title ?? 'Agent Loop Failure',
+          detail: typed?.detail ?? (err instanceof Error ? err.message : String(err)),
           usage: toUsageDto(cumulativeUsage, null),
         };
         return;
@@ -864,7 +878,7 @@ export class AgentLoop {
   }
 
   private async finalise(
-    input: GenerateInput,
+    input: AgentLoopInput,
     data: {
       text: string;
       sources: ProviderSource[];

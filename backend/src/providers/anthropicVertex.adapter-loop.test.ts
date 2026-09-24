@@ -248,3 +248,22 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     expect(client.calls).toHaveLength(1);
   });
 });
+
+describe('refusal (G13)', () => {
+  it('a refusal stop becomes a typed refusal event with its category, never a plain finish', async () => {
+    const client = new FakeAnthropicClient();
+    client.responses.push(
+      fakeMessageStream([{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'I can' } }], {
+        content: [{ type: 'text' }],
+        usage: { input_tokens: 5, output_tokens: 2 },
+        stop_reason: 'refusal',
+        stop_details: { type: 'refusal', category: 'cyber', explanation: 'Could enable malware.' },
+      } as FakeFinalMessage),
+    );
+    const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events: unknown[] = [];
+    for await (const e of provider.stream(baseRequest())) events.push(e);
+    expect(events).toContainEqual({ type: 'refusal', category: 'cyber', explanation: 'Could enable malware.' });
+    expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'refusal' });
+  });
+});

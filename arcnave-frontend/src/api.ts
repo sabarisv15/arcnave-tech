@@ -132,6 +132,15 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "A response is already running",
     detail: "Stop the current response before starting another.",
   },
+  model_refused: {
+    title: "The model declined this request",
+    detail: "It stopped without answering. Rephrase the request or choose another model.",
+  },
+  provider_payload_limit: {
+    title: "An attachment is too large for this model",
+    detail:
+      "It exceeds the selected model's limit. Send a smaller file or fewer pages, or choose another model.",
+  },
   provider_error: {
     title: "The response could not finish",
     detail: "The model provider returned an error. You can retry.",

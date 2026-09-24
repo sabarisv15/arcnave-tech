@@ -28,7 +28,8 @@ import {
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
-import type { AttachmentBlock } from '../providers/types.js';
+import type { AttachmentRef } from '../providers/types.js';
+import { toAttachmentRef } from '../services/attachments/attachmentRef.js';
 import type { StreamEvent } from '../services/generation.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -519,9 +520,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       try {
         // --- gather attachments: metadata + storage references for native and text paths -----
-        let attachmentText = '';
         let attachmentManifest = '';
-        let turnAttachments: AttachmentBlock[] = [];
+        let turnAttachments: AttachmentRef[] = [];
         if (attachmentIds.length > 0) {
           const rows = await db
             .select({
@@ -547,23 +547,9 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             )
             .join('\n');
 
-          const isNative = (mimeType: string): boolean =>
-            mimeType === 'application/pdf' || mimeType.startsWith('image/');
-
-          attachmentText = rows
-            .filter((r) => !isNative(r.mimeType) && r.extractedText?.trim())
-            .map((r) => `--- ${r.filename} ---\n${r.extractedText}`)
-            .join('\n\n');
 
           // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
-          turnAttachments = rows.map((r) => ({
-            id: r.id,
-            filename: r.filename,
-            mimeType: r.mimeType,
-            sizeBytes: r.sizeBytes,
-            storageKey: r.storageKey,
-            extractedText: r.extractedText,
-          }));
+          turnAttachments = rows.map(toAttachmentRef);
         }
         for await (const event of generation.run({
           userId: user.id,
@@ -575,7 +561,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           modelAlias: model,
           projectId: chat.projectId,
           hasAttachments: attachmentIds.length > 0,
-          attachmentText,
           attachmentManifest,
           attachments: turnAttachments,
           codeExecution,

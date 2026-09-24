@@ -1,6 +1,6 @@
 # ADR-0005: Self-hosted Cloud Run sandbox for `run_python`
 
-- Status: accepted
+- Status: accepted; network egress superseded by [ADR-0007](0007-sandbox-no-general-egress.md) (2026-09-24)
 - Date: 2026-09-19
 - Supersedes: the sandbox-backend choice recorded in `docs/checkpoints/CURRENT.md`'s "Item 9 —
   tool-calling framework, phase 2 (`run_python`)" section (2026-09-19), which chose Vertex AI
