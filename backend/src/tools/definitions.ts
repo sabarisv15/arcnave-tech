@@ -449,7 +449,9 @@ export const ANALYZE_TABLE_ROWS: ToolDefinition = {
     'Columns are 0-based cell indexes. "where" is a list of filters that must all hold: ' +
     '{"column","test":"nonEmpty"|"empty"|"numeric"|"matches"|"notMatches"|"equals","value"?} ("matches" is a ' +
     'case-insensitive regular expression), or {"pageFrom","pageTo"} to select a page range (e.g. one of two statements in one PDF). Give "expected" when the document prints its own figure (a count or total) so ' +
-    'the result says pass or fail. Failed checks list the rows and "suspiciousPages" to re-extract.',
+    'the result says pass or fail. Failed checks list the rows and "suspiciousPages" to re-extract. ' +
+    'Report its counts and totals; do not print more than about 50 rows in the chat. A full row list goes in an xlsx ' +
+    'file via generate_deliverable, because a long list is cut off at the output limit.',
   inputSchema: {
     type: 'object',
     properties: {

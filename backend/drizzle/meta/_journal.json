@@ -57,6 +57,13 @@
       "when": 1789906557817,
       "tag": "0007_smart_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790264432285,
+      "tag": "0008_odd_excalibur",
+      "breakpoints": true
     }
   ]
 }

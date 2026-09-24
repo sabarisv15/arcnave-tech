@@ -46,6 +46,7 @@ import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
 import type { Message, MessageUsage, Mode, ToolCall } from "./types";
+import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage } from "./Content";
@@ -857,6 +858,19 @@ function MessageView({
           <span className="stopped-label">
             Response stopped
             <button onClick={() => retry(chatId, m.id)}>Regenerate</button>
+          </span>
+        )}
+        {m.status === "complete" && cutOffReason(m.finishReason) && (
+          <span className="stopped-label">
+            {cutOffReason(m.finishReason) === "output_limit"
+              ? "Answer cut off: it reached the output limit"
+              : "Answer cut off: it used every tool step this turn allows"}
+            <button
+              disabled={!!activeRun}
+              onClick={() => send("Continue exactly where you stopped.", m.mode, [], chatId)}
+            >
+              Continue
+            </button>
           </span>
         )}
       </div>
