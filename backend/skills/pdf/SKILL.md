@@ -1,6 +1,6 @@
 ---
 name: pdf
-version: 2.1.0
+version: 2.2.0
 description: PDF document understanding, page inspection, splitting, merging, and format-native print deliverable generation.
 category: artifact
 scope: builtin
@@ -83,6 +83,11 @@ read, and each detour spends one of the turn's limited tool rounds.
 7. In the answer, give the computed figures, which checks passed, and anything that stayed
    unreconciled or low-confidence, with page numbers. If a figure could not be verified, say so;
    do not present it as exact.
+8. Do not print more than about 50 rows in the chat. Give the counts, totals and per-label
+   classification, plus a few examples of each label, in chat. When the user needs the full
+   row list, put it in a spreadsheet with `generate_deliverable` (format `xlsx`, one row per
+   transaction with its page, label and captured name), and point to the file. A long list in
+   chat is slow and gets cut off at the output limit.
 
 ### C. Deterministic Structural Inspection
 When programmatic workflows require exact page counts or metadata:

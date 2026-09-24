@@ -194,6 +194,8 @@ describe('preferences', () => {
       theme: 'system',
       modelAlias: 'Auto',
       enterToSend: true,
+      // 4096 cut Gemini answers short: its thinking tokens count against the same limit.
+      maxOutputTokens: 32000,
       version: 1,
     });
   });

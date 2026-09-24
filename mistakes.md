@@ -700,37 +700,6 @@ failure mode of this pattern, not a sign it is working.
   when the signal fires during tool execution, for both `gemini.ts` and `anthropic.ts`'s tool
   loops — not just that the call under test eventually rejects.
 
-### 2026-09-19 — Gemini's functionCall thought_signature was dropped when echoing a tool call back
-
-- **Symptom:** Live in production, right after turning `ENABLE_TOOL_USE`/`ENABLE_RUN_PYTHON` on:
-  every `search_project_files` call on Gemini 3.8 Flash correctly ran and returned real results
-  (`tool_use`/`tool_result` frames both fired, with the right data), but the *next* round always
-  failed with a generic `provider_error`. Nothing useful was logged — `run()`'s catch block
-  mapped the error to a client-facing code but never logged the original exception (fixed in the
-  same commit as this entry).
-- **Cause:** Once logging was added and the failure reproduced, the real error was
-  `400 INVALID_ARGUMENT: Function call is missing a thought_signature in functionCall parts`.
-  Gemini's `thoughtSignature` is a field on the response `Part` that carries a `functionCall`,
-  not on the `FunctionCall` object itself — but `gemini.ts`'s round loop built `roundCalls` from
-  `chunk.functionCalls`, a flattening SDK getter that returns only `FunctionCall[]` and silently
-  drops the sibling `Part`-level field. Reconstructing the continuation turn's `functionCall`
-  part from that stripped-down shape therefore never echoed the signature Gemini requires back
-  unchanged. Adapter-loop tests never caught this because their fakes constructed chunks with a
-  bare `functionCalls` array, the same shape the buggy code actually read — the fake matched the
-  implementation's assumption instead of the real API's.
-- **Rule:** **When an SDK exposes both a raw response shape and a flattening convenience getter
-  over it, treat the getter as lossy by default — check what it does *not* carry before building
-  a round-trip (echo-back) on top of it,** especially for anything a provider requires to be
-  replayed verbatim (this is the same class of requirement as Claude's "echo thinking blocks
-  back unchanged" rule, just a different vendor). A fake built to match the current
-  implementation's field usage, rather than the real wire shape, cannot catch this — it will
-  agree with a wrong assumption as readily as a right one.
-- **Verify:** `gemini.adapter-loop.test.ts`'s "echoes a functionCall part's thoughtSignature back
-  on the continuation turn" constructs a fake chunk with `candidates[0].content.parts[].
-  thoughtSignature` (the real shape) and asserts the second round's request carries it — this
-  fails if the getter-only reading regresses. Live: a `search_project_files` call on Gemini 3.8
-  Flash in production now completes with real final text instead of erroring after the tool result.
-
 ### 2026-09-19 — `compact` did not mean the same thing on every composer surface
 
 - **Symptom:** The chat reply composer still occupied a large empty block even though its caller
@@ -834,6 +803,20 @@ failure mode of this pattern, not a sign it is working.
   over its deadline ends as `turn_deadline_exceeded`. Live: the same prompt on the real PDF
   finishes well inside the deadline.
 
+### 2026-09-24 — A 4096-token output limit cut Gemini answers at a few hundred words, silently
+
+- **Symptom:** After a correct extraction of the real statement, the answer stopped mid-line
+  at "Account: 12". Asking for "the remaining output" stopped at the same kind of point. The UI
+  showed an ordinary finished answer.
+- **Cause:** Every user's `preferences.max_output_tokens` defaulted to 4096. Gemini 3.x counts
+  its thinking tokens against `maxOutputTokens`, so thinking over ~325 rows used almost all of
+  it. The stored finish reason (`MAX_TOKENS`) never reached the UI.
+- **Rule:** **An output limit on a thinking model is a thinking-plus-answer budget; size it for
+  both.** A finish reason of `MAX_TOKENS`/`max_tokens`/`tool_limit` is a cut-off answer and must
+  be shown as one. Long row lists go in a file, not in chat.
+- **Verify:** migration `0008` moves 4096 rows to 32000. `usage.integration.test.ts` checks the
+  new default. `types.test.ts` `cutOffReason` checks the UI's cut-off detection.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -858,6 +841,8 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-24** — Added the output-limit entry. Retired the Gemini `thoughtSignature` entry:
+  `gemini.adapter-loop.test.ts` fails if that regresses (pruning criterion 1). **40 entries.**
 - **2026-09-24** — Added the local-vs-Cloud-Run phase entry, from Phase 3's live failure.
   Retired "`run_python` had no real timeout…": `VertexSandboxClient`, the class it is about,
   no longer exists, and the Cloud Run client has its own orchestration deadline. **40 entries.**

@@ -494,6 +494,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               status: "complete",
               questions: event.questions,
               usage: toUsage(event.usage),
+              finishReason: event.finishReason,
             }));
           }
           if (event.type === "error") {

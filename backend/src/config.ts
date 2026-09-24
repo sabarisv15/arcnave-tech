@@ -115,7 +115,7 @@ const envSchema = z.object({
   PROVIDER_TTFT_BUDGET_MS: int(12_000),
 
   // --- Generation limits --------------------------------------------------
-  DEFAULT_MAX_OUTPUT_TOKENS: int(4096),
+  DEFAULT_MAX_OUTPUT_TOKENS: int(32_000),
   MAX_OUTPUT_TOKENS_CEILING: int(32_000),
   /** Character budget for retrieved project context injected into a prompt. */
   PROJECT_CONTEXT_MAX_CHARS: int(12_000),
@@ -152,8 +152,10 @@ const envSchema = z.object({
    */
   ENABLE_TOOL_USE: bool(false),
   /** One round = one provider request + at most one tool execution. The loop answers with
-   *  `finishReason: 'tool_limit'` rather than looping forever once this is hit. */
-  TOOL_MAX_ROUNDS: int(8),
+   *  `finishReason: 'tool_limit'` rather than looping forever once this is hit. 16, not 8:
+   *  search, skill, extract, analyze, one repair and the answer must all fit, and on the real
+   *  statement 8 ran out before analysis (G11). TURN_DEADLINE_MS bounds the time. */
+  TOOL_MAX_ROUNDS: int(16),
   /** Hard server-side cap on `read_project_file`'s returned text, regardless of what `maxChars`
    *  the model requests. Keeps one large document from ever being handed over whole. */
   READ_PROJECT_FILE_MAX_CHARS: int(6000),

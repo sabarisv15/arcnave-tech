@@ -135,6 +135,20 @@ export interface Message {
   providerModelId?: string;
   createdAt?: string | null;
   usage?: MessageUsage;
+  /** The provider's stop reason as stored, e.g. "MAX_TOKENS" when the answer hit its limit. */
+  finishReason?: string;
+}
+
+/**
+ * Why a completed answer stopped early, or null when it ended normally. A cut-off answer is
+ * shown as such, never as a finished one (Invariant 1).
+ */
+export function cutOffReason(finishReason: string | undefined): "output_limit" | "tool_limit" | null {
+  if (!finishReason) return null;
+  const r = finishReason.toLowerCase();
+  if (r === "max_tokens" || r === "length") return "output_limit";
+  if (r === "tool_limit") return "tool_limit";
+  return null;
 }
 
 export interface Chat {
@@ -341,6 +355,7 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.providerModelId ? { providerModelId: dto.providerModelId } : {}),
     ...(dto.createdAt ? { createdAt: dto.createdAt } : {}),
     ...(dto.usage ? { usage: toUsage(dto.usage) } : {}),
+    ...(dto.finishReason ? { finishReason: dto.finishReason } : {}),
   };
 }
 

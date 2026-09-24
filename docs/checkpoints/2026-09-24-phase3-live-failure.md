@@ -148,3 +148,24 @@ Build is the first build of the image with `poppler-utils` and `python3`.
 
 **Next:** after deploy, run the same prompt on `kvbfedral.pdf` live. Pass means 48 / 277 / 325,
 no timeout, and extraction chosen early. Then Phase 3 closes.
+
+## Second live test (2026-09-24, after steps 1–3)
+
+`extract_scanned_table_rows` succeeded live (**Done**), so step 1 works. Two new problems:
+
+1. **The answer was cut off** at "Account: 12". Every user's `max_output_tokens` was 4096,
+   and Gemini's thinking tokens count against it. **Fixed:** the default is now 32 000, and
+   migration `0008` moves rows still on 4096. A `MAX_TOKENS` or `tool_limit` finish now shows
+   "Answer cut off" with a **Continue** button.
+2. **Tool rounds ran out.** The model called `run_python` 5 times before extracting, so the 8
+   rounds ended before `analyze_table_rows`. **Fixed:** `TOOL_MAX_ROUNDS` is 16, bounded by the
+   turn deadline. The ranking and descriptions already point to extraction. Why the model still
+   tried `run_python` first is open: it needs the live `search_tools` query.
+
+Also added: `analyze_table_rows` and pdf skill rule 8 say to keep more than ~50 rows out of the
+chat and put the full list in an xlsx via `generate_deliverable`.
+
+**Found, not fixed:** the `analysis_*` tables (`src/db/schema.ts`) have no migration.
+`drizzle-kit generate` tried to add them in 0008, and they were left out on purpose, because
+whether production already has them is unknown. They need their own idempotent migration after
+someone checks production.

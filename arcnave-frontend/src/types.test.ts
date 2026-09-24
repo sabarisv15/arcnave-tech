@@ -242,3 +242,14 @@ describe("upload policy", () => {
     expect(validateFile({ name: "sheet.xlsx", size: 2048 })).toBeNull();
   });
 });
+
+describe("cutOffReason", () => {
+  it("names an answer that hit its output or tool limit, and nothing else", async () => {
+    const { cutOffReason } = await import("./types");
+    expect(cutOffReason("MAX_TOKENS")).toBe("output_limit");
+    expect(cutOffReason("max_tokens")).toBe("output_limit");
+    expect(cutOffReason("tool_limit")).toBe("tool_limit");
+    expect(cutOffReason("STOP")).toBeNull();
+    expect(cutOffReason(undefined)).toBeNull();
+  });
+});
