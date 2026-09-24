@@ -136,4 +136,19 @@ Verified by running `routeTurn()` with a PDF attached and `runPythonEnabled: tru
 |---|---|---|
 | G14 | Visual QA never runs vision: no caller passes `visionProvider`, so it falls back to a PNG magic-header check and reports pass. The locked architecture's "vision checks layout" does not happen | `services/qa/visualQaEngine.ts`, callers in `tools/fileOperationExecutor.ts`, `tools/codeExecutionExecutor.ts` |
 
-Not audited here: provider file adapters (locked layer 4), execution runtime isolation.
+### Provider file adapters (locked layer 4)
+
+Verified by running `buildAnthropicMessages` / `buildGeminiContents` with an `.xlsx` whose
+extracted text carries a marker, plus an earlier-turn PDF with no bytes hydrated.
+
+| # | Gap | Where |
+|---|---|---|
+| G15 | An earlier-turn PDF left out of the 12 MB history byte budget reaches the model empty: Claude gets a `document` block with `data: ""`, Gemini gets `[Empty or unreadable document]`. PDFs are never text-extracted at upload, so there is no fallback, and no machine-readable reason is surfaced (Invariant 1). With G6 the model cannot recover it via `read_uploaded_file` either | `services/generation.ts` `hydrateHistoryAttachments`, `providers/anthropicVertex.ts` `attachmentBlocks`, `providers/gemini.ts` `attachmentParts`, `routes/files.ts` `isNativelyViewable` |
+| G16 | Office extracted text is sent twice, on both providers (marker count 2): once appended to the prompt as `attachmentText`, again as a document block / part from `extractedText`. History turns do the same (appended to turn text + kept on the attachment). Up to 200k chars per file, doubled | `routes/chats.ts` attachmentText, `services/generation.ts` effectivePrompt and history mapping |
+| G17 | If Office extraction failed (`extractedText` null), Claude decodes the raw ZIP bytes as UTF-8 text and Gemini sends DOCX/XLSX bytes as `inlineData`, a MIME type it does not accept. Code-read only, not provider-tested | `attachmentBlocks`, `attachmentParts` fallbacks |
+| G18 | Provider limits are found by failure, not checked up front: PDF page limits (Claude 600, or 100 on 200k-context models) are not checked; the 5 MB image limit is detected by matching provider error prose | `services/generation.ts` error mapping |
+
+Matches Claude's contract: image MIME allowlist (png/jpeg/webp/gif) equals Claude's; media before
+text in the user turn; 20 MB upload cap is under Claude's 32 MB request limit.
+
+Not audited here: execution runtime isolation (locked layer 8).
