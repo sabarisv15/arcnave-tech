@@ -76,7 +76,7 @@ after (spends quota, so it needs the user's approval).
 | G17 | No raw-binary fallback. An Office file without extracted text becomes an explicit "could not be read: <reason>" note | Adapter tests on both providers |
 | G18 | Check PDF page count and image size at upload; reject with typed `ApiError` codes shown by the frontend | Route integration tests + `npm run openapi` + frontend test |
 
-## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13) ✅ locally
+## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13) ✅ locally, ❌ live acceptance (see [phase 3 live failure](../../checkpoints/2026-09-24-phase3-live-failure.md))
 
 **Done 2026-09-24, local only.** Decision taken at the start of the phase: vision first, called
 from the backend; deterministic work in skill scripts; no offline OCR engine added (it stays a
