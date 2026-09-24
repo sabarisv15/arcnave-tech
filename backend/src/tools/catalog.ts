@@ -30,6 +30,7 @@ import {
   READ_UPLOADED_FILE,
   RENDER_UI,
   RUN_PYTHON,
+  RUN_PYTHON_WARM,
   EXTRACT_SCANNED_TABLE_ROWS,
   ANALYZE_TABLE_ROWS,
   SEARCH_MEMORY,
@@ -89,12 +90,19 @@ export interface ToolCatalogEntry {
   shortDescription: string;
   keywords: string[];
   definition: ToolDefinition;
+  /** The definition when it depends on configuration (run_python's engine); else `definition`. */
+  definitionFor?: (cfg: Config) => ToolDefinition;
   /** Whether this tool should be in the initial core set (Round 0) or deferred until discovered */
   isInitialCore: boolean;
   /** Whether the feature flag / infrastructure allows this tool */
   isFeatureEnabled: (cfg: Config, flags: ToolFeatureFlags) => boolean;
   /** Whether this request/turn authorization allows this tool */
   isAuthorized: (context: ToolContext) => boolean;
+}
+
+/** Whether run_python runs on the warm sandbox service (ADR-0010), mirroring container.ts. */
+export function usesWarmSandbox(cfg: Config): boolean {
+  return cfg.SANDBOX_ENGINE === 'warm' || (cfg.SANDBOX_ENGINE === 'auto' && Boolean(cfg.SANDBOX_SERVICE_URL));
 }
 
 export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
@@ -205,6 +213,7 @@ export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
       'numerical',
     ],
     definition: RUN_PYTHON,
+    definitionFor: (cfg) => (usesWarmSandbox(cfg) ? RUN_PYTHON_WARM : RUN_PYTHON),
     isInitialCore: false,
     isFeatureEnabled: (cfg, flags) => Boolean(cfg.ENABLE_TOOL_USE && flags.runPythonEnabled),
     isAuthorized: (ctx) => ctx.allowPython === true,
@@ -535,7 +544,7 @@ export function getInitialCoreTools(
 
   return TOOL_CATALOG_ENTRIES.filter(
     (e) => e.isInitialCore && e.isFeatureEnabled(cfg, flags) && e.isAuthorized(context),
-  ).map((e) => e.definition);
+  ).map((e) => e.definitionFor?.(cfg) ?? e.definition);
 }
 
 /**
@@ -553,5 +562,5 @@ export function getDeferredPolicyCatalog(
     if (!e.isFeatureEnabled(cfg, flags) || !e.isAuthorized(context)) return false;
     if (allowedToolNames && !allowedToolNames.includes(e.name)) return false;
     return true;
-  }).map((e) => e.definition);
+  }).map((e) => e.definitionFor?.(cfg) ?? e.definition);
 }

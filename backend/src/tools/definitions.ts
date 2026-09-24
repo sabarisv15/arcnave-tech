@@ -110,6 +110,46 @@ export const RUN_PYTHON: ToolDefinition = {
 };
 
 /**
+ * run_python as the warm sandbox service runs it (ADR-0010). Selected by `definitionFor` in the
+ * catalog whenever that engine is configured, so the model is never told "fresh each call" while
+ * its files are in fact kept, or the reverse.
+ */
+export const RUN_PYTHON_WARM: ToolDefinition = {
+  name: 'run_python',
+  description:
+    'Runs Python code in this chat\'s own sandbox computer. Files persist between calls in the same ' +
+    'chat: anything written to the working directory (or "output/") is still there next call, so load ' +
+    'or parse a file once, save the result (e.g. rows.json, a .parquet), and reuse it. Python variables ' +
+    'do not persist between calls; files do. No network access. Pre-installed: pandas, numpy, scipy, ' +
+    'matplotlib, openpyxl, xlrd, xlsxwriter, pdfplumber, pypdf, pymupdf (fitz), python-docx, python-pptx, ' +
+    'pillow, opencv, pytesseract with tesseract (eng, tam), poppler (pdftoppm, pdftotext), pandoc, ' +
+    'LibreOffice. Nothing can be installed. ' +
+    'To work on uploaded files, list their fileIds in "input_files"; each file is then readable at ' +
+    '"input/<filename>" (characters other than letters, digits, ".", "_" and "-" become "_"; when two ' +
+    'listed files share a name, the later one gets "_<first 8 characters of its fileId>" before the ' +
+    'extension). The result reports the exact path of every input file. Any size of file works. ' +
+    'Files written or changed in "output/" during the call are returned to the user as downloads. ' +
+    'To look at something yourself, save an image (PNG/JPEG/WebP) to "view/": it is shown to you with the ' +
+    'result, up to 4 per call. For a scanned page, render just the region you need at high resolution ' +
+    '(e.g. pymupdf page.get_pixmap(dpi=200, clip=rect)) and read it, rather than trusting OCR for exact figures. ' +
+    'Output is captured stdout/stderr, truncated if large; print summaries, not whole tables. ' +
+    'A call may run for a few minutes.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      code: { type: 'string', description: 'Python source to execute.' },
+      input_files: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Optional fileIds of uploaded attachments (from the conversation attachment list) to place in "input/" before the code runs.',
+      },
+    },
+    required: ['code'],
+  },
+};
+
+/**
  * Item 10 Goal Bookkeeping Tools.
  * Exposes active goal state, progress tracking, and context-window token remaining queries.
  */

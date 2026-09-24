@@ -9,6 +9,8 @@
  * - Graceful timeout and cancellation handling.
  */
 import { and, eq, sql } from 'drizzle-orm';
+import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
+import { usesWarmSandbox } from '../tools/catalog.js';
 import { z } from 'zod';
 
 import type { Config } from '../config.js';
@@ -32,7 +34,7 @@ import type {
   ToolResult,
   Turn,
 } from '../providers/types.js';
-import { EMPTY_USAGE, isAbort } from '../providers/types.js';
+import { EMPTY_USAGE, isAbort, primaryToolContent, toolContentText, withoutImageBytes } from '../providers/types.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -65,7 +67,7 @@ import { ApiError } from '../errors.js';
 const log = logger.child({ module: 'agentLoop' });
 
 function toolResultPreview(result: ToolResult, maxChars: number): string {
-  const block = result.content[0];
+  const block = primaryToolContent(result);
   if (!block) return '';
   const text = block.type === 'text' ? block.text : JSON.stringify(block.data);
   return text.slice(0, maxChars);
@@ -242,6 +244,7 @@ export class AgentLoop {
       generativeUiEnabled,
       imageEnabled,
       tableExtractionEnabled,
+      usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
     );
     const allowPython =
       runPythonEnabled &&
@@ -564,7 +567,7 @@ export class AgentLoop {
               await GoalToolExecutor.recordToolSuccess(this.db, activeGoal.id, call.name, runId);
             } else {
               const errorText = result.content
-                .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c.data)))
+                .map(toolContentText)
                 .join(' ');
               await GoalToolExecutor.recordToolFailure(
                 this.db,
@@ -872,7 +875,7 @@ export class AgentLoop {
       name,
       input: (input as Record<string, unknown>) ?? {},
       ok: result.ok,
-      content: result.content,
+      content: withoutImageBytes(result.content),
       ordinal,
     });
   }

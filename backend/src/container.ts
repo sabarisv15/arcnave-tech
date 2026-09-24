@@ -28,8 +28,12 @@ import { ExecutionRuntime } from './tools/execution/executionRuntime.js';
 import { ProcessSandboxClient } from './tools/sandbox/processSandboxClient.js';
 import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
 import type { SandboxClient } from './tools/sandbox/client.js';
+import { GoogleAuth, type IdTokenClient } from 'google-auth-library';
+import { RunHub } from './services/runHub.js';
 import { SandboxSemaphore } from './tools/sandbox/semaphore.js';
 import { SemaphoreSandboxClient } from './tools/sandbox/semaphoreSandboxClient.js';
+import { usesWarmSandbox } from './tools/catalog.js';
+import { WarmSandboxClient } from './tools/sandbox/warmSandboxClient.js';
 import { logger } from './logger.js';
 
 const log = logger.child({ module: 'container' });
@@ -62,6 +66,9 @@ export interface Services {
    * before horizontal scaling, which is recorded as a known limitation.
    */
   activeRuns: Map<string, AbortController>;
+  /** Each chat's current run and its buffered events, so a client can reattach after its
+   *  connection drops. See `services/runHub.ts`. */
+  runHub: RunHub;
 }
 
 export interface BuildOptions {
@@ -125,10 +132,28 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     const isCloudRunConfigured = Boolean(
       cfg.GOOGLE_CLOUD_PROJECT && cfg.SANDBOX_LOCATION && cfg.SANDBOX_JOB_NAME,
     );
+    // One rule for both the engine and the tool description the model sees (catalog.ts).
+    const useWarm = usesWarmSandbox(cfg);
     const useCloudRun =
-      cfg.SANDBOX_ENGINE === 'cloud-run' || (cfg.SANDBOX_ENGINE === 'auto' && isCloudRunConfigured);
+      !useWarm &&
+      (cfg.SANDBOX_ENGINE === 'cloud-run' || (cfg.SANDBOX_ENGINE === 'auto' && isCloudRunConfigured));
 
-    if (useCloudRun) {
+    if (useWarm) {
+      if (!cfg.SANDBOX_SERVICE_URL) {
+        log.error('Warm sandbox requested but SANDBOX_SERVICE_URL is unset; failing closed (run_python disabled).');
+      } else if (cfg.SANDBOX_SERVICE_AUTH === 'none' && isProduction) {
+        log.error('SANDBOX_SERVICE_AUTH=none is refused in production; failing closed (run_python disabled).');
+      } else {
+        rawSandboxClient = new WarmSandboxClient({
+          baseUrl: cfg.SANDBOX_SERVICE_URL,
+          authorization: cfg.SANDBOX_SERVICE_AUTH === 'none' ? async () => null : idTokenAuthorization(cfg.SANDBOX_SERVICE_URL),
+          codeTimeoutMs: cfg.RUN_PYTHON_WARM_CODE_TIMEOUT_MS,
+          transferBudgetMs: cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS,
+          maxCodeBytes: 512 * 1024,
+        });
+        log.info({ url: cfg.SANDBOX_SERVICE_URL }, 'run_python uses the warm sandbox service');
+      }
+    } else if (useCloudRun) {
       if (!cfg.GOOGLE_CLOUD_PROJECT) {
         log.warn('Cloud Run sandbox requested but GOOGLE_CLOUD_PROJECT is unset; failing closed (run_python disabled).');
       } else {
@@ -172,7 +197,10 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
         new SandboxSemaphore(
           db,
           cfg.MAX_CONCURRENT_RUN_PYTHON,
-          cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS + cfg.SANDBOX_CLAIM_LEASE_BUFFER_MS,
+          // A claim must outlive the longest call it guards, or a slow run frees its slot early.
+          (rawSandboxClient instanceof WarmSandboxClient ? cfg.RUN_PYTHON_WARM_CODE_TIMEOUT_MS : 0) +
+            cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS +
+            cfg.SANDBOX_CLAIM_LEASE_BUFFER_MS,
         ),
       )
     : undefined;
@@ -225,5 +253,21 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     executionRuntime,
     visionProvider: providers.google!,
     activeRuns: new Map(),
+    runHub: new RunHub(),
+  };
+}
+
+/**
+ * An `Authorization` header for a Cloud Run service that requires IAM: an ID token for the
+ * service's URL, minted from Application Default Credentials (the backend's workload identity
+ * on Cloud Run; `gcloud auth application-default login` locally). The client caches and
+ * refreshes the token itself.
+ */
+function idTokenAuthorization(audience: string): () => Promise<string | null> {
+  let client: Promise<IdTokenClient> | undefined;
+  return async () => {
+    client ??= new GoogleAuth().getIdTokenClient(audience);
+    const headers = await (await client).getRequestHeaders();
+    return headers.get('authorization');
   };
 }

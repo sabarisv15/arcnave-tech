@@ -10,6 +10,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { AttachmentBlock, GenerationRequest, ToolResult } from '../providers/types.js';
+import { toolContentText } from '../providers/types.js';
 import { buildScannedPdf, imageSize, PAGE_HEIGHT_PT, pageWidthPt } from '../test/fixtures/scannedPdf.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, multipart, signUp } from '../test/harness.js';
@@ -127,7 +128,7 @@ async function generate(payload: Record<string, unknown>): Promise<void> {
 }
 
 const flat = (r: ToolResult): string =>
-  r.content.map((c) => (c.type === 'text' ? c.text : JSON.stringify(c.data))).join('');
+  r.content.map(toolContentText).join('');
 const json = (r: ToolResult): Record<string, any> =>
   JSON.parse((r.content[0] as { text: string }).text) as Record<string, any>;
 

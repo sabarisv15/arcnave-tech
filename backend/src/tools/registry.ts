@@ -63,6 +63,9 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly imageEnabled: boolean = false,
     /** Phase 3 table extraction: trusted CLI + skill scripts + a vision provider all present. */
     private readonly tableExtractionEnabled: boolean = false,
+    /** run_python as the configured engine runs it (RUN_PYTHON_WARM on the warm service), so
+     *  the description matches what the sandbox actually keeps between calls. */
+    private readonly runPythonDefinition: ToolDefinition = RUN_PYTHON,
   ) {}
 
   /**
@@ -132,7 +135,7 @@ export class ProjectToolRegistry implements ToolRegistry {
       // Code execution is high-cost and high-latency. It is visible only when both the
       // deployment and the current request's deterministic capability policy allow it.
       if (this.runPythonEnabled && context.allowPython === true) {
-        tools.push(RUN_PYTHON);
+        tools.push(this.runPythonDefinition);
       }
 
       if (this.tableExtractionEnabled) {

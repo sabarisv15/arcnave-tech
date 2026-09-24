@@ -111,6 +111,8 @@ const OPERATION_POLL_INTERVAL_MS = 1_000;
 const EXECUTION_POLL_INTERVAL_MS = 1_000;
 const LOG_POLL_ATTEMPTS = 10;
 const LOG_POLL_INTERVAL_MS = 1_000;
+/** Inline (env-var) transport ceiling for an input when no staging bucket is configured. */
+const INLINE_INPUT_MAX_BYTES = 2 * 1024 * 1024;
 
 export interface CloudRunSandboxClientDeps {
   project: string;
@@ -284,12 +286,22 @@ export class CloudRunSandboxClient implements SandboxClient {
                 }
               }
               stagedInputs.push({ name: safeName, stagingRef, url });
-            } else if (st.size <= 2 * 1024 * 1024) {
+            } else if (st.size <= INLINE_INPUT_MAX_BYTES) {
               legacyInputFiles[entry] = buf.toString('base64');
+            } else {
+              // Skipping it would leave the code a path with no file behind it, and the model
+              // would spend its rounds on "file not found" (the 2026-09-24 KVB failure).
+              throw new ProviderError(
+                `Input "${entry}" is ${String(st.size)} bytes; without a staging bucket the sandbox ` +
+                  `Job accepts inputs up to ${String(INLINE_INPUT_MAX_BYTES)} bytes. Configure ` +
+                  'SANDBOX_STAGE_BUCKET or the warm sandbox service (ADR-0010).',
+                { code: 'provider_error' },
+              );
             }
           }
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof ProviderError) throw err;
         // Workspace input directory is empty or absent
       }
     }

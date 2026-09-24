@@ -3,15 +3,16 @@
  *
  * The SSE endpoint is the interesting one. Three things it has to get right:
  *
- * - **Cancellation reaches the provider.** The controller for a run is registered in
- *   `services.activeRuns`, so `POST /chats/:id/stop` from another connection aborts it, and
- *   a client disconnect does the same via the socket `close` event.
+ * - **A run outlives its connection.** The run publishes to `services.runHub`; the connection
+ *   that started it and any that reattach (`GET /chats/:id/stream`) are subscribers. Only
+ *   `POST /chats/:id/stop` (via `services.activeRuns`), shutdown, or the turn deadline abort it.
  * - **The assistant row exists before streaming starts.** A reload mid-stream must find a
  *   message to show, not a gap; the row is created first and filled in as events arrive.
  * - **One run per chat.** A second generate on a busy chat is refused rather than interleaved.
  */
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import {
@@ -30,7 +31,7 @@ import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { AttachmentRef } from '../providers/types.js';
 import { toAttachmentRef } from '../services/attachments/attachmentRef.js';
-import type { StreamEvent } from '../services/generation.js';
+import type { Run } from '../services/runHub.js';
 import type { AppInstance } from '../types.js';
 import {
   assertVersion,
@@ -449,7 +450,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         summary: 'Stream an assistant reply over SSE',
         description:
           'Returns text/event-stream. Frames: start, research, delta, sources, tool_use, ' +
-          'tool_result, done, error. Disconnecting cancels the underlying provider call.',
+          'tool_result, done, error. Each frame carries an SSE `id`. Disconnecting does not ' +
+          'cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop.',
         params: uuidParam,
         body: z.object({
           prompt: z.string().min(1).max(100_000),
@@ -471,7 +473,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, generation, activeRuns } = request.services;
+      const { db, generation, activeRuns, runHub } = request.services;
       const chat = await loadChat(request, request.params.id);
 
       if (activeRuns.has(chat.id)) throw new ApiError('run_in_progress');
@@ -483,123 +485,124 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         ? await resetForRetry(request, chat.id, retryMessageId)
         : await appendTurn(request, chat.id, user.id, prompt, mode, attachmentIds);
 
-      // --- wire up cancellation & immediate SSE streaming (SLO < 100ms) --
+      // --- the run lives on its own; this connection is only its first subscriber ------
+      // Closing the socket does not stop the run (a sleeping tab or a dropped mobile network
+      // would otherwise throw away minutes of tool work). Stop is explicit: POST /stop.
       const controller = new AbortController();
       activeRuns.set(chat.id, controller);
-      const onClose = (): void => controller.abort();
-      request.raw.on('close', onClose);
+      const run = runHub.start(chat.id, user.id, assistantMessageId, controller);
 
-      const { cfg } = request.services;
-      const origin = request.headers.origin;
-      const corsHeaders: Record<string, string> =
-        origin && cfg.CORS_ORIGINS.includes(origin)
-          ? {
-              'Access-Control-Allow-Origin': origin,
-              'Access-Control-Allow-Credentials': 'true',
-              Vary: 'Origin',
-            }
-          : {};
+      void (async () => {
+        try {
+          // --- gather attachments: metadata + storage references for native and text paths ---
+          let attachmentManifest = '';
+          let turnAttachments: AttachmentRef[] = [];
+          if (attachmentIds.length > 0) {
+            const rows = await db
+              .select({
+                id: attachmentsTable.id,
+                filename: attachmentsTable.filename,
+                mimeType: attachmentsTable.mimeType,
+                sizeBytes: attachmentsTable.sizeBytes,
+                storageKey: attachmentsTable.storageKey,
+                extractedText: attachmentsTable.extractedText,
+              })
+              .from(attachmentsTable)
+              .where(
+                and(
+                  inArray(attachmentsTable.id, attachmentIds),
+                  eq(attachmentsTable.userId, user.id),
+                ),
+              );
 
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-        'X-Request-ID': request.id,
-        ...corsHeaders,
-      });
+            attachmentManifest = rows
+              .map(
+                (r) =>
+                  `- fileId: "${r.id}" | filename: "${r.filename}" | type: ${r.mimeType} | size: ${r.sizeBytes} bytes`,
+              )
+              .join('\n');
 
-      const send = (event: StreamEvent): void => {
-        if (reply.raw.writableEnded) return;
-        reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-      };
+            // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
+            turnAttachments = rows.map(toAttachmentRef);
+          }
+          for await (const event of generation.run({
+            userId: user.id,
+            requestId: request.id,
+            chatId: chat.id,
+            messageId: assistantMessageId,
+            prompt,
+            mode,
+            modelAlias: model,
+            projectId: chat.projectId,
+            hasAttachments: attachmentIds.length > 0,
+            attachmentManifest,
+            attachments: turnAttachments,
+            codeExecution,
+            signal: controller.signal,
+          })) {
+            run.publish(event);
+          }
+        } catch (err) {
+          // The response is already committed as 200/event-stream, so an error cannot become a
+          // status code here. It is delivered as a typed frame the client already handles.
+          const body =
+            err instanceof ApiError
+              ? { code: err.code, title: err.title, detail: err.detail }
+              : { code: 'internal_error', title: 'Something went wrong', detail: 'The response could not finish.' };
+          if (!(err instanceof ApiError)) {
+            request.log.error({ err }, 'generation failed');
+          }
 
-      const heartbeat = setInterval(() => {
-        if (!reply.raw.writableEnded) reply.raw.write(': heartbeat\n\n');
-      }, 15_000);
-
-      try {
-        // --- gather attachments: metadata + storage references for native and text paths -----
-        let attachmentManifest = '';
-        let turnAttachments: AttachmentRef[] = [];
-        if (attachmentIds.length > 0) {
-          const rows = await db
-            .select({
-              id: attachmentsTable.id,
-              filename: attachmentsTable.filename,
-              mimeType: attachmentsTable.mimeType,
-              sizeBytes: attachmentsTable.sizeBytes,
-              storageKey: attachmentsTable.storageKey,
-              extractedText: attachmentsTable.extractedText,
+          // Failures raised before the stream opens (no model available, budget exhausted)
+          // never reach the generation service's own persistence, so the assistant row would
+          // stay 'generating' forever and show as a spinner after a reload.
+          await db
+            .update(messages)
+            .set({
+              status: 'error',
+              errorCode: body.code,
+              researchStage: mode === 'chat' ? null : 'error',
+              completedAt: new Date(),
             })
-            .from(attachmentsTable)
-            .where(
-              and(
-                inArray(attachmentsTable.id, attachmentIds),
-                eq(attachmentsTable.userId, user.id),
-              ),
-            );
+            .where(and(eq(messages.id, assistantMessageId), eq(messages.status, 'generating')))
+            .catch((dbErr: unknown) => request.log.error({ err: dbErr }, 'failed to mark run as errored'));
 
-          attachmentManifest = rows
-            .map(
-              (r) =>
-                `- fileId: "${r.id}" | filename: "${r.filename}" | type: ${r.mimeType} | size: ${r.sizeBytes} bytes`,
-            )
-            .join('\n');
-
-
-          // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
-          turnAttachments = rows.map(toAttachmentRef);
+          run.publish({ type: 'error', ...body });
+        } finally {
+          if (activeRuns.get(chat.id) === controller) activeRuns.delete(chat.id);
+          runHub.finish(run);
         }
-        for await (const event of generation.run({
-          userId: user.id,
-          requestId: request.id,
-          chatId: chat.id,
-          messageId: assistantMessageId,
-          prompt,
-          mode,
-          modelAlias: model,
-          projectId: chat.projectId,
-          hasAttachments: attachmentIds.length > 0,
-          attachmentManifest,
-          attachments: turnAttachments,
-          codeExecution,
-          signal: controller.signal,
-        })) {
-          send(event);
-        }
-      } catch (err) {
-        // The response is already committed as 200/event-stream, so an error cannot become a
-        // status code here. It is delivered as a typed frame the client already handles.
-        const body =
-          err instanceof ApiError
-            ? { code: err.code, title: err.title, detail: err.detail }
-            : { code: 'internal_error', title: 'Something went wrong', detail: 'The response could not finish.' };
-        if (!(err instanceof ApiError)) {
-          request.log.error({ err }, 'generation failed');
-        }
+      })();
 
-        // Failures raised before the stream opens (no model available, budget exhausted)
-        // never reach the generation service's own persistence, so the assistant row would
-        // stay 'generating' forever and show as a spinner after a reload.
-        await db
-          .update(messages)
-          .set({
-            status: 'error',
-            errorCode: body.code,
-            researchStage: mode === 'chat' ? null : 'error',
-            completedAt: new Date(),
-          })
-          .where(and(eq(messages.id, assistantMessageId), eq(messages.status, 'generating')));
+      await streamRun(request, reply, run, -1);
+      return reply;
+    },
+  );
 
-        send({ type: 'error', ...body });
-      } finally {
-        clearInterval(heartbeat);
-        request.raw.off('close', onClose);
-        activeRuns.delete(chat.id);
-        if (!reply.raw.writableEnded) reply.raw.end();
+  /* ---------------------------------------------------------------- resume */
+
+  typed.get(
+    '/chats/:id/stream',
+    {
+      schema: {
+        tags: ['chats'],
+        summary: "Reattach to this chat's running (or just finished) reply over SSE",
+        description:
+          'Replays the run\'s frames after `after` (the SSE `id` of the last frame received; ' +
+          'omit for all), then streams live frames until the run ends. 404 `no_active_run` ' +
+          'when this instance holds no run for the chat: read the chat for the persisted reply.',
+        params: uuidParam,
+        querystring: z.object({ after: z.coerce.number().int().min(-1).default(-1) }),
+      },
+    },
+    async (request, reply) => {
+      const { runHub } = request.services;
+      const chat = await loadChat(request, request.params.id);
+      const run = runHub.latest(chat.id);
+      if (!run || run.userId !== currentUser(request).id) throw new ApiError('no_active_run');
+      if (!(await streamRun(request, reply, run, request.query.after))) {
+        throw new ApiError('no_active_run');
       }
-
       return reply;
     },
   );
@@ -655,6 +658,63 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 /* -------------------------------------------------------------------------- helpers */
 
 type ChatRow = typeof chats.$inferSelect;
+
+/**
+ * Writes one run's frames to this connection: the buffered ones after `after`, then live ones
+ * until the run ends or this client goes away. Leaving never stops the run. Resolves false,
+ * before writing anything, when the frames after `after` are no longer buffered.
+ */
+async function streamRun(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  run: Run,
+  after: number,
+): Promise<boolean> {
+  if (!run.canReplayFrom(after)) return false;
+  const { cfg } = request.services;
+  const origin = request.headers.origin;
+  const corsHeaders: Record<string, string> =
+    origin && cfg.CORS_ORIGINS.includes(origin)
+      ? {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Credentials': 'true',
+          Vary: 'Origin',
+        }
+      : {};
+
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'X-Request-ID': request.id,
+    ...corsHeaders,
+  });
+
+  await new Promise<void>((resolve) => {
+    let unsubscribe: (() => void) | null = null;
+    const heartbeat = setInterval(() => {
+      if (!reply.raw.writableEnded) reply.raw.write(': heartbeat\n\n');
+    }, 15_000);
+    const end = (): void => {
+      clearInterval(heartbeat);
+      request.raw.off('close', end);
+      unsubscribe?.();
+      if (!reply.raw.writableEnded) reply.raw.end();
+      resolve();
+    };
+    request.raw.on('close', end);
+    unsubscribe = run.subscribe(
+      after,
+      (event, index) => {
+        if (reply.raw.writableEnded) return;
+        reply.raw.write(`id: ${String(index)}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      },
+      end,
+    );
+  });
+  return true;
+}
 
 function toChatDto(row: ChatRow): {
   id: string;

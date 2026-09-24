@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import type { Database } from '../db/client.js';
 import { logger } from '../logger.js';
-import type { Provider, ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
+import type { Provider, ToolCall, ToolContent, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { ObjectStorage } from '../services/storage.js';
 import { verifyPdf } from '../services/documents/verify/pdfVerify.js';
 import { verifyXlsx } from '../services/documents/verify/xlsxVerify.js';
@@ -34,6 +34,27 @@ const runInput = z.object({
   expectedOutputs: z.array(z.string()).max(20).optional(),
 });
 
+/** Images the code saves in view/ are shown to the model (ADR-0010): the way it reads a page
+ *  crop at full resolution instead of guessing a digit. Bounded, because each costs tokens. */
+const MAX_VIEW_IMAGES = 4;
+const MAX_VIEW_IMAGE_BYTES = 5 * 1024 * 1024;
+const VIEW_IMAGE_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+
+/** name -> mtime of each plain file in `dir` (empty when it does not exist). */
+async function snapshotDir(dir: string): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    if (e.isFile()) out.set(e.name, (await fs.stat(path.join(dir, e.name))).mtimeMs);
+  }
+  return out;
+}
+
 function textResult(toolCallId: string, ok: boolean, text: string): ToolResult {
   return { toolCallId, ok, content: [{ type: 'text', text }] };
 }
@@ -49,6 +70,9 @@ export interface CodeExecutionOptions {
   workspace?: WorkspaceFiles;
   userId?: string;
   messageId?: string;
+  /** Scopes the sandbox workspace kept between calls: files from earlier calls in this chat
+   *  are still there. */
+  chatId?: string;
   db?: Database;
   storage?: ObjectStorage;
   /** Looks at rendered output pages for visual QA (G14). Without it the visual layer is `not_checked`. */
@@ -61,6 +85,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
   private readonly workspace?: WorkspaceFiles;
   private readonly userId?: string;
   private readonly messageId?: string;
+  private readonly chatId?: string;
   private readonly db?: Database;
   private readonly storage?: ObjectStorage;
   private readonly visionProvider?: Provider;
@@ -80,6 +105,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     this.workspace = options?.workspace;
     this.userId = options?.userId;
     this.messageId = options?.messageId;
+    this.chatId = options?.chatId;
     this.db = options?.db;
     this.visionProvider = options?.visionProvider;
     this.storage = options?.storage;
@@ -107,10 +133,14 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
       inputFiles = staged.files;
     }
 
+    const viewDir = this.workspace ? path.join(this.workspace.workspaceDir, 'view') : undefined;
+    const viewBefore = viewDir ? await snapshotDir(viewDir) : new Map<string, number>();
+
     let execution;
     try {
       if (this.runtime) {
-        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs);
+        const sessionKey = this.userId && this.chatId ? `${this.userId}:${this.chatId}` : undefined;
+        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs, sessionKey);
       } else if (this.client) {
         execution = await this.client.runPython(parsed.data.code, signal, {
           workspaceDir: this.workspace?.workspaceDir,
@@ -278,10 +308,32 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
         .join('\n');
     }
 
+    const images: ToolContent[] = [];
+    if (viewDir) {
+      const after = await snapshotDir(viewDir);
+      const fresh = [...after.keys()].filter((n) => after.get(n) !== viewBefore.get(n)).sort();
+      const skipped: string[] = [];
+      for (const name of fresh) {
+        const mimeType = VIEW_IMAGE_TYPES[path.extname(name).toLowerCase()];
+        const size = (await fs.stat(path.join(viewDir, name))).size;
+        if (!mimeType || size > MAX_VIEW_IMAGE_BYTES || images.length >= MAX_VIEW_IMAGES) {
+          skipped.push(name);
+          continue;
+        }
+        images.push({ type: 'image', name, mimeType, base64: (await fs.readFile(path.join(viewDir, name))).toString('base64') });
+      }
+      if (images.length > 0) resultData.viewedImages = images.map((i) => (i as { name: string }).name);
+      if (skipped.length > 0) {
+        resultData.viewNotice =
+          `Not shown: ${skipped.join(', ')}. view/ shows at most ${String(MAX_VIEW_IMAGES)} PNG, JPEG or WebP ` +
+          `images of up to ${String(MAX_VIEW_IMAGE_BYTES / 1024 / 1024)} MB per call.`;
+      }
+    }
+
     return {
       toolCallId: call.id,
       ok: true,
-      content: [{ type: 'json', data: resultData }],
+      content: [{ type: 'json', data: resultData }, ...images],
     };
   }
 

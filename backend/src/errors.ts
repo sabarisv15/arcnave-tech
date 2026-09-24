@@ -110,6 +110,11 @@ export const ERROR_CATALOG = {
     title: 'A response is already running',
     detail: 'Stop the current response before starting another.',
   },
+  no_active_run: {
+    status: 404,
+    title: 'No response is running here',
+    detail: 'The reply has finished or is running elsewhere. Reload the chat to see it.',
+  },
   export_unsupported: {
     status: 422,
     title: 'This version cannot be exported to that format',

@@ -1,8 +1,23 @@
 # ArcNave — current checkpoint
 
-> **Now (2026-09-24): Phase 3's live acceptance FAILED; the fix (steps 1–3, ADR-0008) is merged and a
-> live re-test is pending.** Phase 4 has not started. Read
-> [`2026-09-24-phase3-live-failure.md`](2026-09-24-phase3-live-failure.md) first.
+> **Now (2026-09-24, later): foundation fixes for general-purpose file work are on branch
+> `claude/tools-skills-architecture-jyxa61`, local only, not deployed.** A root-cause audit of two
+> failed live KVB turns found that the causes were in the harness. A 4.7 MB PDF was silently left
+> out of the sandbox (2 MiB inline cap, no staging bucket). Every call was a cold, stateless Job.
+> The analyzer used column indexes that shifted on page 3. Four changes landed:
+> 1. Runs outlive their connection and can be reattached ([ADR-0009](../decisions/0009-runs-outlive-connections.md)).
+> 2. `run_python` runs on a warm sandbox service with one workspace per chat
+>    ([ADR-0010](../decisions/0010-warm-sandbox-service.md)).
+> 3. Inputs of any size move by content hash, and the Job engine now refuses an input it cannot
+>    carry instead of dropping it.
+> 4. The document library stack is baked in, and `view/` images are shown to the model.
+>
+> Backend 789/789, frontend 51/51, sandbox server 8/8. A local smoke run showed the backend
+> selecting the warm engine. **Deploying needs the one-time setup in
+> [`docs/deploy/warm-sandbox.md`](../deploy/warm-sandbox.md), with the user's approval.**
+> Not fixed yet: the analyzer's per-page column mapping and the handling of non-transaction rows
+> (audit items 1–4). Phase 3 still needs a live pass. Phase 4 has not started. The earlier
+> record: [`2026-09-24-phase3-live-failure.md`](2026-09-24-phase3-live-failure.md).
 
 **Last updated:** 2026-09-24
 **2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The

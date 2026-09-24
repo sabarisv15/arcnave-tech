@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { loadConfig } from '../config.js';
 import { GeminiProvider } from '../providers/gemini.js';
 import type { GenerationRequest, Provider, ToolCall, ToolDefinition, ToolResult } from '../providers/types.js';
+import { toolContentText } from '../providers/types.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { buildDynamicRuntimeContext } from '../services/systemPrompt.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
@@ -257,7 +258,7 @@ async function runLiveTest(options: {
       const res = await rawDispatcher.execute(call, signal);
 
       const summary = res.content
-        .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c.data)))
+        .map(toolContentText)
         .join(' ')
         .substring(0, 150);
 

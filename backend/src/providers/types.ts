@@ -69,7 +69,36 @@ export function totalTokens(usage: ProviderUsage): number {
  * rows, assessment scores, timetable entries). Provider adapters flatten this into their own
  * wire format; nothing in this type is provider-specific.
  */
-export type ToolContent = { type: 'text'; text: string } | { type: 'json'; data: unknown };
+/**
+ * One block of a tool's result. `image` lets a tool show the model a picture (a page crop the
+ * code rendered, a chart it drew), so the model can look instead of guessing from text. Images
+ * go to the model only; what is stored and previewed keeps just their names.
+ */
+export type ToolContent =
+  | { type: 'text'; text: string }
+  | { type: 'json'; data: unknown }
+  | { type: 'image'; name: string; mimeType: string; base64: string };
+
+/** The first non-image block: what a result "says". Images ride alongside it. */
+export function primaryToolContent(result: ToolResult): Exclude<ToolContent, { type: 'image' }> | undefined {
+  return result.content.find((c): c is Exclude<ToolContent, { type: 'image' }> => c.type !== 'image');
+}
+
+export function toolImages(result: ToolResult): Extract<ToolContent, { type: 'image' }>[] {
+  return result.content.filter((c): c is Extract<ToolContent, { type: 'image' }> => c.type === 'image');
+}
+
+/** A result as stored: image bytes become a note naming the image, so a transcript row never
+ *  carries megabytes of base64 and a replayed history never resends pictures. */
+export function withoutImageBytes(content: ToolContent[]): ToolContent[] {
+  return content.map((c) =>
+    c.type === 'image' ? { type: 'text' as const, text: `[image "${c.name}" was shown to the model]` } : c,
+  );
+}
+
+export function toolContentText(c: ToolContent): string {
+  return c.type === 'text' ? c.text : c.type === 'json' ? JSON.stringify(c.data) : `[image ${c.name}]`;
+}
 
 /** A tool the model may call. `inputSchema` is provider-neutral JSON Schema; each adapter clones
  *  it before handing it to its own SDK — `@google/genai` rewrites a schema object in place
@@ -113,7 +142,7 @@ export interface ToolExecutor {
  *  in the database or sent back to the model, both of which keep the full bounded content. */
 export function toolResultPreview(result: ToolResult, maxChars: number): string {
   const flat = result.content
-    .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c.data)))
+    .map(toolContentText)
     .join(' ');
   return flat.length > maxChars ? `${flat.slice(0, maxChars)}…` : flat;
 }

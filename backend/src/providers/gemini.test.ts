@@ -132,6 +132,25 @@ describe('toGeminiFunctionDeclaration', () => {
 });
 
 describe('toGeminiFunctionResponsePart', () => {
+  it('nests images inside the functionResponse (Gemini 3 multimodal function response)', () => {
+    const part = toGeminiFunctionResponsePart('run_python', 'call-1', {
+      toolCallId: 'call-1',
+      ok: true,
+      content: [
+        { type: 'json', data: { stdout: '' } },
+        { type: 'image', name: 'p3.png', mimeType: 'image/png', base64: 'AAAA' },
+      ],
+    });
+    expect(part).toEqual({
+      functionResponse: {
+        id: 'call-1',
+        name: 'run_python',
+        response: { output: { stdout: '' } },
+        parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }],
+      },
+    });
+  });
+
   it('wraps a successful structured result under "output"', () => {
     const part = toGeminiFunctionResponsePart('search_project_files', 'call-1', {
       toolCallId: 'call-1',
