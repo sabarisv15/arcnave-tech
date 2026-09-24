@@ -1,14 +1,24 @@
 # Tools pipeline gap fixes — plan
 
 **Goal:** Bring the running pipeline in line with the locked architecture: the router checks
-permission only, the model decides what to do, files reach the model intact, and QA reports only
-what it actually checked. Gap IDs (G1–G18) refer to
+permission only, the model decides what to do, files reach the model and the sandbox intact,
+exact document work has a real extraction capability, and QA reports only what it actually
+checked. Gap IDs (G1–G26) refer to
 [`docs/tools-skills-architecture.md`](../../tools-skills-architecture.md).
 
-**Acceptance test for the whole plan:** a PDF bank statement plus "Count every transaction exactly
-and classify them". The model loads the `pdf` skill, discovers an extraction tool or `run_python`
-via `search_tools`, produces structured rows, counts them deterministically, and answers. The same
-works on a follow-up turn about that same PDF.
+**Revision 2 (2026-09-24), after review:** G21 decided (Option A, no general sandbox
+internet, see ADR-0007). The acceptance test moves to after Phase 3, because routing and
+attachment fixes alone give the model no way to extract rows from a scanned PDF. G15 becomes
+on-demand rehydration rather than upload-time extraction. The `att.name`/`filename` bug is now
+its own gap (G26). G20 becomes a permission split inside the existing runtime, not a new
+job. G14 keeps QA layers separate. G24's first script is generic, not bank-specific.
+
+**Acceptance test (after Phase 3):** a scanned PDF bank statement plus "Count every transaction
+exactly and classify them". The model loads the `pdf` skill and follows its exact/exhaustive
+rules. It discovers the table-extraction capability through `search_tools`, gets structured
+rows, counts them deterministically, reconciles, and answers. A follow-up turn about the same
+PDF works the same way. The bank statement is one use case of a generic capability, not a
+special path.
 
 ## Ground rules (from CLAUDE.md, applied to every phase)
 
@@ -24,93 +34,127 @@ works on a follow-up turn about that same PDF.
 - Update `docs/tools-skills-architecture.md` (mark gaps fixed), `docs/checkpoints/CURRENT.md`
   and `mistakes.md` in the same PR.
 
-## Phase 0: Record the decision (no behaviour change)
+## Phase 0: Architecture tests, ADR, baseline ✅
 
-1. Write **ADR-0006 "TurnRouter is a policy boundary only"**. It records the locked architecture:
-   the router returns what is *allowed* (flags, permissions, sandbox present, project present),
-   never what is *needed*. Intent detection stays, as telemetry only.
-2. Add a regression test file `turnRouter.locked.test.ts` with the traced cases (bank prompt,
-   "Summarize this PDF", "hi"), marked `it.fails` until Phase 1 lands, so the fix is proven by
-   the tests flipping.
-3. Before planning Phase 1 rollout, check which `ENABLE_*` flags production actually has set
-   (`ENABLE_TOOL_USE`, `ENABLE_RUN_PYTHON` and `ENABLE_SKILLS` in particular). Read them; don't assume.
+- ADR-0006 "TurnRouter is a policy boundary only".
+- `turnRouter.locked.test.ts`, with the G1/G2 cases marked `it.fails`.
+- Full-suite baseline on 2026-09-24: 70 files, 691 passed, 4 expected fail.
+- Production `ENABLE_*` flags: useful for deployment verification, **not a blocker** for fixing
+  the proven architecture bug. Check before the first deployment.
 
-## Phase 1: Unblock the model (G1, G2, G3, G7) — the bank-statement blocker
+## Phase 1: Model authority (G1, G2, G3, G7 + truthful capability prompt)
+
+Target shape:
+
+```
+TurnRouter → policy only
+Initial core tools: search_tools, load_skill (when skills are enabled)
+Allowed catalog: run_python if the feature and security allow it, render_ui if enabled,
+                 file tools if permitted, the other deferred tools
+MODEL → understands the request → decides: direct answer / skill / tool
+```
 
 | Gap | Change | Proof |
 |---|---|---|
-| G1 | `exposedTools` is always `search_tools` + `load_skill` (when skills exist), on every intent | Phase 0 tests flip to passing |
-| G7 | Follows from G1: the skills list in the prompt now always has `load_skill` behind it | Test: whenever `<available_skills>` is in the system prompt, `load_skill` is in `tools` |
-| G2 | `run_python` is in the catalog when `ENABLE_RUN_PYTHON` and a sandbox exist, whatever the prompt says. `evaluateRunPythonPolicy` becomes telemetry | Router test: PDF + bank prompt → `run_python` in `allowedTools` |
+| G1 | `exposedTools` is always `search_tools` + `load_skill` (when skills exist), on every intent. Intent stays in `detectedIntent` as telemetry | Phase 0 `it.fails` cases pass and become plain `it` |
+| G2 | `run_python` is in the catalog when `ENABLE_RUN_PYTHON` and a sandbox client exist, whatever the prompt says. `evaluateRunPythonPolicy` becomes telemetry | Locked test: PDF + bank prompt → `run_python` allowed; sandbox off → not allowed |
 | G3 | `render_ui` goes into `allowedTools` when `ENABLE_GENERATIVE_UI` | Router test |
+| G7 | `<available_skills>` is written into the prompt only when `load_skill` is actually in the request's tools | Generation test |
+| Truthful capability prompt | The base prompt states the real contract: core tools are always there, other tools are found with `search_tools`, and answering directly is correct when that is enough | Prompt test: no capability named in the prompt that the request cannot reach |
 
-**Risk:** the model may now call tools on simple turns ("hi"), adding latency. Mitigation: one
-line in the base system prompt: answer directly when that is enough, and use tools only when
-the task needs them. Measure with `runBehaviorEvaluation.ts` before and after (needs approval).
+Risk: more tool calls on trivial turns. Measure with `runBehaviorEvaluation.ts` before and
+after (spends quota, so it needs the user's approval).
 
-## Phase 2: Files reach the model intact (G6, G15, G16, G17, G18)
+## Phase 2: Attachment continuity (G6, G15, G26, G16, G17, G18)
 
 | Gap | Change | Proof |
 |---|---|---|
+| G26 | One internal `AttachmentRef { id, filename, mimeType, sizeBytes, storageKey }`, normalised once at the attachment boundary. Drop `name` from `AttachmentBlock`. Every consumer (materialisation in `generation.ts` and `agentLoop.ts`, executors, adapters) reads `filename` | Test: an attachment built by `routes/chats.ts` lands in the workspace `input/` |
 | G6 | "Has attachments" means any ready attachment in the chat, not just this message | Integration test: turn 2 about a turn-1 file has `read_uploaded_file` in the catalog |
-| G15 | Extract PDF text at upload too (kept as a fallback, the model still gets native PDF when it fits). When bytes are left out, send the extracted text plus an explicit note: "`bank.pdf` not attached this turn (history size limit); call `read_uploaded_file` with fileId X" | Adapter test: out-of-budget PDF produces non-empty content that names the fileId |
-| G16 | Send Office text once: drop the `attachmentText` append to the prompt and keep the document block. Same for history turns | Adapter probe: marker count 1 on both providers |
-| G17 | No raw-binary fallback. Office file without extracted text becomes an explicit "could not be read: <reason>" note | Adapter test on both providers |
-| G18 | Check PDF page count and image size at upload; reject with typed `ApiError` codes, and have the frontend show them | Route integration tests + `npm run openapi` + frontend test |
+| G15 | A historical attachment over the auto-hydration budget is **never** sent as an empty PDF block. It keeps its `AttachmentRef` (plus `extractedText` only if that text genuinely exists) and appears in the manifest. When the model or the user needs it, the exact `fileId` is rehydrated from object storage on demand (`read_uploaded_file`, workspace materialisation). `extractedText` is a fallback, never a replacement for rehydration. No bulk backfill of historical PDFs | Adapter test: an out-of-budget PDF produces a reference naming its fileId, never an empty block; rehydration test fetches the exact bytes |
+| G16 | Office text is sent once: the document block stays, the `attachmentText` append to the prompt and to history turn text goes | Adapter probe: marker count 1 on both providers |
+| G17 | No raw-binary fallback. An Office file without extracted text becomes an explicit "could not be read: <reason>" note | Adapter tests on both providers |
+| G18 | Check PDF page count and image size at upload; reject with typed `ApiError` codes shown by the frontend | Route integration tests + `npm run openapi` + frontend test |
 
-Existing uploaded PDFs have no extracted text. Add a one-off backfill script, run locally
-first; running it against production is a deployment and needs approval.
+## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13)
 
-## Phase 3: Honest reporting (G13, G14)
+**Generic scanned-table extraction.** One capability, not a bank-statement path:
+
+```
+PDF / page images
+→ render pages (pdftoppm, trusted CLI in the sandbox)
+→ table extraction per page
+→ rows: { page, rowIndex, cells, confidence, sourceRegion }
+→ deterministic post-processing: normalise, dedupe across page breaks, count, sum
+→ reconciliation where the document carries its own totals (page or closing balances)
+```
+
+**Design constraint from ADR-0007:** the sandbox has no general internet, so a vision-model
+call cannot run inside it. The recommendation, to confirm when the phase starts:
+
+- The sandbox renders the pages.
+- A trusted Node handler sends the page images to the vision provider with a strict row schema.
+  Low-confidence rows are flagged, never silently dropped.
+- The deterministic parts (normalise, count, sum, reconcile) run as the first real skill script
+  (G24): `extract_scanned_table_rows` post-processing, generic, in the sandbox with no network.
+- The alternative is offline OCR baked into the image (for example Tesseract). It is fully
+  deterministic but weaker on tables. Decide with a measured comparison, not by preference.
+
+**PDF skill.** Add exact/exhaustive rules. A summary may use native vision. Counting, totals
+or "every row" requires structured extraction plus deterministic counting and reconciliation,
+and the answer reports confidence and any unreconciled difference.
 
 | Gap | Change | Proof |
 |---|---|---|
-| G13 | Handle `stop_reason: "refusal"` from Claude: a typed stream event / `ApiError` with the category, shown to the user | Adapter-loop test with a faked refusal stream |
-| G14 | Pass the vision provider into visual QA. When none is available, report `visual: not_checked`, never `passed` | QA test: no vision provider → not passed; faked provider → its verdict is used |
+| G14 | QA layers stay separate: `structural` and `semantic` report their own results, and `visual` is `passed` / `failed` / `not_checked`. When no vision provider exists, visual is `not_checked`; the structural result is not changed. `overall` depends on whether the task required visual verification: required + `not_checked` → the result cannot be claimed VERIFIED. Wire the vision provider in so `not_checked` is the exception | QA tests for each combination; a structurally valid file never reports a structural failure because visual was skipped |
+| G13 | `stop_reason: "refusal"` becomes a typed stream event with its category, shown to the user | Adapter-loop test with a faked refusal |
 
-## Phase 4: One gate, one route (G4, G5, G8)
+**Acceptance test runs here**: locally, against fixture PDFs (a digital one and a scanned
+one). Live verification needs approval.
+
+## Phase 4: Architecture unification (G4, G5, G8)
 
 | Gap | Change | Proof |
 |---|---|---|
-| G4 | One `resolveTurnPolicy()` used by both the chat path and AgentLoop | Parity test: same input → same catalog on both paths (extends `architectureParity.test.ts`) |
-| G5 | Agent-loop routing lives in one function; the duplicate `isAgentMode` goes | Unit test on that function |
-| G8 | Remove the dead `selectedSkills` preload, and replace the hard-coded autoload name with the skill's `autoload` frontmatter | Skills tests |
+| G4 | One `resolveTurnPolicy()` used by both the chat path and AgentLoop | Parity test in `architectureParity.test.ts`: same input → same catalog |
+| G5 | Agent-loop routing lives in one function; the duplicate `isAgentMode` goes | Unit test |
+| G8 | Remove the dead `selectedSkills` preload; autoload follows each skill's `autoload` frontmatter instead of a hard-coded name | Skills tests |
 
-## Phase 5: Loop efficiency (G9, G10, G11, G12). Needs ADR-0007 first
+## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0008 first
 
-Larger changes, each with its own design note inside ADR-0007:
-
-- **G9:** Claude models use Claude's native tool search (`defer_loading`), which is available
-  on Vertex per the platform table. Gemini keeps `search_tools`. Verify cache reads with
-  `usage.cache_read_input_tokens` locally.
+- **G9:** Claude models use Claude's native tool search (`defer_loading`), which Vertex
+  supports. Gemini keeps `search_tools`. Verify `cache_read_input_tokens` locally (needs approval).
 - **G10:** Allow parallel tool calls. Execute them concurrently and return all results in one
   message.
-- **G11:** Revisit `TOOL_MAX_ROUNDS` after G10, measured on the acceptance test.
-- **G12:** Retry transient failures (network, 5xx, timeout) once; keep blocking identical
-  retries only for deterministic failures.
+- **G11:** Set `TOOL_MAX_ROUNDS` from measurements on the acceptance test after G10.
+- **G12:** Retry transient failures (network, 5xx, timeout) once via a `retryable` flag; keep
+  blocking identical retries only for deterministic failures.
 
-## Phase 6: Execution runtime (G19–G25)
+## Phase 6: Execution runtime hardening (G19–G25)
 
 | Gap | Change | Proof |
 |---|---|---|
-| G21 | Decide first: lock down egress (VPC egress deny, or allowlisted package mirror) or amend the locked architecture. Record it in an ADR superseding ADR-0005's network section | ADR |
-| G19 | Visual QA stages the file under `input/` and declares the PDF as an expected output, so the job returns it through the staging bucket | Unit test with a faked Cloud Run client, then a local run against the real job (with approval) |
-| G20 | A separate trusted-tools path (a fixed LibreOffice/poppler job or image) that does not depend on `ENABLE_RUN_PYTHON` | Config test: `ENABLE_RUN_PYTHON=false` still renders |
+| G21 | **Decided: Option A** (ADR-0007). The sandbox gets no general outbound internet. Packages come only from the image, and web access goes through the controlled web tools. Implement with a VPC connector plus a deny-all egress firewall, keeping only the Google APIs the job needs (staging bucket, logging) through Private Google Access | Infra change (needs approval) + a live probe that an outbound HTTP call from the job fails |
+| G20 | A permission model inside the existing `ExecutionRuntime`: `pythonAllowed`, `trustedCliAllowed`, `skillScriptAllowed`, as separate flags. The same isolated sandbox runs `soffice`/`pdftoppm` without arbitrary Python being enabled. The sandbox client is built when any of them is on. Only if isolation or resource needs genuinely demand it does a second job get built | Config test: `ENABLE_RUN_PYTHON=false` + trusted CLI on → rendering works, `run_python` is not in the catalog |
+| G19 | Visual QA stages the file under `input/` and declares the PDF as an expected output, so the job returns it through the staging bucket | Unit test with a faked Cloud Run client, then a local run against the real job (approval) |
 | G22 | Missing staging, oversized input and failed signed URLs become typed errors in the tool result | Client unit tests |
-| G23 | Size the job for LibreOffice (CPU, memory, timeout) and align the CLI bridge timeout with it | Local timing on real Office files |
-| G24 | Either ship the first skill script/reference and wire it, or remove the unused engine | Skills test |
+| G23 | Size the job for LibreOffice and extraction (CPU, memory, timeout); align the CLI bridge timeout | Local timing on real files |
+| G24 | First real skill script: generic `extract_scanned_table_rows` post-processing (Phase 3), wired through `executeTrustedSkillScript` | Skills + runtime tests |
 | G25 | Docker branch passes args as an argv array, with no `sh -c` string | Unit test with a newline in an arg |
+
+G24 is delivered in Phase 3 and listed here for completeness.
 
 ## Order and sizing
 
 | Phase | Size | Depends on |
 |---|---|---|
-| 0 | small | nothing |
-| 1 | small (2 files + tests) | 0 |
-| 2 | medium (routes, adapters, upload, frontend, backfill) | 1 for G6 |
-| 3 | small–medium | nothing |
+| 0 ✅ | small | — |
+| 1 | small | 0 |
+| 2 | medium | 1 (G6 uses the router input) |
+| 3 | medium–large | 2 (extraction needs files in the sandbox), G20's trusted-CLI split for rendering |
 | 4 | medium | 1 |
-| 5 | large | 4, ADR-0007 |
-| 6 | medium–large | G21 decision first |
+| 5 | large | 4, ADR-0008 |
+| 6 | medium–large | ADR-0007 (done) |
 
-After Phases 0–2 the acceptance test should pass locally. Phases 3–5 make it honest and efficient.
+Phase 3 needs the trusted-CLI permission from G20 to render pages without enabling arbitrary
+Python. Pull that single item forward into Phase 3; the rest of Phase 6 stays where it is.
