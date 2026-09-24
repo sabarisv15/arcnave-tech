@@ -206,6 +206,8 @@ describe("error copy", () => {
       "model_refused",
       "provider_timeout",
       "turn_deadline_exceeded",
+      "empty_response",
+      "context_overflow",
       "rate_limit",
       "unauthorized",
     ])

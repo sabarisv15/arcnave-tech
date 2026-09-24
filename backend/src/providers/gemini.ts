@@ -4,7 +4,7 @@
  * Deliberately not the legacy Vertex generative modules: those were removed on 2026-06-24.
  * See docs/backend-research.md section 1.
  */
-import { GoogleGenAI } from '@google/genai';
+import { FunctionCallingConfigMode, GoogleGenAI } from '@google/genai';
 import type { Content, FunctionDeclaration, Part, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
@@ -23,6 +23,11 @@ import type {
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
+
+/** Appended to the tool results before the final round, whose calls are disabled. */
+const FINAL_ROUND_NOTE =
+  'This turn has no tool steps left. Answer the user now from the tool results above; do not call a tool. ' +
+  'If something could not be finished, say what and why.';
 
 const log = logger.child({ module: 'provider:gemini' });
 
@@ -248,6 +253,20 @@ export class GeminiProvider implements Provider {
         // The SDK's `abortSignal` config only stops a request already underway; without this
         // check, an abort here would still issue one more provider call.
         if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        // The last round must end in an answer, as the Claude adapter's does: calls are refused
+        // (declarations stay, so earlier functionCall turns remain valid) and the model is told
+        // to answer from the results it has. Without this, a model still calling tools used
+        // every round and the turn ended with no text (live, Phase 3).
+        const finalToolRound = useTools && isLastRound(round, maxRounds);
+        if (finalToolRound && round > 0) {
+          const last = contents.at(-1);
+          if (last?.role === 'user') {
+            contents = [
+              ...contents.slice(0, -1),
+              { ...last, parts: [...(last.parts ?? []), { text: FINAL_ROUND_NOTE }] },
+            ];
+          }
+        }
         const stream = await this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
@@ -265,6 +284,7 @@ export class GeminiProvider implements Provider {
                   ],
                 }
               : {}),
+            ...(finalToolRound ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
             // The SDK aborts the underlying HTTP request on this signal, which is what makes
             // client cancellation actually stop provider work rather than just stop reading it.
             abortSignal: request.signal,
@@ -332,6 +352,11 @@ export class GeminiProvider implements Provider {
         }
 
         if (!useTools || roundCalls.length === 0) break;
+        // A call on the final round is not run: there is no round left to answer after it.
+        if (finalToolRound) {
+          finishReason = 'tool_limit';
+          break;
+        }
 
         const modelParts: Part[] = [];
         if (roundText) modelParts.push({ text: roundText });
@@ -368,7 +393,6 @@ export class GeminiProvider implements Provider {
         }
         contents = [...contents, { role: 'user', parts: responseParts }];
 
-        if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (isAbort(err) || request.signal.aborted) throw err;
