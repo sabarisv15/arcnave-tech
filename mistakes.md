@@ -278,25 +278,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `curl -D - <url> | grep -i cf-placement` — `local-<colo>` means unconverged (or
   not proxying to a distant origin at all); `remote-<colo>` means Smart Placement is active.
 
-### 2026-09-17 — Neon's pooled endpoint would have broken prepared statements, silently, under load
-
-- **Symptom:** Never actually shipped — caught while investigating a separate latency issue
-  (Neon free-tier compute auto-suspends after 5 minutes idle, causing multi-second cold-start
-  spikes on the next query; switching to Neon's `-pooler` endpoint was the fix for a related,
-  correct reason, but almost went out without this).
-- **Cause:** `src/db/client.ts` used `postgres.js` with its default `prepare: true` — server-side
-  prepared statements over a persistent connection. Neon's pooled endpoint is PgBouncer in
-  transaction-pooling mode: each transaction can land on a *different* backend server
-  connection, so a prepared statement created during one transaction is not guaranteed to exist
-  for the next. This fails intermittently under real load, not in a quick smoke test, which is
-  exactly the kind of bug that reaches production before anyone reproduces it.
-- **Rule:** **Never point a client at Neon's (or any PgBouncer transaction-pooling) endpoint
-  without checking what the client's driver assumes about connection-scoped state first.** For
-  `postgres.js`, that means `prepare: false`. Trace the assumption before changing the
-  connection string, not after something fails under load.
-- **Verify:** Full suite (`npx vitest run`, 183 tests) against real Postgres with `prepare:
-  false` set, before the pooled endpoint went anywhere near production.
-
 ### 2026-09-17 — Chased the "proper" same-site fix through two dead ends before taking the trade-off
 
 - **Symptom:** Not a bug — a record of a decision reversed twice in one session, so the next
@@ -782,158 +763,6 @@ failure mode of this pattern, not a sign it is working.
   2-minute stall. Still `ENABLE_RUN_PYTHON=false` in production, now blocked on the next entry
   instead.
 
-### 2026-09-19 — The `execute` REST call was against the wrong resource entirely
-
-- **Symptom:** With the timeout fix confirmed (previous entry) and a real local test run against
-  the actual Preview API (`GOOGLE_CLOUD_PROJECT` + ADC, not production), `run_python` no longer
-  hung — but every attempt failed fast with `400 INVALID_ARGUMENT: Request contains an invalid
-  argument` from `POST .../reasoningEngines/{id}/sandboxEnvironments/{id}:execute`. Reasoning
-  engine creation and sandbox creation both succeeded (real resource names came back); only the
-  execute call was rejected.
-- **Cause:** The previous entry's own fix (finding the REST reference instead of inferring from
-  the Python SDK) still landed on the wrong method. `sandboxEnvironments` does not expose a plain
-  `execute` — only `bidiExecute` (a streaming/bidirectional method) and lifecycle methods
-  (`create`/`list`/`resume`/`delete`). The actual stateless single-call entry point is a
-  **different resource path**: `reasoningEngines.executeCode`, called as
-  `POST {reasoningEngineName}:executeCode` directly on the reasoning engine — not on a
-  separately-created sandbox at all. A `sandboxEnvironments`-shaped URL with a nonexistent
-  `:execute` suffix still routes far enough to return a generic `INVALID_ARGUMENT` rather than a
-  clean 404, which is why the failure looked like a malformed body instead of a wrong endpoint.
-- **Rule:** **Finding *a* REST reference page is not the same as finding the *right* one.**
-  Preview APIs can have near-identical sibling resources (`sandboxEnvironments` vs
-  `reasoningEngines`, `execute` vs `executeCode` vs `bidiExecute`) that differ in exactly the
-  field that matters. Confirm the method name and its parent resource against the reference
-  page's own method list before writing the client, and treat a `400` from a plausible-looking
-  URL as "maybe the wrong endpoint," not only "maybe the wrong body."
-- **Verify:** **Rewritten and live-tested 2026-09-19 — still broken, one layer deeper.**
-  `VertexSandboxClient` now creates a bare reasoning engine and calls
-  `{reasoningEngineName}:executeCode` directly, no `sandboxEnvironments` involved. Live test
-  against the real Preview API: reasoning-engine creation succeeds every time (a real resource
-  name comes back), but `executeCode` still 400s with the same generic `INVALID_ARGUMENT` as
-  before. One targeted follow-up was tried and also failed cleanly: adding
-  `spec: { codeExecutionEnvironment: { codeLanguage: 'LANGUAGE_PYTHON' } }` to the reasoning
-  engine's own creation body (guessing the code-execution capability belongs on the engine, not
-  a separate sandbox) got a *more specific* error — `Unknown name "codeExecutionEnvironment" at
-  'reasoning_engine...'` — proving that field name is wrong too, and reverted. Web research
-  during this session turned up `ReasoningEngineSpec`'s real fields
-  (`agentFramework`/`packageSpec`/`deploymentSpec`/`sourceCodeSpec`) — all shaped around
-  deploying an actual agent package, not declaring "this engine can run arbitrary code." **Open
-  question this session could not resolve:** whether `executeCode` works on a bare reasoning
-  engine at all, or whether it requires one deployed with a real `packageSpec`/`deploymentSpec` —
-  which would make "point ADC at a REST endpoint" a materially bigger lift than planned.
-- **A fourth shape was found and tried, 2026-09-19, using an actual working example rather than
-  a reference page:** Google's own quickstart notebook
-  (`GoogleCloudPlatform/generative-ai/.../tutorial_get_started_with_code_execution.ipynb`) and
-  its Python SDK show `client.agent_engines.sandboxes.execute_code(name=sandbox_name,
-  input_data={"code": python_code})` — a **sandbox**-targeted call (not the reasoning engine)
-  with an `{"code": ...}` body (not `Chunk`-shaped `inputs[]`). Rewrote `VertexSandboxClient` to
-  match: create reasoning engine → create sandbox (`spec.codeExecutionEnvironment`, which had
-  already worked back when the first shape was tried) → `POST {sandboxName}:executeCode` with
-  `{ inputData: { code } }`. Live-tested: reasoning engine and sandbox creation both still
-  succeed, but `executeCode` on the sandbox now returns a clean **`404`, empty body** — a
-  different failure signature from every prior attempt, meaning the URL itself doesn't route to
-  anything, not just a malformed body.
-- **Conclusion — Google's own documentation is internally inconsistent here, not just sparse.**
-  Three real, distinct request shapes have now been tried against the live Preview API, each
-  grounded in an actual Google source (a stable-`v1` REST reference page, a Python-SDK quickstart
-  notebook, and a targeted field guess), and each failed differently (400 opaque, 400 specific,
-  404 empty). The REST reference page and the product's own official quickstart disagree about
-  which *resource* `executeCode` even targets (`reasoningEngines` vs `sandboxEnvironments`) — this
-  is not a case of "read more carefully," it's the vendor's documentation contradicting itself for
-  a Preview feature. **Rule: past a certain point, further live-testing against undocumented or
-  contradictorily-documented behavior stops being useful and starts being expensive random
-  search — three grounded, distinct attempts is the point to stop and report the contradiction,
-  not keep guessing a fourth and fifth combination.** The code was left on the shape backed by
-  the only stable (non-`v1beta1`) REST reference page found, since that is the best-evidenced of
-  the three, but it is **not confirmed working** — `ENABLE_RUN_PYTHON` stays `false` everywhere.
-  Unblocking this for real needs either a Google support ticket or someone who has this specific
-  Preview API working already; it is not a research-harder problem from here.
-- **A fifth shape came from the user pasting an externally-generated answer** (an AI-written
-  response to the support-question doc this session wrote — `docs/support/2026-09-19-vertex-code-
-  execution-question.md`) claiming `sandboxEnvironments.execute` (not `executeCode`) with an
-  `{ inputData: { code } }` body was the fix. **Tested rather than trusted** — live result:
-  `400`, `"Invalid JSON payload received. Unknown name 'inputData'"`. That specific claim was
-  wrong, but the error shape is informative: Google's validator names the exact unknown field
-  when one is wrong (it did the same for `codeExecutionEnvironment` two entries up), and it did
-  **not** do that for `inputs` back in the very first shape tried (`sandboxEnvironments:execute`
-  with `{ inputs: [Chunk] }`, which only got a generic "invalid argument"). That absence of an
-  "Unknown name" complaint is the strongest signal found all session that `inputs` is a real,
-  accepted field on this endpoint — the reverted-to, currently-on-disk shape is `sandboxEnvironments
-  .execute` (not `executeCode`) with `{ inputs: [{ mimeType: 'text/x-python', data: base64(code) }] }`,
-  chosen specifically because it is the only one of five tried shapes where the failure looks
-  like "right field, wrong value" rather than "wrong field entirely." **Still not confirmed
-  working** — `ENABLE_RUN_PYTHON` stays `false`. **Rule, reinforced:** treat a fluent,
-  confident-sounding externally-sourced answer as a hypothesis to verify live, not as ground
-  truth — this one was wrong on the exact point it was most confident about (the body field name)
-  but still moved the investigation forward by producing a new, diagnostic error message.
-
-### 2026-09-19 — A Python-SDK quickstart is not a REST contract
-
-- **Symptom:** The checkpoint named "Vertex AI Agent Engine's Code Execution service" as the
-  planned sandbox for item 9 phase 2's `run_python`, but the only documentation on record was a
-  Python-SDK quickstart (`client.sandboxes.create/execute_code/delete`). This codebase's backend
-  is Node/TypeScript, and a live check found the JS/TS SDK has **no support for this resource at
-  all** (`googleapis/js-genai#2185`, open) — so the quickstart could not be translated into code
-  without guessing HTTP paths and body shapes.
-- **Cause:** A language-specific SDK quickstart documents *a client library's* call shape, not
-  *the service's* wire contract — the same category of gap as reading a captured system prompt
-  as API documentation (this file, `A captured system prompt was read as if it were API
-  documentation`), just one layer earlier: an SDK sample is still real documentation, but it is
-  documentation of the wrong layer for a language that SDK doesn't cover.
-- **Rule:** **When the only available documentation for an external API is another language's
-  SDK, find the REST reference before writing an HTTP client against it — do not infer the wire
-  shape from the SDK sample.** For Google Cloud APIs this is
-  `docs.cloud.google.com/.../reference/rest/...`; the resource, method, and field names there are
-  normative even when no code sample exists for your language.
-- **Verify:** `VertexSandboxClient`'s request/response shapes in
-  [`vertexSandboxClient.ts`](backend/src/tools/sandbox/vertexSandboxClient.ts) cite the REST
-  reference pages read for each one (`reasoningEngines.create`,
-  `sandboxEnvironments.create`/`execute`/`delete`), not the Python quickstart — and its tests
-  assert those exact request shapes against a fake `fetch`, so a shape drift fails a test instead
-  of only failing a real, unverifiable-in-this-environment live call.
-- **2026-09-19 addendum:** `VertexSandboxClient` is retired (design in
-  [ADR-0005](docs/decisions/0005-cloud-run-sandbox.md)), replaced by `CloudRunSandboxClient`
-  (`backend/src/tools/sandbox/cloudRunSandboxClient.ts`) — a self-hosted Cloud Run Job, not
-  another Agent Engine REST guess. This entry and the two above it about the five failed shapes
-  stay as the historical record of why that path was abandoned, per ADR-0005's own instruction not
-  to prune them just because the code is gone. `vertexSandboxClient.ts`/its test are still present
-  and still unwired from `container.ts` — deleted only once `CloudRunSandboxClient` is
-  live-verified against a real deployed Cloud Run Job, not before. One real gap found while
-  building it: `docker build`/`docker run` against `backend/sandbox/Dockerfile` worked and all six
-  integration checks in `run-integration-tests.sh` passed on this machine, but no real Cloud Run
-  Job, IAM role, or service account was created — `CloudRunSandboxClient`'s Operation/Execution/
-  Cloud-Logging shapes are only proven against a fake `fetch`, the same unverified-until-live gap
-  every prior sandbox attempt had. **Do not set `ENABLE_RUN_PYTHON=true` anywhere until a real
-  deployed Job answers a real call end to end.**
-- **2026-09-20 addendum:** Closed that exact gap partially, with a real local browser session
-  (`GOOGLE_CLOUD_PROJECT` + ADC, `ENABLE_TOOL_USE`/`ENABLE_RUN_PYTHON` temporarily flipped on in
-  `backend/.env`, reverted after): the model actually called `run_python`, and
-  `CloudRunSandboxClient` correctly built and sent a real, authenticated `jobs:run` POST to
-  `https://run.googleapis.com/v2/projects/<project>/locations/us-central1/jobs/arcnave-python-sandbox:run`
-  with `{"code": "print(17 * 23)"}` as a container override. Google's real answer was a typed
-  `404 NOT_FOUND` ("Resource 'arcnave-python-sandbox' of kind 'JOB' ... does not exist") — expected,
-  since no Job/IAM/service-account setup from `docs/deploy/cloud-run-sandbox-setup.md` was actually
-  run. The failure surfaced as a clean, typed tool result (not a hang, not a crash); the model
-  recovered and answered from its own arithmetic. This proves the client's auth, URL construction,
-  and request shape are correct against the real API — the remaining unverified surface is
-  specifically Operation/Execution/Cloud-Logging polling, which only exercises once a real Job
-  exists to actually run. **Still do not set `ENABLE_RUN_PYTHON=true` in production** — this was a
-  local-only, reverted flag flip, and the Job itself still needs to be deployed first.
-- **2026-09-20 addendum #2:** Closed the gap fully. Deployed the real infrastructure
-  (`arcnave-sandbox-runtime` service account with zero project IAM, the `arcnave_sandbox_launcher`
-  custom role bound to the backend's service account, the `arcnave-python-sandbox` Cloud Run Job
-  in `asia-south1` — matching the existing Artifact Registry repo and backend service region,
-  not the `us-central1` the docs originally guessed) and live-verified `run_python` end to end in
-  production with `ENABLE_RUN_PYTHON=true`: the real `jobs:run` → Operation → Execution polling →
-  Cloud Logging result correlation chain completed and returned the correct `391` for `17*23`,
-  twice. One non-bug found along the way: `docker push` from Cloud Shell failed twice with `dial
-  tcp ... connect: connection refused` to two different Google IPs — not a credentials or image
-  problem, Cloud Shell's own local Docker networking; `gcloud builds submit --tag ...` (server-side
-  build+push via Cloud Build) worked on the first try. **`ENABLE_RUN_PYTHON` is now left `true` in
-  production** — deliberately, because `REGISTRATION_ENABLED=false` and the user is the only
-  account that can sign in, so the "arbitrary code execution exposed to any user" blast radius
-  this flag exists to gate does not currently apply. Revisit before opening registration again.
-
 ### 2026-09-19 — `compact` did not mean the same thing on every composer surface
 
 - **Symptom:** The chat reply composer still occupied a large empty block even though its caller
@@ -1003,6 +832,21 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `arcnave-frontend/src/types.test.ts` covers a legacy message with every optional
   collection absent; `npm test` and `npm run build` pass.
 
+### 2026-09-24 — Our own first-token timer was recorded as the user pressing Stop
+
+- **Symptom:** A 12-page scanned PDF sent to Gemini: the SSE stream sent `start`, then closed
+  after about 12 s with no `delta`, `done` or `error`. The row was saved as `stopped` /
+  `cancelled` and the UI spinner never ended. There were no retries.
+- **Cause:** The TTFT budget aborts the attempt's `AbortController` with a `provider_timeout`
+  `ProviderError` as its reason. The adapter surfaces that abort as an `AbortError`, and the
+  retry loop rethrew every `isAbort(err)` as a cancel before it checked `signal.reason`.
+- **Rule:** **Never classify an abort by the error's shape. Check who aborted.** Only the
+  caller's own signal is a user cancel. An abort from an internal timer is a typed, retryable
+  failure. A time budget must also scale with the payload: media turns get 3× the base budget.
+- **Verify:** `backend/src/routes/ttftTimeout.integration.test.ts` checks that the provider was
+  tried twice, `provider_timeout` was streamed and the row was saved as `error`. Remove the
+  `signal.reason` check and the test fails.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1027,6 +871,11 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-24** — Added the first-token-timer entry. Found by the user's local live run on
+  the real scanned statement. Retired three entries whose subject no longer exists: the Neon
+  pooled-endpoint entry (production moved to Cloud SQL on 2026-09-18), and the two Vertex
+  Agent Engine sandbox REST entries (the sandbox is Cloud Run Jobs and `VertexSandboxClient`
+  is gone). **40 entries.**
 - **2026-09-21** — Added the transcript DTO normalization entry: missing optional evidence
   arrays in an older/degraded chat payload must not trip the workspace error boundary.
 - **2026-09-20** — Added entry for the attachment-text carry-forward bug: text-extracted

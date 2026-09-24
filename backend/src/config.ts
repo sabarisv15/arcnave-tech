@@ -108,6 +108,8 @@ const envSchema = z.object({
   PROVIDER_TIMEOUT_MS: int(120_000),
   PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
   PROVIDER_MAX_RETRIES: int(2),
+  /** Chat-mode wait for a provider's first event; search, research and attachments scale it. */
+  PROVIDER_TTFT_BUDGET_MS: int(12_000),
 
   // --- Generation limits --------------------------------------------------
   DEFAULT_MAX_OUTPUT_TOKENS: int(4096),

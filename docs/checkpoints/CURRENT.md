@@ -75,6 +75,22 @@ not here (client data). Before the run, check three things:
 
 The result line decides the next step. PASS freezes Phase 3 and allows Phase 4 (G4, G5, G8).
 FAIL means fixing it in Phase 3 and running again. Phase 4 has not started.
+**User's local run (2026-09-24) did not test this branch.** A local session gave the PDF to a
+running backend, but that backend was an older checkout, not this branch. The evidence: 693–694
+tests there against 762 here; the turn carried no tools and loaded no skill; and it hit G27
+(current turn sent twice), which Phase 2 fixed here. So Phase 3's extract/analyze path and
+`verifyPhase3KvbFederalLive.ts` are still unexercised, and acceptance is still pending. That
+session left its fixes uncommitted. Its G27 fix duplicates the one already here, so those
+changes must be discarded, not merged.
+
+One of its findings was real on this branch too, and is fixed here. When the first-token budget
+expired, the AbortError was rethrown as a user cancel: the stream ended after `start`, the row
+was `stopped`, and nothing was retried. It is now a retryable `provider_timeout`.
+`PROVIDER_TTFT_BUDGET_MS` (default 12000) is the base budget; search adds 3 s, research adds
+8 s, and turns carrying media get 3× (see `mistakes.md`). Also from that session, still open:
+failed turns replay to the model as `[Response stopped]`; the `artifact-design` and
+`dashboard-design` skill frontmatter was reported failing validation on boot, which is unverified
+here. Backend 762/762.
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,

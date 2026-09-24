@@ -1133,8 +1133,13 @@ export class GenerationService {
     let attempt = 0;
     let overflowRetried = false;
     let currentRequest = request;
-    const ttftBudgetMs =
-      request.mode === 'research' ? 20_000 : request.mode === 'search' ? 15_000 : 12_000;
+    const ttftBase = this.cfg.PROVIDER_TTFT_BUDGET_MS;
+    const modeBudget = request.mode === 'research' ? ttftBase + 8_000 : request.mode === 'search' ? ttftBase + 3_000 : ttftBase;
+    // A multi-page scanned PDF or large image is read before the first token; a 12-page
+    // statement measured 6.7 s bare, so the text-only budget is too tight for it.
+    const carriesMedia =
+      (request.attachments?.length ?? 0) > 0 || request.history.some((t) => t.attachments?.some((a) => Boolean(a.base64)));
+    const ttftBudgetMs = carriesMedia ? modeBudget * 3 : modeBudget;
 
     for (;;) {
       let firstEventReceived = false;
@@ -1175,7 +1180,13 @@ export class GenerationService {
         return;
       } catch (err) {
         clearTimeout(ttftTimer);
-        if (isAbort(err) || currentRequest.signal.aborted) throw err;
+        if (currentRequest.signal.aborted) throw err;
+        // Our own first-token timer aborted the attempt: that is a retryable provider timeout,
+        // not a user cancel. Rethrowing the AbortError stored the turn as `stopped` with no
+        // error event and left the client waiting.
+        const timeout = ttftController.signal.reason;
+        if (timeout instanceof ProviderError && timeout.code === 'provider_timeout') err = timeout;
+        else if (isAbort(err)) throw err;
 
         // Context Overflow Recovery with Streaming Safety Rule:
         // Retry is allowed strictly if no user-visible assistant output has been committed/emitted (userVisibleOutputEmitted === false).
