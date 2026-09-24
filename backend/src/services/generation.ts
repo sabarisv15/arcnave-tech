@@ -82,6 +82,7 @@ import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
+import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
@@ -507,8 +508,13 @@ export class GenerationService {
     };
 
     if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
-      const wireHistory = await this.hydrateHistoryAttachments(history, input.prompt);
       const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
+      const wireHistory = await this.limitToModel(
+        entry.alias,
+        wireAttachments,
+        await this.hydrateHistoryAttachments(history, input.prompt),
+        releaseReservation,
+      );
 
       const allAttachmentsMap = new Map<string, AttachmentBlock>();
       for (const h of wireHistory) {
@@ -721,7 +727,12 @@ export class GenerationService {
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
     const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-    const wireHistory = await this.hydrateHistoryAttachments(history, input.prompt);
+    const wireHistory = await this.limitToModel(
+      entry.alias,
+      wireAttachments,
+      await this.hydrateHistoryAttachments(history, input.prompt),
+      releaseReservation,
+    );
 
     const allAttachmentsMap = new Map<string, AttachmentBlock>();
     for (const h of wireHistory) {
@@ -1405,6 +1416,24 @@ export class GenerationService {
    * If budget is exceeded, historical identity and extracted text survive, but binary base64 is omitted.
    * Explicitly referenced attachments (by fileId or unique filename) are promoted for hydration.
    */
+  /**
+   * G18: the selected model's limits, applied to what is about to be sent. Runs after the budget
+   * reservation, so a refusal here must release it before propagating.
+   */
+  private async limitToModel(
+    alias: string,
+    current: AttachmentBlock[],
+    history: Turn[],
+    releaseReservation: () => Promise<void>,
+  ): Promise<Turn[]> {
+    try {
+      return await enforceModelLimits(getModelCapability(alias), current, history);
+    } catch (err) {
+      await releaseReservation();
+      throw err;
+    }
+  }
+
   private async hydrateHistoryAttachments(
     turns: Turn[],
     currentPrompt?: string,

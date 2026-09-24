@@ -27,7 +27,25 @@ export interface ModelCapabilitySpec {
   maxOutputTokens?: number;
   /** Maximum combined context window size in tokens, only when specifically defined that way. */
   contextWindowTokens?: number;
+  /**
+   * Maximum PDF pages across one request, or `null` when no verified figure exists for this
+   * model on the platform we call. `null` means "not checked here", never "unlimited" (G18).
+   */
+  maxPdfPagesPerRequest: number | null;
+  /** Maximum request body in bytes on the platform we call, or `null` when not verified. */
+  maxRequestBytes: number | null;
 }
+
+/**
+ * Claude on Google Cloud (Vertex), from Anthropic's docs, checked 2026-09-24:
+ * - PDF support: 600 pages per request (100 when the context window is under 1M tokens).
+ *   https://platform.claude.com/docs/en/build-with-claude/pdf-support
+ * - API overview, request size limits: "Google Cloud limits requests to 30 MB".
+ *   https://platform.claude.com/docs/en/api/overview#request-size-limits
+ * Both are whole-request limits. Sonnet 5 and Opus 5 have 1M-token context, so 600 applies.
+ */
+const CLAUDE_VERTEX_MAX_PDF_PAGES = 600;
+const CLAUDE_VERTEX_MAX_REQUEST_BYTES = 30_000_000;
 
 const CLAUDE_SONNET_5_SPEC: ModelCapabilitySpec = {
   alias: 'Sonnet 5',
@@ -41,6 +59,8 @@ const CLAUDE_SONNET_5_SPEC: ModelCapabilitySpec = {
   supportsImageGeneration: true, // routed via generate_image tool
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
+  maxPdfPagesPerRequest: CLAUDE_VERTEX_MAX_PDF_PAGES,
+  maxRequestBytes: CLAUDE_VERTEX_MAX_REQUEST_BYTES,
 };
 
 const CLAUDE_OPUS_5_SPEC: ModelCapabilitySpec = {
@@ -55,6 +75,8 @@ const CLAUDE_OPUS_5_SPEC: ModelCapabilitySpec = {
   supportsImageGeneration: true,
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
+  maxPdfPagesPerRequest: CLAUDE_VERTEX_MAX_PDF_PAGES,
+  maxRequestBytes: CLAUDE_VERTEX_MAX_REQUEST_BYTES,
 };
 
 const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
@@ -70,6 +92,10 @@ const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
   maxInputTokens: 1_048_576,
   maxOutputTokens: 65_536,
   contextWindowTokens: 1_048_576, // 1M combined tokens
+  // No verified per-request PDF-page or body limit for this model on Vertex yet; the provider's
+  // own rejection (mapped to provider_payload_limit) is the backstop.
+  maxPdfPagesPerRequest: null,
+  maxRequestBytes: null,
 };
 
 const GPT_OSS_120B_SPEC: ModelCapabilitySpec = {
@@ -85,6 +111,8 @@ const GPT_OSS_120B_SPEC: ModelCapabilitySpec = {
   maxInputTokens: 128_000,
   maxOutputTokens: 8_192,
   contextWindowTokens: 128_000,
+  maxPdfPagesPerRequest: null,
+  maxRequestBytes: null,
 };
 
 export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
@@ -124,5 +152,7 @@ export function getModelCapability(aliasOrModelId: string): ModelCapabilitySpec 
     maxInputTokens: 128_000,
     maxOutputTokens: 4_096,
     contextWindowTokens: 128_000,
+    maxPdfPagesPerRequest: null,
+    maxRequestBytes: null,
   };
 }

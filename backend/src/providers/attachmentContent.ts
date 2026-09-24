@@ -54,6 +54,11 @@ export function unavailableAttachmentNote(a: AttachmentBlock): string {
         `[Attachment ${describe(a)} is not included in this request: earlier attachments exceed ` +
         `the per-request size budget.${reach}]`
       );
+    case 'model_limit':
+      return (
+        `[Attachment ${describe(a)} is not included in this request: with it, the request would ` +
+        `exceed the selected model's per-request limits.${reach}]`
+      );
     case 'storage_unavailable':
       return `[Attachment ${describe(a)} could not be loaded from storage for this request.${reach}]`;
     default:

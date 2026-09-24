@@ -14,8 +14,6 @@ import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import { sourcesFromAnthropicBlocks } from './grounding.js';
-import { ApiError } from '../errors.js';
-import { getModelCapability } from './capabilitiesTable.js';
 import type {
   GenerationRequest,
   Provider,
@@ -189,21 +187,6 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
 
   // The API requires the sequence to start with a user turn.
   while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
-
-  // Validate upfront that no newly attached image exceeds the model's base64 capacity
-  const capability = getModelCapability('Sonnet 5');
-  for (const att of request.attachments ?? []) {
-    if (att.mimeType.startsWith('image/') && att.base64) {
-      const base64Bytes = Buffer.byteLength(att.base64, 'utf8');
-      if (base64Bytes > capability.maxEncodedImageBytes) {
-        throw new ApiError('provider_payload_limit', {
-          title: 'Image exceeds Claude 5 MB limit',
-          detail: `This image is ${(base64Bytes / 1_000_000).toFixed(1)} MB when encoded, exceeding Anthropic's 5 MB limit on Vertex AI. Choose a smaller image or select Gemini 3.8 Flash, which supports up to 20 MB.`,
-          meta: { base64Bytes, limitBytes: capability.maxEncodedImageBytes, model: 'Sonnet 5' },
-        });
-      }
-    }
-  }
 
   const currentBlocks = attachmentBlocks(request.attachments);
   if (currentBlocks.length === 0) {

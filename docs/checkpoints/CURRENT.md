@@ -9,8 +9,16 @@ ADR-0006 makes the router a policy boundary only. ADR-0007 decides the sandbox h
 egress; that decision is not implemented yet. Phase 1 (G1, G2, G3, G7) is fixed: every
 tool-enabled turn gets `search_tools` + `load_skill`; `run_python` is gated by permission
 only; `render_ui` is discoverable; skills are advertised only when `load_skill` is sent. Full
-suite 704/704. Next: Phase 2 (attachment continuity, including G26, the `att.name`/`filename`
-bug that leaves the sandbox `input/` empty).
+suite 704/704. **Phase 2 (attachment continuity) done the same day**: one `AttachmentRef`
+identity (G26); `run_python` materialises files by fileId on the chat and AgentLoop paths;
+earlier-turn files stay discoverable (G6); over-budget history files keep their identity and
+are described with their fileId, never sent empty (G15); Office text is sent once (G16); no
+binary-as-text fallback (G17); per-model limits from the capability table with a typed
+`provider_payload_limit` (G18). G27 was found and fixed along the way: the current turn was
+also sent as history, so every prompt and attachment went twice. Backend 734/734, frontend
+48/48. Phase 2 continues files; it adds no extraction capability. Scanned-table extraction
+and the bank-statement acceptance test are Phase 3. `docs/openapi.json` is stale from earlier
+work (memory routes, a `download` query param) and not regenerated in this change.
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
