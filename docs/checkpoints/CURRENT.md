@@ -52,6 +52,29 @@ fixed-dpi PNG took 18 s per page; renders are now pixel-bounded JPEG (0.7 s for 
 Classification ran through `analyze_table_rows.py` (`classify`, per-rule capture, per-statement
 `running_balance`). The live model + Gemini vision run still needs ADC on a machine with
 credentials. The per-row report is kept outside the repo (client financial data).
+**Next step: the live run moves to the user's own machine (2026-09-24).** The cloud container
+cannot run it: no `gcloud`, no ADC, and the pasted `.env` files carry settings only (project
+`GOOGLE_CLOUD_PROJECT`, `VERTEX_LOCATION=global`), never a credential. A service-account key in
+the environment would break invariant 6, so it is not an option. The plan: the user runs
+`gcloud auth application-default login` on their Windows machine, starts `claude remote-control`
+in the repo on this branch, and has that session run
+`npx tsx src/scripts/verifyPhase3KvbFederalLive.ts --pdf <path> --kvb-pages 1-3 --out var/phase3-live 2>&1 | Tee-Object run.log`
+(PowerShell) without interrupting it. Then it compares `evidence.md`, `evidence.json` and
+`run.log` against the document's verified numbers and reports before any fix. Expected from
+the document: KVB (PDF pages 1–3) 48 rows = Debit 41 + Credit 7, rows per page 1:20 2:19 3:9;
+Federal (pages 4–12) 277 rows = 244 withdrawals + 33 deposits, rows per page 4:21 5:32 6–9:33
+10:32 11:32 12:28, 0 balance mismatches, two same-text CHRG pairs with different Tran Ids that
+are not duplicates; combined 325. The totals and closing balances are in the handoff prompt,
+not here (client data). Before the run, check three things:
+- The Windows path is untested: `pdftoppm` (Poppler) and `python` must be on PATH, because the
+  process sandbox spawns `python`, not `python3`. A Windows path failure is a finding.
+- The user's `backend/.env` has `DATABASE_URL=postgres://arcnave:arcnave@…`, but the docker
+  `.env` sets `POSTGRES_PASSWORD` to something else. `arcnave-pg` must accept the URL's password.
+- The harness forces `SANDBOX_ENGINE=process` and `ENABLE_RUN_PYTHON=false`, so the local
+  `.env`'s cloud-run sandbox settings do not reach Cloud Run.
+
+The result line decides the next step. PASS freezes Phase 3 and allows Phase 4 (G4, G5, G8).
+FAIL means fixing it in Phase 3 and running again. Phase 4 has not started.
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
