@@ -1,5 +1,8 @@
 # Deterministic counting, summing and reconciliation over extracted table rows (G24).
 #
+# Nothing is truncated: every matching row, unparsed cell and mismatch is returned, because an
+# exact answer cannot rest on a list that was cut short.
+#
 # Generic: the model maps columns to meaning (which column is a debit, a balance, a party
 # name) and this script only computes. Every count and total comes from the row array, never
 # from a model's reading of the page.
@@ -20,7 +23,6 @@ import re
 from decimal import Decimal, InvalidOperation
 
 _NUM_CLEAN = re.compile(r"[^0-9.\-]")
-MAX_REFS = 300
 
 
 def parse_number(text):
@@ -106,7 +108,7 @@ for op in input_data.get("operations", []):
     try:
         if kind == "count":
             hit = select(rows, op.get("where"))
-            res = {"name": name, "op": kind, "value": len(hit), "rows": [ref(r) for r in hit[:MAX_REFS]]}
+            res = {"name": name, "op": kind, "value": len(hit), "rows": [ref(r) for r in hit]}
             results.append(with_expectation(res, len(hit), op))
         elif kind == "sum":
             col = int(op["column"])
@@ -120,7 +122,7 @@ for op in input_data.get("operations", []):
                         unparsed.append({**ref(r), "cell": raw})
                     continue
                 total += n
-            res = {"name": name, "op": kind, "value": str(total), "unparsedCells": unparsed[:MAX_REFS]}
+            res = {"name": name, "op": kind, "value": str(total), "unparsedCells": unparsed}
             if unparsed:
                 suspicious_pages.update(u["page"] for u in unparsed)
             results.append(with_expectation(res, total, op))
@@ -154,7 +156,7 @@ for op in input_data.get("operations", []):
                     "total": total,
                     "counts": counts,
                     "countsAddUp": sum(counts.values()) == total,
-                    "rows": labelled[:2000],
+                    "rows": labelled,
                     "status": "computed" if sum(counts.values()) == total else "error",
                 }
             )
@@ -195,7 +197,7 @@ for op in input_data.get("operations", []):
                     "name": name,
                     "op": kind,
                     "checkedTransitions": checked,
-                    "mismatches": mismatches[:MAX_REFS],
+                    "mismatches": mismatches,
                     "mismatchCount": len(mismatches),
                     "status": "pass" if not mismatches and checked > 0 else ("fail" if mismatches else "not_checked"),
                 }

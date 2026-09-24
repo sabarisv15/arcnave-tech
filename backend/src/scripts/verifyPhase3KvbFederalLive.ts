@@ -263,6 +263,11 @@ async function main() {
     check('model extracted rows', called.includes('extract_scanned_table_rows'), '');
     check('model computed with analyze_table_rows', called.includes('analyze_table_rows'), '');
     check('turn completed (no error, no tool_limit)', !error && done?.finishReason !== 'tool_limit', error ? `${error.code}: ${error.detail}` : `finishReason=${done?.finishReason}`);
+    check(
+      'final answer not cut off (no output-token limit hit)',
+      !/max|length/i.test(String(done?.finishReason ?? '')),
+      `finishReason=${String(done?.finishReason)}`,
+    );
 
     const pageCalls = vision.filter((v) => v.kind === 'page');
     const pagesRead = [...new Set(pageCalls.filter((v) => v.ok).map((v) => v.page))].sort((a, b) => a! - b!);
@@ -414,6 +419,22 @@ async function main() {
       '```json',
       JSON.stringify({ kvb: (classification as any).kvb, federal: (classification as any).federal, combined: (classification as any).combined }, null, 2),
       '```',
+      '## Every transaction (from the classify rows; nothing omitted)',
+      '',
+      '| # | page | rowIndex | label | party | reason | cells |',
+      '|---|---|---|---|---|---|---|',
+      ...((classification as { rows?: Array<{ page: number; rowIndex: number; label: string; reason: string; value?: string | null; cells: string[] }> }).rows ?? []).map(
+        (r, i) => `| ${String(i + 1)} | ${String(r.page)} | ${String(r.rowIndex)} | ${r.label} | ${r.value ?? ''} | ${r.reason.replace(/\|/g, '/')} | ${r.cells.join(' ¦ ').replace(/\|/g, '/')} |`,
+      ),
+      '',
+      '## Every extracted row (raw, nothing omitted)',
+      '',
+      '| page | rowIndex | confidence | rechecked | cells |',
+      '|---|---|---|---|---|',
+      ...(stored?.table.rows ?? []).map(
+        (r) => `| ${String(r.page)} | ${String(r.rowIndex)} | ${r.confidence.toFixed(2)} | ${r.rechecked ? 'yes' : ''} | ${r.cells.join(' ¦ ').replace(/\|/g, '/')} |`,
+      ),
+      '',
       '## Rechecks',
       '```json',
       JSON.stringify({ rechecks: report.rechecks, changedOnRecheck: report.changedOnRecheck }, null, 2),

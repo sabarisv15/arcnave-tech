@@ -1207,3 +1207,8 @@ practice, not canon.
   key". The end-to-end test caught it on its first run; a unit test with a mocked store would
   not have. Before writing to a shared store, read its key validator, not just its interface.
   Verify: `tableExtraction.integration.test.ts` runs against the real `LocalObjectStorage`.
+- **2026-09-24** — No new heading (over the cap). Phase 3 shipped with silent-ish caps on the
+  exact path: 500 rows in the extraction result, 300 row refs per analysis, 2000 classify rows.
+  Each carried a note, but an "every transaction" answer built from a cut list is still wrong.
+  Rule: on an exact/exhaustive path, bound size by chunking the input (pages per call), never by
+  cutting the output. Verify: `tableExtractionExecutor.test.ts` returns all 1200 rows.

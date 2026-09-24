@@ -14,9 +14,6 @@ import {
 } from '../services/tables/scannedTableExtraction.js';
 import { AttachmentNotFoundError, type MaterializedAttachment } from './execution/executionRuntime.js';
 
-/** Rows returned inline to the model. The full array always stays in the stored extraction. */
-const MAX_ROWS_IN_RESULT = 500;
-
 const extractInput = z.object({
   fileId: z.string().uuid(),
   pages: z.array(z.number().int().positive()).max(1000).optional(),
@@ -40,7 +37,9 @@ export function summarizeExtraction(stored: StoredExtraction): Record<string, un
   const t = stored.table;
   const covered = new Set(stored.rawPages.map((p) => p.page));
   const missingPages = Array.from({ length: stored.pageCount }, (_, i) => i + 1).filter((p) => !covered.has(p));
-  const rows = t.rows.slice(0, MAX_ROWS_IN_RESULT).map((r) => ({
+  // Every row goes back to the model: an exact count or classification cannot work from a
+  // truncated list. Size is bounded by TABLE_EXTRACTION_MAX_PAGES per call instead.
+  const rows = t.rows.map((r) => ({
     page: r.page,
     rowIndex: r.rowIndex,
     cells: r.cells,
@@ -69,9 +68,6 @@ export function summarizeExtraction(stored: StoredExtraction): Record<string, un
     raggedRows: t.raggedRows,
     droppedHeaderRepeats: t.droppedHeaderRepeats.length,
     rows,
-    ...(t.rows.length > rows.length
-      ? { rowsTruncated: `Showing ${String(rows.length)} of ${String(t.rows.length)} rows; analyze_table_rows works on all of them.` }
-      : {}),
   };
 }
 
