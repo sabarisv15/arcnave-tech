@@ -169,6 +169,16 @@ export function toUsageDto(usage: ProviderUsage, costUsd: number | null): UsageD
 
 /* -------------------------------------------------------------------------- input */
 
+/** Attachments the providers receive as raw bytes rather than as extracted text. */
+function sentAsBytes(att: { mimeType: string }): boolean {
+  return (
+    att.mimeType === 'application/pdf' ||
+    att.mimeType.startsWith('image/') ||
+    att.mimeType.startsWith('audio/') ||
+    att.mimeType.startsWith('video/')
+  );
+}
+
 /** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
 export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & { attachments: AttachmentBlock[] };
 
@@ -1342,18 +1352,13 @@ export class GenerationService {
     if (!attachments || attachments.length === 0) return [];
     return Promise.all(
       attachments.map(async (att) => {
-        const isBinary =
-          att.mimeType === 'application/pdf' ||
-          att.mimeType.startsWith('image/') ||
-          att.mimeType.startsWith('audio/') ||
-          att.mimeType.startsWith('video/');
-        if (isBinary && !att.base64 && att.storageKey) {
+        if (sentAsBytes(att) && !att.base64 && att.storageKey) {
           try {
             const data = await this.storage.get(att.storageKey);
             return { ...att, base64: data.toString('base64') };
           } catch (err) {
             log.warn({ err, storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
-            return att;
+            return { ...att, omittedReason: 'storage_unavailable' as const };
           }
         }
         return att;
@@ -1374,7 +1379,8 @@ export class GenerationService {
     const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
     let cumulativeBytes = 0;
 
-    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []);
+    // Only files sent as bytes spend the budget; Office and text files travel as extracted text.
+    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []).filter(sentAsBytes);
 
     // Check for explicit promotions from currentPrompt
     const promotedAttachmentIds = new Set<string>();
@@ -1413,7 +1419,7 @@ export class GenerationService {
       const turn = turns[i];
       if (!turn?.attachments) continue;
       for (const att of turn.attachments) {
-        if (!att.id || hydrationDecisions.has(att.id)) continue;
+        if (!sentAsBytes(att) || !att.id || hydrationDecisions.has(att.id)) continue;
         const size = att.sizeBytes ?? 0;
         if (cumulativeBytes + size <= maxBudget) {
           cumulativeBytes += size;
@@ -1429,12 +1435,14 @@ export class GenerationService {
         if (!turn.attachments || turn.attachments.length === 0) return turn;
         const hydrated = await Promise.all(
           turn.attachments.map(async (att) => {
+            if (!sentAsBytes(att)) return att;
             const shouldHydrateBinary = att.id ? hydrationDecisions.get(att.id) ?? false : true;
             if (shouldHydrateBinary) {
               const [h] = await this.hydrateAttachmentBytes([att]);
               return h ?? att;
             }
-            // Retain full identity and extractedText, but omit base64 binary
+            // Over budget: keep full identity and any genuine extracted text, never the bytes.
+            // The adapter tells the model why and how to rehydrate it by fileId (G15).
             return {
               id: att.id,
               filename: att.filename,
@@ -1442,6 +1450,7 @@ export class GenerationService {
               sizeBytes: att.sizeBytes,
               storageKey: att.storageKey,
               extractedText: att.extractedText,
+              omittedReason: 'history_budget' as const,
             };
           }),
         );

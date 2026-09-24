@@ -26,6 +26,7 @@ import type {
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -146,23 +147,18 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
       };
     }
 
-    // 3. Text / Code / Extracted Office Text (DOCX, XLSX, TXT, CSV, JSON, MD, etc.)
-    const textData =
-      a.extractedText ??
-      (a.base64 && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/')
-        ? Buffer.from(a.base64, 'base64').toString('utf8')
-        : '');
-
-    const block: Anthropic.DocumentBlockParam = {
-      type: 'document',
-      source: {
-        type: 'text',
-        media_type: 'text/plain',
-        data: textData,
-      },
-    };
-    if (a.filename) block.title = a.filename;
-    return block;
+    // 3. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
+    const text = attachmentText(a);
+    if (text !== null) {
+      const block: Anthropic.DocumentBlockParam = {
+        type: 'document',
+        source: { type: 'text', media_type: 'text/plain', data: text },
+      };
+      if (a.filename) block.title = a.filename;
+      return block;
+    }
+    // 4. Nothing sendable: say so, never an empty document or decoded binary (G15, G17).
+    return { type: 'text', text: unavailableAttachmentNote(a) };
   });
 }
 

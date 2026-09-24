@@ -146,6 +146,8 @@ export interface AttachmentBlock {
   id?: string;
   filename?: string;
   mimeType: string;
+  /** Why the bytes were deliberately not loaded for this request. Adapters say so (G15). */
+  omittedReason?: 'history_budget' | 'storage_unavailable';
   base64?: string;
   extractedText?: string | null;
   sizeBytes?: number;

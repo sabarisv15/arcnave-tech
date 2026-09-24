@@ -22,6 +22,7 @@ import type {
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:gemini' });
 
@@ -41,25 +42,15 @@ function attachmentParts(attachments: GenerationRequest['attachments']): Part[] 
       };
     }
 
-    // 2. Text / Code / Extracted Office Text
-    if (a.extractedText) {
+    // 2. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
+    const text = attachmentText(a);
+    if (text !== null) {
       const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
-      return {
-        text: `<document${nameAttr}>\n${a.extractedText}\n</document>`,
-      };
+      return { text: `<document${nameAttr}>\n${text}\n</document>` };
     }
 
-    // 3. Fallback if base64 is present for other mimeTypes
-    if (a.base64) {
-      return {
-        inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
-      };
-    }
-
-    const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
-    return {
-      text: `<document${nameAttr}>\n[Empty or unreadable document]\n</document>`,
-    };
+    // 3. Nothing sendable: say so. No raw bytes under an unsupported MIME type (G15, G17).
+    return { text: unavailableAttachmentNote(a) };
   });
 }
 
