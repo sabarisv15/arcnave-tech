@@ -37,6 +37,7 @@ import { routeAuto } from '../providers/routing.js';
 import { getModelCapability } from '../providers/capabilitiesTable.js';
 import type {
   AttachmentBlock,
+  AttachmentRef,
   GenerationRequest,
   Mode,
   ProviderEvent,
@@ -80,6 +81,7 @@ import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compactionService } from './compaction/compactionService.js';
+import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
@@ -167,6 +169,9 @@ export function toUsageDto(usage: ProviderUsage, costUsd: number | null): UsageD
 
 /* -------------------------------------------------------------------------- input */
 
+/** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
+export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & { attachments: AttachmentBlock[] };
+
 export interface GenerateInput {
   userId: string;
   requestId: string;
@@ -180,8 +185,8 @@ export interface GenerateInput {
   hasAttachments: boolean;
   attachmentText: string;
   attachmentManifest?: string;
-  /** This turn's image/PDF attachments, ready as native content blocks. */
-  attachments: AttachmentBlock[];
+  /** This turn's attachments, normalised once by `toAttachmentRef`. */
+  attachments: AttachmentRef[];
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
   codeExecution: boolean;
   signal: AbortSignal;
@@ -239,27 +244,9 @@ export class GenerationService {
     const workspace = await this.executionRuntime.createWorkspace(runId);
 
     try {
-      if (input.attachments && input.attachments.length > 0) {
-        for (const att of input.attachments) {
-          if (att.name) {
-            if (att.base64) {
-              await this.executionRuntime.materializeInputFiles(workspace, [
-                { filename: att.name, data: Buffer.from(att.base64, 'base64') },
-              ]);
-            } else if (att.storageKey) {
-              try {
-                const buf = await this.storage.get(att.storageKey);
-                await this.executionRuntime.materializeInputFiles(workspace, [
-                  { filename: att.name, data: buf },
-                ]);
-              } catch (storageErr) {
-                log.warn({ storageErr, name: att.name }, 'Failed to materialize attachment from storage');
-              }
-            }
-          }
-        }
-      }
-
+      // Attachments are not copied into the workspace up front. A tool that needs one names its
+      // fileId and the runtime materialises exactly that file (G26, G15): current and historical
+      // attachments take the same path, and nothing is downloaded for turns that never use it.
       const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
@@ -338,23 +325,19 @@ export class GenerationService {
     };
 
     // --- Skill-First -> Tool-Second Routing --------------------------------
-    const attachmentNames: string[] = input.attachments
+    // G6: a file attached on an earlier turn is still available on this one.
+    const historyAttachments = history.flatMap((t) => t.attachments ?? []);
+    const attachmentNames: string[] = [...input.attachments, ...historyAttachments]
       .map((a) => a.filename)
       .filter((name): name is string => Boolean(name));
-    if (attachmentNames.length === 0 && input.attachmentManifest) {
-      const matches = input.attachmentManifest.matchAll(/filename:\s*"([^"]+)"/g);
-      for (const m of matches) {
-        if (m[1]) attachmentNames.push(m[1]);
-      }
-    }
 
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
     const routingDecision = routeTurn({
       prompt: input.prompt,
       mode: input.mode,
-      hasAttachments: input.hasAttachments,
-      attachmentMimeTypes: input.attachments.map((a) => a.mimeType),
+      hasAttachments: input.hasAttachments || historyAttachments.length > 0,
+      attachmentMimeTypes: [...input.attachments, ...historyAttachments].map((a) => a.mimeType),
       attachmentNames,
       candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
@@ -1319,14 +1302,7 @@ export class GenerationService {
     for (const row of attachmentRows) {
       if (!row.messageId) continue;
       const list = byMessage.get(row.messageId) ?? [];
-      list.push({
-        id: row.id,
-        filename: row.filename,
-        mimeType: row.mimeType,
-        sizeBytes: row.sizeBytes,
-        storageKey: row.storageKey,
-        extractedText: row.extractedText,
-      });
+      list.push(toAttachmentRef(row));
       byMessage.set(row.messageId, list);
     }
 

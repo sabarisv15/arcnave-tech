@@ -153,8 +153,10 @@ async function main() {
     attachmentText: 'monthly_sales.xlsx (Month, Sales: Jan 10, Feb 20, Mar 30, Apr 40)',
     attachments: [
       {
-        name: 'monthly_sales.xlsx',
+        id: uploadedAttachment!.id,
+        filename: 'monthly_sales.xlsx',
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sizeBytes: xlsxBuffer.length,
         storageKey,
       },
     ],

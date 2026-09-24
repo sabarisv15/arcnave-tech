@@ -22,13 +22,14 @@ import { verifyDocx } from '../services/documents/verify/docxVerify.js';
 import { verifyPptx } from '../services/documents/verify/pptxVerify.js';
 import type { DeliverableWarning } from '../services/documents/primitives.js';
 import { visualQaEngine } from '../services/qa/visualQaEngine.js';
-import { ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
+import { AttachmentNotFoundError, ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
 import type { SandboxClient } from './sandbox/client.js';
 
 const log = logger.child({ module: 'codeExecutionExecutor' });
 
 const runInput = z.object({
   code: z.string().min(1),
+  input_files: z.array(z.string().uuid()).max(20).optional(),
   expected_outputs: z.array(z.string()).max(20).optional(),
   expectedOutputs: z.array(z.string()).max(20).optional(),
 });
@@ -60,6 +61,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
   private readonly messageId?: string;
   private readonly db?: Database;
   private readonly storage?: ObjectStorage;
+  /** fileId → path under input/, so a second call in the same turn reuses the same path. */
+  private readonly materialized = new Map<string, string>();
 
   constructor(
     clientOrRuntime: SandboxClient | ExecutionRuntime,
@@ -92,6 +95,13 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     }
 
     const declaredOutputs = parsed.data.expected_outputs ?? parsed.data.expectedOutputs;
+
+    let inputFiles: Array<{ fileId: string; path: string }> = [];
+    if (parsed.data.input_files && parsed.data.input_files.length > 0) {
+      const staged = await this.materializeInputs(parsed.data.input_files);
+      if (!staged.ok) return textResult(call.id, false, staged.error);
+      inputFiles = staged.files;
+    }
 
     let execution;
     try {
@@ -234,6 +244,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
       stderr,
       truncated,
     };
+    if (inputFiles.length > 0) resultData.inputFiles = inputFiles;
 
     if (structuralWarnings.length > 0) {
       resultData.warnings = structuralWarnings;
@@ -258,5 +269,40 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
       ok: true,
       content: [{ type: 'json', data: resultData }],
     };
+  }
+
+  /**
+   * Copies the named attachments into this turn's workspace `input/`, scoped to the calling user.
+   * Works the same for this turn's files and for files from earlier turns (G26, G15): identity
+   * is the fileId, and the bytes come from object storage on demand.
+   */
+  private async materializeInputs(
+    fileIds: string[],
+  ): Promise<{ ok: true; files: Array<{ fileId: string; path: string }> } | { ok: false; error: string }> {
+    if (!this.runtime || !this.workspace || !this.db || !this.storage || !this.userId) {
+      return { ok: false, error: 'input_files is not available here: this sandbox has no workspace for uploaded files.' };
+    }
+    const files: Array<{ fileId: string; path: string }> = [];
+    for (const fileId of fileIds) {
+      let relPath = this.materialized.get(fileId);
+      if (!relPath) {
+        try {
+          const mat = await this.runtime.materializeAttachment(this.workspace, fileId, this.userId, this.db, this.storage);
+          relPath = `input/${mat.filename}`;
+          this.materialized.set(fileId, relPath);
+        } catch (err) {
+          log.warn({ err, fileId }, 'Failed to materialize run_python input file');
+          const missing = err instanceof AttachmentNotFoundError;
+          return {
+            ok: false,
+            error: missing
+              ? `Attachment "${fileId}" was not found, or you do not have access to it.`
+              : `Attachment "${fileId}" exists but could not be read from storage. Try again, or tell the user the file is unavailable.`,
+          };
+        }
+      }
+      files.push({ fileId, path: relPath });
+    }
+    return { ok: true, files };
   }
 }

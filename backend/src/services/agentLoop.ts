@@ -58,7 +58,7 @@ import type { Retriever } from './retrieval.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { UsageService } from './usage.js';
-import type { GenerateInput, ModelInfo, PreferencesRow, SourceDto, StreamEvent, UsageDto } from './generation.js';
+import type { AgentLoopInput, ModelInfo, PreferencesRow, SourceDto, StreamEvent, UsageDto } from './generation.js';
 import { computeCostFor, toSourceDto, toUsageDto } from './generation.js';
 
 const log = logger.child({ module: 'agentLoop' });
@@ -170,7 +170,7 @@ export class AgentLoop {
    * Executes the multi-step agent loop across steps and tools.
    */
   async *stream(
-    input: GenerateInput,
+    input: AgentLoopInput,
     options: AgentLoopOptions,
   ): AsyncGenerator<StreamEvent, void, undefined> {
     const {
@@ -195,26 +195,7 @@ export class AgentLoop {
     const shouldCleanup = !options.workspace;
 
     try {
-      if (shouldCleanup && input.attachments && input.attachments.length > 0) {
-        for (const att of input.attachments) {
-          if (att.name) {
-            if (att.base64) {
-              await this.executionRuntime.materializeInputFiles(workspace, [
-                { filename: att.name, data: Buffer.from(att.base64, 'base64') },
-              ]);
-            } else if (att.storageKey) {
-              try {
-                const buf = await this.storage.get(att.storageKey);
-                await this.executionRuntime.materializeInputFiles(workspace, [
-                  { filename: att.name, data: buf },
-                ]);
-              } catch (storageErr) {
-                log.warn({ storageErr, name: att.name }, 'Failed to materialize attachment in AgentLoop');
-              }
-            }
-          }
-        }
-      }
+      // Attachments reach the workspace only when a tool names their fileId (G26); see generation.ts.
 
     // Timeout signal handling
     const timeoutController = new AbortController();
@@ -864,7 +845,7 @@ export class AgentLoop {
   }
 
   private async finalise(
-    input: GenerateInput,
+    input: AgentLoopInput,
     data: {
       text: string;
       sources: ProviderSource[];

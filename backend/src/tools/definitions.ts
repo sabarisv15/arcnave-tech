@@ -77,10 +77,13 @@ export const PROJECT_TOOL_DEFINITIONS: ToolDefinition[] = [SEARCH_PROJECT_FILES,
 export const RUN_PYTHON: ToolDefinition = {
   name: 'run_python',
   description:
-    'Runs Python code in an isolated, single-use sandbox with outbound network access but no ' +
-    "access to this project's files or any other tool's data. Use it for computation — " +
-    'arithmetic, data transformation, verifying a calculation — not for anything that needs ' +
-    'project context. If the code generates deliverable files (e.g. charts, spreadsheets, reports, data files), ' +
+    'Runs Python code in an isolated, single-use sandbox. Do not rely on network access. Use it for ' +
+    'computation — arithmetic, data transformation, analysing an uploaded file, verifying a calculation. ' +
+    'To work on uploaded files, list their fileIds in "input_files"; each file is then readable at ' +
+    '"input/<filename>" (characters other than letters, digits, ".", "_" and "-" become "_"; when two ' +
+    'listed files share a name, the later one gets "_<first 8 characters of its fileId>" before the ' +
+    'extension). The result reports the exact path of every input file. ' +
+    'If the code generates deliverable files (e.g. charts, spreadsheets, reports, data files), ' +
     'save them to the "output/" directory and explicitly declare their exact filenames in "expected_outputs". ' +
     'Only declared output files will be authorized and uploaded from the sandbox; undeclared files are rejected. ' +
     'Output is captured stdout/stderr, truncated if large. The sandbox has no persisted state between calls — each call starts fresh.',
@@ -88,6 +91,12 @@ export const RUN_PYTHON: ToolDefinition = {
     type: 'object',
     properties: {
       code: { type: 'string', description: 'Python source to execute.' },
+      input_files: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Optional fileIds of uploaded attachments (from the conversation attachment list) to place in "input/" before the code runs.',
+      },
       expected_outputs: {
         type: 'array',
         items: { type: 'string' },

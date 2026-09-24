@@ -93,9 +93,16 @@ export class FakeProvider implements Provider {
     return this.mediaDescription;
   }
 
+  /**
+   * Runs inside `stream`, while the turn's workspace still exists. Lets a test drive the real
+   * `toolExecutor` the way a provider adapter would, without a real model.
+   */
+  onRequest: ((request: GenerationRequest) => Promise<void>) | null = null;
+
   async *stream(request: GenerationRequest): AsyncGenerator<ProviderEvent> {
     this.seen.push(request);
     if (this.streamError) throw this.streamError;
+    if (this.onRequest) await this.onRequest(request);
 
     for (const event of this.script) {
       if (request.signal.aborted) {

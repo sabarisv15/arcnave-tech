@@ -76,6 +76,14 @@ export interface OoxmlValidationResult {
   errors: string[];
 }
 
+/** The attachment does not exist or belongs to someone else. Distinct from a storage failure. */
+export class AttachmentNotFoundError extends Error {
+  constructor(readonly attachmentId: string) {
+    super(`Attachment "${attachmentId}" not found or not authorized for user.`);
+    this.name = 'AttachmentNotFoundError';
+  }
+}
+
 export class ExecutionRuntime {
   private readonly sandboxClient?: SandboxClient;
   private readonly baseTempDir: string;
@@ -162,7 +170,7 @@ export class ExecutionRuntime {
       .limit(1);
 
     if (!row) {
-      throw new Error(`Attachment "${attachmentId}" not found or not authorized for user.`);
+      throw new AttachmentNotFoundError(attachmentId);
     }
 
     const data = await storage.get(row.storageKey);

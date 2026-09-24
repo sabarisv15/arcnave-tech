@@ -128,10 +128,23 @@ export type ProviderEvent =
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
 
 /** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */
+/**
+ * Canonical identity of a stored attachment (G26). Built only by `toAttachmentRef` in
+ * `services/attachments/attachmentRef.ts`; every executor and adapter reads these field names.
+ */
+export interface AttachmentRef {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storageKey: string;
+  extractedText?: string | null;
+}
+
+/** An attachment as sent to a provider: its identity plus, when hydrated, its bytes. */
 export interface AttachmentBlock {
   id?: string;
   filename?: string;
-  name?: string;
   mimeType: string;
   base64?: string;
   extractedText?: string | null;
