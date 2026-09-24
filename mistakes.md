@@ -663,6 +663,12 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `JSON.stringify(schema)` immediately before and after a Gemini call is unchanged;
   and a probe that calls Gemini and then Claude with the same `ToolDefinition` gets
   `stop_reason: tool_use` from both rather than a 400.
+- **Same class, 2026-09-24:** to force a final answer, a text note was appended to the
+  function-response turn. Vertex rejected every such request with 400 "Requests ending with a
+  model turn are not supported", and it happened only live, because the fake client accepts
+  anything. **Never change the shape of a Gemini `contents` turn without a live probe.** Put
+  per-round instructions in `systemInstruction`, and give any new request shape a fallback to
+  the old one (`gemini.adapter-loop.test.ts`: the final round falls back on INVALID_ARGUMENT).
 
 ---
 

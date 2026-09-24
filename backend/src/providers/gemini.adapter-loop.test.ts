@@ -281,13 +281,42 @@ describe('GeminiProvider tool-calling loop', () => {
 
     const first = client.calls[0] as { config: { toolConfig?: unknown } };
     const final = client.calls[1] as {
-      config: { toolConfig?: { functionCallingConfig: { mode: string } } };
-      contents: { role: string; parts: { text?: string }[] }[];
+      config: { toolConfig?: { functionCallingConfig: { mode: string } }; systemInstruction?: string };
+      contents: { role: string; parts: { text?: string; functionResponse?: unknown }[] }[];
     };
     expect(first.config.toolConfig).toBeUndefined();
     expect(final.config.toolConfig?.functionCallingConfig.mode).toBe('NONE');
-    expect(final.contents.at(-1)!.parts.some((p) => p.text?.includes('no tool steps left'))).toBe(true);
+    expect(final.config.systemInstruction).toContain('no tool steps left');
+    // The request still ends with the user's function-response turn, and only function
+    // responses: Vertex rejected a text part mixed into it ("ending with a model turn").
+    const last = final.contents.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.parts.every((p) => p.functionResponse !== undefined)).toBe(true);
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Here is the answer.');
+  });
+
+  it('a final round rejected with INVALID_ARGUMENT is retried once without toolConfig', async () => {
+    const client = new FakeGeminiClient();
+    const answer = fakeStream([{ text: 'Answer anyway.' }]);
+    client.responses = [fakeStream([{ functionCalls: [{ id: 'c0', name: 'search_project_files', args: {} }] }])];
+    let finalAttempts = 0;
+    const original = client.models.generateContentStream;
+    client.models.generateContentStream = vi.fn(async (req: unknown) => {
+      if (client.calls.length === 0) return original(req);
+      client.calls.push(req);
+      finalAttempts += 1;
+      if (finalAttempts === 1) throw new Error('ApiError: {"status":"INVALID_ARGUMENT"}');
+      return answer;
+    });
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'ok' }] });
+    const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
+    const provider = new GeminiProvider(cfg, client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+    const retried = client.calls[2] as { config: { toolConfig?: unknown } };
+    expect(finalAttempts).toBe(2);
+    expect(retried.config.toolConfig).toBeUndefined();
+    expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Answer anyway.');
   });
 
   it('stops issuing provider requests once the signal is aborted', async () => {
