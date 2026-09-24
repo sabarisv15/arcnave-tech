@@ -29,8 +29,10 @@ FROM node:22-bookworm-slim AS runtime
 
 # dumb-init reaps zombies and forwards signals, which is what makes the graceful shutdown in
 # src/index.ts actually run — PID 1 in Node ignores SIGTERM's default disposition.
+# poppler-utils and python3 run trusted work in-process (ADR-0008): page renders for table
+# extraction and the packaged skill scripts, which use the standard library only.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y dumb-init \
+    && apt-get install --no-install-recommends -y dumb-init poppler-utils python3 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \

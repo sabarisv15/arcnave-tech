@@ -76,7 +76,7 @@ after (spends quota, so it needs the user's approval).
 | G17 | No raw-binary fallback. An Office file without extracted text becomes an explicit "could not be read: <reason>" note | Adapter tests on both providers |
 | G18 | Check PDF page count and image size at upload; reject with typed `ApiError` codes shown by the frontend | Route integration tests + `npm run openapi` + frontend test |
 
-## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13) ✅ locally
+## Phase 3: Exact document intelligence + QA (scanned-table extraction, PDF skill rules, G14, G13) ✅ locally, ❌ live acceptance (see [phase 3 live failure](../../checkpoints/2026-09-24-phase3-live-failure.md))
 
 **Done 2026-09-24, local only.** Decision taken at the start of the phase: vision first, called
 from the backend; deterministic work in skill scripts; no offline OCR engine added (it stays a
@@ -137,7 +137,7 @@ one). Live verification needs approval.
 | G5 | Agent-loop routing lives in one function; the duplicate `isAgentMode` goes | Unit test |
 | G8 | Remove the dead `selectedSkills` preload; autoload follows each skill's `autoload` frontmatter instead of a hard-coded name | Skills tests |
 
-## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0008 first
+## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0009 first (ADR-0008 went to trusted work, Phase 3 fix)
 
 - **G9:** Claude models use Claude's native tool search (`defer_loading`), which Vertex
   supports. Gemini keeps `search_tools`. Verify `cache_read_input_tokens` locally (needs approval).
@@ -170,7 +170,7 @@ G24 is delivered in Phase 3 and listed here for completeness.
 | 2 | medium | 1 (G6 uses the router input) |
 | 3 | medium–large | 2 (extraction needs files in the sandbox), G20's trusted-CLI split for rendering |
 | 4 | medium | 1 |
-| 5 | large | 4, ADR-0008 |
+| 5 | large | 4, ADR-0009 |
 | 6 | medium–large | ADR-0007 (done) |
 
 Phase 3 needs the trusted-CLI permission from G20 to render pages without enabling arbitrary

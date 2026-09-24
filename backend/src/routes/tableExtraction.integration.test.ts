@@ -178,7 +178,10 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
     expect(flat(trace[0]!.result)).toContain('Exact and Exhaustive Work');
     const found = flat(trace[1]!.result);
     expect(found).toContain('extract_scanned_table_rows');
-    expect(found).not.toContain('run_python');
+    // Python is not granted, so run_python is not a tool here (its name may still appear in a
+    // description telling the model not to use it for scanned pages).
+    const foundNames = (JSON.parse(found) as { tools: { name: string }[] }).tools.map((t) => t.name);
+    expect(foundNames).not.toContain('run_python');
 
     // Every page was rendered and read on its own: the image width identifies the page.
     const firstPass = visionCalls.filter((c) => c.prompt.includes('of a scanned document. Extract'));

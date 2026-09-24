@@ -73,6 +73,9 @@ export interface BuildOptions {
   /** Test seam — a real `CloudRunSandboxClient` is never constructed unless a GCP project is
    *  configured, mirroring how the provider adapters lazily construct their own Vertex clients. */
   sandboxClient?: SandboxClient;
+  /** Test seam for the trusted executor. With an injected `sandboxClient` and no trusted client,
+   *  trusted work goes to the injected sandbox, as it did before ADR-0008. */
+  trustedClient?: SandboxClient;
   executionRuntime?: ExecutionRuntime;
 }
 
@@ -99,7 +102,25 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     trustedCliAllowed: cfg.ENABLE_TRUSTED_CLI,
     skillScriptAllowed: cfg.ENABLE_SKILL_SCRIPTS,
   };
-  const anySandboxGrant = Object.values(runtimePermissions).some(Boolean);
+  // ADR-0008: trusted work (poppler, packaged skill scripts) runs as a sanitized local child
+  // process, so the Cloud Run sandbox is built only for what still needs it.
+  const trustedGrant = runtimePermissions.trustedCliAllowed || runtimePermissions.skillScriptAllowed;
+  const trustedLocal = cfg.TRUSTED_WORK_ENGINE === 'local';
+  let trustedClient = options.trustedClient;
+  if (!trustedClient && trustedGrant && trustedLocal && !options.sandboxClient) {
+    trustedClient = new ProcessSandboxClient({
+      pythonPath: cfg.TRUSTED_PYTHON_PATH,
+      codeTimeoutMs: cfg.TRUSTED_WORK_TIMEOUT_MS,
+      maxStdoutBytes: cfg.MAX_STDOUT_BYTES,
+      maxStderrBytes: cfg.MAX_STDERR_BYTES,
+      // Packaged scripts are read whole; input and output travel as workspace files.
+      maxCodeBytes: 512 * 1024,
+      inheritEnv: false,
+    });
+  }
+  // The sandbox still serves run_python, and trusted CLIs the local executor lacks (soffice,
+  // pandoc for visual QA).
+  const anySandboxGrant = runtimePermissions.pythonAllowed || runtimePermissions.trustedCliAllowed || (trustedGrant && !trustedLocal);
   if (!rawSandboxClient && anySandboxGrant) {
     const isCloudRunConfigured = Boolean(
       cfg.GOOGLE_CLOUD_PROJECT && cfg.SANDBOX_LOCATION && cfg.SANDBOX_JOB_NAME,
@@ -157,7 +178,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     : undefined;
 
   const executionRuntime =
-    options.executionRuntime ?? new ExecutionRuntime(sandboxClient, undefined, runtimePermissions);
+    options.executionRuntime ?? new ExecutionRuntime(sandboxClient, undefined, runtimePermissions, trustedClient);
   const capabilities = buildCapabilityRegistry(cfg);
   const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR, capabilities);
   void skills.load();

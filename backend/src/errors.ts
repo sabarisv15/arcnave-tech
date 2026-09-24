@@ -146,6 +146,11 @@ export const ERROR_CATALOG = {
     title: 'The model took too long',
     detail: 'The provider did not respond in time. You can retry.',
   },
+  turn_deadline_exceeded: {
+    status: 504,
+    title: 'This request ran out of time',
+    detail: 'The work took longer than one turn allows and was stopped. Try a smaller part of the document, or retry.',
+  },
   storage_error: {
     status: 500,
     title: 'That file could not be stored',

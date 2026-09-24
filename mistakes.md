@@ -731,38 +731,6 @@ failure mode of this pattern, not a sign it is working.
   fails if the getter-only reading regresses. Live: a `search_project_files` call on Gemini 3.8
   Flash in production now completes with real final text instead of erroring after the tool result.
 
-### 2026-09-19 — `run_python` had no real timeout and hung for minutes against the live sandbox
-
-- **Symptom:** Live in production with `ENABLE_RUN_PYTHON=true`: a `run_python` tool call fired
-  (`tool_use` frame appeared) and then never produced a `tool_result` — no error, no further SSE
-  frames, still running after 2 minutes, until manually stopped via `POST /chats/:id/stop`. Cloud
-  Logging showed nothing between the initial request and the stop; whatever was slow produced no
-  log line of its own.
-- **Cause:** `RUN_PYTHON_TIMEOUT_MS` (Task 2's config) is only used as the sandbox's `ttl` value
-  sent to the Code Execution API — it was never actually wired as a client-side deadline on the
-  create→poll→execute call chain, despite the plan's own text claiming it would be ("enforced
-  client-side (an AbortController on the `:execute` fetch)"). `pollUntilDone` loops with no
-  attempt cap or elapsed-time check beyond the caller's own (unrelated) `AbortSignal`, so a slow
-  or stalled Preview-API operation blocks the whole generate request indefinitely instead of
-  failing fast with a typed result the model could react to.
-- **Rule:** **A documented timeout config value that is only read in one place (here: as a
-  request payload field) is not the same as an enforced deadline — grep every place a "timeout"
-  config is actually consumed before trusting it bounds anything.** A polling loop against an
-  external LRO needs its own elapsed-time or attempt-count cap independent of whatever
-  `AbortSignal` the caller happens to pass in.
-- **Rule:** **Turned back off in production** (`ENABLE_RUN_PYTHON=false`) immediately on finding
-  this — an unbounded hang on a live user request is worse than the feature being unavailable.
-  Do not re-enable until `VertexSandboxClient` wraps its own internal calls in a real deadline
-  (a `setTimeout`-driven `AbortController` scoped to `RUN_PYTHON_TIMEOUT_MS`, independent of the
-  request's own signal) and that is verified live to actually fire.
-- **Verify:** **Fixed and confirmed 2026-09-19.** `VertexSandboxClient.runPython` now starts its
-  own `setTimeout`-driven `AbortController` combined with the caller's signal via
-  `AbortSignal.any`; a fake-timers unit test proves the deadline fires without waiting in real
-  time. Live-verified locally against the real Preview API (not production): a `run_python` call
-  returned in ~9-37s with a real (if wrong-shaped, see the next entry) API error — no hang, no
-  2-minute stall. Still `ENABLE_RUN_PYTHON=false` in production, now blocked on the next entry
-  instead.
-
 ### 2026-09-19 — `compact` did not mean the same thing on every composer surface
 
 - **Symptom:** The chat reply composer still occupied a large empty block even though its caller
@@ -847,6 +815,25 @@ failure mode of this pattern, not a sign it is working.
   tried twice, `provider_timeout` was streamed and the row was saved as `error`. Remove the
   `signal.reason` check and the test fails.
 
+### 2026-09-24 — A phase passed locally on a warm process sandbox and failed on cold Cloud Run Jobs
+
+- **Symptom:** Phase 3 table extraction passed every local test, then failed live on the real
+  12-page statement. The normalise step reported "Skill script produced no result", the model
+  spent its rounds on `run_python`, and Cloud Run cut the request at 240 s, so the UI showed
+  "Response stopped".
+- **Cause:** Locally the sandbox is a child process: it starts in milliseconds and its files
+  are already on disk. In production each call is a fresh Cloud Run Job, with 20–40 s of
+  start-up, staging and signed URLs. One extraction made 3–15 such calls, and a swallowed output
+  upload failure (G22) lost the result file. The local suite exercised none of that.
+- **Rule:** **Never close a feature on local tests alone when production runs it on a different
+  engine.** Count the remote round trips a turn makes, multiply by that engine's real latency,
+  and compare the total with the platform timeout before shipping. Trusted work now runs in the
+  backend (ADR-0008), and every turn has its own deadline (`TURN_DEADLINE_MS`).
+- **Verify:** `executionRuntime.trusted.test.ts` routes poppler and skill scripts to the trusted
+  executor and `run_python` to the sandbox. `ttftTimeout.integration.test.ts` checks that a turn
+  over its deadline ends as `turn_deadline_exceeded`. Live: the same prompt on the real PDF
+  finishes well inside the deadline.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -871,6 +858,9 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-24** — Added the local-vs-Cloud-Run phase entry, from Phase 3's live failure.
+  Retired "`run_python` had no real timeout…": `VertexSandboxClient`, the class it is about,
+  no longer exists, and the Cloud Run client has its own orchestration deadline. **40 entries.**
 - **2026-09-24** — Added the first-token-timer entry. Found by the user's local live run on
   the real scanned statement. Retired three entries whose subject no longer exists: the Neon
   pooled-endpoint entry (production moved to Cloud SQL on 2026-09-18), and the two Vertex

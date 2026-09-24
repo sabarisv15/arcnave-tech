@@ -412,6 +412,7 @@ export const EXTRACT_SCANNED_TABLE_ROWS: ToolDefinition = {
     'Extracts every table row from the pages of an uploaded PDF, including scanned PDFs with no text layer, ' +
     'as structured rows: {page, rowIndex, cells[], confidence, sourceRegion}. Use it whenever an answer needs exact ' +
     'counts, totals or every row of a table (statements, registers, ledgers, attendance sheets, invoices), not a summary. ' +
+    'For that, call it first: run_python and read_uploaded_file cannot read a scanned page. ' +
     'Pages are rendered and read one by one; rows read with low confidence are re-read from a high-resolution crop. ' +
     'The result lists every page processed, failed pages, low-confidence rows, possible cross-page duplicates, and an ' +
     'extractionId. Reading is probabilistic: report low-confidence rows and failed pages to the user, and reconcile with ' +
