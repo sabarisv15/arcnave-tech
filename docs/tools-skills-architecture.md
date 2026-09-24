@@ -151,4 +151,22 @@ extracted text carries a marker, plus an earlier-turn PDF with no bytes hydrated
 Matches Claude's contract: image MIME allowlist (png/jpeg/webp/gif) equals Claude's; media before
 text in the user turn; 20 MB upload cap is under Claude's 32 MB request limit.
 
-Not audited here: execution runtime isolation (locked layer 8).
+### Execution runtime (locked layer 8)
+
+Code-read against `tools/execution/executionRuntime.ts`, `tools/sandbox/*`, `sandbox/Dockerfile`,
+`container.ts`, ADR-0005 and `docs/deploy/cloud-run-sandbox-setup.md`. Not live-tested.
+
+| # | Gap | Where |
+|---|---|---|
+| G19 | Office rendering cannot work through the Cloud Run sandbox. Visual QA writes the file to `temp/` and runs `soffice` with `cwd: temp/`; the client stages only `<cwd>/input/` (which does not exist), and the converted PDF is written inside the job container and never returned. Office visual QA therefore ends in "produced no PDF output" whenever the Cloud Run engine is in use | `services/qa/visualQaEngine.ts` render, `tools/sandbox/cloudRunSandboxClient.ts` staging |
+| G20 | Trusted CLI capabilities (LibreOffice, pdftoppm, pandoc) exist only through the `run_python` sandbox: host CLI is blocked in production and Cloud Run has no Docker. With `ENABLE_RUN_PYTHON` off, they are all off, so "trusted tools" depend on the arbitrary-code flag | `executionRuntime.ts` `executeControlledCli` |
+| G21 | The sandbox has open outbound network (ADR-0005, a deliberate trade-off). The locked architecture says "restricted network". The two documents disagree, and one of them has to change | ADR-0005 "Runtime image" |
+| G22 | Silent drops: without a staging bucket, input files over 2 MB are skipped with no message; signed-URL and staging failures are swallowed as "non-blocking", so outputs can go missing without a reason (Invariant 1) | `cloudRunSandboxClient.ts` input staging and output URLs |
+| G23 | The job's limits in the setup doc are 1 CPU, 512 Mi, `--task-timeout=15s`. The CLI bridge asks for 30 s, and LibreOffice or pandas on a long statement can easily exceed 15 s and 512 Mi | setup doc, `executeControlledCli` |
+| G24 | Skill scripts and references are unreachable: no skill ships any file besides `SKILL.md`, and nothing calls `executeTrustedSkillScript`. "references/scripts only when required" from the locked design does not exist yet | `backend/skills/*`, `executionRuntime.ts` |
+| G25 | The local Docker path builds an `sh -c` string by joining args; the guard misses newlines and quotes. Callers pass fixed filenames today, so this is latent, but it becomes an injection path if a model-supplied argument ever reaches it. Dev only | `executeControlledCli` Docker branch |
+
+Matches the locked design: non-root `sandbox` user, a fresh container per run, per-run
+`input/ output/ temp/` with cleanup in `finally`, path-traversal checks on inputs and outputs,
+host CLI fail-closed in production, the process sandbox refused in production, an orchestration
+timeout, a concurrency semaphore, and stdout/stderr caps.

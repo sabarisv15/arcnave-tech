@@ -89,6 +89,18 @@ Larger changes, each with its own design note inside ADR-0007:
 - **G12:** Retry transient failures (network, 5xx, timeout) once; keep blocking identical
   retries only for deterministic failures.
 
+## Phase 6: Execution runtime (G19–G25)
+
+| Gap | Change | Proof |
+|---|---|---|
+| G21 | Decide first: lock down egress (VPC egress deny, or allowlisted package mirror) or amend the locked architecture. Record it in an ADR superseding ADR-0005's network section | ADR |
+| G19 | Visual QA stages the file under `input/` and declares the PDF as an expected output, so the job returns it through the staging bucket | Unit test with a faked Cloud Run client, then a local run against the real job (with approval) |
+| G20 | A separate trusted-tools path (a fixed LibreOffice/poppler job or image) that does not depend on `ENABLE_RUN_PYTHON` | Config test: `ENABLE_RUN_PYTHON=false` still renders |
+| G22 | Missing staging, oversized input and failed signed URLs become typed errors in the tool result | Client unit tests |
+| G23 | Size the job for LibreOffice (CPU, memory, timeout) and align the CLI bridge timeout with it | Local timing on real Office files |
+| G24 | Either ship the first skill script/reference and wire it, or remove the unused engine | Skills test |
+| G25 | Docker branch passes args as an argv array, with no `sh -c` string | Unit test with a newline in an arg |
+
 ## Order and sizing
 
 | Phase | Size | Depends on |
@@ -99,5 +111,6 @@ Larger changes, each with its own design note inside ADR-0007:
 | 3 | small–medium | nothing |
 | 4 | medium | 1 |
 | 5 | large | 4, ADR-0007 |
+| 6 | medium–large | G21 decision first |
 
 After Phases 0–2 the acceptance test should pass locally. Phases 3–5 make it honest and efficient.
