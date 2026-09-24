@@ -24,7 +24,7 @@ import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
 
-/** Appended to the tool results before the final round, whose calls are disabled. */
+/** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
   'This turn has no tool steps left. Answer the user now from the tool results above; do not call a tool. ' +
   'If something could not be finished, say what and why.';
@@ -253,25 +253,20 @@ export class GeminiProvider implements Provider {
         // The SDK's `abortSignal` config only stops a request already underway; without this
         // check, an abort here would still issue one more provider call.
         if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        // The last round must end in an answer, as the Claude adapter's does: calls are refused
-        // (declarations stay, so earlier functionCall turns remain valid) and the model is told
-        // to answer from the results it has. Without this, a model still calling tools used
-        // every round and the turn ended with no text (live, Phase 3).
+        // The last round must end in an answer, as the Claude adapter's does: function calling
+        // is switched off and the system instruction says to answer from the results so far.
+        // The conversation itself is left as it is: a text part added to the functionResponse
+        // turn made Vertex reject the request ("Requests ending with a model turn are not
+        // supported", live, Phase 3).
         const finalToolRound = useTools && isLastRound(round, maxRounds);
-        if (finalToolRound && round > 0) {
-          const last = contents.at(-1);
-          if (last?.role === 'user') {
-            contents = [
-              ...contents.slice(0, -1),
-              { ...last, parts: [...(last.parts ?? []), { text: FINAL_ROUND_NOTE }] },
-            ];
-          }
-        }
-        const stream = await this.getClient().models.generateContentStream({
+        const systemInstruction = finalToolRound
+          ? `${request.systemInstruction ? `${request.systemInstruction}\n\n` : ''}${FINAL_ROUND_NOTE}`
+          : request.systemInstruction;
+        const open = (forceAnswer: boolean) => this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
           config: {
-            ...(request.systemInstruction ? { systemInstruction: request.systemInstruction } : {}),
+            ...(systemInstruction ? { systemInstruction } : {}),
             maxOutputTokens: request.maxOutputTokens,
             ...(grounded || codeExecution || useTools
               ? {
@@ -284,13 +279,25 @@ export class GeminiProvider implements Provider {
                   ],
                 }
               : {}),
-            ...(finalToolRound ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
+            ...(forceAnswer ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
             // The SDK aborts the underlying HTTP request on this signal, which is what makes
             // client cancellation actually stop provider work rather than just stop reading it.
             abortSignal: request.signal,
             httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS },
           },
         });
+
+        let stream: Awaited<ReturnType<typeof open>>;
+        try {
+          stream = await open(finalToolRound);
+        } catch (err) {
+          // Switching calls off is the one thing this round does differently. If Vertex rejects
+          // it, the round still runs as before rather than failing the whole turn; a call made
+          // then is not run (below).
+          if (!finalToolRound || request.signal.aborted || !String(err).includes('INVALID_ARGUMENT')) throw err;
+          log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
+          stream = await open(false);
+        }
 
         let roundText = '';
         const roundCalls: {

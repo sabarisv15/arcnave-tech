@@ -189,3 +189,12 @@ does not recognise" (4,989 output tokens, $0.09).
 - **Still open:** why the model keeps calling `run_python` after `analyze_table_rows`. It
   needs the live `search_tools` and `run_python` panels. The synthesis fallback should carry the
   turn's tool results, which is Phase 5 (agent loop).
+
+## Fourth live test (after PR #11)
+
+`provider_error`. The log shows Vertex returned 400 INVALID_ARGUMENT: "Requests ending with a
+model turn are not supported". PR #11 caused it: it appended a text note to the final round's
+function-response turn. **Fixed:** the note now goes in `systemInstruction`, and the
+conversation is not touched. If the `mode: NONE` final round is still rejected with
+INVALID_ARGUMENT, it is retried once without `toolConfig`. The model is still calling
+`run_python` after `analyze_table_rows`, and `load_skill` only at the end; that is open.
