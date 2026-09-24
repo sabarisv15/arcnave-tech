@@ -19,6 +19,41 @@ afterAll(async () => {
   await ctx.close();
 });
 
+describe('turn deadline', () => {
+  it('a turn past TURN_DEADLINE_MS ends as turn_deadline_exceeded, not a user cancel', async () => {
+    const slow = await createTestApp({ TURN_DEADLINE_MS: '2000', PROVIDER_TTFT_BUDGET_MS: '60000' });
+    try {
+      const u = await signUp(slow);
+      // Well past the setup time of a cold test app, so the deadline lands mid-stream.
+      slow.provider.gapMs = 1000;
+      slow.provider.script = [
+        { type: 'delta', text: 'a' },
+        { type: 'delta', text: 'b' },
+        { type: 'delta', text: 'c' },
+        { type: 'completed', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+      ];
+      const chat = await slow.app.inject({ method: 'POST', url: '/v1/chats', headers: { cookie: u.cookie }, payload: { title: 't' } });
+      const chatId = (chat.json() as { id: string }).id;
+      const res = await slow.app.inject({
+        method: 'POST',
+        url: `/v1/chats/${chatId}/generate`,
+        headers: { cookie: u.cookie },
+        payload: { prompt: 'hello' },
+      });
+      const events = res.body
+        .split('\n')
+        .filter((l) => l.startsWith('data: '))
+        .map((l) => JSON.parse(l.slice(6)) as { type: string; code?: string });
+      expect(events.find((e) => e.type === 'error')).toMatchObject({ code: 'turn_deadline_exceeded' });
+      const read = await slow.app.inject({ url: `/v1/chats/${chatId}`, headers: { cookie: u.cookie } });
+      const { messages } = read.json() as { messages: Array<{ role: string; status: string }> };
+      expect(messages.filter((m) => m.role === 'assistant').at(-1)).toMatchObject({ status: 'error' });
+    } finally {
+      await slow.close();
+    }
+  });
+});
+
 describe('first-token timeout', () => {
   it('retries, then streams provider_timeout and stores the turn as an error', async () => {
     const before = ctx.provider.seen.length;

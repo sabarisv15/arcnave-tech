@@ -1,7 +1,8 @@
 # Phase 3 status: why it is not done, and what happens next
 
 **Date:** 2026-09-24 · **State:** Phase 3 merged and deployed (PR #8), **live acceptance
-FAILED**. Phase 4 is not started. This page is written so someone new can pick it up cold.
+FAILED**. Steps 1–3 of the fix are implemented and merged (see "Fix status" at the end), and a
+live re-test is pending. Phase 4 is not started. This page is written so someone new can pick it up cold.
 
 ## 1. Why the phased work started
 
@@ -122,3 +123,28 @@ prompt passes on production. Only then is Phase 3 closed and Phase 4 started.
 - Live acceptance harness: `backend/src/scripts/verifyPhase3KvbFederalLive.ts`.
 - Production service: Cloud Run `arcnave-sandbox-service`, `asia-south1` (despite the name, this
   is the backend).
+
+## Fix status (2026-09-24)
+
+Steps 1–3 are implemented. Backend 772/772 and frontend 48/48 pass locally, and `tsc` is clean.
+The backend image could not be built here because no Docker daemon was available, so Cloud
+Build is the first build of the image with `poppler-utils` and `python3`.
+
+- **Step 1:** [ADR-0008](../decisions/0008-trusted-work-runs-locally.md).
+  `TRUSTED_WORK_ENGINE=local` (the default) routes `pdftoppm`/`pdfinfo`/`pdftotext` and the
+  packaged skill scripts to a sanitized local child process: `ProcessSandboxClient` with
+  `inheritEnv: false`, `python3`, and a `TRUSTED_WORK_TIMEOUT_MS` of 120 s. `run_python`,
+  `soffice` and `pandoc` stay on the Cloud Run sandbox. A skill script that returns no result
+  now says why: exit code, timeout, stderr, or an output that was written but not returned.
+- **Step 2:** `search_tools` ranks `extract_scanned_table_rows` first and
+  `analyze_table_rows` with it when a request asks for counts, totals or classification. The
+  extract description and pdf skill 3B say to go straight to extraction.
+- **Step 3:** `TURN_DEADLINE_MS` defaults to 3 540 000 (59 min) on the chat path. A turn that
+  runs past it ends as the typed `turn_deadline_exceeded` error, with frontend copy, not as
+  "stopped". **The owner must set the Cloud Run request timeout to 3600 s**:
+  `gcloud run services update arcnave-sandbox-service --region asia-south1 --timeout=3600`.
+  AgentLoop has its own internal timeout, which still ends as "stopped"; that path belongs to
+  Phase 4 (G4/G5).
+
+**Next:** after deploy, run the same prompt on `kvbfedral.pdf` live. Pass means 48 / 277 / 325,
+no timeout, and extraction chosen early. Then Phase 3 closes.

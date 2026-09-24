@@ -205,6 +205,7 @@ describe("error copy", () => {
       "provider_payload_limit",
       "model_refused",
       "provider_timeout",
+      "turn_deadline_exceeded",
       "rate_limit",
       "unauthorized",
     ])

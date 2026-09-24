@@ -52,7 +52,9 @@ When the user asks questions or requests a summary of an uploaded PDF ("What is 
 Native reading is fine for a summary. It is **not** enough when the answer is a number that must
 be exact or a list that must be complete: "count every transaction", "how many rows", "total of
 the debit column", "list every entry", "classify all of them". A model reading a page image can
-skip or merge a row without noticing. For these tasks:
+skip or merge a row without noticing. For these tasks, go straight to extraction: do not first
+try `run_python` or `read_uploaded_file` on the PDF. A scanned page has no text for them to
+read, and each detour spends one of the turn's limited tool rounds.
 
 1. Find the extraction tool with `search_tools` (e.g. "extract table rows") and call
    `extract_scanned_table_rows(fileId)`. It works on scanned PDFs with no text layer, reads every

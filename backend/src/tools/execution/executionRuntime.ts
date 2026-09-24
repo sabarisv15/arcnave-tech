@@ -103,8 +103,13 @@ export class RuntimePermissionError extends Error {
   }
 }
 
+/** CLIs the local trusted executor can run: poppler ships in the backend image (ADR-0008).
+ *  LibreOffice and pandoc are not there, so they stay on the sandbox. */
+const LOCAL_TRUSTED_CLIS = new Set(['pdftoppm', 'pdfinfo', 'pdftotext']);
+
 export class ExecutionRuntime {
   private readonly sandboxClient?: SandboxClient;
+  private readonly trustedClient?: SandboxClient;
   private readonly baseTempDir: string;
   readonly permissions: RuntimePermissions;
 
@@ -114,15 +119,25 @@ export class ExecutionRuntime {
     // Omitted only by tests and scripts that build a runtime by hand; `buildServices` always
     // passes the deployment's real grants.
     permissions: RuntimePermissions = { pythonAllowed: true, trustedCliAllowed: true, skillScriptAllowed: true },
+    // Runs trusted work (poppler CLIs, packaged skill scripts) instead of the sandbox when set.
+    // Never used for model-written code.
+    trustedClient?: SandboxClient,
   ) {
     this.sandboxClient = sandboxClient;
+    this.trustedClient = trustedClient;
     this.baseTempDir = baseTempDir;
     this.permissions = permissions;
   }
 
   /** The sandbox exists and may run this kind of work. */
   can(permission: keyof RuntimePermissions): boolean {
-    return this.sandboxClient !== undefined && this.permissions[permission];
+    const engine = permission === 'pythonAllowed' ? this.sandboxClient : (this.trustedClient ?? this.sandboxClient);
+    return engine !== undefined && this.permissions[permission];
+  }
+
+  private trustedEngine(utility?: string): SandboxClient | undefined {
+    if (this.trustedClient && (utility === undefined || LOCAL_TRUSTED_CLIS.has(utility))) return this.trustedClient;
+    return this.sandboxClient;
   }
 
   /* -------------------------------------------------------------------------- 1. File Workspace Engine */
@@ -418,8 +433,9 @@ export class ExecutionRuntime {
     const timeoutMs = options?.timeoutMs ?? 30000;
     const timeoutSec = Math.max(1, Math.floor(timeoutMs / 1000));
 
-    // Priority 1: Execute in container sandbox if sandbox client is available
-    if (this.sandboxClient) {
+    // Priority 1: the trusted executor or the container sandbox, whichever serves this utility
+    const cliEngine = this.trustedEngine(utility);
+    if (cliEngine) {
       const execSignal = options?.signal ?? new AbortController().signal;
       // We run the CLI utility inside the isolated sandbox container via a secure python bridge script
       const bridgeScript = `
@@ -454,7 +470,7 @@ except Exception as e:
     }))
 `;
 
-      const result = await this.sandboxClient.runPython(bridgeScript, execSignal, {
+      const result = await cliEngine.runPython(bridgeScript, execSignal, {
         workspaceDir: options?.cwd,
         expectedOutputs: options?.expectedOutputs,
       });
@@ -648,7 +664,8 @@ except Exception as e:
     inputData: Record<string, unknown>,
     workspace?: WorkspaceFiles,
   ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
-    if (!this.sandboxClient) {
+    const engine = this.trustedEngine();
+    if (!engine) {
       return { ok: false, error: 'Python sandbox execution is disabled or unavailable.' };
     }
     if (!this.permissions.skillScriptAllowed) {
@@ -662,7 +679,7 @@ input_data = json.loads(${JSON.stringify(JSON.stringify(inputData))})
 ${scriptContent}
 `;
     try {
-      const res = await this.sandboxClient.runPython(
+      const res = await engine.runPython(
         wrappedCode,
         new AbortController().signal,
         { workspaceDir: workspace?.workspaceDir },
@@ -726,7 +743,8 @@ ${scriptContent}
     skillService: SkillService,
     signal?: AbortSignal,
   ): Promise<{ ok: true; output: unknown } | { ok: false; error: string }> {
-    if (!this.sandboxClient) return { ok: false, error: 'The execution sandbox is not configured.' };
+    const engine = this.trustedEngine();
+    if (!engine) return { ok: false, error: 'The execution sandbox is not configured.' };
     if (!this.permissions.skillScriptAllowed) {
       return { ok: false, error: new RuntimePermissionError('skillScriptAllowed').message };
     }
@@ -746,7 +764,7 @@ ${scriptContent}
 
     const outPath = path.join(workspace.outputDir, outName);
     try {
-      const res = await this.sandboxClient.runPython(code, signal ?? new AbortController().signal, {
+      const res = await engine.runPython(code, signal ?? new AbortController().signal, {
         workspaceDir: workspace.workspaceDir,
         expectedOutputs: [outName],
       });
@@ -754,13 +772,26 @@ ${scriptContent}
       try {
         raw = await fs.readFile(outPath, 'utf8');
       } catch {
-        let stderr = '';
+        // Say why, not just that: the exit code, a timeout, stderr, and any file the script
+        // wrote that did not come back (a failed sandbox upload leaves it undeclared).
+        const detail: string[] = [];
         try {
-          stderr = (JSON.parse(res.outputs[0]?.text ?? '{}') as { msg_err?: string }).msg_err ?? '';
+          const run = JSON.parse(res.outputs[0]?.text ?? '{}') as {
+            msg_err?: string;
+            exit_code?: number;
+            timed_out?: boolean;
+          };
+          if (run.timed_out) detail.push('it timed out');
+          if (typeof run.exit_code === 'number') detail.push(`exit code ${String(run.exit_code)}`);
+          if (run.msg_err?.trim()) detail.push(`stderr: ${run.msg_err.trim().slice(-1500)}`);
         } catch {
-          // Unstructured sandbox output; report without it.
+          detail.push('the sandbox returned unstructured output');
         }
-        return { ok: false, error: `Skill script produced no result. ${stderr.slice(-1500)}`.trim() };
+        if (res.undeclaredOutputs?.includes(outName)) detail.push('the result file was written but not returned by the sandbox');
+        return {
+          ok: false,
+          error: `Skill script produced no result${detail.length ? ` (${detail.join('; ')})` : ' (no exit status or stderr was reported)'}.`,
+        };
       }
       return { ok: true, output: JSON.parse(raw) as unknown };
     } catch (err) {

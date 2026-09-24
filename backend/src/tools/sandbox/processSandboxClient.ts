@@ -28,6 +28,9 @@ export interface ProcessSandboxClientOptions {
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
   maxCodeBytes?: number;
+  /** false: the child gets PATH and locale only, never the backend's secrets. Trusted work in
+   *  production runs this way (ADR-0008). */
+  inheritEnv?: boolean;
 }
 
 export class ProcessSandboxClient implements SandboxClient {
@@ -36,6 +39,7 @@ export class ProcessSandboxClient implements SandboxClient {
   private readonly maxStdoutBytes: number;
   private readonly maxStderrBytes: number;
   private readonly maxCodeBytes: number;
+  private readonly inheritEnv: boolean;
 
   constructor(opts: ProcessSandboxClientOptions = {}) {
     this.pythonPath = opts.pythonPath ?? 'python';
@@ -43,6 +47,7 @@ export class ProcessSandboxClient implements SandboxClient {
     this.maxStdoutBytes = opts.maxStdoutBytes ?? 64 * 1024;
     this.maxStderrBytes = opts.maxStderrBytes ?? 64 * 1024;
     this.maxCodeBytes = opts.maxCodeBytes ?? 100 * 1024;
+    this.inheritEnv = opts.inheritEnv ?? true;
   }
 
   async runPython(
@@ -100,7 +105,9 @@ export class ProcessSandboxClient implements SandboxClient {
         const proc = spawn(this.pythonPath, [scriptPath], {
           cwd,
           env: {
-            ...process.env,
+            ...(this.inheritEnv
+              ? process.env
+              : { PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin', HOME: os.tmpdir(), LANG: 'C.UTF-8' }),
             PYTHONUNBUFFERED: '1',
             PYTHONIOENCODING: 'utf-8',
           },

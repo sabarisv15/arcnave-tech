@@ -257,6 +257,23 @@ export class GenerationService {
    * row is written with whatever the provider had already reported.
    */
   async *run(input: GenerateInput): AsyncGenerator<StreamEvent> {
+    // A turn ends on our deadline, not the platform's: Cloud Run cuts the request at its own
+    // timeout and nothing is saved but "stopped" (Phase 3 live finding). The deadline aborts
+    // with a typed reason, so the turn ends as `turn_deadline_exceeded`, not a user cancel.
+    const deadline = new AbortController();
+    const onUserAbort = (): void => deadline.abort(input.signal.reason);
+    if (input.signal.aborted) onUserAbort();
+    else input.signal.addEventListener('abort', onUserAbort, { once: true });
+    const timer = setTimeout(() => deadline.abort(new ApiError('turn_deadline_exceeded')), this.cfg.TURN_DEADLINE_MS);
+    try {
+      yield* this.runTurn({ ...input, signal: deadline.signal });
+    } finally {
+      clearTimeout(timer);
+      input.signal.removeEventListener('abort', onUserAbort);
+    }
+  }
+
+  private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
     const startedAt = new Date();
     const runId = `${input.chatId}_${input.messageId}`;
     const workspace = await this.executionRuntime.createWorkspace(runId);
@@ -905,11 +922,12 @@ export class GenerationService {
         }
       }
     } catch (err) {
-      if (isAbort(err) || input.signal.aborted) {
+      const deadlineHit = isTurnDeadline(input.signal.reason);
+      if (!deadlineHit && (isAbort(err) || input.signal.aborted)) {
         status = 'cancelled';
       } else {
         status = 'error';
-        const mapped = mapProviderError(err);
+        const mapped = mapProviderError(deadlineHit ? input.signal.reason : err);
         errorCode = mapped.code;
         log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
         await this.finalise(input, {
@@ -1884,6 +1902,10 @@ export function refusalError(event: { category: string | null; explanation: stri
     ...(why ? { detail: `The model declined to answer. ${why}` } : {}),
     meta: { category: event.category },
   });
+}
+
+function isTurnDeadline(reason: unknown): reason is ApiError {
+  return reason instanceof ApiError && reason.code === 'turn_deadline_exceeded';
 }
 
 export function mapProviderError(err: unknown): { code: string; title: string; detail: string } {

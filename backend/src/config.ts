@@ -108,6 +108,9 @@ const envSchema = z.object({
   PROVIDER_TIMEOUT_MS: int(120_000),
   PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
   PROVIDER_MAX_RETRIES: int(2),
+  /** Whole-turn deadline. Keep it under the platform request timeout (Cloud Run: set to
+   *  3600 s) so a slow turn ends with a typed error, not a severed connection. */
+  TURN_DEADLINE_MS: int(3_540_000),
   /** Chat-mode wait for a provider's first event; search, research and attachments scale it. */
   PROVIDER_TTFT_BUDGET_MS: int(12_000),
 
@@ -175,6 +178,16 @@ const envSchema = z.object({
   /** Pages one extract_scanned_table_rows call reads. Larger PDFs are extracted in chunks the
    *  model asks for, accumulating under one extractionId. */
   TABLE_EXTRACTION_MAX_PAGES: int(30),
+  /** Where trusted work runs: poppler CLIs (pdftoppm, pdfinfo, pdftotext) and packaged skill
+   *  scripts. 'local' runs them as a sanitized child process of the backend (ADR-0008): they are
+   *  repository code, and a cold Cloud Run Job per call made one extraction take minutes.
+   *  'sandbox' sends them to the run_python sandbox, as before. Model-written code never runs
+   *  locally, whatever this says. */
+  TRUSTED_WORK_ENGINE: z.enum(['local', 'sandbox']).default('local'),
+  /** Interpreter for local trusted work. Debian images have python3, not python. */
+  TRUSTED_PYTHON_PATH: z.string().default(process.platform === 'win32' ? 'python' : 'python3'),
+  /** Per-call deadline for local trusted work (a 12-page 300 dpi render included). */
+  TRUSTED_WORK_TIMEOUT_MS: int(120_000),
   /** Sandbox engine to use: 'process' (local isolated runner), 'cloud-run' (Cloud Run Job), or 'auto'. */
   SANDBOX_ENGINE: z.enum(['cloud-run', 'process', 'auto']).default('auto'),
   /** Region for the arcnave-python-sandbox Cloud Run Job, independent of VERTEX_LOCATION/

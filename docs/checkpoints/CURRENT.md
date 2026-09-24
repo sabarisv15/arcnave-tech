@@ -1,7 +1,7 @@
 # ArcNave — current checkpoint
 
-> **Now (2026-09-24): Phase 3 is deployed but its live acceptance FAILED.** Work is paused on the
-> Phase 3 fix (steps 1–3); Phase 4 has not started. Read
+> **Now (2026-09-24): Phase 3's live acceptance FAILED; the fix (steps 1–3, ADR-0008) is merged and a
+> live re-test is pending.** Phase 4 has not started. Read
 > [`2026-09-24-phase3-live-failure.md`](2026-09-24-phase3-live-failure.md) first.
 
 **Last updated:** 2026-09-24

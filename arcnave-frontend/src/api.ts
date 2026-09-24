@@ -149,6 +149,11 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "The model took too long",
     detail: "The provider did not respond in time. You can retry.",
   },
+  turn_deadline_exceeded: {
+    title: "This request ran out of time",
+    detail:
+      "The work took longer than one turn allows and was stopped. Try a smaller part of the document, or retry.",
+  },
   storage_error: {
     title: "That file could not be stored",
     detail:

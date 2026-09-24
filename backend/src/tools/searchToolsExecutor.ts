@@ -166,6 +166,24 @@ export class SearchToolsExecutor implements ToolExecutor {
         score += 12;
       }
 
+      // Exact table work: a request to count, total or classify every row of a statement or
+      // register should reach the extraction pair before run_python, which cannot read a
+      // scanned page (Phase 3 live finding: three wasted rounds before extraction).
+      // Strong words name the exact-figure intent; weak ones only support it, so "merge all
+      // PDFs" does not pull the table tools above mergePdfFiles.
+      const strong = [
+        'count', 'counts', 'exact', 'exactly', 'transaction', 'transactions', 'entries', 'rows',
+        'statement', 'statements', 'ledger', 'register', 'classify', 'reconcile', 'total', 'totals', 'sum',
+      ];
+      const weak = ['every', 'all', 'entry', 'row', 'table', 'tables', 'extract', 'scanned'];
+      const strongHits = Math.min(tokens.filter((t) => strong.includes(t)).length, 4);
+      const weakHits = Math.min(tokens.filter((t) => weak.includes(t)).length, 3);
+      if (strongHits > 0 && (name === 'extract_scanned_table_rows' || name === 'analyze_table_rows')) {
+        score += 20 + 15 * strongHits + 5 * weakHits;
+        // Analysis needs an extractionId, so extraction is listed first.
+        if (name === 'extract_scanned_table_rows') score += 25;
+      }
+
       // File Operations (PDF, XLSX, DOCX, PPTX)
       if (
         tokens.some((t) => ['pdf', 'merge', 'split', 'page', 'pages', 'inspect'].includes(t)) &&
