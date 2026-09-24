@@ -1193,3 +1193,11 @@ practice, not canon.
   *reach* tools; they create no capability. Before promising an end-to-end result, trace every
   step of it to code that exists: here, scanned PDF → rendered pages → rows → count. Verify: each
   step in an acceptance test names the file that does it.
+- **2026-09-24** — No new heading (over the cap). G27: every prompt and every current attachment
+  was sent to the provider twice, because `loadHistory` excluded only the assistant row and kept
+  the user message being answered. The existing test ("passes prior turns to the provider as
+  history") only checked that an earlier turn was *present*, never that the current one was
+  *absent*, so it passed throughout. When testing what goes into a model request, assert what
+  must not be there as well as what must, and count occurrences of anything that should appear
+  exactly once. Verify: `officeTextOnce.integration.test.ts` counts the prompt and the attachment
+  text in the Claude and Gemini wire, on the attaching turn, the next turn and a retry.
