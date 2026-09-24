@@ -200,6 +200,9 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
     const sunita = first.rows.find((r: { cells: string[] }) => r.cells[1] === 'NEFT/SUNITA TRADERS');
     expect(sunita).toMatchObject({ page: 2, confidence: 0.96, rechecked: true });
     expect(first.lowConfidenceRows).toEqual([]);
+    // Both readings are kept: the recheck is recorded, and the unchanged row has no firstReading.
+    expect(first.rechecks).toEqual([{ page: 2, outcome: 'replaced', rows: 1, changedRows: 0 }]);
+    expect(first.changedOnRecheck).toEqual([]);
 
     // Reconciliation catches the misread balance and names the page.
     const failed = json(trace[3]!.result);
@@ -241,6 +244,31 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
     expect(result!.complete).toBe(false);
     expect(result!.failedPages).toEqual([2]);
     expect(result!.pages.find((p: { page: number }) => p.page === 2)).toMatchObject({ status: 'failed', rowCount: 0 });
+  });
+
+  it('a second read that changes a row keeps both readings and says so', async () => {
+    const fileId = await uploadPdf();
+    const saved = ctx.provider.mediaHandler;
+    const changed = ['05/04', 'NEFT/SUNITA TRADERS', '1600.00', '', '2300.00'];
+    ctx.provider.mediaHandler = async (parts, prompt) =>
+      prompt.includes('enlarged crop')
+        ? JSON.stringify({ tables: [{ rows: [{ cells: changed, confidence: 0.9, isHeader: false, box: [0, 0.1, 1, 0.9] }] }], warnings: [] })
+        : saved!(parts, prompt);
+    let result: Record<string, any> | undefined;
+    ctx.provider.onRequest = async (request) => {
+      if (result || !request.toolExecutor) return;
+      result = json(await request.toolExecutor.execute({ id: 'c', name: 'extract_scanned_table_rows', input: { fileId } }, request.signal));
+    };
+    try {
+      await generate({ prompt: PROMPT, attachmentIds: [fileId] });
+    } finally {
+      ctx.provider.mediaHandler = saved;
+    }
+    expect(result!.rechecks).toEqual([{ page: 2, outcome: 'replaced', rows: 1, changedRows: 1 }]);
+    expect(result!.changedOnRecheck).toEqual([
+      { page: 2, rowIndex: 5, first: STATEMENT[1]![1], second: changed },
+    ]);
+    expect(result!.pages.find((p: { page: number }) => p.page === 2).warnings.join(' ')).toContain('changed 1 row');
   });
 
   it('refuses a fileId that belongs to someone else', async () => {

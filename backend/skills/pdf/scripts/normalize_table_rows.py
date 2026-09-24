@@ -73,6 +73,8 @@ for page in pages_in:
                 row["sourceRegion"] = region
             if raw.get("rechecked"):
                 row["rechecked"] = True
+            if raw.get("firstReading"):
+                row["firstReading"] = raw["firstReading"]
             max_cols = max(max_cols, len(cells))
             rows.append(row)
             if confidence < threshold:
@@ -115,6 +117,12 @@ result = {
         for r in low_confidence
     ],
     "possibleDuplicates": possible_duplicates,
+    # Rows the high-resolution second read changed: both readings, for the model to report.
+    "changedOnRecheck": [
+        {"page": r["page"], "rowIndex": r["rowIndex"], "first": r["firstReading"]["cells"], "second": r["cells"]}
+        for r in rows
+        if r.get("firstReading")
+    ],
     "raggedRows": ragged,
 }
 

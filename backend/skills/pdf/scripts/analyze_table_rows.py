@@ -8,10 +8,13 @@
 #              "operations": [op, ...]}
 # op:  {"op": "count", "name", "where"?: [filter], "expected"?: number}
 #      {"op": "sum", "name", "column": int, "where"?: [filter], "expected"?: number}
+#      {"op": "classify", "name", "where"?: [filter], "rules": [{"label", "reason", "where": [filter]}],
+#       "default"?: "UNKNOWN", "capture"?: {"column": int, "pattern": regex with one group}}
 #      {"op": "running_balance", "name", "balanceColumn": int,
 #       "increaseColumn"?: int, "decreaseColumn"?: int, "tolerance"?: number}
 # filter: {"column": int, "test": "nonEmpty"|"empty"|"numeric"|"matches"|"notMatches"|"equals",
 #          "value"?: str}   (a where-list is AND; "matches" is a case-insensitive regex)
+#         or {"pageFrom"?: int, "pageTo"?: int} to select rows by page
 
 import re
 from decimal import Decimal, InvalidOperation
@@ -53,6 +56,10 @@ def cell(row, column):
 
 
 def passes(row, flt):
+    if "column" not in flt:
+        # A page-range filter, for documents that hold more than one table (two statements).
+        page = row.get("page") or 0
+        return int(flt.get("pageFrom", page)) <= page <= int(flt.get("pageTo", page))
     value = cell(row, int(flt["column"]))
     test = flt.get("test", "nonEmpty")
     if test == "nonEmpty":
@@ -117,6 +124,40 @@ for op in input_data.get("operations", []):
             if unparsed:
                 suspicious_pages.update(u["page"] for u in unparsed)
             results.append(with_expectation(res, total, op))
+        elif kind == "classify":
+            # Every selected row gets exactly one label: the first rule whose filters all hold,
+            # else the default. Counts are computed here and must add up to the total.
+            selected = select(rows, op.get("where"))
+            rules = op.get("rules", [])
+            default = op.get("default", "UNKNOWN")
+            capture = op.get("capture")
+            counts = {r["label"]: 0 for r in rules}
+            counts.setdefault(default, 0)
+            labelled = []
+            for r in selected:
+                label, reason = default, op.get("defaultReason", "no rule matched")
+                for rule in rules:
+                    if all(passes(r, f) for f in rule.get("where", [])):
+                        label, reason = rule["label"], rule.get("reason", rule["label"])
+                        break
+                counts[label] = counts.get(label, 0) + 1
+                entry = {**ref(r), "label": label, "reason": reason, "cells": r.get("cells", [])}
+                if capture and label != default:
+                    m = re.search(str(capture["pattern"]), cell(r, int(capture["column"])), re.IGNORECASE)
+                    entry["value"] = (m.group(1) if m and m.groups() else (m.group(0) if m else None))
+                labelled.append(entry)
+            total = len(selected)
+            results.append(
+                {
+                    "name": name,
+                    "op": kind,
+                    "total": total,
+                    "counts": counts,
+                    "countsAddUp": sum(counts.values()) == total,
+                    "rows": labelled[:2000],
+                    "status": "computed" if sum(counts.values()) == total else "error",
+                }
+            )
         elif kind == "running_balance":
             bal_col = int(op["balanceColumn"])
             inc_col = op.get("increaseColumn")

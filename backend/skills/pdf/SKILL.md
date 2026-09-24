@@ -65,8 +65,12 @@ skip or merge a row without noticing. For these tasks:
    credit, balance, name…). That understanding is yours; the counting is not.
 4. Compute every count and total with `analyze_table_rows(extractionId, operations)`. Never
    count rows by reading them yourself. For a classification ("with a party name / without"),
-   express the rule as a `where` filter (column + test) and count with it; state the rule you
-   used.
+   use one `classify` operation: write each category as a rule (label, reason, `where`
+   filters), leave anything no rule covers as `UNKNOWN`, and use `capture` to pull the name
+   only where the text states it (an IFSC or account number alone is not a name). Report the
+   per-label counts it returns, which always add up to its total, and the rules you used.
+   When one PDF holds several statements, select each with a `pageFrom`/`pageTo` filter and
+   report each separately as well as combined.
 5. Reconcile against the document's own figures whenever it prints any:
    - a printed count or total → pass it as `expected` on the matching `count` / `sum`;
    - a running balance column → run `running_balance` (previous balance + credits − debits =

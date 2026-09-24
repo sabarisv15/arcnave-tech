@@ -66,8 +66,22 @@ export interface RawPage {
       isHeader: boolean;
       sourceRegion?: SourceRegion | null;
       rechecked?: boolean;
+      /** Set when the second read changed this row's cells; the first reading is kept here. */
+      firstReading?: { cells: string[]; confidence: number };
     }>;
   }>;
+  /** Every pass-2 attempt on this page, whatever its outcome. */
+  rechecks?: RecheckRecord[];
+}
+
+/** One pass-2 re-read: both readings, and what was kept. Nothing is replaced unrecorded. */
+export interface RecheckRecord {
+  region: SourceRegion;
+  outcome: 'replaced' | 'kept_first' | 'render_failed' | 'read_failed';
+  firstRows: Array<{ cells: string[]; confidence: number }>;
+  secondRows: Array<{ cells: string[]; confidence: number }>;
+  /** Rows whose cells differ between the readings (only meaningful when counts match). */
+  changedRows: number;
 }
 
 /** What `normalize_table_rows.py` writes. */
@@ -82,6 +96,7 @@ export interface NormalizedTable {
   failedPages: number[];
   lowConfidenceRows: Array<{ page: number; rowIndex: number; confidence: number; cells: string[] }>;
   possibleDuplicates: Array<{ page: number; rowIndex: number; sameAs: number }>;
+  changedOnRecheck?: Array<{ page: number; rowIndex: number; first: string[]; second: string[] }>;
   raggedRows: Array<{ page: number; rowIndex: number; cellCount: number }>;
 }
 
@@ -480,29 +495,52 @@ export class ScannedTableExtractor {
       return cy >= region.y && cy <= region.y + region.height;
     });
 
+    const firstRows = inRegion.map(({ r }) => ({ cells: r.cells, confidence: r.confidence }));
+    const record = (rec: Omit<RecheckRecord, 'region' | 'firstRows'>, warning?: string): RawPage => ({
+      ...page,
+      warnings: warning ? [...page.warnings, warning] : page.warnings,
+      rechecks: [...(page.rechecks ?? []), { region, firstRows, ...rec }],
+    });
+
     const crop = await this.renderCrop(pdfRel, page.page, region, doc, signal);
     if (!crop) {
-      return { ...page, warnings: [...page.warnings, 'Low-confidence rows could not be re-rendered for a second read.'] };
+      return record(
+        { outcome: 'render_failed', secondRows: [], changedRows: 0 },
+        'Low-confidence rows could not be re-rendered for a second read.',
+      );
     }
     const reply = await this.ask(crop, recheckPrompt(page.page), signal);
     if (typeof reply === 'string') {
-      return { ...page, warnings: [...page.warnings, `Second read of low-confidence rows failed: ${reply}`] };
+      return record({ outcome: 'read_failed', secondRows: [], changedRows: 0 }, `Second read of low-confidence rows failed: ${reply}`);
     }
     const again = toRawRows(reply, region).flatMap((t) => t.rows).filter((r) => !r.isHeader);
+    const secondRows = again.map((r) => ({ cells: r.cells, confidence: r.confidence }));
     if (again.length !== inRegion.length) {
-      return {
-        ...page,
-        warnings: [
-          ...page.warnings,
-          `Second read found ${String(again.length)} rows where the first found ${String(inRegion.length)} in the same region; the first reading is kept and its low-confidence rows stay flagged.`,
-        ],
-      };
+      return record(
+        { outcome: 'kept_first', secondRows, changedRows: 0 },
+        `Second read found ${String(again.length)} rows where the first found ${String(inRegion.length)} in the same region; the first reading is kept and its low-confidence rows stay flagged.`,
+      );
     }
+    const same = (a: string[], b: string[]) => a.length === b.length && a.every((c, i) => c.trim() === b[i]!.trim());
+    let changedRows = 0;
     const tables = page.tables.map((t) => ({ rows: [...t.rows] }));
-    inRegion.forEach(({ ti, ri }, i) => {
+    inRegion.forEach(({ ti, ri, r }, i) => {
       const next = again[i]!;
-      tables[ti]!.rows[ri] = { ...next, sourceRegion: next.sourceRegion ?? tables[ti]!.rows[ri]!.sourceRegion, rechecked: true };
+      const changed = !same(r.cells, next.cells);
+      if (changed) changedRows += 1;
+      tables[ti]!.rows[ri] = {
+        ...next,
+        sourceRegion: next.sourceRegion ?? r.sourceRegion,
+        rechecked: true,
+        ...(changed ? { firstReading: { cells: r.cells, confidence: r.confidence } } : {}),
+      };
     });
-    return { ...page, tables };
+    const out = record(
+      { outcome: 'replaced', secondRows, changedRows },
+      changedRows > 0
+        ? `Second read changed ${String(changedRows)} row(s); the higher-resolution reading is used and each changed row keeps its first reading.`
+        : undefined,
+    );
+    return { ...out, tables };
   }
 }

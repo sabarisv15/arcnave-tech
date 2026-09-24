@@ -51,6 +51,40 @@ describe('analyze_table_rows.py', () => {
     expect(out.failed).toEqual(['debits']);
   });
 
+  it('classify labels every row once, counts add up, and page ranges select a statement', async () => {
+    const rows = [
+      row(1, 1, ['UPI/RAVI KUMAR/rent']),
+      row(1, 2, ['SMS CHARGES']),
+      row(2, 3, ['NEFT/ACME LTD']),
+      row(2, 4, ['???']),
+    ];
+    const out = await run('scripts/analyze_table_rows.py', {
+      rows,
+      operations: [
+        {
+          op: 'classify',
+          name: 'party',
+          rules: [
+            { label: 'WITH_PARTY', reason: 'names a counterparty', where: [{ column: 0, test: 'matches', value: '^(UPI|NEFT)/' }] },
+            { label: 'WITHOUT_PARTY', reason: 'bank charge', where: [{ column: 0, test: 'matches', value: 'CHARGES' }] },
+          ],
+          capture: { column: 0, pattern: '^(?:UPI|NEFT)/([^/]+)' },
+        },
+        { op: 'count', name: 'page2', where: [{ pageFrom: 2, pageTo: 2 }] },
+      ],
+    });
+    const c = out.results[0];
+    expect(c.counts).toEqual({ WITH_PARTY: 2, WITHOUT_PARTY: 1, UNKNOWN: 1 });
+    expect(c.countsAddUp).toBe(true);
+    expect(c.rows.map((r: { label: string; value?: string }) => [r.label, r.value])).toEqual([
+      ['WITH_PARTY', 'RAVI KUMAR'],
+      ['WITHOUT_PARTY', null],
+      ['WITH_PARTY', 'ACME LTD'],
+      ['UNKNOWN', undefined],
+    ]);
+    expect(out.results[1].value).toBe(2);
+  });
+
   it('an unknown op is an error, not a pass', async () => {
     const out = await run('scripts/analyze_table_rows.py', { rows: [], operations: [{ op: 'guess', name: 'g' }] });
     expect(out.results[0].status).toBe('error');

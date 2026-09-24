@@ -62,6 +62,10 @@ export function summarizeExtraction(stored: StoredExtraction): Record<string, un
     pages: t.pages,
     lowConfidenceRows: t.lowConfidenceRows,
     possibleDuplicates: t.possibleDuplicates,
+    changedOnRecheck: t.changedOnRecheck ?? [],
+    rechecks: stored.rawPages.flatMap((p) =>
+      (p.rechecks ?? []).map((r) => ({ page: p.page, outcome: r.outcome, rows: r.firstRows.length, changedRows: r.changedRows })),
+    ),
     raggedRows: t.raggedRows,
     droppedHeaderRepeats: t.droppedHeaderRepeats.length,
     rows,

@@ -33,6 +33,16 @@ error) are done. Backend 754/754, frontend 48/48. **Not yet verified:** the real
 Cloud Run sandbox (the 10 s code timeout and 512 Mi job are G23 risks for large statements).
 Production needs `ENABLE_TRUSTED_CLI=true` and `ENABLE_SKILL_SCRIPTS=true` for the tools to
 appear; neither is set anywhere yet.
+**Phase 3 live acceptance prepared, not run (2026-09-24).** Before Phase 4 the pipeline must
+pass on the real `kvbfedral.pdf` with real Gemini vision, locally.
+`backend/src/scripts/verifyPhase3KvbFederalLive.ts` does that with the natural prompt only.
+It then checks the stored rows independently: 12 pages read; KVB debit/credit rows against
+the printed 41 + 7; Federal running balance, duplicates and low-confidence rows; classify
+totals per bank and combined; no reuse of 163/211/277. It writes `evidence.md`. It has not run
+because this cloud container has neither the PDF nor Vertex credentials; it must run where
+ADC exists (`gcloud auth application-default login`). Added for it: pass-2 now records both
+readings (`rechecks`, `changedOnRecheck`), and `analyze_table_rows` gained `classify` (one
+label per row, counts that add up) and page-range filters.
 **Status:** backend API surface complete (41 routes); connected to Vertex AI — all four
 models verified with real calls; frontend rewired onto the API — no mock data remains;
 **deployed to production and confirmed working end-to-end in a real browser** — sign-in,
