@@ -169,3 +169,23 @@ chat and put the full list in an xlsx via `generate_deliverable`.
 `drizzle-kit generate` tried to add them in 0008, and they were left out on purpose, because
 whether production already has them is unknown. They need their own idempotent migration after
 someone checks production.
+
+## Third live test (2026-09-24, after PR #10)
+
+Extraction ran twice and **`analyze_table_rows` ran**. Then the model made five more `run_python`
+calls until all 16 rounds were used, and the turn ended with "ArcNave received an error it
+does not recognise" (4,989 output tokens, $0.09).
+
+- **Cause 1: the Gemini adapter never forced an answer on the last round.** The Claude adapter
+  drops tools on its final round, so it always ends in text. The Gemini adapter kept tools on,
+  ran calls up to the limit, and finished with no text. The fallback "synthesis" call does not
+  include this turn's tool results, so it also produced nothing, and the turn ended as
+  `empty_response`. **Fixed:** the final round sets `functionCallingConfig.mode = NONE`, and
+  the tool results get a note: "no tool steps left, answer now". A call made anyway on that
+  round is not run. Tested in `gemini.adapter-loop.test.ts`.
+- **Cause 2: the frontend had no copy for `empty_response`** (nor for `context_overflow`,
+  `export_unsupported`, `forbidden`, `idempotency_conflict`, `registration_closed`), so it said
+  "an error it does not recognise". **Fixed:** copy added.
+- **Still open:** why the model keeps calling `run_python` after `analyze_table_rows`. It
+  needs the live `search_tools` and `run_python` panels. The synthesis fallback should carry the
+  turn's tool results, which is Phase 5 (agent loop).

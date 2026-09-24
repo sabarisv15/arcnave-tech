@@ -263,6 +263,31 @@ describe('GeminiProvider tool-calling loop', () => {
     );
     expect(client.calls).toHaveLength(2);
     expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'tool_limit' });
+    // A call the model still makes on the final round is not run: no round is left to answer.
+    expect(executor.calls).toHaveLength(1);
+  });
+
+  it('the final round refuses tool calls and asks for the answer, so the turn ends in text', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [
+      fakeStream([{ functionCalls: [{ id: 'c0', name: 'search_project_files', args: {} }] }]),
+      fakeStream([{ text: 'Here is the answer.' }]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'ok' }] });
+    const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
+    const provider = new GeminiProvider(cfg, client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+
+    const first = client.calls[0] as { config: { toolConfig?: unknown } };
+    const final = client.calls[1] as {
+      config: { toolConfig?: { functionCallingConfig: { mode: string } } };
+      contents: { role: string; parts: { text?: string }[] }[];
+    };
+    expect(first.config.toolConfig).toBeUndefined();
+    expect(final.config.toolConfig?.functionCallingConfig.mode).toBe('NONE');
+    expect(final.contents.at(-1)!.parts.some((p) => p.text?.includes('no tool steps left'))).toBe(true);
+    expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Here is the answer.');
   });
 
   it('stops issuing provider requests once the signal is aborted', async () => {

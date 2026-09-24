@@ -149,6 +149,31 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "The model took too long",
     detail: "The provider did not respond in time. You can retry.",
   },
+  empty_response: {
+    title: "No response generated",
+    detail: "The model completed its operations but produced no written answer. You can retry.",
+  },
+  context_overflow: {
+    title: "Conversation exceeded context limit",
+    detail:
+      "The conversation is too long for this model even after trimming. Shorten it or start a new chat.",
+  },
+  export_unsupported: {
+    title: "This version cannot be exported to that format",
+    detail: "Its content has none of the structure that format needs.",
+  },
+  forbidden: {
+    title: "Not permitted",
+    detail: "You do not have access to that.",
+  },
+  idempotency_conflict: {
+    title: "Duplicate request",
+    detail: "This request was already sent with different content.",
+  },
+  registration_closed: {
+    title: "Registration is closed",
+    detail: "New accounts are not being accepted right now.",
+  },
   turn_deadline_exceeded: {
     title: "This request ran out of time",
     detail:
