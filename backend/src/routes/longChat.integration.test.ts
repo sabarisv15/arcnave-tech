@@ -7,6 +7,8 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { conversationCompactions, usageRecords } from '../db/schema.js';
+import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import { KEEP_TURNS, SUMMARY_PROMPT, compactionTrigger } from '../services/compaction/autoCompact.js';
 import type { TestContext, TestUser } from '../test/harness.js';
@@ -79,6 +81,22 @@ describe('long chats (ADR-0019)', () => {
     expect(req.history[0]!.text).toBe('Question 1 about my notes');
     expect(req.history[0]!.attachments?.map((a) => a.id)).toEqual([fileId]);
     expect(req.prompt).toContain(`fileId: "${fileId}"`);
+  });
+
+  it('sends an earlier file\'s whole text on later turns, as Claude keeps a file in context', async () => {
+    answerWith(1000);
+    const { send } = await newChat();
+    const body = `${'first page words. '.repeat(3000)}PAGE-15-MARKER the end`;
+    const fileId = await upload('report.txt', body);
+    await send('Here is my report', [fileId]);
+    await send('Question 2');
+    await send('What is on page 15?');
+
+    const old = lastMain().history.flatMap((t) => t.attachments ?? []).find((a) => a.id === fileId)!;
+    expect(old.extractedText).toBe(body);
+    for (const wire of [JSON.stringify(buildGeminiContents(lastMain())), JSON.stringify(buildAnthropicMessages(lastMain()))]) {
+      expect(wire).toContain('PAGE-15-MARKER the end');
+    }
   });
 
   it('compacts once the previous request reached the trigger, keeping the last turns word for word', async () => {

@@ -125,10 +125,6 @@ const envSchema = z.object({
    *  of the current turn never does. Claude (verified request limit) and Gemini PDFs sent by
    *  gs:// URI are not held to it (ADR-0019). */
   HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
-  /** Characters of text-extracted attachment content carried forward per older turn, per
-   *  generate call: "how much of a file to re-pay for on every later turn of the same chat".
-   *  Upload keeps the whole text (ADR-0011). */
-  HISTORY_MAX_ATTACHMENT_TEXT_CHARS: int(8000),
 
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),

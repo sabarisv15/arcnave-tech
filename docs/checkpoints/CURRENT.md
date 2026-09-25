@@ -15,6 +15,9 @@
 >   - The 12 MB history budget now applies only to Gemini inline bytes.
 > - Upload: images over 10 MB are refused (claude.ai's limit). A paste over 4,000 characters
 >   becomes `pasted-text.txt`; Anthropic does not publish its own threshold.
+> - An earlier file's whole extracted text goes on every later turn, as Claude keeps a file in
+>   context (test in `longChat.integration.test.ts`). `HISTORY_MAX_ATTACHMENT_TEXT_CHARS` was
+>   removed: nothing had read it since 2026-09-22, and its 8,000-character comment misled an audit.
 > - Found and fixed on the way: a Stop that arrived before the provider call did nothing
 >   (mistakes.md).
 > - Tests: backend 858/858, frontend 55/55, sandbox 16/16.
