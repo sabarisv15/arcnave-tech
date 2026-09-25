@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+
+import { DECLARED_EVERY_TURN } from '../../tools/registry.js';
 import { routeTurn } from './turnRouter.js';
 
 const candidateSkills = [
@@ -9,6 +11,12 @@ const candidateSkills = [
 ];
 
 // ADR-0006: exposedTools is the fixed core on every intent; intent is telemetry.
+/** Discovery tools, then the allowed tools declared on every turn (ADR-0022). */
+const core = (d: { allowedTools: string[] }, discovery = ['search_tools', 'load_skill']): string[] => [
+  ...discovery,
+  ...DECLARED_EVERY_TURN.filter((n) => d.allowedTools.includes(n)),
+];
+
 describe('routeTurn — policy boundary, intent as telemetry', () => {
   it('A: "generate a clock image" -> IMAGE_GENERATION, allowedTools contains generate_image', () => {
     const decision = routeTurn({
@@ -24,7 +32,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
     expect(decision.detectedIntent).toBe('IMAGE_GENERATION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_image');
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -47,7 +55,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
     expect(decision.allowedTools).toContain('read_uploaded_file');
     expect(decision.allowedTools).toContain('search_tools');
     // Model evaluates first, discovers tools on demand
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -66,7 +74,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_deliverable');
     expect(decision.allowedTools).toContain('read_uploaded_file');
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -84,7 +92,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
     expect(decision.detectedIntent).toBe('FILE_CONVERSION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_deliverable');
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -102,7 +110,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
     expect(decision.detectedIntent).toBe('FILE_CONVERSION');
     expect(decision.selectedSkills).toEqual([]);
     expect(decision.allowedTools).toContain('generate_deliverable');
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -118,7 +126,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
 
     expect(decision.detectedIntent).toBe('EXPLANATION');
     expect(decision.selectedSkills).toEqual([]);
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -134,7 +142,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
 
     expect(decision.detectedIntent).toBe('ORDINARY_CHAT');
     expect(decision.selectedSkills).toEqual([]);
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -150,7 +158,7 @@ describe('routeTurn — policy boundary, intent as telemetry', () => {
 
     expect(decision.detectedIntent).toBe('COMPUTATION');
     expect(decision.allowedTools).toContain('run_python');
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(true);
   });
 

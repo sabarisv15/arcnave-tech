@@ -345,6 +345,13 @@ export const toolCalls = pgTable(
      *  truncated copy. See generation.ts's three-tier persist/preview split. */
     content: jsonb('content').notNull(),
     ok: boolean('ok').notNull(),
+    /** Gemini's opaque signature on the call's part. A later turn replays the call with it, as
+     *  the in-turn loop does; without it the call is replayed as text (ADR-0022). */
+    thoughtSignature: text('thought_signature'),
+    /** Set once the result was cleared from later requests (context editing, ADR-0022). Kept, not
+     *  recomputed: the conversation only grows, so a result Claude's API would clear once it
+     *  clears on every later request too. The row keeps the full result; only replay omits it. */
+    resultCleared: boolean('result_cleared').notNull().default(false),
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('uq_tool_call_ordinal').on(t.messageId, t.ordinal)],
@@ -499,6 +506,11 @@ export const usageRecords = pgTable(
     cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
     cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
     tokensExact: boolean('tokens_exact').notNull().default(false),
+    /**
+     * The turn's last provider request, prompt plus answer: what the next turn resends. The
+     * totals above sum every request of a tool loop; compaction reads this. Null when not exact.
+     */
+    contextTokens: integer('context_tokens'),
 
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -704,130 +716,6 @@ export const conversationCompactions = pgTable(
   ],
 );
 
-/* -------------------------------------------------------------------------- Phase 7 Advanced Analytics */
-
-/**
- * Phase 7: Analytics Sessions.
- * Tracks analytical workflows bound to a chat.
- * Note: currentDatasetId is nullable initially to enable non-circular bootstrap:
- * create session (currentDatasetId = null) -> insert root dataset -> update session.currentDatasetId.
- */
-export const analysisSessions = pgTable(
-  'analysis_sessions',
-  {
-    id: id(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    chatId: uuid('chat_id')
-      .notNull()
-      .references(() => chats.id, { onDelete: 'cascade' }),
-    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
-    currentDatasetId: uuid('current_dataset_id'),
-    title: varchar('title', { length: 255 }).notNull().default('Untitled Analysis'),
-    state: varchar('state', { length: 32 }).notNull().default('active'), // 'active' | 'archived'
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
-  },
-  (t) => [
-    index('ix_analysis_sessions_user').on(t.userId),
-    index('ix_analysis_sessions_chat').on(t.chatId),
-    index('ix_analysis_sessions_current_dataset').on(t.currentDatasetId),
-  ],
-);
-
-/**
- * Phase 7: Analysis Datasets.
- * Immutable versions of tabular datasets.
- * Storage key is an internal pointer (GCS or local scratch) never exposed to the model.
- * Model interacts solely with datasetHandle (e.g. 'ds_abc123').
- */
-export const analysisDatasets = pgTable(
-  'analysis_datasets',
-  {
-    id: id(),
-    sessionId: uuid('session_id')
-      .notNull()
-      .references(() => analysisSessions.id, { onDelete: 'cascade' }),
-    version: integer('version').notNull().default(1),
-    datasetHandle: varchar('dataset_handle', { length: 64 }).notNull(),
-    name: varchar('name', { length: 255 }).notNull(),
-    rowCount: integer('row_count').notNull(),
-    columnCount: integer('column_count').notNull(),
-    columns: jsonb('columns').$type<unknown[]>().notNull(),
-    dataQuality: jsonb('data_quality').$type<Record<string, unknown>>().notNull(),
-    storageKey: text('storage_key').notNull(),
-    sourceFileId: uuid('source_file_id').references(() => projectFiles.id, { onDelete: 'set null' }),
-    isDerived: boolean('is_derived').notNull().default(false),
-    expiresAt: timestamp('expires_at', { withTimezone: true }), // 7-day sliding TTL for derived datasets
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
-  },
-  (t) => [
-    uniqueIndex('uq_datasets_session_handle').on(t.sessionId, t.datasetHandle),
-    uniqueIndex('uq_datasets_session_version').on(t.sessionId, t.version),
-    index('ix_datasets_session').on(t.sessionId),
-    index('ix_datasets_handle').on(t.datasetHandle),
-    index('ix_datasets_expires').on(t.expiresAt),
-  ],
-);
-
-/**
- * Phase 7: Analysis Transformations.
- * Lineage graph connecting dataset versions with reproducible scripts.
- */
-export const analysisTransformations = pgTable(
-  'analysis_transformations',
-  {
-    id: id(),
-    sessionId: uuid('session_id')
-      .notNull()
-      .references(() => analysisSessions.id, { onDelete: 'cascade' }),
-    sourceDatasetId: uuid('source_dataset_id')
-      .notNull()
-      .references(() => analysisDatasets.id, { onDelete: 'cascade' }),
-    targetDatasetId: uuid('target_dataset_id')
-      .notNull()
-      .references(() => analysisDatasets.id, { onDelete: 'cascade' }),
-    transformationType: varchar('transformation_type', { length: 64 }).notNull(), // 'filter' | 'aggregate' | 'clean' | 'derive' | 'join'
-    parameters: jsonb('parameters').$type<Record<string, unknown>>().notNull(),
-    reproducibleScript: text('reproducible_script').notNull(),
-    executedAt: timestamp('executed_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('ix_transformations_session').on(t.sessionId),
-    index('ix_transformations_source').on(t.sourceDatasetId),
-    index('ix_transformations_target').on(t.targetDatasetId),
-  ],
-);
-
-/**
- * Phase 7: Analysis Results.
- * Compact numerical and statistical computation results linked directly to an immutable dataset.
- * Supports provenance references in UI metrics and charts.
- */
-export const analysisResults = pgTable(
-  'analysis_results',
-  {
-    id: id(),
-    sessionId: uuid('session_id')
-      .notNull()
-      .references(() => analysisSessions.id, { onDelete: 'cascade' }),
-    datasetId: uuid('dataset_id')
-      .notNull()
-      .references(() => analysisDatasets.id, { onDelete: 'cascade' }),
-    operation: varchar('operation', { length: 64 }).notNull(), // 'summary_statistics' | 'correlation' | 'kpi' | 'distribution'
-    parameters: jsonb('parameters').$type<Record<string, unknown>>().notNull(),
-    results: jsonb('results').$type<Record<string, unknown>>().notNull(),
-    methodology: text('methodology'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('ix_analysis_results_session').on(t.sessionId),
-    index('ix_analysis_results_dataset').on(t.datasetId),
-  ],
-);
-
 /* -------------------------------------------------------------------------- relations */
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -907,35 +795,6 @@ export const conversationCompactionsRelations = relations(conversationCompaction
   throughMessage: one(messages, { fields: [conversationCompactions.throughMessageId], references: [messages.id] }),
 }));
 
-export const analysisSessionsRelations = relations(analysisSessions, ({ one, many }) => ({
-  user: one(users, { fields: [analysisSessions.userId], references: [users.id] }),
-  chat: one(chats, { fields: [analysisSessions.chatId], references: [chats.id] }),
-  project: one(projects, { fields: [analysisSessions.projectId], references: [projects.id] }),
-  currentDataset: one(analysisDatasets, { fields: [analysisSessions.currentDatasetId], references: [analysisDatasets.id] }),
-  datasets: many(analysisDatasets),
-  transformations: many(analysisTransformations),
-  results: many(analysisResults),
-}));
-
-export const analysisDatasetsRelations = relations(analysisDatasets, ({ one, many }) => ({
-  session: one(analysisSessions, { fields: [analysisDatasets.sessionId], references: [analysisSessions.id] }),
-  sourceFile: one(projectFiles, { fields: [analysisDatasets.sourceFileId], references: [projectFiles.id] }),
-  results: many(analysisResults),
-  sourceTransformations: many(analysisTransformations, { relationName: 'sourceDataset' }),
-  targetTransformations: many(analysisTransformations, { relationName: 'targetDataset' }),
-}));
-
-export const analysisTransformationsRelations = relations(analysisTransformations, ({ one }) => ({
-  session: one(analysisSessions, { fields: [analysisTransformations.sessionId], references: [analysisSessions.id] }),
-  sourceDataset: one(analysisDatasets, { fields: [analysisTransformations.sourceDatasetId], references: [analysisDatasets.id], relationName: 'sourceDataset' }),
-  targetDataset: one(analysisDatasets, { fields: [analysisTransformations.targetDatasetId], references: [analysisDatasets.id], relationName: 'targetDataset' }),
-}));
-
-export const analysisResultsRelations = relations(analysisResults, ({ one }) => ({
-  session: one(analysisSessions, { fields: [analysisResults.sessionId], references: [analysisSessions.id] }),
-  dataset: one(analysisDatasets, { fields: [analysisResults.datasetId], references: [analysisDatasets.id] }),
-}));
-
 /* -------------------------------------------------------------------------- inferred types */
 
 export type User = typeof users.$inferSelect;
@@ -965,12 +824,4 @@ export type NewMemoryItem = typeof memoryItems.$inferInsert;
 export type ConversationCompaction = typeof conversationCompactions.$inferSelect;
 export type NewConversationCompaction = typeof conversationCompactions.$inferInsert;
 export type SandboxWorkspace = typeof sandboxWorkspaces.$inferSelect;
-export type AnalysisSession = typeof analysisSessions.$inferSelect;
-export type NewAnalysisSession = typeof analysisSessions.$inferInsert;
-export type AnalysisDataset = typeof analysisDatasets.$inferSelect;
-export type NewAnalysisDataset = typeof analysisDatasets.$inferInsert;
-export type AnalysisTransformation = typeof analysisTransformations.$inferSelect;
-export type NewAnalysisTransformation = typeof analysisTransformations.$inferInsert;
-export type AnalysisResult = typeof analysisResults.$inferSelect;
-export type NewAnalysisResult = typeof analysisResults.$inferInsert;
 

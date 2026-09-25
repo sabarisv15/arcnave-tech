@@ -22,7 +22,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
+import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
@@ -98,7 +98,7 @@ function usageFrom(raw: AnthropicUsage | undefined | null): ProviderUsage {
 }
 
 /**
- * Anthropic splits usage across `message_start` and `message_delta`.
+ * Anthropic splits one message's usage across `message_start` and `message_delta`.
  *
  * `message_start` carries input and cache counts; `message_delta` carries the final output
  * count. Take the max per field so a later frame that omits a value cannot erase an earlier one.
@@ -111,6 +111,22 @@ function merge(base: ProviderUsage, update: ProviderUsage): ProviderUsage {
     cacheReadTokens: Math.max(base.cacheReadTokens, update.cacheReadTokens),
     cacheWriteTokens: Math.max(base.cacheWriteTokens, update.cacheWriteTokens),
     exact: true,
+  };
+}
+
+/**
+ * One request's usage with its whole prompt size. `input_tokens` is only the part after the last
+ * cache breakpoint: "total_input_tokens = cache_read_input_tokens + cache_creation_input_tokens +
+ * input_tokens" (Claude docs, Prompt caching).
+ */
+function requestUsage(round: ProviderUsage): ProviderUsage {
+  if (!round.exact) return round;
+  return {
+    ...round,
+    lastRequest: {
+      inputTokens: round.inputTokens + round.cacheReadTokens + round.cacheWriteTokens,
+      outputTokens: round.outputTokens,
+    },
   };
 }
 
@@ -131,7 +147,12 @@ function collectSearchResults(block: unknown): SearchResultBlock[] {
   );
 }
 
-type CacheableBlock = Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam | Anthropic.TextBlockParam;
+type CacheableBlock =
+  | Anthropic.ImageBlockParam
+  | Anthropic.DocumentBlockParam
+  | Anthropic.TextBlockParam
+  | Anthropic.ToolUseBlockParam
+  | Anthropic.ToolResultBlockParam;
 
 function attachmentBlocks(attachments: GenerationRequest['attachments']): CacheableBlock[] {
   if (!attachments || attachments.length === 0) return [];
@@ -209,18 +230,33 @@ function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number
  */
 export function buildAnthropicMessages(request: GenerationRequest): Anthropic.MessageParam[] {
   const turns = request.history.filter(
-    (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0,
+    (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0 || (turn.toolCalls?.length ?? 0) > 0,
   );
 
-  const messages: { role: 'user' | 'assistant'; content: string | CacheableBlock[] }[] = turns.map(
-    (turn) => {
-      const blocks = attachmentBlocks(turn.attachments);
-      if (blocks.length === 0) return { role: turn.role, content: turn.text };
-      const content: CacheableBlock[] = [...blocks];
-      if (turn.text.trim() !== '') content.push({ type: 'text', text: turn.text });
-      return { role: turn.role, content };
-    },
-  );
+  type Message = { role: 'user' | 'assistant'; content: string | CacheableBlock[] };
+  const messages: Message[] = turns.flatMap((turn, t): Message[] => {
+    const calls = turn.role === 'assistant' ? (turn.toolCalls ?? []) : [];
+    // Earlier calls go back as tool_use then tool_result, as Claude's history keeps them
+    // (ADR-0022). Ids are renamed per position: the pairs only need to match each other, and a
+    // stored id may be another provider's.
+    const replay: Message[] =
+      calls.length > 0 && replayNatively(calls, request, false)
+        ? calls.flatMap((c, i): Message[] => {
+            const id = `hist_${String(t)}_${String(i)}`;
+            return [
+              { role: 'assistant', content: [{ type: 'tool_use', id, name: c.name, input: c.input ?? {} }] },
+              { role: 'user', content: [toAnthropicToolResultBlock(id, c.result)] },
+            ];
+          })
+        : [];
+    const asText = calls.length > 0 && replay.length === 0 ? calls.map(toolCallAsText).join('\n\n') : '';
+    const text = [asText, turn.text.trim() !== '' ? turn.text : ''].filter(Boolean).join('\n\n');
+    const blocks = attachmentBlocks(turn.attachments);
+    const last: Message = blocks.length === 0
+      ? { role: turn.role, content: text }
+      : { role: turn.role, content: [...blocks, ...(text ? [{ type: 'text' as const, text }] : [])] };
+    return [...replay, last];
+  });
 
   // The API requires the sequence to start with a user turn.
   while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
@@ -289,7 +325,8 @@ export class AnthropicVertexProvider implements Provider {
       };
     }
 
-    let usage = EMPTY_USAGE;
+    // Summed over the rounds: each round is its own request, billed on its own.
+    let usage: ProviderUsage | null = null;
     let finishReason = 'stop';
     const searchBlocks: SearchResultBlock[] = [];
     let messages = buildAnthropicMessages(request);
@@ -311,7 +348,13 @@ export class AnthropicVertexProvider implements Provider {
         // in the Gemini adapter, caught only by an abort-mid-loop test.
         if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
         const systemParam: string | Anthropic.TextBlockParam[] | undefined = (() => {
-          if (request.promptAssembly && this.cfg.ENABLE_PROMPT_CACHE) {
+          // The split is by length, so it holds only when the prefix really is the start of the
+          // instruction; a prefix built from another tool list would cut the text in the wrong place.
+          if (
+            request.promptAssembly &&
+            this.cfg.ENABLE_PROMPT_CACHE &&
+            request.promptAssembly.fullSystemInstruction.startsWith(request.promptAssembly.stablePrefix.systemText)
+          ) {
             const { stablePrefix, fullSystemInstruction } = request.promptAssembly;
             const blocks: Anthropic.TextBlockParam[] = [
               {
@@ -352,8 +395,12 @@ export class AnthropicVertexProvider implements Provider {
           { signal: request.signal },
         );
 
+        let roundUsage = EMPTY_USAGE;
         for await (const event of stream) {
-          if (request.signal.aborted) break roundLoop;
+          if (request.signal.aborted) {
+            usage = addRequestUsage(usage, requestUsage(roundUsage));
+            break roundLoop;
+          }
           switch (event.type) {
             case 'content_block_delta': {
               const delta = event.delta;
@@ -363,10 +410,10 @@ export class AnthropicVertexProvider implements Provider {
               break;
             }
             case 'message_start':
-              usage = merge(usage, usageFrom(event.message.usage as AnthropicUsage));
+              roundUsage = merge(roundUsage, usageFrom(event.message.usage as AnthropicUsage));
               break;
             case 'message_delta': {
-              usage = merge(usage, usageFrom(event.usage as AnthropicUsage));
+              roundUsage = merge(roundUsage, usageFrom(event.usage as AnthropicUsage));
               if (event.delta.stop_reason) finishReason = String(event.delta.stop_reason);
               break;
             }
@@ -381,7 +428,8 @@ export class AnthropicVertexProvider implements Provider {
         }
 
         const final = await stream.finalMessage();
-        usage = merge(usage, usageFrom(final.usage as AnthropicUsage));
+        roundUsage = merge(roundUsage, usageFrom(final.usage as AnthropicUsage));
+        usage = addRequestUsage(usage, requestUsage(roundUsage));
         if (final.stop_reason) finishReason = String(final.stop_reason);
         if (final.stop_reason === 'refusal') {
           const details = final.stop_details ?? null;
@@ -471,7 +519,7 @@ export class AnthropicVertexProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

@@ -53,8 +53,45 @@ describe('tool exposure with tool use on (ADR-0006)', () => {
 
   it('tells the model what is declared and that a direct answer is fine', async () => {
     const request = await sendTurn(ctx, user, 'hi');
-    expect(request.systemInstruction).toContain('Declared on every turn: search_tools and load_skill');
+    expect(request.systemInstruction).toContain('Declared on every turn: search_tools, load_skill, and run_python');
     expect(request.systemInstruction).toContain('When a direct answer is enough, answer directly without tools.');
+  });
+});
+
+describe('the prompt and tools a file turn starts with (ADR-0022)', () => {
+  let ctx: TestContext;
+  let user: TestUser;
+
+  beforeAll(async () => {
+    ctx = await createTestApp({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process' });
+    user = await signUp(ctx);
+  });
+  afterAll(async () => {
+    await ctx.close();
+  });
+
+  it('declares the tools file work needs, so no search_tools round comes first', async () => {
+    const request = await sendTurn(ctx, user, 'itha tally la import panra mari json file ah kudu');
+    expect((request.tools ?? []).map((t) => t.name)).toEqual(
+      expect.arrayContaining(['search_tools', 'load_skill', 'run_python', 'generate_deliverable']),
+    );
+  });
+
+  it('says to settle the request first, to answer a file request with a file, and in the user\'s script', async () => {
+    const { systemInstruction } = await sendTurn(ctx, user, 'hi');
+    expect(systemInstruction).toContain('## Understand the request first');
+    expect(systemInstruction).toContain('never with its contents pasted into chat');
+    expect(systemInstruction).toContain('any other format (JSON, CSV, XML, TXT, Markdown, HTML, ZIP, images): run_python, writing the file to "output/"');
+    expect(systemInstruction).toContain('Reply in the language and script the user writes in');
+    expect(systemInstruction).toContain('A skill loaded earlier in this conversation is still in context');
+  });
+
+  it('names no tool this turn cannot reach: no memory policy with memory off, no dataset tools', async () => {
+    const { systemInstruction } = await sendTurn(ctx, user, 'hi');
+    expect(systemInstruction).not.toContain('<memory_policy>');
+    expect(systemInstruction).not.toContain('dataset tools');
+    expect(systemInstruction).not.toContain('derived dataset versions');
+    expect(systemInstruction).toContain('=== DATA ANALYTICS POLICY ===');
   });
 });
 

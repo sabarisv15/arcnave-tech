@@ -33,13 +33,14 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       // Standard BPE tokenizer estimate for English prose: ~1.33 tokens per word (75 words = 100 tokens)
       const estimatedTokens = Math.round(wordCount * 1.33);
 
-      // Verify token bounds: target ~2K-4K tokens, strictly under the 8K-10K threshold
+      // Verify token bounds, strictly under the 8K-10K threshold. Raised from 4,500 / 3,500 on
+      // 2026-09-25 for the understand-first step, the file rule and the language rule (ADR-0022).
       expect(estimatedTokens).toBeGreaterThanOrEqual(2000);
-      expect(estimatedTokens).toBeLessThanOrEqual(4500);
+      expect(estimatedTokens).toBeLessThanOrEqual(5000);
 
       // Verify word count is compact and proportional
       expect(wordCount).toBeGreaterThanOrEqual(1500);
-      expect(wordCount).toBeLessThanOrEqual(3500);
+      expect(wordCount).toBeLessThanOrEqual(3800);
     });
 
     it('enforces XML boundary cleanliness across all top-level prompt sections', () => {

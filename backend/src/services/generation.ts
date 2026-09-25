@@ -52,6 +52,7 @@ import type {
   Turn,
 } from '../providers/types.js';
 import {
+  addRequestUsage,
   EMPTY_USAGE,
   isAbort,
   ModelNotFoundError,
@@ -84,6 +85,7 @@ import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
 import { buildBaseSystemPrompt, buildDynamicRuntimeContext } from './systemPrompt.js';
 import { assemblePrompt } from './promptCache/promptAssembly.js';
+import { clearOldToolResults, loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
@@ -603,6 +605,7 @@ export class GenerationService {
       availableTools,
       skillsContext,
       isAgentMode,
+      policyCatalog.map((t) => t.name),
     );
     for (const event of contextEvents) {
       yield event;
@@ -927,6 +930,8 @@ export class GenerationService {
     let searchEntryPoint: string | undefined;
     let eventOrdinal = contextEvents.length;
     const pendingToolInputs = new Map<string, unknown>();
+    // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
+    const pendingSignatures = new Map<string, string>();
     const toolsCalled: string[] = [];
 
     try {
@@ -963,6 +968,7 @@ export class GenerationService {
           case 'tool_use': {
             toolsCalled.push(event.name);
             pendingToolInputs.set(event.toolCallId, event.input);
+              if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
             yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
             break;
           }
@@ -983,6 +989,7 @@ export class GenerationService {
               pendingToolInputs.get(event.toolCallId),
               event.result,
               eventOrdinal++,
+              pendingSignatures.get(event.toolCallId),
             );
             while (pendingArtifactEvents.length > 0) {
               yield pendingArtifactEvents.shift()!;
@@ -1083,7 +1090,8 @@ export class GenerationService {
             collectedText.push(event.text);
             yield { type: 'delta', text: event.text };
           } else if (event.type === 'completed') {
-            usage = event.usage;
+            // A second request of the same turn: billed on top of the first.
+            usage = addRequestUsage(usage, event.usage);
             finishReason = event.finishReason;
           }
         }
@@ -1450,6 +1458,16 @@ export class GenerationService {
       })
       .filter((r) => r.text.trim() !== '');
 
+    // Earlier turns' tool calls go with them (ADR-0022), older results cleared past the trigger.
+    if (self) {
+      const cleared = await clearOldToolResults(this.db, chatId, self.seq, this.cfg);
+      if (cleared > 0) log.info({ chatId, cleared }, 'cleared older tool results from the history');
+    }
+    const toolCallsOf = await loadToolCalls(
+      this.db,
+      ordered.filter((r) => r.role === 'assistant').map((r) => r.id),
+    );
+
     // Dynamic provider/model-aware context budget calculation:
     // available budget = model context window - output reserve (4k tokens) - system/tools reserve (8k tokens)
     const capability = getModelCapability(modelAlias ?? 'Gemini 3.8 Flash');
@@ -1463,7 +1481,7 @@ export class GenerationService {
     for (let i = ordered.length - 1; i >= 0; i -= 1) {
       const row = ordered[i];
       if (!row) continue;
-      const cost = row.text.length;
+      const cost = row.text.length + toolCallChars(toolCallsOf.get(row.id));
       if (kept.length > 0 && used + cost > budget) break;
       kept.unshift(row);
       used += cost;
@@ -1507,11 +1525,13 @@ export class GenerationService {
 
     const turns = kept.map((r): Turn => {
       const atts = byMessage.get(r.id);
+      const calls = r.role === 'assistant' ? toolCallsOf.get(r.id) : undefined;
       // Extracted text travels once, on the attachment itself; the adapters render it (G16).
       return {
         role: r.role === 'user' ? 'user' : 'assistant',
         text: r.text,
         ...(atts ? { attachments: atts } : {}),
+        ...(calls?.length ? { toolCalls: calls } : {}),
       };
     });
 
@@ -1788,6 +1808,8 @@ export class GenerationService {
     availableTools: ToolDefinition[] = [],
     skillsContext?: string,
     isAgentMode: boolean = false,
+    /** Every tool allowed this turn, declared or discoverable; tool policies key on these. */
+    allowedToolNames?: string[],
   ): Promise<{
     systemInstruction: string;
     contextEvents: StreamEvent[];
@@ -1908,7 +1930,7 @@ export class GenerationService {
       attachmentManifest: input.attachmentManifest?.trim() || undefined,
       modePrompt: modeDirective,
       skillsContext,
-    });
+    }, allowedToolNames);
 
     return {
       systemInstruction: promptAssembly.fullSystemInstruction,
@@ -1959,6 +1981,7 @@ export class GenerationService {
     input: unknown,
     result: ToolResult,
     ordinal: number,
+    thoughtSignature?: string,
   ): Promise<void> {
     await this.db
       .insert(toolCalls)
@@ -1970,6 +1993,7 @@ export class GenerationService {
         input: input ?? {},
         content: withoutImageBytes(result.content),
         ok: result.ok,
+        thoughtSignature: thoughtSignature ?? null,
       })
       .onConflictDoNothing();
   }

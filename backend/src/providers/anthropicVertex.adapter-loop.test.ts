@@ -155,6 +155,33 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     expect((lastMsg.content as { type: string }[])[0]!.type).toBe('tool_result');
   });
 
+  it('bills every round of the loop, and keeps the last request apart for compaction', async () => {
+    const client = new FakeAnthropicClient();
+    const toolRound = (id: string, usage: Record<string, number>) =>
+      fakeMessageStream([], { content: [{ type: 'tool_use', id, name: 'search_project_files', input: { query: 'q' } }], usage, stop_reason: 'tool_use' });
+    client.responses = [
+      toolRound('t1', { input_tokens: 900, cache_creation_input_tokens: 100, output_tokens: 5 }),
+      toolRound('t2', { input_tokens: 50, cache_read_input_tokens: 1000, output_tokens: 7 }),
+      fakeMessageStream([], { content: [{ type: 'text' }], usage: { input_tokens: 80, cache_read_input_tokens: 1000, output_tokens: 20 }, stop_reason: 'end_turn' }),
+    ];
+    const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: new ScriptedExecutor() })));
+
+    expect(events.at(-1)).toEqual({
+      type: 'completed',
+      finishReason: 'end_turn',
+      usage: {
+        inputTokens: 1030,
+        outputTokens: 32,
+        cacheReadTokens: 2000,
+        cacheWriteTokens: 100,
+        exact: true,
+        // "total_input_tokens = cache_read_input_tokens + cache_creation_input_tokens + input_tokens"
+        lastRequest: { inputTokens: 1080, outputTokens: 20 },
+      },
+    });
+  });
+
   it('feeds a tool failure back as an is_error tool_result, never throws', async () => {
     const client = new FakeAnthropicClient();
     client.responses = [

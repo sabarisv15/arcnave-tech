@@ -14,13 +14,14 @@ import { sourcesFromGeminiMetadata } from './grounding.js';
 import type {
   AttachmentBlock,
   GenerationRequest,
+  HistoryToolCall,
   Provider,
   ProviderEvent,
   ProviderUsage,
   ToolDefinition,
   ToolResult,
 } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
+import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
@@ -123,15 +124,39 @@ export function toGeminiFunctionResponsePart(name: string, id: string, result: T
  * only thing this function has to get right for that to work is stability: the same history in
  * the same order, byte-identical, every call for the same chat.
  */
+/** The loop names a call `${name}-${round}-${i}` when Gemini gave it no id; it never sent that id
+ *  on the functionCall, so a replay does not either. */
+function isSynthesisedId(call: HistoryToolCall): boolean {
+  return new RegExp(`^${call.name}-\\d+-\\d+$`).test(call.id);
+}
+
 export function buildGeminiContents(request: GenerationRequest): Content[] {
   const turns = request.history.filter(
-    (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0,
+    (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0 || (turn.toolCalls?.length ?? 0) > 0,
   );
 
-  const historyContents: Content[] = turns.map((turn) => {
+  const historyContents: Content[] = turns.flatMap((turn): Content[] => {
     const parts: Part[] = [...attachmentParts(turn.attachments)];
+    const calls = turn.role === 'assistant' ? (turn.toolCalls ?? []) : [];
+    // Each earlier call goes back as the in-turn loop sent it: the model's signed functionCall,
+    // then the functionResponse (ADR-0022). Unsigned or undeclared calls go as text instead.
+    if (calls.length > 0 && replayNatively(calls, request, true)) {
+      const replay: Content[] = calls.flatMap((c): Content[] => [
+        {
+          role: 'model',
+          parts: [{
+            functionCall: { ...(isSynthesisedId(c) ? {} : { id: c.id }), name: c.name, args: (c.input ?? {}) as Record<string, unknown> },
+            thoughtSignature: c.thoughtSignature!,
+          }],
+        },
+        { role: 'user', parts: [toGeminiFunctionResponsePart(c.name, c.id, c.result)] },
+      ]);
+      if (turn.text.trim() !== '') parts.push({ text: turn.text });
+      return parts.length > 0 ? [...replay, { role: 'model', parts }] : replay;
+    }
+    if (calls.length > 0) parts.push({ text: calls.map(toolCallAsText).join('\n\n') });
     if (turn.text.trim() !== '') parts.push({ text: turn.text });
-    return { role: turn.role === 'user' ? 'user' : 'model', parts };
+    return [{ role: turn.role === 'user' ? 'user' : 'model', parts }];
   });
 
   const currentParts: Part[] = [...attachmentParts(request.attachments), { text: request.prompt }];
@@ -262,7 +287,8 @@ export class GeminiProvider implements Provider {
       };
     }
 
-    let usage = EMPTY_USAGE;
+    // Summed over the rounds: each round is its own request, billed on its own.
+    let usage: ProviderUsage | null = null;
     let finishReason = 'stop';
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
@@ -323,6 +349,7 @@ export class GeminiProvider implements Provider {
         }
 
         let roundText = '';
+        let roundUsage = EMPTY_USAGE;
         const roundCalls: {
           id?: string;
           name: string;
@@ -331,7 +358,10 @@ export class GeminiProvider implements Provider {
         }[] = [];
 
         for await (const chunk of stream) {
-          if (request.signal.aborted) break roundLoop;
+          if (request.signal.aborted) {
+            usage = addRequestUsage(usage, roundUsage);
+            break roundLoop;
+          }
 
           const text = chunk.text;
           if (text) {
@@ -370,8 +400,8 @@ export class GeminiProvider implements Provider {
           });
 
           const chunkUsage = usageFrom(chunk.usageMetadata);
-          // Gemini reports cumulative usage; the last non-empty value is the running total.
-          if (chunkUsage.exact) usage = chunkUsage;
+          // Within one response Gemini's usage is cumulative: the last value is the round's.
+          if (chunkUsage.exact) roundUsage = chunkUsage;
 
           for (const candidate of chunk.candidates ?? []) {
             if (candidate.groundingMetadata) {
@@ -380,6 +410,7 @@ export class GeminiProvider implements Provider {
             if (candidate.finishReason) finishReason = String(candidate.finishReason);
           }
         }
+        usage = addRequestUsage(usage, roundUsage);
 
         if (!useTools || roundCalls.length === 0) break;
         // A call on the final round is not run: there is no round left to answer after it.
@@ -412,7 +443,13 @@ export class GeminiProvider implements Provider {
             name: primary.name,
             input: primary.args,
           };
-          yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
+          yield {
+            type: 'tool_use',
+            toolCallId: call.id,
+            name: call.name,
+            input: call.input,
+            ...(primary.thoughtSignature ? { thoughtSignature: primary.thoughtSignature } : {}),
+          };
           const result = await request.toolExecutor!.execute(call, request.signal);
           yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
           responseParts.push(toGeminiFunctionResponsePart(call.name, call.id, result));
@@ -475,7 +512,7 @@ export class GeminiProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

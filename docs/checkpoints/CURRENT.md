@@ -1,6 +1,56 @@
 # ArcNave — current checkpoint
 
-> **2026-09-25 (latest): steps 1 and 2 audit gaps closed, branch only, not deployed.**
+> **2026-09-25 (latest): the model sees what earlier turns did, and settles the request first.
+> Branch only, not deployed** ([ADR-0022](../decisions/0022-requests-carry-what-the-conversation-did.md)).
+> - **History.** Earlier tool calls and results go back into the history.
+>   - Gemini gets its signed `functionCall`s; Claude gets `tool_use`/`tool_result`.
+>   - Calls that cannot go natively (no signature, undeclared tool) go as text.
+>   - Past 100,000 exact tokens, all but the last 3 results are cleared, as Claude's context
+>     editing does, and stay cleared.
+>   - Migration 0012 adds `tool_calls.thought_signature` and `tool_calls.result_cleared`.
+> - **Declared tools.** `run_python`, `read_uploaded_file` and `generate_deliverable` are declared
+>   on every turn when allowed, so file work no longer starts with a `search_tools` round.
+> - **System prompt.**
+>   - Adds an "understand the request first" step (outcome, chat vs file, reuse what the
+>     conversation has).
+>   - A file request gets a file in the format asked for (any format, via `run_python` to
+>     `output/`).
+>   - The reply matches the user's script.
+>   - The memory, UI and analytics policies go only with their tools; no dead dataset wording.
+> - **Live check after deploy.** A follow-up question answers without re-running tools; "json
+>   file kudu" returns a download; a Tanglish question gets a Tanglish reply.
+
+> **2026-09-25: turn usage fixed, branch only, not deployed.**
+> [ADR-0021](../decisions/0021-turn-usage-sums-every-request.md).
+> - **Found live:** a 16-request PDF turn showed one request's tokens. Each adapter overwrote
+>   (Gemini) or took the max of (Anthropic) its rounds, and agent-mode usage was always
+>   `exact: false`. Now every request of a turn is summed.
+> - Compaction reads the new `usage_records.context_tokens` (the last request's size), not the
+>   total (migration 0011).
+> - Guard added: `src/db/journal.test.ts`. The generated 0011 had been stamped before 0010 and
+>   would have been skipped in production.
+> - Backend 929/929.
+> - **Eval A, live on the previous deploy:**
+>   - `load_skill` ran first ✅.
+>   - The answer repeated the known Federal split error: 245/32 against 244/33. Totals were
+>     right (48, 277, 325).
+> - **`analysis_*` tables removed (dead):**
+>   - Four tables (`analysis_sessions`, `analysis_datasets`, `analysis_results`,
+>     `analysis_transformations`) were in `schema.ts` but in no migration.
+>   - Their only users were `services/analytics/session.ts`, `sandboxDataBridge.ts` and
+>     `analyticsPipeline.ts`. Nothing reachable imported those (no route, no `container.ts`
+>     wiring), and they are deleted.
+>   - `profiler.ts` and `quality.ts` stay, because `scripts/runLiveAnalyticsEvaluation.ts` uses
+>     them.
+>   - No database change: the tables never existed.
+>   - `journal.test.ts` now fails if a `schema.ts` table is missing from the latest snapshot,
+>     and `drizzle-kit generate` reports no changes.
+> - **Open:**
+>   - Gemini thinking tokens (`thoughtsTokenCount`) are not counted in `outputTokens`, and
+>     Vertex billing for them is unverified.
+>   - The backend trigger did not fire on the push to main.
+
+> **2026-09-25: steps 1 and 2 audit gaps closed; deployed 2026-09-25 (sandbox 00008-bgx, backend 00135-bbm).**
 > - Skills follow Claude ([ADR-0018](../decisions/0018-skills-follow-claude.md)):
 >   - The skill list in the prompt comes from the skill files; the hard-coded list and triggers are gone.
 >   - Claude's frontmatter rules are enforced. Two skills (`artifact-design`, `dashboard-design`)

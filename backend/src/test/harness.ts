@@ -33,6 +33,7 @@ import type {
   Provider,
   ProviderEvent,
 } from '../providers/types.js';
+import { addRequestUsage } from '../providers/types.js';
 import type { AppInstance } from '../types.js';
 
 export const TEST_DATABASE_URL =
@@ -117,7 +118,10 @@ export class FakeProvider implements Provider {
       if (request.signal.aborted) {
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
-      yield event;
+      // One scripted answer is one request; every real adapter reports its last request so.
+      yield event.type === 'completed' && !event.usage.lastRequest
+        ? { ...event, usage: event.usage.exact ? addRequestUsage(null, event.usage) : event.usage }
+        : event;
     }
   }
 

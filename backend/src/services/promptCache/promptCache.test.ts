@@ -118,6 +118,19 @@ describe('Prompt Caching Subsystem', () => {
     });
   });
 
+  describe('Tool policies follow the tools allowed this turn (Invariant 1)', () => {
+    it('includes the memory, UI and analytics policies only when their tool is allowed', () => {
+      const none = buildStablePrefix([], []).systemText;
+      expect(none).not.toContain('<memory_policy>');
+      expect(none).not.toContain('GENERATIVE UI POLICY');
+      expect(none).not.toContain('DATA ANALYTICS POLICY');
+      const all = buildStablePrefix([], ['search_memory', 'render_ui', 'run_python']).systemText;
+      expect(all).toContain('<memory_policy>');
+      expect(all).toContain('GENERATIVE UI POLICY');
+      expect(all).toContain('DATA ANALYTICS POLICY');
+    });
+  });
+
   describe('Provider Caching Policy & Thresholds', () => {
     it('evaluates model-specific caching thresholds correctly', () => {
       const claude = getProviderCacheCapability('anthropic', 'claude-sonnet-5');

@@ -1,6 +1,6 @@
 # ADR-0019: Long chats keep the whole conversation, and compact as Claude does
 
-- Status: accepted. Tested locally; not live.
+- Status: accepted; deployed 2026-09-25, compaction not yet seen live. Trigger amended by [ADR-0021](0021-turn-usage-sums-every-request.md): it reads the last request's size (`context_tokens`), not the turn's total.
 - Date: 2026-09-25
 - See also: [ADR-0013](0013-pdfs-sent-as-page-images-and-text.md),
   [ADR-0016](0016-gemini-reads-page-images-by-uri.md)

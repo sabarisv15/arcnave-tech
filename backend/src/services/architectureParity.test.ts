@@ -2,6 +2,8 @@ import path from 'node:path';
 import JSZip from 'jszip';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { DECLARED_EVERY_TURN } from '../tools/registry.js';
+
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { AttachmentBlock, GenerationRequest } from '../providers/types.js';
@@ -17,6 +19,12 @@ import {
   RUN_PYTHON,
   SEARCH_TOOLS,
 } from '../tools/definitions.js';
+
+/** Discovery tools, then the allowed tools declared on every turn (ADR-0022). */
+const core = (d: { allowedTools: string[] }, discovery = ['search_tools', 'load_skill']): string[] => [
+  ...discovery,
+  ...DECLARED_EVERY_TURN.filter((n) => d.allowedTools.includes(n)),
+];
 
 describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
   let skillService: SkillService;
@@ -78,7 +86,7 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     });
     expect(routing.detectedIntent).toBe('EXPLANATION');
     // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(routing.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(routing.exposedTools).toEqual(core(routing));
     expect(routing.pythonExposed).toBe(false);
   });
 
@@ -248,7 +256,7 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
 
     expect(decision.detectedIntent).toBe('EXPLANATION');
     // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.pythonExposed).toBe(false);
   });
 
@@ -309,7 +317,7 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     });
     expect(routing.detectedIntent).toBe('EXPLANATION');
     // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(routing.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(routing.exposedTools).toEqual(core(routing));
   });
 
   // Scenario 8: Generate Image

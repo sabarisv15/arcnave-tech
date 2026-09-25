@@ -283,6 +283,11 @@ const envSchema = z.object({
   /** Input tokens of the previous request at which a chat compacts: Claude's threshold default.
    *  Capped at three quarters of the model's window, and never below Claude's 50,000 minimum. */
   COMPACTION_TRIGGER_TOKENS: int(150_000),
+  /** Context editing (ADR-0022), Claude's clear_tool_uses defaults: once the previous request's
+   *  exact prompt reached this many tokens, older tool results are cleared from later requests... */
+  CONTEXT_EDIT_TRIGGER_TOKENS: int(100_000),
+  /** ...except the most recent this many tool calls ("keep", default 3 tool uses). */
+  CONTEXT_EDIT_KEEP_TOOL_USES: int(3),
   /** Headroom threshold in tokens below which compaction triggers. */
   COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),
   /** Headroom ratio (remaining context / total context window) below which compaction triggers. */

@@ -4,6 +4,8 @@
  * in docs/superpowers/plans/2026-09-24-tools-pipeline-gap-fixes.md.
  */
 import { describe, expect, it } from 'vitest';
+
+import { DECLARED_EVERY_TURN } from '../../tools/registry.js';
 import { routeTurn, type RouteTurnInput } from './turnRouter.js';
 
 const candidateSkills = [
@@ -24,6 +26,12 @@ function withPdf(prompt: string, overrides: Partial<RouteTurnInput> = {}): Route
     ...overrides,
   };
 }
+
+/** Discovery tools, then the allowed tools declared on every turn (ADR-0022). */
+const core = (d: { allowedTools: string[] }, discovery = ['search_tools', 'load_skill']): string[] => [
+  ...discovery,
+  ...DECLARED_EVERY_TURN.filter((n) => d.allowedTools.includes(n)),
+];
 
 describe('routeTurn — ADR-0006 locked architecture', () => {
   // G1: whatever the intent, the model keeps core discovery.
@@ -60,13 +68,14 @@ describe('routeTurn — ADR-0006 locked architecture', () => {
   });
 
   it('without skills the core is search_tools alone', () => {
-    expect(routeTurn(withPdf('hi', { candidateSkills: [] })).exposedTools).toEqual(['search_tools']);
+    const bare = routeTurn(withPdf('hi', { candidateSkills: [] }));
+    expect(bare.exposedTools).toEqual(core(bare, ['search_tools']));
   });
 
   it('intent stays as telemetry: classification still happens but gates nothing', () => {
     const decision = routeTurn(withPdf('explain Monte Carlo simulation'));
     expect(decision.detectedIntent).toBe('EXPLANATION');
-    expect(decision.exposedTools).toEqual(['search_tools', 'load_skill']);
+    expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.allowedTools).toContain('run_python');
   });
 

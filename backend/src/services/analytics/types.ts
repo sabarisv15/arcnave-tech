@@ -56,24 +56,3 @@ export interface DataQualityReport {
   issues: DataQualityIssue[];
   summary: string;
 }
-
-export interface DatasetLineageStep {
-  version: number;
-  datasetHandle: string;
-  name: string;
-  transformationType?: string;
-  reproducibleScript?: string;
-  executedAt?: string;
-}
-
-export interface AnalysisSessionSummary {
-  sessionId: string;
-  chatId: string;
-  title: string;
-  currentDatasetHandle?: string;
-  currentDatasetVersion?: number;
-  currentRowCount?: number;
-  currentColumnCount?: number;
-  dataQualityScore?: number;
-  lineage: DatasetLineageStep[];
-}

@@ -26,15 +26,25 @@ afterAll(async () => {
   await ctx.close();
 });
 
-/** Every answer reports this request size; a summary request answers with a summary. */
-function answerWith(inputTokens: number, exact = true): void {
+/**
+ * Every answer reports this request size; a summary request answers with a summary. `lastRequest`
+ * makes the answer a tool loop whose total is larger than its last request.
+ */
+function answerWith(inputTokens: number, exact = true, lastRequest?: { inputTokens: number; outputTokens: number }): void {
   ctx.provider.onRequest = async (request) => {
     const summary = request.prompt === SUMMARY_PROMPT;
     ctx.provider.script = [
       { type: 'delta', text: summary ? '<summary>User shared notes.txt (budget 4200); asked about it.</summary>' : 'ok' },
       {
         type: 'completed',
-        usage: { inputTokens: summary ? 900 : inputTokens, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0, exact },
+        usage: {
+          inputTokens: summary ? 900 : inputTokens,
+          outputTokens: 40,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          exact,
+          ...(lastRequest && !summary ? { lastRequest } : {}),
+        },
         finishReason: 'stop',
       },
     ] satisfies ProviderEvent[];
@@ -156,6 +166,24 @@ describe('long chats (ADR-0019)', () => {
       await send('e');
       expect(ctx.provider.seen.slice(before).some((r) => r.prompt === SUMMARY_PROMPT)).toBe(false);
     }
+  });
+
+  it('reads the size of the last request, not a tool loop\'s total, which counts the chat once per round', async () => {
+    const { send } = await newChat();
+    const trigger = compactionTrigger(ctx.cfg.COMPACTION_TRIGGER_TOKENS, 1_000_000);
+    answerWith(1000);
+    for (const p of ['a', 'b', 'c']) await send(p);
+    // 14 requests of 20,000 each: billed 280,000, but the conversation is 20,000 long.
+    answerWith(14 * 20_000, true, { inputTokens: 20_000, outputTokens: 40 });
+    expect(14 * 20_000).toBeGreaterThan(trigger);
+    await send('d');
+    const before = ctx.provider.seen.length;
+    await send('e');
+    expect(ctx.provider.seen.slice(before).some((r) => r.prompt === SUMMARY_PROMPT)).toBe(false);
+
+    // Billing keeps the whole total.
+    const [row] = await ctx.db.select().from(usageRecords).where(eq(usageRecords.inputTokens, 14 * 20_000));
+    expect(row).toMatchObject({ contextTokens: 20_040, tokensExact: true });
   });
 
   it('keeps the history whole when no summary comes back', async () => {

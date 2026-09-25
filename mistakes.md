@@ -245,66 +245,6 @@ failure mode of this pattern, not a sign it is working.
   the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
   `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
 
-### 2026-09-17 — A Worker proxying to a non-Cloudflare origin added ~1.2s per request
-
-- **Symptom:** `GET /v1/chats` took 1.5–1.9s through `www.arcnave.tech`, versus ~0.2–0.3s
-  hitting the Cloud Run URL directly. The gap sat entirely between TLS handshake and first
-  byte, ruling out anything client-side.
-- **Cause:** The Worker fixing the previous entry's cookie bug (proxying `/v1/*` to Cloud Run)
-  runs at whichever Cloudflare edge received the client's request, and Cloud Run is not a
-  Cloudflare-fronted origin — so every proxied request pays a fresh cross-region TCP+TLS
-  handshake from that edge to `asia-south1`, with none of Cloudflare's connection reuse.
-- **Rule:** **A Worker that proxies to a non-Cloudflare origin needs `placement: { mode: "smart"
-  }` in `wrangler.jsonc`, or it pays a full handshake to that origin on every single request**
-  from whatever edge the client happened to hit. Smart Placement relocates the Worker's
-  execution near the origin instead, so the expensive hop happens once. It is not instant:
-  Cloudflare's own docs say convergence needs sustained multi-location traffic and can take up
-  to ~15 minutes after deploy — do not conclude the fix failed from measurements taken
-  immediately after deploying it.
-- **Verify:** `curl -D - <url> | grep -i cf-placement` — `local-<colo>` means unconverged (or
-  not proxying to a distant origin at all); `remote-<colo>` means Smart Placement is active.
-
-### 2026-09-17 — Chased the "proper" same-site fix through two dead ends before taking the trade-off
-
-- **Symptom:** Not a bug — a record of a decision reversed twice in one session, so the next
-  session does not re-walk the same two dead ends. The cross-origin cookie entry above
-  (frontend pointed at Cloud Run directly) was fixed with a same-origin Worker proxy; that
-  proxy was then removed again in favor of `SameSite=None`.
-- **Cause of each dead end:**
-  - The Worker proxy fixed the cookie correctly, but added ~1.2s/request (see the Smart
-    Placement entry above), and Smart Placement does not converge at this app's traffic level
-    — it needs sustained, concentrated real usage to relocate the Worker, which a single test
-    user does not produce. No amount of waiting fixed it; there was no traffic to converge on.
-  - Cloud Run's own domain-mapping feature (`api.arcnave.tech` on the same registrable domain,
-    same-site without a proxy) does not support `asia-south1` — mapping is Preview-only,
-    limited to ten specific regions, and Google's own docs call it "not production-ready" even
-    where it is supported.
-- **Rule:** **When the textbook-correct fix is blocked by a platform limitation two ways in a
-  row, stop and name the trade-off explicitly rather than reaching for a third workaround.**
-  `SameSite=None` was accepted deliberately here, for single-user testing, with its real
-  cost stated plainly: Safari and strict Firefox tracking-protection modes block it by
-  default, no site-level opt-out for a plain fetch flow. This is not a fix to reproduce
-  reflexively — it is a stated, temporary trade-off. Revisit before real multi-browser traffic:
-  either move the Cloud Run service to a domain-mapping-supported region, or put a real load
-  balancer in front of it, or move to a token-based session.
-- **Verify:** `curl -D - <backend-url>/v1/auth/login ... | grep -i set-cookie` shows
-  `SameSite=None; Secure`. Test login in Safari specifically before trusting this for anyone
-  but the single test account this was built against.
-- **2026-09-19 addendum:** the same trade-off silently breaks **local browser QA against
-  `npm run dev`**, not just Safari/Firefox in production. `sameSite: 'none'` requires `secure:
-  true` per spec; `SESSION_COOKIE_SECURE` defaults `false` locally (plain `http://localhost`,
-  no TLS), so Chrome accepts the `Set-Cookie` response but silently drops the cookie — `POST
-  /auth/login` returns 200, the very next `GET /auth/me` says `{"user":null}`, and the UI bounces
-  back to the sign-in screen with no error. `curl` never sees this (it doesn't enforce cookie
-  policy), which is exactly why it went unnoticed through every prior session's local testing.
-  Cost real time chasing a phantom "login is broken" before checking the console for the CORS/
-  cookie warning. **Rule:** when a browser-only auth flow "loses" the session right after a
-  successful login locally, check the console for a dropped-cookie warning before suspecting the
-  session logic itself — `curl` cannot reproduce this class of bug at all. To actually drive the
-  local dev UI through a real login, temporarily flip `sameSite` to `'lax'` in
-  `routes/auth.ts` for that session only — never commit it, `SameSite=None` is a real,
-  considered production decision, not a bug to "fix" here.
-
 ### 2026-09-17 — The SSE generate endpoint had no CORS headers, only visible once cross-origin
 
 - **Symptom:** In a real browser, sending a chat message hung on "Thinking…" forever. Every
@@ -658,19 +598,6 @@ failure mode of this pattern, not a sign it is working.
 
 ---
 
-### 2026-09-19 — A single heavy focus rule changed the visual language of unrelated controls
-
-- **Symptom:** Clicking ordinary text fields, Settings items, and menu choices drew a thick,
-  offset rectangle and menu hover states became bold, while the model picker remained quiet.
-- **Cause:** A global `:focus-visible` rule applied a two-pixel outline with a three-pixel
-  offset to every interactive element. A later typography override also made every highlighted
-  menu label semibold, so the same interaction state looked materially different by component.
-- **Rule:** **Do not use one high-emphasis focus treatment as a catch-all UI style.** Keep a
-  visible but single-line keyboard indicator, and let ordinary menus use the same soft
-  background selection state as the model picker unless a control needs a stronger state.
-- **Verify:** Click and keyboard-tab through text fields, Settings, sidebar navigation, and
-  mode menus: no thick outer box or weight jump appears; keyboard focus remains distinguishable.
-
 ### 2026-09-19 — A Gemini tool loop only checked `AbortSignal` mid-stream, not before the next round's request
 
 - **Symptom:** Caught in Task 8's own adapter-loop test, never shipped — "stops issuing provider
@@ -823,6 +750,52 @@ failure mode of this pattern, not a sign it is working.
   `signal.aborted` first and abort at once, then add the listener.
 - **Verify:** `grep -rn "addEventListener('abort'" backend/src` shows an `aborted` check just
   before each hit; `npx vitest run src/routes/runResume.integration.test.ts` passes.
+
+### 2026-09-25 — A tool loop's usage was one request's, marked exact
+
+- **Symptom:** Live: a PDF answer made 16 model requests (13 `run_python` calls), and the footer
+  said "19,725 in · $0.0158", which is the size of one request.
+- **Cause:** Inside one provider call, each tool round is a new request. Gemini's adapter
+  overwrote `usage` each round; Anthropic's merged rounds with `Math.max`; generation's forced
+  synthesis replaced the first request's usage. `AgentLoop` summed its steps from `EMPTY_USAGE`
+  (`exact: false`), so every agent turn came out inexact. The tests scripted usage on the last
+  round only, and so never saw it.
+- **Rule:** **A turn's usage is `addRequestUsage` over every request it made.** One request
+  missing a count makes the turn `exact: false` with zeros. Anything that needs the
+  conversation's size (compaction) reads `lastRequest` / `context_tokens`, never the total.
+- **Verify:** `npx vitest run src/providers/*.adapter-loop.test.ts` ("bills every round"), and
+  `src/routes/longChat.integration.test.ts` ("reads the size of the last request").
+
+### 2026-09-25 — A generated migration was stamped before the hand-written one, and would have been skipped
+
+- **Symptom:** `drizzle-kit generate` wrote 0011 with `when: 1790354536272`. 0010 had been
+  stamped by hand at `1790400000000`, which is later. Nothing failed locally, because a fresh
+  test database applies every file.
+- **Cause:** Drizzle's migrator applies a migration only when `created_at < folderMillis` for
+  the last applied one. Production already had 0010, so 0011 would have been silently skipped.
+  The same generate also added `CREATE TABLE analysis_*` for four `schema.ts` tables that no
+  migration ever created. Nothing reachable used them, so they were removed with their dead
+  service code.
+- **Rule:** **After `drizzle-kit generate`, read the SQL and the journal.** Keep only the
+  change you meant, and stamp `when` after the previous entry.
+  Never regenerate a migration that has already run anywhere under the same stamp. The
+  migrator records it as applied and skips the new SQL. That happened to 0012 in the local test
+  database; `drop database arcnave_test` recovered it.
+- **Verify:** `npx vitest run src/db/journal.test.ts` (stamp order, and every `schema.ts`
+  table in the latest snapshot); `npx drizzle-kit generate` says "No schema changes".
+
+### 2026-09-25 — Follow-up turns redid the work, because the history kept only each turn's text
+
+- **Symptom:** Live: after a turn that counted a statement's rows, "federal bank la evalo
+  entries?" ran `load_skill`, `search_tools` and 10 `run_python` calls and read the PDF again.
+  The system prompt said "unless it is already loaded in this generation/session".
+- **Cause:** A history `Turn` was `{ role, text, attachments }`. Tool calls and results were
+  stored in `tool_calls` and shown in the UI, but never sent to the model again. The prompt
+  promised the model something the request did not contain.
+- **Rule:** **Before a prompt tells the model that something is "already in context", check
+  the captured request for it.** Earlier tool calls go into the history (`Turn.toolCalls`), and
+  context editing clears them, not the loader.
+- **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts`.
 
 ## Convention and sources
 
