@@ -89,6 +89,7 @@ export const RUN_PYTHON: ToolDefinition = {
     type: 'object',
     properties: {
       code: { type: 'string', description: 'Python source to execute.' },
+      description: { type: 'string', maxLength: 160, description: 'Brief user-facing action label in the user language, e.g. Counting transaction rows. Describe this operation only; do not claim a result or include reasoning.' },
       input_files: {
         type: 'array',
         items: { type: 'string' },
@@ -134,6 +135,7 @@ export const RUN_PYTHON_WARM: ToolDefinition = {
     type: 'object',
     properties: {
       code: { type: 'string', description: 'Python source to execute.' },
+      description: { type: 'string', maxLength: 160, description: 'Brief user-facing action label in the user language, e.g. Preparing the JSON files. Describe this operation only; do not claim a result or include reasoning.' },
       input_files: {
         type: 'array',
         items: { type: 'string' },

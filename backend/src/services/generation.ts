@@ -37,6 +37,7 @@ import { AUTO_ALIAS } from '../providers/registry.js';
 import type { RoutingDecision } from '../providers/routing.js';
 import { routeAuto } from '../providers/routing.js';
 import { getModelCapability } from '../providers/capabilitiesTable.js';
+import { activityOutputFiles } from './toolActivity.js';
 import type {
   AttachmentBlock,
   AttachmentRef,
@@ -125,8 +126,8 @@ export type StreamEvent =
   | { type: 'delta'; text: string }
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
-  | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
-  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
+  | { type: 'tool_use'; toolCallId: string; name: string; input: unknown; textOffset?: number }
+  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string; outputFiles?: string[] }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'ui_block'; block: UIBlock }
   | { type: 'debug'; trace: RuntimeDebugTrace }
@@ -932,6 +933,8 @@ export class GenerationService {
     const pendingToolInputs = new Map<string, unknown>();
     // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
     const pendingSignatures = new Map<string, string>();
+    const toolTextOffsets = new Map<string, number>();
+    let textLength = 0;
     const toolsCalled: string[] = [];
 
     try {
@@ -941,6 +944,7 @@ export class GenerationService {
         switch (event.type) {
           case 'delta':
             collectedText.push(event.text);
+            textLength += event.text.length;
             yield { type: 'delta', text: event.text };
             break;
 
@@ -969,7 +973,8 @@ export class GenerationService {
             toolsCalled.push(event.name);
             pendingToolInputs.set(event.toolCallId, event.input);
               if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
-            yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
+            toolTextOffsets.set(event.toolCallId, textLength);
+            yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input, textOffset: textLength };
             break;
           }
 
@@ -981,6 +986,7 @@ export class GenerationService {
               name: event.name,
               ok: event.result.ok,
               preview,
+              outputFiles: activityOutputFiles(event.result),
             };
             await this.persistToolCall(
               input.messageId,
@@ -990,6 +996,7 @@ export class GenerationService {
               event.result,
               eventOrdinal++,
               pendingSignatures.get(event.toolCallId),
+              toolTextOffsets.get(event.toolCallId),
             );
             while (pendingArtifactEvents.length > 0) {
               yield pendingArtifactEvents.shift()!;
@@ -1978,6 +1985,7 @@ export class GenerationService {
     result: ToolResult,
     ordinal: number,
     thoughtSignature?: string,
+    textOffset?: number,
   ): Promise<void> {
     await this.db
       .insert(toolCalls)
@@ -1985,6 +1993,7 @@ export class GenerationService {
         messageId,
         ordinal,
         toolCallId,
+        textOffset,
         name,
         input: input ?? {},
         content: withoutImageBytes(result.content),

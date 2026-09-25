@@ -409,6 +409,11 @@ failure mode of this pattern, not a sign it is working.
 
 ### 2026-09-18 — Concurrent cold-start instances raced the same non-idempotent migration
 
+- **2026-09-26 addendum:** Generating an activity-offset migration also proposed unrelated analysis
+  tables because the previous snapshot lagged the schema. Review generated SQL before applying it;
+  keep the migration and snapshot scoped to the intended nullable column. Verified the final SQL
+  contains only `ALTER TABLE tool_calls ADD COLUMN text_offset`, and transcript tests exercise it.
+
 - **Symptom:** After the fix above, most but not all instances of the same revision logged
   `"migrations applied"`; a few logged `"migration failed"` with
   `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` on a `CREATE

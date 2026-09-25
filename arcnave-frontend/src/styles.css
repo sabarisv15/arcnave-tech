@@ -1747,6 +1747,17 @@ textarea {
 .generation-status:empty {
   display: none;
 }
+.activity-group { margin: 18px 0 24px; color: var(--muted); font-size: 14px; }
+.activity-group summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 5px 0; }
+.activity-group summary::-webkit-details-marker { display: none; }
+.activity-group summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 4px; }
+.activity-group[open] .activity-chevron { transform: rotate(90deg); }
+.activity-details { border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin-top: 12px; overflow-wrap: anywhere; }
+.activity-details > div + div { margin-top: 16px; }
+.activity-details p { margin: 0 0 4px; }
+.activity-details small { font-size: 13px; line-height: 1.6; }
+.activity-failed { color: var(--danger, #b54a3b); }
+
 .thinking-dots {
   display: flex;
   gap: 4px;

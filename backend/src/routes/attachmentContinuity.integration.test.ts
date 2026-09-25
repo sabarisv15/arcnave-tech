@@ -167,7 +167,7 @@ describe('G26: attachments reach the sandbox by fileId', () => {
       { fileId: first, path: 'input/data.csv' },
       { fileId: second, path: suffixed },
     ]);
-    expect(data(result).stdout).toBe('first-file\nsecond-file\n');
+    expect(data(result).stdout.replace(/\r\n/g, '\n')).toBe('first-file\nsecond-file\n');
   });
 
   it('another user\'s fileId is refused and nothing is materialised', async () => {

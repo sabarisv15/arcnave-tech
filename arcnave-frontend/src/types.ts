@@ -91,6 +91,8 @@ export interface ResearchEvent {
 
 export interface ToolCall {
   toolCallId: string;
+  textOffset?: number | null;
+  outputFiles?: string[];
   name: string;
   input: unknown;
   /** Absent while the call is still in flight — the live SSE stream shows a `tool_use` frame
@@ -248,6 +250,8 @@ export function toResearchEvent(dto: ResearchEventDto): ResearchEvent {
 export function toToolCall(dto: ToolCallDto): ToolCall {
   return {
     toolCallId: dto.toolCallId,
+    textOffset: dto.textOffset,
+    outputFiles: dto.outputFiles,
     name: dto.name,
     input: dto.input,
     ok: dto.ok,
