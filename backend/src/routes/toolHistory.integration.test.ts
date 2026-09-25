@@ -1,8 +1,7 @@
 /**
  * A later turn sees the earlier turns' tool calls and results, as Claude's history keeps every
- * tool_use and tool_result (ADR-0022), and past the trigger the older results are cleared as
- * Claude's context editing clears them. The fake provider scripts the calls; nothing reaches
- * Vertex.
+ * tool_use and tool_result (ADR-0022), in full however large the requests grew (ADR-0023). The
+ * fake provider scripts the calls; nothing reaches Vertex.
  */
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -12,7 +11,6 @@ import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCompact.js';
-import { CLEARED_TOOL_RESULT } from '../services/history/toolHistory.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, signUp } from '../test/harness.js';
 
@@ -122,37 +120,21 @@ describe('tool calls in the history (ADR-0022)', () => {
     }
   });
 
-  it('clears older results once a request reaches the trigger, keeps the last 3, and keeps them cleared', async () => {
-    const { chatId, send } = await newChat();
+  it('keeps every result past 100,000 tokens, and restores one an earlier revision cleared', async () => {
+    const { send } = await newChat();
     for (const id of ['k1', 'k2', 'k3', 'k4']) {
       scriptCall(id, 'run_python', `result ${id}`);
       await send(`turn ${id}`);
     }
-    // The last request was 100,000 tokens: Claude's clear_tool_uses default trigger.
-    scriptCall('k5', 'run_python', 'result k5', ctx.cfg.CONTEXT_EDIT_TRIGGER_TOKENS);
+    // 100,000 was the context-editing trigger ADR-0023 removed; compaction is further off.
+    scriptCall('k5', 'run_python', 'result k5', 100_000);
     await send('turn k5');
+    await ctx.db.update(toolCalls).set({ resultCleared: true }).where(eq(toolCalls.toolCallId, 'k1'));
     plainAnswer();
     const request = await send('next');
 
     const results = request.history.flatMap((t) => t.toolCalls ?? []).map((c) => [c.id, c.result.content[0]]);
-    expect(results).toEqual([
-      ['k1', { type: 'text', text: CLEARED_TOOL_RESULT }],
-      ['k2', { type: 'text', text: CLEARED_TOOL_RESULT }],
-      ['k3', { type: 'text', text: 'result k3' }],
-      ['k4', { type: 'text', text: 'result k4' }],
-      ['k5', { type: 'text', text: 'result k5' }],
-    ]);
-    // The calls themselves stay (clear_tool_inputs defaults to false), and the rows keep the result.
-    expect(request.history.flatMap((t) => t.toolCalls ?? []).map((c) => c.input)).toHaveLength(5);
-    const stored = await ctx.db.select().from(toolCalls).where(eq(toolCalls.toolCallId, 'k1'));
-    expect(stored[0]!.content).toEqual([{ type: 'text', text: 'result k1' }]);
-
-    // The next request is small again, but a cleared result stays cleared.
-    plainAnswer();
-    const after = await send('and again');
-    const k1 = after.history.flatMap((t) => t.toolCalls ?? []).find((c) => c.id === 'k1')!;
-    expect(k1.result.content).toEqual([{ type: 'text', text: CLEARED_TOOL_RESULT }]);
-    expect(chatId).toBeTruthy();
+    expect(results).toEqual(['k1', 'k2', 'k3', 'k4', 'k5'].map((id) => [id, { type: 'text', text: `result ${id}` }]));
   });
 
   it('gives the summarizer what older turns ran and found, as Claude compacts the whole transcript', async () => {

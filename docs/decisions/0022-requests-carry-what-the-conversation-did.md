@@ -1,6 +1,7 @@
 # ADR-0022: The model sees what earlier turns did, starts with the tools file work needs, and settles the request first
 
-- Status: accepted. Tested locally; not live.
+- Status: accepted; deployed. Decision 2 (context editing) superseded by
+  [ADR-0023](0023-tool-results-are-not-cleared.md).
 - Date: 2026-09-25
 - Amends: [ADR-0006](0006-turn-router-policy-boundary.md) (decision 2: what is declared on every
   turn)
