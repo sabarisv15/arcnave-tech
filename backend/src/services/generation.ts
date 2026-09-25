@@ -101,7 +101,7 @@ import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
-import { formatContext } from './retrieval.js';
+import { formatContext, formatWholeFiles, projectFileTexts } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
 import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
@@ -1826,9 +1826,29 @@ export class GenerationService {
       }
     }
 
-    // 4. Project search context
+    // 4. Project knowledge. Claude keeps a project's files in context and switches to search
+    // only "when your project knowledge approaches the context window limit" (Help Center, RAG
+    // for projects). So: every file whole while they fit, excerpts by relevance past that.
     let retrievedContextText: string | undefined;
-    if (project) {
+    const wholeFiles = project ? await projectFileTexts(this.db, project.id) : [];
+    const wholeChars = wholeFiles.reduce((n, f) => n + f.text.length, 0);
+    if (
+      project &&
+      wholeFiles.length > 0 &&
+      wholeFiles.every((f) => f.whole) &&
+      wholeChars <= this.cfg.PROJECT_FULL_CONTEXT_MAX_CHARS
+    ) {
+      retrievedContextText = formatWholeFiles(wholeFiles);
+      events.push({
+        type: 'research',
+        event: {
+          stage: 'reading',
+          label: `Using all ${String(wholeFiles.length)} project file${wholeFiles.length === 1 ? '' : 's'} in full`,
+          detail: wholeFiles.map((f) => f.filename).join(', '),
+          at: new Date().toISOString(),
+        },
+      });
+    } else if (project) {
       const chunks = await this.retriever.search(
         this.db,
         project.id,

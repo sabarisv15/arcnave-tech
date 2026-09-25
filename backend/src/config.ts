@@ -119,6 +119,11 @@ const envSchema = z.object({
   MAX_OUTPUT_TOKENS_CEILING: int(32_000),
   /** Character budget for retrieved project context injected into a prompt. */
   PROJECT_CONTEXT_MAX_CHARS: int(12_000),
+  /** Project files go into the prompt whole while their text totals at most this many
+   *  characters; past it, only excerpts retrieved by relevance do (ADR-0020). Claude publishes
+   *  no number ("approaches the context window limit"). This one is ArcNave's: about a third of
+   *  the compaction trigger for English text, so a chat still has room before it compacts. */
+  PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
   PROJECT_CONTEXT_MAX_CHUNKS: int(8),
   /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
    *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
@@ -263,10 +268,6 @@ const envSchema = z.object({
   // --- Phase 5: Context Intelligence -------------------------------------
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
   ENABLE_PROMPT_CACHE: bool(true),
-  /** Minimum prefix token count required before Anthropic cache_control is placed. */
-  PROMPT_CACHE_MIN_TOKENS_ANTHROPIC: int(1024),
-  /** Minimum prefix token count expected before Gemini Vertex implicit caching kicks in. */
-  PROMPT_CACHE_MIN_TOKENS_GEMINI: int(2048),
 
   /** Master gate for persistent memory (PostgreSQL durable memory_items). */
   ENABLE_MEMORY: bool(false),
@@ -294,12 +295,6 @@ const envSchema = z.object({
   ENABLE_IMAGE_GENERATION: bool(true),
   /** Maximum bytes for a validated Generative UI response payload. */
   UI_MAX_RESPONSE_BYTES: int(100_000),
-  /** Master gate for advanced data analytics sessions and profiling. */
-  ENABLE_ANALYTICS: bool(true),
-  /** Gate for composed interactive dashboards. */
-  ENABLE_ANALYTICS_DASHBOARDS: bool(true),
-  /** Sliding TTL in hours for ephemeral derived datasets before recomputation. */
-  DERIVED_DATASET_TTL_HOURS: int(168),
 
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),

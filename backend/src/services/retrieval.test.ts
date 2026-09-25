@@ -15,6 +15,7 @@ import {
   ExtractionUnsupported,
   extractText,
   formatContext,
+  joinChunks,
   rankBm25,
   tokenize,
 } from './retrieval.js';
@@ -277,5 +278,24 @@ describe('extractText (.xlsx)', () => {
     expect(text).toContain('--- Staff ---');
     expect(text).toContain('Department | FacultyCount');
     expect(text).toContain('Mechanical | 25');
+  });
+});
+
+describe('joinChunks', () => {
+  const normalized = (t: string) => t.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).join('\n\n');
+
+  it('puts chunkText back together exactly, overlap removed', () => {
+    const words = (n: number, seed: number) =>
+      Array.from({ length: n }, (_, i) => `w${String((i * 7919 + seed) % 1000)}`).join(' ');
+    const texts = [
+      [words(50, 1), words(300, 2), words(20, 3), words(900, 4), words(5, 5)].join('\n\n'),
+      words(2000, 6),
+      ['short', 'tiny', words(600, 7), 'x'].join('\n\n'),
+    ];
+    for (const t of texts) {
+      const chunks = chunkText(t);
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(joinChunks(chunks)).toBe(normalized(t));
+    }
   });
 });

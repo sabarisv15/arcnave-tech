@@ -18,9 +18,14 @@
 > - An earlier file's whole extracted text goes on every later turn, as Claude keeps a file in
 >   context (test in `longChat.integration.test.ts`). `HISTORY_MAX_ATTACHMENT_TEXT_CHARS` was
 >   removed: nothing had read it since 2026-09-22, and its 8,000-character comment misled an audit.
+> - Project files go in whole while they total ≤ 200,000 characters; excerpts past that, as
+>   Claude switches to RAG ([ADR-0020](../decisions/0020-project-files-in-context.md)).
+> - Five settings that nothing read were removed (`ENABLE_ANALYTICS`, `ENABLE_ANALYTICS_DASHBOARDS`,
+>   `DERIVED_DATASET_TTL_HOURS`, `PROMPT_CACHE_MIN_TOKENS_ANTHROPIC`/`_GEMINI`).
+>   `configUsage.test.ts` now fails on any setting nothing reads.
 > - Found and fixed on the way: a Stop that arrived before the provider call did nothing
 >   (mistakes.md).
-> - Tests: backend 858/858, frontend 55/55, sandbox 16/16.
+> - Tests: see the latest commit message for counts.
 > - **Deploy order:** rebuild and deploy the sandbox image first
 >   ([warm-sandbox.md §1](../deploy/warm-sandbox.md)), then the backend.
 
