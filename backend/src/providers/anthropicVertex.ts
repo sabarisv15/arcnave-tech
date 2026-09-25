@@ -22,7 +22,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
+import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
 
@@ -48,9 +48,26 @@ export function toAnthropicToolResultBlock(
   toolUseId: string,
   result: ToolResult,
 ): Anthropic.ToolResultBlockParam {
-  const block = result.content[0];
-  const content = block === undefined ? '' : block.type === 'json' ? JSON.stringify(block.data) : block.text;
-  return { type: 'tool_result', tool_use_id: toolUseId, content, is_error: !result.ok };
+  const block = primaryToolContent(result);
+  const text = block === undefined ? '' : block.type === 'json' ? JSON.stringify(block.data) : block.text;
+  const images = toolImages(result);
+  if (images.length === 0) return { type: 'tool_result', tool_use_id: toolUseId, content: text, is_error: !result.ok };
+  return {
+    type: 'tool_result',
+    tool_use_id: toolUseId,
+    is_error: !result.ok,
+    content: [
+      { type: 'text', text: text || '(see images)' },
+      ...images.map((img) => ({
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: img.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+          data: img.base64,
+        },
+      })),
+    ],
+  };
 }
 
 function statusOf(err: unknown): number | undefined {

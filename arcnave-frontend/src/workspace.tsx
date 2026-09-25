@@ -25,7 +25,7 @@ import {
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "./api";
-import { generate } from "./adapter";
+import { attach, generate } from "./adapter";
 import { useSession } from "./session";
 import { applyTheme } from "./session";
 import { download, writeLocal } from "./storage";
@@ -160,6 +160,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [edit, setEdit] = useState<Context["edit"]>(null);
 
   const controller = useRef<AbortController | null>(null);
+  /** Set once `run` exists, so a transcript load can reattach to a reply still running. */
+  const attachRef = useRef<((chatId: string, messageId: string) => void) | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -298,6 +300,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         );
         setTranscript((t) => ({ ...t, [id]: "ready" }));
 
+        // A reply still generating with no stream in this tab (a reload, another tab, a
+        // dropped connection) is reattached, so it keeps filling in instead of spinning.
+        const running = settled
+          ? undefined
+          : mapped.find((m) => m.role === "assistant" && m.status === "generating");
+        if (running && !controller.current) attachRef.current?.(id, running.id);
+
         // Read again shortly so the persisted text and usage replace what this tab inferred.
         // Bounded: if the server never settles the row, the local terminal status stands
         // rather than the screen spinning forever.
@@ -343,6 +352,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   /* ------------------------------------------------------------------ generation */
 
+  /**
+   * Follows a reply this tab cannot stream (its run is on another server instance, or ended
+   * while the tab was away) by re-reading the chat until the row stops saying generating.
+   * Bounded by the server's own turn deadline.
+   */
+  const pollGenerating = useCallback((chatId: string, messageId: string) => {
+    const startedAt = Date.now();
+    const tick = async (): Promise<void> => {
+      try {
+        const detail = await api.chats.read(chatId);
+        const mapped = detail.messages.map(toMessage);
+        setMessages((m) => ({ ...m, [chatId]: mapped }));
+        const row = mapped.find((m) => m.id === messageId);
+        if (row?.status !== "generating" || Date.now() - startedAt > 60 * 60_000) return;
+      } catch {
+        // A failed read is retried on the next tick; the row on screen stays as it was.
+      }
+      setTimeout(() => void tick(), 3000);
+    };
+    void tick();
+  }, []);
+
   const run = useCallback(
     async (
       chatId: string,
@@ -354,6 +385,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         retryMessageId?: string;
         makeArtifact?: boolean;
         title: string;
+        /** Reattach to a run already going on the server instead of starting one. */
+        attachTo?: string;
       },
     ) => {
       const ac = new AbortController();
@@ -365,21 +398,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       let openedArtifact = false;
       // What this tab will assert about the row if the server has not caught up yet.
       let outcome: Message["status"] = "stopped";
+      let pollInstead = false;
+
+      if (options.attachTo) {
+        // Frames are replayed from the start, so what the row showed is rebuilt, not appended to.
+        patchMessage(chatId, assistantId, (m) => ({
+          ...m,
+          text: "",
+          status: "generating",
+          toolCalls: [],
+          codeBlocks: [],
+          events: [],
+          uiBlocks: [],
+        }));
+      }
+      const source = options.attachTo
+        ? attach(chatId, ac.signal)
+        : generate(
+            chatId,
+            {
+              prompt: options.prompt,
+              mode: options.mode,
+              model: preferences.modelAlias,
+              attachmentIds: options.attachmentIds,
+              ...(options.retryMessageId
+                ? { retryMessageId: options.retryMessageId }
+                : {}),
+            },
+            ac.signal,
+          );
 
       try {
-        for await (const event of generate(
-          chatId,
-          {
-            prompt: options.prompt,
-            mode: options.mode,
-            model: preferences.modelAlias,
-            attachmentIds: options.attachmentIds,
-            ...(options.retryMessageId
-              ? { retryMessageId: options.retryMessageId }
-              : {}),
-          },
-          ac.signal,
-        )) {
+        for await (const event of source) {
           if (event.type === "start") {
             // The server owns the message id. Adopt it now so feedback and retry address the
             // real row rather than a placeholder that only exists in this tab.
@@ -512,7 +562,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (error) {
-        if (ac.signal.aborted) {
+        if (error instanceof ApiError && error.code === "no_active_run") {
+          // The run is not on this server (finished, or on another instance). The persisted
+          // row is the truth; poll it while it still says generating.
+          if (controller.current === ac) {
+            controller.current = null;
+            setActiveRun(null);
+          }
+          pollInstead = true;
+        } else if (ac.signal.aborted) {
           outcome = "stopped";
           patchMessage(chatId, assistantId, (m) => ({
             ...m,
@@ -540,49 +598,64 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           controller.current = null;
           setActiveRun(null);
         }
-        if (completed && options.makeArtifact && text.trim()) {
-          try {
-            const created = await api.artifacts.create({
-              title: options.title.slice(0, 80) || "Untitled artifact",
-              kind: /webpage|html|website|landing page/i.test(options.title)
-                ? "webpage"
-                : /\bcode\b|function|script|snippet/i.test(options.title)
-                  ? "code"
-                  : "document",
-              content: text,
-              chatId,
-            });
-            setArtifacts((list) => [toArtifact(created), ...list]);
-            // The backend has no message→artifact column writer, so this link lives only for
-            // the current session. The artifact itself stays findable by chat in Artifacts.
-            patchMessage(chatId, assistantId, (m) => ({
-              ...m,
-              artifactId: created.id,
-            }));
-            setPanel({ kind: "artifact", id: created.id });
-          } catch (error) {
-            report(error, "The artifact could not be created.");
-          }
-        }
-        // Reconcile against what was actually persisted: ids, sequence, final status. The
-        // outcome this tab observed is passed along so a read that beats the server's own
-        // write cannot resurrect the spinner.
-        await loadTranscript(chatId, {
-          messageId: assistantId,
-          status: outcome,
-          text,
-        });
-        await refreshChats().catch(() => {});
       }
+      if (pollInstead) {
+        pollGenerating(chatId, assistantId);
+        return;
+      }
+      if (completed && options.makeArtifact && text.trim()) {
+        try {
+          const created = await api.artifacts.create({
+            title: options.title.slice(0, 80) || "Untitled artifact",
+            kind: /webpage|html|website|landing page/i.test(options.title)
+              ? "webpage"
+              : /\bcode\b|function|script|snippet/i.test(options.title)
+                ? "code"
+                : "document",
+            content: text,
+            chatId,
+          });
+          setArtifacts((list) => [toArtifact(created), ...list]);
+          // The backend has no message→artifact column writer, so this link lives only for
+          // the current session. The artifact itself stays findable by chat in Artifacts.
+          patchMessage(chatId, assistantId, (m) => ({
+            ...m,
+            artifactId: created.id,
+          }));
+          setPanel({ kind: "artifact", id: created.id });
+        } catch (error) {
+          report(error, "The artifact could not be created.");
+        }
+      }
+      // Reconcile against what was actually persisted: ids, sequence, final status. The
+      // outcome this tab observed is passed along so a read that beats the server's own
+      // write cannot resurrect the spinner.
+      await loadTranscript(chatId, {
+        messageId: assistantId,
+        status: outcome,
+        text,
+      });
+      await refreshChats().catch(() => {});
     },
     [
       preferences.modelAlias,
       patchMessage,
+      pollGenerating,
       loadTranscript,
       refreshChats,
       report,
     ],
   );
+
+  attachRef.current = (chatId, messageId) =>
+    void run(chatId, {
+      prompt: "",
+      mode: "chat",
+      attachmentIds: [],
+      placeholderId: messageId,
+      title: "",
+      attachTo: messageId,
+    });
 
   const startTurn = useCallback(
     (

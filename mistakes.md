@@ -1049,3 +1049,14 @@ practice, not canon.
   render. Rule: size renders in pixels, not dpi, and encode as JPEG; test on the real document's
   page size before calling a pipeline done. Verify: `pdfinfo` page size + a timed render of the
   real file; the first pass now takes ~0.7 s for all 12 pages.
+- **2026-09-24**: No new heading (over the cap). The KVB turn failed live four times, and I shipped
+  four fixes, each aimed at a symptom: token limit, round limit, forced answer, and a 400 that
+  the third fix caused. I judged tool calls by their "Done" labels. I never read the tool
+  inputs and outputs. The actual causes were in those payloads. The sandbox left out inputs
+  over 2 MiB without an error, so the PDF never arrived and the model got "file not found"
+  even though its `input_files` argument was correct. Every call was a cold, stateless Job. The
+  analyzer used column indexes that shifted on page 3. Rule: before fixing a failed agent turn,
+  read every tool call's full input and output, and the transport code between them. A "Done"
+  label proves only that no exception was thrown. Verify: the audit
+  (`phase3-root-cause-audit-2026-09-24.md`) cites payloads; the transport fix has a test that
+  a 4.7 MB input is refused, never dropped (`warmSandboxClient.test.ts`).

@@ -20,7 +20,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
+import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
 
@@ -81,13 +81,20 @@ export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclar
  * object shape beyond `Record<string, unknown>`'s outer wrapper.
  */
 export function toGeminiFunctionResponsePart(name: string, id: string, result: ToolResult): Part {
-  const block = result.content[0];
+  const block = primaryToolContent(result);
   const value = block === undefined ? '' : block.type === 'json' ? block.data : block.text;
+  const images = toolImages(result);
   return {
     functionResponse: {
       id,
       name,
       response: result.ok ? { output: value } : { error: value },
+      // Gemini 3 multimodal function response: the images sit inside the functionResponse part,
+      // never as separate parts of the turn (a stray part there is what made Vertex reject the
+      // request in PR #11).
+      ...(images.length > 0
+        ? { parts: images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })) }
+        : {}),
     },
   };
 }

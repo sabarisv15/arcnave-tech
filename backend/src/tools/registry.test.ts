@@ -5,11 +5,14 @@ import {
   GOAL_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
+  RUN_PYTHON_WARM,
   SKILL_TOOL_DEFINITIONS,
   UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
 } from './definitions.js';
 import { ProjectToolRegistry } from './registry.js';
+import { usesWarmSandbox } from './catalog.js';
+import { loadConfig } from '../config.js';
 
 describe('ProjectToolRegistry', () => {
   it('returns no tools when disabled, even with a project', () => {
@@ -133,5 +136,22 @@ describe('ProjectToolRegistry', () => {
       const withDeliverable = registry.getAvailableTools({ projectId: null, allowDeliverable: true });
       expect(withDeliverable.map((t) => t.name)).toContain('generate_deliverable');
     });
+  });
+
+  it('describes run_python as the configured engine runs it', () => {
+    const warm = new ProjectToolRegistry(true, true, false, false, false, false, false, false, false, RUN_PYTHON_WARM);
+    const tools = warm.getAvailableTools({ projectId: null, allowPython: true });
+    expect(tools).toContainEqual(RUN_PYTHON_WARM);
+    expect(RUN_PYTHON_WARM.description).toMatch(/persist between calls/);
+    expect(RUN_PYTHON.description).toMatch(/no persisted state between calls/);
+  });
+});
+
+describe('usesWarmSandbox', () => {
+  it('is on for the warm engine, and for auto only when the service URL is set', () => {
+    expect(usesWarmSandbox(loadConfig({ SANDBOX_ENGINE: 'warm' }))).toBe(true);
+    expect(usesWarmSandbox(loadConfig({ SANDBOX_ENGINE: 'auto', SANDBOX_SERVICE_URL: 'https://x.run.app' }))).toBe(true);
+    expect(usesWarmSandbox(loadConfig({ SANDBOX_ENGINE: 'auto' }))).toBe(false);
+    expect(usesWarmSandbox(loadConfig({ SANDBOX_ENGINE: 'cloud-run', SANDBOX_SERVICE_URL: 'https://x.run.app' }))).toBe(false);
   });
 });

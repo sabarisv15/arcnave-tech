@@ -14,6 +14,8 @@
  *   pressed stop cost those tokens; dropping the record would understate real spend.
  */
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
+import { usesWarmSandbox } from '../tools/catalog.js';
 
 import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
@@ -56,6 +58,7 @@ import {
   ProviderError,
   toolResultPreview,
   totalTokens,
+  withoutImageBytes,
 } from '../providers/types.js';
 import { AgentLoop } from './agentLoop.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
@@ -440,6 +443,7 @@ export class GenerationService {
       generativeUiEnabled,
       imageEnabled,
       this.tableExtractionEnabled(),
+      usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
     );
     // ADR-0006: permission alone decides. `pythonExposed` is telemetry and gates nothing.
     const allowPython = routingDecision.allowedTools.includes('run_python');
@@ -687,6 +691,7 @@ export class GenerationService {
             workspace,
             userId: input.userId,
             messageId: input.messageId,
+            chatId: input.chatId,
             db: this.db,
             storage: this.storage,
             visionProvider: this.visionProvider,
@@ -1748,7 +1753,7 @@ export class GenerationService {
         toolCallId,
         name,
         input: input ?? {},
-        content: result.content,
+        content: withoutImageBytes(result.content),
         ok: result.ok,
       })
       .onConflictDoNothing();

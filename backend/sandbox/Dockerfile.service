@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+
+# ArcNave warm run_python sandbox — a long-lived Cloud Run *service* (ADR-0010), one workspace
+# per chat. Deployed with a runtime service account that has zero project IAM and reachable only
+# through Cloud Run IAM from the backend's service account; see docs/runbooks/warm-sandbox.md.
+#
+# The server runs as root on purpose: it gives every workspace its own uid, which only root can
+# do, and it never runs submitted code as root (server.py refuses to start otherwise).
+
+FROM python:3.12-slim
+
+# Everything document work needs, installed at build time (ADR-0007: no runtime installs).
+# tesseract reads scanned pages; the Tamil pack because statements and bills here often are.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        poppler-utils pandoc libreoffice-nogui \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-tam \
+        fonts-dejavu-core fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/*
+
+# The same package set ChatGPT's and Claude's code tools ship for files: tables, PDFs (text,
+# tables, rendering), Office formats, images, OCR, charts.
+RUN pip install --no-cache-dir \
+        pandas numpy scipy matplotlib \
+        openpyxl xlrd xlsxwriter \
+        pdfplumber pypdf pymupdf \
+        python-docx python-pptx \
+        pillow pytesseract opencv-python-headless \
+        tabulate chardet
+
+COPY server.py /opt/arcnave/server.py
+
+ENV PYTHONUNBUFFERED=1 \
+    WORK_ROOT=/work
+
+EXPOSE 8080
+ENTRYPOINT ["python3", "/opt/arcnave/server.py"]

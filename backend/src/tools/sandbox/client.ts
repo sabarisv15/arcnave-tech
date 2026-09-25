@@ -16,6 +16,9 @@ export interface SandboxExecutionResult {
 export interface SandboxExecutionOptions {
   workspaceDir?: string;
   expectedOutputs?: string[];
+  /** Keeps a sandbox workspace across calls (one per chat) on engines that can. Without it
+   *  every call starts from an empty machine. */
+  sessionKey?: string;
 }
 
 export interface SandboxClient {

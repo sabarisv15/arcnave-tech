@@ -190,8 +190,18 @@ const envSchema = z.object({
   TRUSTED_PYTHON_PATH: z.string().default(process.platform === 'win32' ? 'python' : 'python3'),
   /** Per-call deadline for local trusted work (a 12-page 300 dpi render included). */
   TRUSTED_WORK_TIMEOUT_MS: int(120_000),
-  /** Sandbox engine to use: 'process' (local isolated runner), 'cloud-run' (Cloud Run Job), or 'auto'. */
-  SANDBOX_ENGINE: z.enum(['cloud-run', 'process', 'auto']).default('auto'),
+  /** Sandbox engine: 'warm' (the long-lived sandbox service, ADR-0010), 'cloud-run' (a
+   *  single-use Cloud Run Job per call), 'process' (local development only), or 'auto'
+   *  (warm when SANDBOX_SERVICE_URL is set, else the Job when it is configured). */
+  SANDBOX_ENGINE: z.enum(['warm', 'cloud-run', 'process', 'auto']).default('auto'),
+  /** Base URL of the warm sandbox service (ADR-0010), e.g. its Cloud Run https URL. */
+  SANDBOX_SERVICE_URL: optionalStr,
+  /** 'id-token' authenticates to the service as the backend's service account (Cloud Run IAM).
+   *  'none' is for a local sandbox server in development and is refused in production. */
+  SANDBOX_SERVICE_AUTH: z.enum(['id-token', 'none']).default('id-token'),
+  /** How long one run_python call's code may run on the warm service. Real document work
+   *  (OCR, a 12-page render) takes minutes, not the Job's 10 s. */
+  RUN_PYTHON_WARM_CODE_TIMEOUT_MS: int(300_000),
   /** Region for the arcnave-python-sandbox Cloud Run Job, independent of VERTEX_LOCATION/
    *  GEMINI_LOCATION (which cover only the two model APIs). See docs/decisions/0005-cloud-run-sandbox.md. */
   SANDBOX_LOCATION: z.string().default('us-central1'),

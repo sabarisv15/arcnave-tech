@@ -1,6 +1,6 @@
 # ADR-0008: Trusted work runs in the backend process, not a Cloud Run Job
 
-- Status: accepted
+- Status: accepted; its "run_python stays on the Cloud Run sandbox" superseded by [ADR-0010](0010-warm-sandbox-service.md) (2026-09-24)
 - Date: 2026-09-24
 - Amends: [ADR-0005](0005-cloud-run-sandbox.md) and G20 in the tools pipeline plan, where the
   one Cloud Run sandbox ran trusted CLIs and skill scripts as well as `run_python`. ADR-0007

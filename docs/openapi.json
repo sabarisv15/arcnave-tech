@@ -1489,7 +1489,7 @@
         "tags": [
           "chats"
         ],
-        "description": "Returns text/event-stream. Frames: start, research, delta, sources, tool_use, tool_result, done, error. Disconnecting cancels the underlying provider call.",
+        "description": "Returns text/event-stream. Frames: start, research, delta, sources, tool_use, tool_result, done, error. Each frame carries an SSE `id`. Disconnecting does not cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1544,6 +1544,43 @@
           }
         },
         "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/chats/{id}/stream": {
+      "get": {
+        "summary": "Reattach to this chat's running (or just finished) reply over SSE",
+        "tags": [
+          "chats"
+        ],
+        "description": "Replays the run's frames after `after` (the SSE `id` of the last frame received; omit for all), then streams live frames until the run ends. 404 `no_active_run` when this instance holds no run for the chat: read the chat for the persisted reply.",
+        "parameters": [
+          {
+            "schema": {
+              "default": -1,
+              "type": "integer",
+              "minimum": -1,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "after",
+            "required": false
+          },
           {
             "schema": {
               "type": "string",

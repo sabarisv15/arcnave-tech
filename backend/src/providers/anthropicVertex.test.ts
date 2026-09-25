@@ -168,6 +168,26 @@ describe('toAnthropicTool', () => {
 });
 
 describe('toAnthropicToolResultBlock', () => {
+  it('sends images as image blocks after the text', () => {
+    const block = toAnthropicToolResultBlock('call-1', {
+      toolCallId: 'call-1',
+      ok: true,
+      content: [
+        { type: 'json', data: { stdout: '' } },
+        { type: 'image', name: 'p3.png', mimeType: 'image/png', base64: 'AAAA' },
+      ],
+    });
+    expect(block).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'call-1',
+      is_error: false,
+      content: [
+        { type: 'text', text: JSON.stringify({ stdout: '' }) },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+      ],
+    });
+  });
+
   it('serialises a successful structured result as JSON text, is_error unset', () => {
     const block = toAnthropicToolResultBlock('call-1', {
       toolCallId: 'call-1',

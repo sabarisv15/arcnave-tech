@@ -10,9 +10,9 @@
  *
  * - **A frame can be split across reads.** Network chunks have nothing to do with SSE frame
  *   boundaries, so the buffer is only drained at a blank line. Parsing per chunk drops text.
- * - **Aborting must reach the server.** The signal is passed to `fetch`, which closes the
- *   socket; the backend listens for that close and aborts the provider call. The UI also
- *   posts `/stop`, because a run started on another tab has no socket here to close.
+ * - **Closing the socket does not stop the run.** The server keeps the run going and buffers
+ *   its frames, so a dropped connection reconnects from the last frame id (`resumable`). Stop
+ *   is explicit: the UI posts `/stop`.
  */
 import { ApiError, describeError, errorCopy, url } from "./api";
 import type { SourceDto, UsageDto } from "./api";
@@ -128,7 +128,107 @@ export async function* generate(
     throw await refusalToError(response);
   }
 
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  yield* resumable(chatId, response, signal);
+}
+
+/**
+ * Reattach to the chat's running reply (after a reload, or from another tab). Throws
+ * `no_active_run` when this server holds no run for the chat; the persisted message is then
+ * the answer.
+ */
+export async function* attach(
+  chatId: string,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const response = await openStream(chatId, -1, signal);
+  yield* resumable(chatId, response, signal);
+}
+
+/** Waits between reconnect attempts: immediate at first, then backing off, about two minutes in all. */
+const RECONNECT_DELAYS_MS = [0, 1000, 2000, 4000, 8000, 15000, 30000, 60000];
+
+/**
+ * Reads a run's frames and, when the connection drops before the run ended, reconnects from the
+ * last frame seen. The run keeps going on the server meanwhile, so nothing is lost or repeated.
+ */
+async function* resumable(
+  chatId: string,
+  first: Response,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  let response = first;
+  let lastId = -1;
+  let attempt = 0;
+  for (;;) {
+    let ended = false;
+    try {
+      for await (const frame of readFrames(response)) {
+        if (frame.id !== null) lastId = frame.id;
+        attempt = 0;
+        yield frame.event;
+        if (frame.event.type === "done" || frame.event.type === "error") ended = true;
+      }
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
+    if (ended || signal.aborted) return;
+    // The stream closed without an end frame: the connection dropped, not the run.
+    for (;;) {
+      if (attempt >= RECONNECT_DELAYS_MS.length) {
+        throw new ApiError({ code: "network", ...errorCopy["network"]! });
+      }
+      await delay(RECONNECT_DELAYS_MS[attempt]!, signal);
+      attempt += 1;
+      try {
+        response = await openStream(chatId, lastId, signal);
+        break;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        if (error instanceof ApiError && error.code !== "network") throw error;
+      }
+    }
+  }
+}
+
+async function openStream(
+  chatId: string,
+  after: number,
+  signal: AbortSignal,
+): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(url(`/chats/${chatId}/stream?after=${String(after)}`), {
+      credentials: "include",
+      headers: { Accept: "text/event-stream" },
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    throw new ApiError({ code: "network", ...errorCopy["network"]! });
+  }
+  if (!response.ok || !response.body) throw await refusalToError(response);
+  return response;
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function* readFrames(
+  response: Response,
+): AsyncGenerator<{ id: number | null; event: StreamEvent }> {
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   try {
     for (;;) {
@@ -140,8 +240,8 @@ export async function* generate(
       while (boundary !== -1) {
         const frame = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
-        const event = parseFrame(frame);
-        if (event) yield event;
+        const parsed = parseFrame(frame);
+        if (parsed) yield parsed;
         boundary = buffer.indexOf("\n\n");
       }
     }
@@ -154,8 +254,10 @@ export async function* generate(
   }
 }
 
-/** One SSE frame to a typed event, or null for a heartbeat or anything unrecognised. */
-function parseFrame(frame: string): StreamEvent | null {
+/** One SSE frame to a typed event and its id, or null for a heartbeat or anything unrecognised. */
+export function parseFrame(frame: string): { id: number | null; event: StreamEvent } | null {
+  const idLine = frame.split("\n").find((line) => line.startsWith("id:"));
+  const id = idLine ? Number(idLine.slice(3).trim()) : null;
   const data = frame
     .split("\n")
     // `: heartbeat` is a comment line and `event:` duplicates the `type` already in the body.
@@ -165,7 +267,7 @@ function parseFrame(frame: string): StreamEvent | null {
   if (!data) return null;
   try {
     const parsed = JSON.parse(data) as StreamEvent;
-    return parsed.type ? parsed : null;
+    return parsed.type ? { id: Number.isFinite(id) ? id : null, event: parsed } : null;
   } catch {
     // A malformed frame is not worth killing a running answer for. Skip it.
     return null;

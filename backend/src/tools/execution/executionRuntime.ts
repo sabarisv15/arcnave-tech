@@ -365,6 +365,7 @@ export class ExecutionRuntime {
     workspace?: WorkspaceFiles,
     signal?: AbortSignal,
     expectedOutputs?: string[],
+    sessionKey?: string,
   ): Promise<SandboxExecutionResult> {
     if (!this.sandboxClient) {
       throw new Error('Python sandbox execution is disabled or unavailable.');
@@ -374,6 +375,7 @@ export class ExecutionRuntime {
     return this.sandboxClient.runPython(code, execSignal, {
       workspaceDir: workspace?.workspaceDir,
       expectedOutputs,
+      sessionKey,
     });
   }
 

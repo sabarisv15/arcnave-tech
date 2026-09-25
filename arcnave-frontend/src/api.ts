@@ -132,6 +132,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "A response is already running",
     detail: "Stop the current response before starting another.",
   },
+  no_active_run: {
+    title: "No response is running here",
+    detail: "The reply has finished or is running elsewhere. Reload the chat to see it.",
+  },
   model_refused: {
     title: "The model declined this request",
     detail: "It stopped without answering. Rephrase the request or choose another model.",
