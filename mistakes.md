@@ -245,25 +245,6 @@ failure mode of this pattern, not a sign it is working.
   the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
   `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
 
-### 2026-09-17 — A Worker proxying to a non-Cloudflare origin added ~1.2s per request
-
-- **Symptom:** `GET /v1/chats` took 1.5–1.9s through `www.arcnave.tech`, versus ~0.2–0.3s
-  hitting the Cloud Run URL directly. The gap sat entirely between TLS handshake and first
-  byte, ruling out anything client-side.
-- **Cause:** The Worker fixing the previous entry's cookie bug (proxying `/v1/*` to Cloud Run)
-  runs at whichever Cloudflare edge received the client's request, and Cloud Run is not a
-  Cloudflare-fronted origin — so every proxied request pays a fresh cross-region TCP+TLS
-  handshake from that edge to `asia-south1`, with none of Cloudflare's connection reuse.
-- **Rule:** **A Worker that proxies to a non-Cloudflare origin needs `placement: { mode: "smart"
-  }` in `wrangler.jsonc`, or it pays a full handshake to that origin on every single request**
-  from whatever edge the client happened to hit. Smart Placement relocates the Worker's
-  execution near the origin instead, so the expensive hop happens once. It is not instant:
-  Cloudflare's own docs say convergence needs sustained multi-location traffic and can take up
-  to ~15 minutes after deploy — do not conclude the fix failed from measurements taken
-  immediately after deploying it.
-- **Verify:** `curl -D - <url> | grep -i cf-placement` — `local-<colo>` means unconverged (or
-  not proxying to a distant origin at all); `remote-<colo>` means Smart Placement is active.
-
 ### 2026-09-17 — The SSE generate endpoint had no CORS headers, only visible once cross-origin
 
 - **Symptom:** In a real browser, sending a chat message hung on "Thinking…" forever. Every
@@ -797,8 +778,24 @@ failure mode of this pattern, not a sign it is working.
   service code.
 - **Rule:** **After `drizzle-kit generate`, read the SQL and the journal.** Keep only the
   change you meant, and stamp `when` after the previous entry.
+  Never regenerate a migration that has already run anywhere under the same stamp. The
+  migrator records it as applied and skips the new SQL. That happened to 0012 in the local test
+  database; `drop database arcnave_test` recovered it.
 - **Verify:** `npx vitest run src/db/journal.test.ts` (stamp order, and every `schema.ts`
   table in the latest snapshot); `npx drizzle-kit generate` says "No schema changes".
+
+### 2026-09-25 — Follow-up turns redid the work, because the history kept only each turn's text
+
+- **Symptom:** Live: after a turn that counted a statement's rows, "federal bank la evalo
+  entries?" ran `load_skill`, `search_tools` and 10 `run_python` calls and read the PDF again.
+  The system prompt said "unless it is already loaded in this generation/session".
+- **Cause:** A history `Turn` was `{ role, text, attachments }`. Tool calls and results were
+  stored in `tool_calls` and shown in the UI, but never sent to the model again. The prompt
+  promised the model something the request did not contain.
+- **Rule:** **Before a prompt tells the model that something is "already in context", check
+  the captured request for it.** Earlier tool calls go into the history (`Turn.toolCalls`), and
+  context editing clears them, not the loader.
+- **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts`.
 
 ## Convention and sources
 

@@ -25,6 +25,14 @@ import {
 } from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 
+/**
+ * Allowed tools declared on every turn, beside search_tools and load_skill, so the model can call
+ * them without searching first. Claude docs, Tool search: "Keep your 3–5 most frequently used
+ * tools non-deferred so Claude can call them without searching first." These are the ones file
+ * work needs on nearly every turn; the rest stay discoverable (ADR-0006, amended by ADR-0022).
+ */
+export const DECLARED_EVERY_TURN: readonly string[] = ['run_python', 'read_uploaded_file', 'generate_deliverable'];
+
 export interface ToolContext {
   userId?: string;
   projectId: string | null;
@@ -82,6 +90,7 @@ export class ProjectToolRegistry implements ToolRegistry {
     if (this.agentLoopEnabled && context.activeGoalId) {
       tools.push(...GOAL_TOOL_DEFINITIONS);
     }
+    tools.push(...this.getAvailableTools(context).filter((t) => DECLARED_EVERY_TURN.includes(t.name)));
     return tools;
   }
 

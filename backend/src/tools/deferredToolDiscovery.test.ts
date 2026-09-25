@@ -30,7 +30,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
   );
 
   describe('1. Initial Provider Schemas Strictness (Round 0)', () => {
-    it('standard chat exposes ONLY search_tools and load_skill in Round 0 (never heavy schemas)', () => {
+    it('standard chat declares discovery plus the allowed every-turn tools in Round 0, nothing else (ADR-0022)', () => {
       const initialTools = fullRegistry.getInitialTools({
         projectId: null,
         allowPython: true,
@@ -39,17 +39,12 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
 
       const initialNames = initialTools.map((t) => t.name);
 
-      // Must contain core lightweight tools
-      expect(initialNames).toContain('search_tools');
-      expect(initialNames).toContain('load_skill');
-      expect(initialNames.length).toBe(2);
+      // Claude docs, Tool search: "Keep your 3–5 most frequently used tools non-deferred".
+      expect(initialNames).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable', 'run_python']);
 
-      // Heavy schemas MUST NOT be sent in Round 0
-      expect(initialNames).not.toContain('run_python');
-      expect(initialNames).not.toContain('generate_deliverable');
+      // Everything else stays discoverable
       expect(initialNames).not.toContain('web_search');
       expect(initialNames).not.toContain('web_fetch');
-      expect(initialNames).not.toContain('read_uploaded_file');
       expect(initialNames).not.toContain('generate_image');
       expect(initialNames).not.toContain('create_artifact');
       expect(initialNames).not.toContain('search_project_files');
@@ -78,13 +73,13 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'get_goal',
         'update_goal',
         'get_context_remaining',
+        'read_uploaded_file',
+        'generate_deliverable',
+        'run_python',
       ]);
 
-      // Heavy schemas are STILL excluded from Round 0 in AgentLoop
-      expect(initialNames).not.toContain('run_python');
-      expect(initialNames).not.toContain('generate_deliverable');
+      // Everything else is still discovered, not declared
       expect(initialNames).not.toContain('web_search');
-      expect(initialNames).not.toContain('read_uploaded_file');
     });
 
     it('returns empty array when tool use is disabled', () => {
@@ -226,7 +221,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       const availableTools: ToolDefinition[] = [...fullRegistry.getInitialTools(context)];
 
       // Initial state: only Round 0 core tools
-      expect(availableTools.map((t) => t.name)).toEqual(['search_tools', 'load_skill']);
+      expect(availableTools.map((t) => t.name)).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable', 'run_python']);
 
       const executor = new SearchToolsExecutor(policyCatalog, (discovered) => {
         if (!availableTools.some((t) => t.name === discovered.name)) {

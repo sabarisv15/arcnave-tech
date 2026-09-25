@@ -21,8 +21,8 @@ import { and, desc, eq, gt, inArray, isNotNull, lt } from 'drizzle-orm';
 
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
-import { attachments, conversationCompactions, messages, usageRecords } from '../../db/schema.js';
-import { EMPTY_USAGE, type Provider, type ProviderUsage, type Turn } from '../../providers/types.js';
+import { attachments, conversationCompactions, messages, toolCalls, usageRecords } from '../../db/schema.js';
+import { EMPTY_USAGE, toolCallAsText, type Provider, type ProviderUsage, type ToolContent, type Turn } from '../../providers/types.js';
 
 /** Claude's default summarization prompt (Compaction at a token threshold). */
 export const SUMMARY_PROMPT =
@@ -31,6 +31,10 @@ export const SUMMARY_PROMPT =
   'the task in a future context, where the raw history above may not be accessible and will be replaced with ' +
   'this summary. Write down anything that would be helpful, including the state, next steps, learnings etc. ' +
   'You must wrap your summary in a <summary></summary> block.';
+
+/** Characters of each earlier tool call given to the summarizer. ArcNave's number: enough for a
+ *  computed table or figure, not a whole extracted document. */
+const SUMMARY_TOOL_RESULT_CHARS = 2_000;
 
 /** Turns kept word for word after the summary, as the docs' keep-recent-turns example keeps two. */
 export const KEEP_TURNS = 2;
@@ -96,21 +100,29 @@ export async function shouldCompact(
   beforeSeq: number,
   contextWindow: number | null,
 ): Promise<boolean> {
-  const [last] = await deps.db
+  const context = await lastContextTokens(deps.db, chatId, beforeSeq);
+  return context !== null && context >= compactionTrigger(deps.cfg.COMPACTION_TRIGGER_TOKENS, contextWindow);
+}
+
+/**
+ * The exact size of the chat's last request before `beforeSeq`: prompt plus answer of the last
+ * provider request of the last assistant turn. Null when that was not reported exactly.
+ */
+export async function lastContextTokens(db: Database, chatId: string, beforeSeq: number): Promise<number | null> {
+  const [last] = await db
     .select({ id: messages.id })
     .from(messages)
     .where(and(eq(messages.chatId, chatId), eq(messages.role, 'assistant'), lt(messages.seq, beforeSeq)))
     .orderBy(desc(messages.seq))
     .limit(1);
-  if (!last) return false;
-  const [usage] = await deps.db
+  if (!last) return null;
+  const [usage] = await db
     .select({ context: usageRecords.contextTokens })
     .from(usageRecords)
     .where(and(eq(usageRecords.messageId, last.id), isNotNull(usageRecords.contextTokens)))
     .orderBy(desc(usageRecords.startedAt))
     .limit(1);
-  if (!usage?.context) return false;
-  return usage.context >= compactionTrigger(deps.cfg.COMPACTION_TRIGGER_TOKENS, contextWindow);
+  return usage?.context ?? null;
 }
 
 /**
@@ -160,13 +172,28 @@ export async function compact(
     filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ?? f.id} (fileId ${f.id})`]);
   }
 
+  // What the older turns ran and found goes into the summary too, as Claude compacts the whole
+  // transcript, tool results included. Each result is cut to SUMMARY_TOOL_RESULT_CHARS.
+  const callRows = await deps.db
+    .select({ messageId: toolCalls.messageId, id: toolCalls.toolCallId, name: toolCalls.name, input: toolCalls.input, content: toolCalls.content, ok: toolCalls.ok })
+    .from(toolCalls)
+    .where(inArray(toolCalls.messageId, older.map((r) => r.id)))
+    .orderBy(toolCalls.ordinal);
+  const callsOf = new Map<string, string[]>();
+  for (const c of callRows) {
+    const text = toolCallAsText({ id: c.id, name: c.name, input: c.input, result: { toolCallId: c.id, ok: c.ok, content: c.content as ToolContent[] } });
+    callsOf.set(c.messageId, [...(callsOf.get(c.messageId) ?? []), text.slice(0, SUMMARY_TOOL_RESULT_CHARS)]);
+  }
+
   const previous = fromSeq === null ? null : await previousSummary(deps.db, chatId);
   const history: Turn[] = older.map((r, i) => {
     const attached = filesOf.get(r.id);
     const lead = i === 0 && previous ? `<summary_of_earlier_conversation>\n${previous}\n</summary_of_earlier_conversation>\n\n` : '';
     return {
       role: r.role === 'user' ? 'user' : 'assistant',
-      text: `${lead}${r.text.trim() || '[Response stopped]'}${attached ? `\n\n[Attached: ${attached.join(', ')}]` : ''}`,
+      text:
+        `${lead}${callsOf.get(r.id)?.join('\n\n').concat('\n\n') ?? ''}${r.text.trim() || '[Response stopped]'}` +
+        `${attached ? `\n\n[Attached: ${attached.join(', ')}]` : ''}`,
     };
   });
 

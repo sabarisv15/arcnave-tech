@@ -165,8 +165,9 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
     visionCalls.length = 0;
     await generate({ prompt: PROMPT, attachmentIds: [fileId] });
 
-    // The model starts with discovery only; the table tools are reachable, run_python is not.
-    expect(exposed).toEqual(['search_tools', 'load_skill']);
+    // The model starts with discovery and the every-turn file tools (ADR-0022); the table tools
+    // are reachable through search, run_python is not allowed here.
+    expect(exposed).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable']);
     expect(trace.map((t) => t.name)).toEqual([
       'load_skill',
       'search_tools',

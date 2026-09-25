@@ -23,13 +23,17 @@ import type { DynamicSuffix, PromptAssembly, StablePrefix } from './types.js';
 /**
  * Builds the 100% stable prefix shared across all requests for a given tool authorization set.
  */
-export function buildStablePrefix(authorizedTools: ToolDefinition[]): StablePrefix {
+export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedToolNames?: string[]): StablePrefix {
+  // A policy about a tool goes in only when the tool is allowed this turn: a prompt that talks
+  // about memory or render_ui with neither available promises what the request cannot keep
+  // (Invariant 1). Still stable per tool set, which is what the prefix cache keys on.
+  const allowed = new Set(allowedToolNames ?? authorizedTools.map((t) => t.name));
   const systemText = [
     STATIC_BASE_SYSTEM_PROMPT_V1,
-    STATIC_MEMORY_POLICY_V1,
+    ...(allowed.has('search_memory') ? [STATIC_MEMORY_POLICY_V1] : []),
     STATIC_COMPACTION_POLICY_V1,
-    GENERATIVE_UI_POLICY_V1,
-    ANALYTICS_POLICY_V1,
+    ...(allowed.has('render_ui') ? [GENERATIVE_UI_POLICY_V1] : []),
+    ...(allowed.has('run_python') ? [ANALYTICS_POLICY_V1] : []),
   ].join('\n\n');
 
   const tools = canonicalizeTools(authorizedTools);
@@ -52,8 +56,10 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[]): StablePref
 export function assemblePrompt(
   authorizedTools: ToolDefinition[],
   dynamicSuffix: DynamicSuffix,
+  /** Tools allowed this turn including discoverable ones; defaults to the declared tools. */
+  allowedToolNames?: string[],
 ): PromptAssembly {
-  const stablePrefix = buildStablePrefix(authorizedTools);
+  const stablePrefix = buildStablePrefix(authorizedTools, allowedToolNames);
 
   const dynamicParts: string[] = [];
 

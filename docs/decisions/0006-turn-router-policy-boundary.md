@@ -1,6 +1,6 @@
 # ADR-0006: TurnRouter is a policy boundary only
 
-- Status: accepted
+- Status: accepted. Decision 2 amended by [ADR-0022](0022-requests-carry-what-the-conversation-did.md): run_python, read_uploaded_file and generate_deliverable are declared too when allowed.
 - Date: 2026-09-24
 - Changes: the gating role `backend/src/services/routing/turnRouter.ts` plays today. Its header
   already says "the AI model evaluates the task first", but the code does not do that. No earlier

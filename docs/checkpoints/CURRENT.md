@@ -1,6 +1,26 @@
 # ArcNave — current checkpoint
 
-> **2026-09-25 (latest): turn usage fixed, branch only, not deployed.**
+> **2026-09-25 (latest): the model sees what earlier turns did, and settles the request first.
+> Branch only, not deployed** ([ADR-0022](../decisions/0022-requests-carry-what-the-conversation-did.md)).
+> - **History.** Earlier tool calls and results go back into the history.
+>   - Gemini gets its signed `functionCall`s; Claude gets `tool_use`/`tool_result`.
+>   - Calls that cannot go natively (no signature, undeclared tool) go as text.
+>   - Past 100,000 exact tokens, all but the last 3 results are cleared, as Claude's context
+>     editing does, and stay cleared.
+>   - Migration 0012 adds `tool_calls.thought_signature` and `tool_calls.result_cleared`.
+> - **Declared tools.** `run_python`, `read_uploaded_file` and `generate_deliverable` are declared
+>   on every turn when allowed, so file work no longer starts with a `search_tools` round.
+> - **System prompt.**
+>   - Adds an "understand the request first" step (outcome, chat vs file, reuse what the
+>     conversation has).
+>   - A file request gets a file in the format asked for (any format, via `run_python` to
+>     `output/`).
+>   - The reply matches the user's script.
+>   - The memory, UI and analytics policies go only with their tools; no dead dataset wording.
+> - **Live check after deploy.** A follow-up question answers without re-running tools; "json
+>   file kudu" returns a download; a Tanglish question gets a Tanglish reply.
+
+> **2026-09-25: turn usage fixed, branch only, not deployed.**
 > [ADR-0021](../decisions/0021-turn-usage-sums-every-request.md).
 > - **Found live:** a 16-request PDF turn showed one request's tokens. Each adapter overwrote
 >   (Gemini) or took the max of (Anthropic) its rounds, and agent-mode usage was always

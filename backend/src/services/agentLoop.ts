@@ -578,7 +578,7 @@ export class AgentLoop {
         };
 
         const promptAssembly = {
-          stablePrefix: buildStablePrefix(availableTools),
+          stablePrefix: buildStablePrefix(availableTools, policyCatalog.map((t) => t.name)),
           dynamicSuffix: {},
           fullSystemInstruction: effectiveSystemInstruction,
         };
@@ -603,6 +603,8 @@ export class AgentLoop {
         let stepCallsCount = 0;
         let stepUsage: ProviderUsage = EMPTY_USAGE;
         const pendingToolInputs = new Map<string, unknown>();
+    // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
+    const pendingSignatures = new Map<string, string>();
 
         const stream = provider.stream(request);
 
@@ -643,6 +645,7 @@ export class AgentLoop {
             case 'tool_use':
               stepCallsCount++;
               pendingToolInputs.set(event.toolCallId, event.input);
+              if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
               yield {
                 type: 'tool_use',
                 toolCallId: event.toolCallId,
@@ -667,6 +670,7 @@ export class AgentLoop {
                 pendingToolInputs.get(event.toolCallId),
                 event.result,
                 eventOrdinal++,
+                pendingSignatures.get(event.toolCallId),
               );
               while (pendingArtifactEvents.length > 0) {
                 yield pendingArtifactEvents.shift()!;
@@ -863,6 +867,7 @@ export class AgentLoop {
     input: unknown,
     result: ToolResult,
     ordinal: number,
+    thoughtSignature?: string,
   ): Promise<void> {
     await this.db.insert(toolCallRows).values({
       messageId,
@@ -872,6 +877,7 @@ export class AgentLoop {
       ok: result.ok,
       content: withoutImageBytes(result.content),
       ordinal,
+      thoughtSignature: thoughtSignature ?? null,
     });
   }
 

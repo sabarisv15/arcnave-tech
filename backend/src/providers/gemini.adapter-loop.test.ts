@@ -218,7 +218,9 @@ describe('GeminiProvider tool-calling loop', () => {
     });
     const cfg = loadConfig({ NODE_ENV: 'test' });
     const provider = new GeminiProvider(cfg, client as never);
-    await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+    // The signature also leaves the adapter, so a later turn can replay the call (ADR-0022).
+    expect(events.find((e) => e.type === 'tool_use')).toMatchObject({ thoughtSignature: 'opaque-signature-abc' });
 
     const secondReq = client.calls[1] as { contents: { role: string; parts: { functionCall?: unknown; thoughtSignature?: string }[] }[] };
     const modelTurn = secondReq.contents.find((c) => c.role === 'model')!;

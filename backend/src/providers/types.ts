@@ -125,6 +125,24 @@ export function withoutImageBytes(content: ToolContent[]): ToolContent[] {
   );
 }
 
+/**
+ * An earlier turn's tool call written out as text, for when it cannot be replayed as a native
+ * call: made by another provider, missing Gemini's signature, or naming a tool this request does
+ * not declare. The model still sees what was called and what came back (ADR-0022).
+ */
+export function toolCallAsText(call: HistoryToolCall): string {
+  const block = primaryToolContent(call.result);
+  const out = block === undefined ? '' : block.type === 'json' ? JSON.stringify(block.data) : block.text;
+  return `[Tool call] ${call.name}(${JSON.stringify(call.input ?? {})})\n[${call.result.ok ? 'Result' : 'Error'}] ${out}`;
+}
+
+/** Whether a turn's calls can go as native calls: every one declared in this request (and, for
+ *  Gemini, signed). Otherwise the whole turn's calls go as text, so no turn is half of each. */
+export function replayNatively(calls: HistoryToolCall[], request: GenerationRequest, needsSignature: boolean): boolean {
+  const declared = new Set((request.tools ?? []).map((t) => t.name));
+  return calls.every((c) => declared.has(c.name) && (!needsSignature || Boolean(c.thoughtSignature)));
+}
+
 export function toolContentText(c: ToolContent): string {
   return c.type === 'text' ? c.text : c.type === 'json' ? JSON.stringify(c.data) : `[image ${c.name}]`;
 }
@@ -181,7 +199,7 @@ export type ProviderEvent =
   | { type: 'sources'; sources: ProviderSource[]; searchEntryPoint?: string }
   | { type: 'progress'; stage: Stage; label: string; detail: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
-  | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
+  | { type: 'tool_use'; toolCallId: string; name: string; input: unknown; thoughtSignature?: string }
   | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
   /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
   | { type: 'refusal'; category: string | null; explanation: string | null }
@@ -234,9 +252,22 @@ export interface AttachmentBlock {
   storageKey?: string;
 }
 
+/** A tool call an earlier assistant turn made, with the result the model received then. */
+export interface HistoryToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+  result: ToolResult;
+  /** Gemini's signature on the call, when the call was made by Gemini and kept. */
+  thoughtSignature?: string;
+}
+
 export interface Turn {
   role: 'user' | 'assistant';
   text: string;
+  /** An assistant turn's tool calls, in order, before its final text. As Claude's history keeps
+   *  every tool_use and tool_result, a later turn sees what was loaded, run and found. */
+  toolCalls?: HistoryToolCall[];
   /** Attachments belonging to this turn (PDFs, images, or documents), carried forward across
    *  turns so the model keeps "seeing" them with prompt caching. */
   attachments?: AttachmentBlock[];

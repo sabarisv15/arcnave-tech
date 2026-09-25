@@ -345,6 +345,13 @@ export const toolCalls = pgTable(
      *  truncated copy. See generation.ts's three-tier persist/preview split. */
     content: jsonb('content').notNull(),
     ok: boolean('ok').notNull(),
+    /** Gemini's opaque signature on the call's part. A later turn replays the call with it, as
+     *  the in-turn loop does; without it the call is replayed as text (ADR-0022). */
+    thoughtSignature: text('thought_signature'),
+    /** Set once the result was cleared from later requests (context editing, ADR-0022). Kept, not
+     *  recomputed: the conversation only grows, so a result Claude's API would clear once it
+     *  clears on every later request too. The row keeps the full result; only replay omits it. */
+    resultCleared: boolean('result_cleared').notNull().default(false),
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('uq_tool_call_ordinal').on(t.messageId, t.ordinal)],

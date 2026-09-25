@@ -22,6 +22,12 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
 
   // Core Behavior
   `<core_behavior>\n\n` +
+    `## Understand the request first\n\n` +
+    `Before any tool call, settle from the message and the conversation so far:\n` +
+    `- the outcome the user wants: an answer, a change to something, a new file, or an action;\n` +
+    `- the form it takes: a reply in chat, or a file, and if a file, which format;\n` +
+    `- what the conversation already holds: files, tool results and figures from earlier turns. Use them rather than redoing the work, unless the user asks for it again or they may have changed.\n\n` +
+    `When a request is ambiguous, address the most likely reading first, then ask about the rest, rather than asking before doing anything.\n\n` +
     `## Act on clear intent\n\n` +
     `When the user's request clearly asks you to do something, do the work.\n\n` +
     `Requests such as:\n` +
@@ -100,7 +106,7 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
 
   // Communication
   `<communication>\n\n` +
-    `Use clear, simple, direct English unless the user requests another language or style.\n\n` +
+    `Reply in the language and script the user writes in, unless they ask for another: a message in Tamil written in Latin letters gets a reply in Latin letters, not Tamil script. Use clear, simple, direct wording.\n\n` +
     `Match the user's level of technical detail.\n\n` +
     `Lead with the useful answer, result, or important finding.\n\n` +
     `Be concise by default.\n\n` +
@@ -219,11 +225,12 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
 
   // Professional Deliverables Section
   `<professional_deliverables>\n\n` +
-    `ArcNave supports professional, format-native export for:\n` +
-    `- DOCX,\n` +
-    `- XLSX,\n` +
-    `- PPTX,\n` +
-    `- PDF.\n\n` +
+    `## When the user asks for a file\n\n` +
+    `A request for a file ("give me a JSON file", "export this", "download", "as Excel") is answered with a file the user can download, in the format asked for, never with its contents pasted into chat. ` +
+    `Use the tool listed for that format under "Files for the user" in the capabilities section. If no tool there produces the format, say so plainly.\n\n` +
+    `In chat, give a short cover note: what the file holds and anything material about it.\n\n` +
+    `## Office and PDF files\n\n` +
+    `DOCX, XLSX, PPTX and PDF have format-native generation and verification.\n\n` +
     `When the user asks to convert an uploaded file (e.g. "convert this PDF into Excel"), call generate_deliverable with format (e.g. "xlsx") and sourceAttachmentId. DO NOT stop after merely reading the file or printing raw text in chat; generate the requested file deliverable immediately.\n\n` +
     `For substantial file creation, load the relevant specialized skill first.\n\n` +
     `Use this general workflow:\n\n` +
@@ -490,8 +497,9 @@ export function buildDynamicRuntimeContext(
       `Tool Discovery:\n- search_tools: Discover policy-approved tools on-demand for ${discoverableExamples.join(', ')}. When the user requests a task requiring an execution tool not yet in your parameter declarations, invoke search_tools to discover and load its schema.\n`,
       // ADR-0006: the core is always declared; nothing else is until search_tools discovers it.
       'Declared on every turn: search_tools' +
-        (capabilities.isAvailable('skills.discover') ? ' and load_skill' : '') +
-        '. The other tools named below are discoverable, not declared: find them with search_tools before calling them.\n' +
+        (capabilities.isAvailable('skills.discover') ? ', load_skill' : '') +
+        ', and run_python, read_uploaded_file and generate_deliverable whenever this turn allows them (the tool declarations you receive are the list). ' +
+        'The other tools named below are discoverable, not declared: find them with search_tools before calling them.\n' +
         'Decide what the task needs. When a direct answer is enough, answer directly without tools.\n',
     );
   }
@@ -528,7 +536,12 @@ export function buildDynamicRuntimeContext(
   }
 
   if (cfg.ENABLE_TOOL_USE) {
-    capabilityLines.push('Professional deliverable capabilities are fully supported:\n- DOCX\n- XLSX\n- PPTX\n- PDF\n');
+    capabilityLines.push(
+      capabilities.isAvailable('python.execute')
+        ? 'Files for the user:\n- DOCX, XLSX, PPTX, PDF: generate_deliverable (builds and verifies the format)\n' +
+            '- any other format (JSON, CSV, XML, TXT, Markdown, HTML, ZIP, images): run_python, writing the file to "output/"; every file written there is returned to the user as a download\n'
+        : 'Files for the user:\n- DOCX, XLSX, PPTX, PDF: generate_deliverable (builds and verifies the format)\n- no other format can be produced as a file here\n',
+    );
   }
 
   // Which skills exist is not written here: the turn lists every loaded skill's name and
@@ -554,8 +567,8 @@ export function buildDynamicRuntimeContext(
         `4. discover tools via search_tools if needed,\n` +
         `5. use ArcNave's actual tools to perform the work.\n\n` +
         `Choosing a skill:\n` +
-        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Match the request against those descriptions, and load every skill whose description fits before doing the work (for example, before working on an uploaded PDF, Word, Excel or PowerPoint file, or producing one), unless it is already loaded in this generation/session.\n\n` +
-        `Avoid reloading a skill that is already reliably available in the current context.\n\n` +
+        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Match the request against those descriptions, and load every skill whose description fits before doing the work (for example, before working on an uploaded PDF, Word, Excel or PowerPoint file, or producing one).\n\n` +
+        `A skill loaded earlier in this conversation is still in context: its load_skill result is in the history. Do not load it again.\n\n` +
         `Use only the smallest useful set of skills.\n\n` +
         `Several skills may be used together when the task genuinely requires them.\n\n` +
         `The user's explicit instruction takes priority over skill guidance.\n\n` +

@@ -12,6 +12,7 @@
 
 import type { Mode } from '../../providers/types.js';
 import { evaluateRunPythonPolicy } from '../../tools/capabilityPolicy.js';
+import { DECLARED_EVERY_TURN } from '../../tools/registry.js';
 
 export type DetectedIntent =
   | 'IMAGE_GENERATION'
@@ -139,9 +140,13 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
   return Array.from(allowed);
 }
 
-/** The tools every turn starts with, whatever its intent (ADR-0006). */
-function coreTools(input: RouteTurnInput): string[] {
-  return input.candidateSkills.length > 0 ? ['search_tools', 'load_skill'] : ['search_tools'];
+/**
+ * The tools every turn starts with, whatever its intent (ADR-0006): discovery, plus the allowed
+ * tools declared on every turn (ADR-0022).
+ */
+function coreTools(input: RouteTurnInput, allowed: string[]): string[] {
+  const discovery = input.candidateSkills.length > 0 ? ['search_tools', 'load_skill'] : ['search_tools'];
+  return [...discovery, ...DECLARED_EVERY_TURN.filter((name) => allowed.includes(name))];
 }
 
 export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
@@ -158,7 +163,7 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
   const pythonAllowed = Boolean(input.runPythonEnabled && pythonDecision.allowed);
 
   const allowedTools = computeAllowedTools(input);
-  const exposedTools = coreTools(input);
+  const exposedTools = coreTools(input, allowedTools);
 
   // 1. Image Generation Intent
   const isImageRequest =
