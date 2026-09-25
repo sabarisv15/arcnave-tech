@@ -6,6 +6,10 @@
  * and as page images, a longer one as text only; an image may be up to 8000×8000 pixels; every
  * other document is read as its extracted text. This module applies the same rules.
  *
+ * Extracted text is kept whole. As in Claude, what limits it is the answering model's context
+ * window, and that is decided when the file is sent to a model, from exact token counts; an
+ * upload-time character cap would decide it here, blind to the model.
+ *
  * It must not depend on which model answers. The model is one API behind an interface and can
  * change; so PDFs are counted and their text layer read here, locally, with poppler, instead of
  * relying on one provider's native PDF reader. Audio and video transcription is the one
@@ -30,9 +34,6 @@ export const FILE_LIMITS = {
   pdfVisualMaxPages: 100,
   imageMaxDimension: 8000,
 } as const;
-
-/** Extracted text handed to a prompt, so it is capped independently of file size. */
-export const MAX_EXTRACTED_CHARS = 200_000;
 
 /**
  * How a model will be shown this file. Decided here, once, so that every provider reads the
@@ -147,13 +148,11 @@ async function processPdf(input: ProcessUploadInput): Promise<ProcessedUpload> {
   if (text === '' && pageCount > FILE_LIMITS.pdfVisualMaxPages) {
     notes.push('It has no text layer, so nothing in it can be read.');
   }
-  const capped = capText(text);
-  if (capped.note) notes.push(capped.note);
   return {
     // Still `ready`: the file itself goes to code, which can read what the model cannot.
     status: 'ready',
     error: notes.join(' '),
-    extractedText: capped.text || null,
+    extractedText: text || null,
     pageCount,
   };
 }
@@ -199,24 +198,14 @@ async function processDocument(input: ProcessUploadInput): Promise<ProcessedUplo
   }
   try {
     const data = await readFile(input.path);
-    const capped = capText(await extractText(data, input.mimeType, input.filename, input.visionProvider));
-    return { status: 'ready', error: capped.note, extractedText: capped.text, pageCount: null };
+    const text = await extractText(data, input.mimeType, input.filename, input.visionProvider);
+    return { status: 'ready', error: '', extractedText: text, pageCount: null };
   } catch (err) {
     if (err instanceof ExtractionUnsupported || (err instanceof Error && err.name === 'ExtractionUnsupported')) {
       return { status: 'unsupported', error: err.message, extractedText: null, pageCount: null };
     }
     throw err;
   }
-}
-
-function capText(text: string): { text: string; note: string } {
-  if (text.length <= MAX_EXTRACTED_CHARS) return { text, note: '' };
-  return {
-    text: text.slice(0, MAX_EXTRACTED_CHARS),
-    note:
-      `Only the first ${MAX_EXTRACTED_CHARS.toLocaleString('en-US')} characters of ` +
-      'this file are sent with your message.',
-  };
 }
 
 function pdfError(err: unknown): string {

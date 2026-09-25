@@ -99,11 +99,12 @@ describe('upload and extraction', () => {
     expect(statusCode).toBe(413);
   });
 
-  it('truncates very long text and says so rather than sending a silently clipped file', async () => {
-    // 200_000 is the extraction cap in the route.
-    const { body } = await upload('long.txt', 'x'.repeat(250_000));
-    expect(body).toMatchObject({ status: 'ready', hasText: true });
-    expect(String(body['error'])).toContain('first');
+  it('keeps the whole text of a long file; the model context window, not upload, limits it', async () => {
+    const { body } = await upload('long.txt', 'x'.repeat(250_000) + 'END-MARKER');
+    expect(body).toMatchObject({ status: 'ready', hasText: true, error: '' });
+    const [row] = await ctx.db.select().from(attachments).where(eq(attachments.id, String(body['id'])));
+    expect(row!.extractedText).toHaveLength(250_010);
+    expect(row!.extractedText!.endsWith('END-MARKER')).toBe(true);
   });
 });
 

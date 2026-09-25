@@ -58,7 +58,9 @@ one provider's PDF reader, then changing the model changes what the file says.
    - A file that is too large to extract, or a long PDF with no text layer, stays `ready` and
      carries a note. It is not marked `unsupported`, because only `ready` files reach later
      turns and code.
-   - Text is still capped at 200,000 characters. When the cap applies, a note says so.
+   - Extracted text is kept whole; the old 200,000-character upload cap is gone. As in Claude,
+     the limit is the answering model's context window, and that is checked when the file is
+     sent (stage 2), from exact token counts.
 
 ## Consequences
 
