@@ -1,12 +1,21 @@
 # ArcNave — current checkpoint
 
-> **2026-09-25 (latest): the model sees what earlier turns did, and settles the request first.
-> Branch only, not deployed** ([ADR-0022](../decisions/0022-requests-carry-what-the-conversation-did.md)).
+> **2026-09-25 (latest): tool results are no longer cleared** ([ADR-0023](../decisions/0023-tool-results-are-not-cleared.md)).
+> ADR-0022's 100,000-token context editing is removed: it is an opt-in API feature, and the Claude
+> app only summarizes near the window. Live, it dropped a two-PDF turn's counts and the follow-up
+> re-ran OCR. Every earlier result is now replayed in full until compaction; results cleared
+> while it was live come back. Also in this change, tool calls show as one activity block, Claude-style: `ToolActivity.tsx` replaces the per-call cards. While the turn works it sits above
+> the answer, names the step in progress ("Running command", "Loading skill") with an animated
+> spark, a shimmer and a timer; once the answer arrives it folds into one line ("Loaded a skill,
+> ran 4 commands, created a file") that expands to a timeline, each step opening its code and
+> output. File and image cards are unchanged.
+>
+> **2026-09-25: the model sees what earlier turns did, and settles the request first.
+> Deployed as revision `arcnave-sandbox-service-00136-gzl`** ([ADR-0022](../decisions/0022-requests-carry-what-the-conversation-did.md)).
 > - **History.** Earlier tool calls and results go back into the history.
 >   - Gemini gets its signed `functionCall`s; Claude gets `tool_use`/`tool_result`.
 >   - Calls that cannot go natively (no signature, undeclared tool) go as text.
->   - Past 100,000 exact tokens, all but the last 3 results are cleared, as Claude's context
->     editing does, and stay cleared.
+>   - (Result clearing past 100,000 tokens was removed by ADR-0023.)
 >   - Migration 0012 adds `tool_calls.thought_signature` and `tool_calls.result_cleared`.
 > - **Declared tools.** `run_python`, `read_uploaded_file` and `generate_deliverable` are declared
 >   on every turn when allowed, so file work no longer starts with a `search_tools` round.

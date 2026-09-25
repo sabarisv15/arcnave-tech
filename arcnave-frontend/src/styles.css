@@ -5351,3 +5351,149 @@ select:focus-visible {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* Tool activity: the turn's steps, Claude-style (ToolActivity.tsx). */
+.tool-activity {
+  margin: 4px 0 14px;
+  font-size: 13.5px;
+}
+.tool-activity-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: color-mix(in srgb, var(--ink) 70%, var(--muted));
+}
+.tool-activity-head:hover { color: var(--ink); }
+.tool-activity-head time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.activity-chevron {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.activity-chevron.open { transform: rotate(90deg); }
+
+.working-spark {
+  flex-shrink: 0;
+  fill: var(--accent);
+  opacity: 0.85;
+}
+.working-spark.is-active {
+  animation: spark-spin 2.4s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes spark-spin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(0.78); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, var(--muted) 0%, var(--ink) 45%, var(--muted) 90%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-sweep 1.8s linear infinite;
+}
+@keyframes shimmer-sweep {
+  0% { background-position: 110% 0; }
+  100% { background-position: -110% 0; }
+}
+
+.activity-steps {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.activity-step {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 3px 0 7px;
+}
+.activity-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 27px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--line);
+}
+.activity-step-icon {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+}
+.activity-step.is-running .activity-step-icon {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  animation: step-pulse 1.4s ease-in-out infinite;
+}
+.activity-step.is-failed .activity-step-icon {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+@keyframes step-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+.activity-step-body {
+  min-width: 0;
+  flex: 1;
+}
+.activity-step-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 23px;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: color-mix(in srgb, var(--ink) 75%, var(--muted));
+  cursor: pointer;
+}
+.activity-step-label:disabled { cursor: default; opacity: 1; }
+.activity-step-detail {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.activity-step-detail pre {
+  margin: 0;
+  padding: 9px 12px;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
+.activity-step-detail .activity-output {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.activity-step-detail pre:only-child { border-top: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .working-spark.is-active,
+  .shimmer-text,
+  .activity-step.is-running .activity-step-icon { animation: none; }
+  .shimmer-text { color: var(--ink); background: none; }
+}

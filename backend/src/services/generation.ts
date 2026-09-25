@@ -85,7 +85,7 @@ import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
 import { buildBaseSystemPrompt, buildDynamicRuntimeContext } from './systemPrompt.js';
 import { assemblePrompt } from './promptCache/promptAssembly.js';
-import { clearOldToolResults, loadToolCalls, toolCallChars } from './history/toolHistory.js';
+import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
@@ -1458,11 +1458,7 @@ export class GenerationService {
       })
       .filter((r) => r.text.trim() !== '');
 
-    // Earlier turns' tool calls go with them (ADR-0022), older results cleared past the trigger.
-    if (self) {
-      const cleared = await clearOldToolResults(this.db, chatId, self.seq, this.cfg);
-      if (cleared > 0) log.info({ chatId, cleared }, 'cleared older tool results from the history');
-    }
+    // Earlier turns' tool calls go with them, results in full (ADR-0022, ADR-0023).
     const toolCallsOf = await loadToolCalls(
       this.db,
       ordered.filter((r) => r.role === 'assistant').map((r) => r.id),

@@ -75,15 +75,6 @@ failure mode of this pattern, not a sign it is working.
   already created.** If a handler writes a row before doing work, the `catch` owns that row.
 - **Verify:** Unset every `MODEL_*`, generate, reload — the message reads `error`, not a spinner.
 
-### 2026-09-16 — `request.log` wrote nothing
-
-- **Symptom:** The error handler logged on every 500 and the logs were empty.
-- **Cause:** Fastify was constructed without `loggerInstance`, so its logger was disabled and
-  `request.log` was a silent no-op. Nothing failed; the lines simply went nowhere.
-- **Rule:** **Never assume a logging call worked because it compiled.** After wiring any logger,
-  trigger one line and read it back.
-- **Verify:** Hit an unknown route; a `warn`/`error` line with the matching `reqId` appears.
-
 ### 2026-09-17 — Test expectations asserted from memory instead of computation
 
 - **Symptom:** Two brand-new tests failed on first run — a DST boundary expected
@@ -794,8 +785,23 @@ failure mode of this pattern, not a sign it is working.
   promised the model something the request did not contain.
 - **Rule:** **Before a prompt tells the model that something is "already in context", check
   the captured request for it.** Earlier tool calls go into the history (`Turn.toolCalls`), and
-  context editing clears them, not the loader.
+  only compaction shortens it, not the loader.
 - **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts`.
+
+### 2026-09-25 — An opt-in API feature was made the default, and follow-ups lost their results
+
+- **Symptom:** Live: after a two-PDF turn (1.1M input tokens over ~13 rounds), "federal la evlo
+  entries and kvb la evlo entries?" re-ran OCR on the statement instead of answering from the
+  counts the previous turn found.
+- **Cause:** ADR-0022 cleared all but the last 3 tool results once a request passed 100,000
+  tokens, the defaults of the API's `clear_tool_uses`. The docs say "Context editing is opt-in";
+  the Claude app summarizes only "when your conversation approaches the context window limit".
+  The last 3 results were the file step, so the counts went.
+- **Rule:** **"Claude does X" needs the source that says Claude's app does it, not an API
+  option's default.** A default is what happens after someone opts in, and is no evidence anyone
+  does.
+- **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts` (every result past
+  100,000 tokens is replayed in full).
 
 ## Convention and sources
 
