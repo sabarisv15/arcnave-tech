@@ -33,6 +33,8 @@ export const FILE_LIMITS = {
   /** Up to this many pages a PDF is read as text and page images; beyond it, text only. */
   pdfVisualMaxPages: 100,
   imageMaxDimension: 8000,
+  /** claude.ai's per-image size: "10 MB on claude.ai" (Vision, Request limits). */
+  imageMaxBytes: 10 * 1024 * 1024,
 } as const;
 
 /**
@@ -233,6 +235,12 @@ async function processPdf(input: ProcessUploadInput, textLimitBytes: number): Pr
 }
 
 async function processImage(input: ProcessUploadInput): Promise<ProcessedUpload> {
+  if (input.sizeBytes > FILE_LIMITS.imageMaxBytes) {
+    throw new UploadRejected(
+      'payload_too_large',
+      `This image is ${(input.sizeBytes / 1024 / 1024).toFixed(1)} MB. Images can be at most 10 MB.`,
+    );
+  }
   let width: number | undefined;
   let height: number | undefined;
   try {

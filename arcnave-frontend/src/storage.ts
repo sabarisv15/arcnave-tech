@@ -48,6 +48,8 @@ export const allowed =
 
 /** Project files go through the API in one request: Claude's 30 MB per project file. */
 export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+/** claude.ai's per-image limit; the server enforces the same (FILE_LIMITS.imageMaxBytes). */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 /** Chat attachments upload straight to storage: Claude's 500 MB per file. */
 export const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024;
 
@@ -60,6 +62,8 @@ export function validateFile(
   if (file.size === 0) return "That file is empty.";
   if (file.size > maxBytes)
     return `This file is larger than ${Math.round(maxBytes / (1024 * 1024))} MB. Choose a smaller file.`;
+  if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) && file.size > MAX_IMAGE_BYTES)
+    return "This image is larger than 10 MB. Choose a smaller image.";
   return null;
 }
 

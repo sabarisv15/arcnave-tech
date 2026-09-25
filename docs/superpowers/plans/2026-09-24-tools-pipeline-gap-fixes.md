@@ -137,7 +137,7 @@ one). Live verification needs approval.
 | G5 | Agent-loop routing lives in one function; the duplicate `isAgentMode` goes | Unit test |
 | G8 | Remove the dead `selectedSkills` preload; autoload follows each skill's `autoload` frontmatter instead of a hard-coded name | Skills tests |
 
-## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0017 first (ADR-0008 went to trusted work; 0009 and 0010 to background runs and the warm sandbox; 0011 to upload rules; 0012 to retention; 0013 to PDF pages; 0014 to sandbox resources per chat; 0015 to sandbox checkpoints; 0016 to page images by URI)
+## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0017 first (ADR-0008 went to trusted work; 0009 and 0010 to background runs and the warm sandbox; 0011 to upload rules; 0012 to retention; 0013 to PDF pages; 0014 to sandbox resources per chat; 0015 to sandbox checkpoints; 0016 to page images by URI; 0018 to skills; 0019 to long chats)
 
 - **G9:** Claude models use Claude's native tool search (`defer_loading`), which Vertex
   supports. Gemini keeps `search_tools`. Verify `cache_read_input_tokens` locally (needs approval).

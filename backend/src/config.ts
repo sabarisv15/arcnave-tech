@@ -120,10 +120,10 @@ const envSchema = z.object({
   /** Character budget for retrieved project context injected into a prompt. */
   PROJECT_CONTEXT_MAX_CHARS: int(12_000),
   PROJECT_CONTEXT_MAX_CHUNKS: int(8),
-  HISTORY_MAX_TURNS: int(20),
-  /** Bytes of image/PDF attachment data carried forward from earlier turns in one chat, total,
-   *  per generate call. Oldest carried-forward attachments drop first past this cap; a file
-   *  newly attached to the current turn is never dropped by it. */
+  /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
+   *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
+   *  of the current turn never does. Claude (verified request limit) and Gemini PDFs sent by
+   *  gs:// URI are not held to it (ADR-0019). */
   HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
   /** Characters of text-extracted attachment content carried forward per older turn, per
    *  generate call: "how much of a file to re-pay for on every later turn of the same chat".
@@ -281,8 +281,11 @@ const envSchema = z.object({
   /** Maximum relevant memory items injected per turn. */
   MEMORY_RELEVANT_MAX_ITEMS: int(5),
 
-  /** Master gate for context pressure-driven conversation compaction. */
-  ENABLE_CONTEXT_COMPACTION: bool(false),
+  /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
+  ENABLE_CONTEXT_COMPACTION: bool(true),
+  /** Input tokens of the previous request at which a chat compacts: Claude's threshold default.
+   *  Capped at three quarters of the model's window, and never below Claude's 50,000 minimum. */
+  COMPACTION_TRIGGER_TOKENS: int(150_000),
   /** Headroom threshold in tokens below which compaction triggers. */
   COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),
   /** Headroom ratio (remaining context / total context window) below which compaction triggers. */

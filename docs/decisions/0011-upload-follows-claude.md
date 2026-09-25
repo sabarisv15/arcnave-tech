@@ -3,6 +3,9 @@
 - Status: accepted. Stage 2 acts on `reading` for PDFs: [ADR-0013](0013-pdfs-sent-as-page-images-and-text.md).
   2026-09-25: `MAX_UPLOAD_BYTES` (project files and the multipart route) raised from 20 MB to
   30 MB, Claude's per-file limit for project files.
+  2026-09-25: an image over 10 MB is refused at upload ("10 MB on claude.ai", Vision). A paste
+  longer than 4,000 characters becomes an attached `pasted-text.txt`, as claude.ai turns a long
+  paste into an attachment. Anthropic does not publish its threshold, so 4,000 is ArcNave's own.
 - Date: 2026-09-25
 - See also: [ADR-0004](0004-file-handling-parity.md) (which extractors read which format)
 

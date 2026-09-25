@@ -234,6 +234,11 @@ describe("upload policy", () => {
     ).toContain("30 MB");
   });
 
+  it("rejects an image over claude.ai's 10 MB, even under the attachment ceiling", () => {
+    expect(validateFile({ name: "photo.jpg", size: 11 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("10 MB");
+    expect(validateFile({ name: "photo.jpg", size: 10 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
+  });
+
   it("rejects an empty file, which the server also refuses", () => {
     expect(validateFile({ name: "empty.txt", size: 0 })).toContain("empty");
   });

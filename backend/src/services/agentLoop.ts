@@ -46,7 +46,7 @@ import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
 import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
 import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
-import { SkillToolExecutor } from '../tools/skillExecutor.js';
+import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
@@ -209,7 +209,9 @@ export class AgentLoop {
     }, this.cfg.AGENT_LOOP_TIMEOUT_MS);
 
     const onAbort = () => timeoutController.abort(input.signal.reason);
-    input.signal.addEventListener('abort', onAbort, { once: true });
+    // Added after an abort, the listener would never fire (see GenerationService's TTFT loop).
+    if (input.signal.aborted) onAbort();
+    else input.signal.addEventListener('abort', onAbort, { once: true });
 
     let cumulativeUsage: ProviderUsage = EMPTY_USAGE;
     let finishReason = 'stop';
@@ -375,7 +377,7 @@ export class AgentLoop {
                   missingCapabilities: skill.missingCapabilities,
                 },
               });
-            })
+            }, { scriptsRoot: runPythonEnabled && usesWarmSandbox(this.cfg) ? SANDBOX_SKILLS_ROOT : undefined })
           : undefined;
 
         const pendingArtifactEvents: StreamEvent[] = [];

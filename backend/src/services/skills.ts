@@ -30,10 +30,27 @@ export type SkillScope = 'builtin' | 'project' | 'user';
 
 export type SkillMode = 'full' | 'guidance_only' | 'unavailable';
 
+const XML_TAG = /<[^>]*>/;
+
+/**
+ * Claude's Agent Skills field rules (platform.claude.com, "Agent Skills", Skill structure):
+ * name at most 64 characters of lowercase letters, numbers and hyphens, no XML tags, no reserved
+ * words; description non-empty, at most 1024 characters, no XML tags. Every skill's description
+ * is in every system prompt, so the length cap is what keeps that list cheap.
+ */
 const skillFrontmatterSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/, 'lowercase letters, numbers and hyphens only')
+    .refine((n) => !/anthropic|claude/.test(n), 'must not contain "anthropic" or "claude"'),
   version: z.string().default('1.0.0'),
-  description: z.string().min(1),
+  description: z
+    .string()
+    .min(1)
+    .max(1024)
+    .refine((d) => !XML_TAG.test(d), 'must not contain XML tags'),
   category: z
     .enum(['artifact', 'analysis', 'research', 'internal', 'meta', 'general'])
     .default('general'),
@@ -84,6 +101,8 @@ import type { CapabilityRegistry } from '../capabilities/registry.js';
 
 export class SkillService {
   private readonly skills = new Map<string, SkillEntry>();
+  /** Skill directories that were not loaded, and why. A skill is never dropped unrecorded. */
+  readonly rejected: { dir: string; reason: string }[] = [];
   private loaded = false;
   private skillsBaseDir: string | null = null;
 
@@ -99,6 +118,7 @@ export class SkillService {
    */
   async load(): Promise<void> {
     this.skills.clear();
+    this.rejected.length = 0;
 
     const candidatePaths = [
       path.resolve(this.rootDir, this.relativeSkillsDir),
@@ -136,18 +156,27 @@ export class SkillService {
         if (stat.isDirectory()) {
           const skillFilePath = path.join(entryPath, 'SKILL.md');
           try {
-            const raw = await fs.readFile(skillFilePath, 'utf8');
-            const parsed = this.parseSkillContent(raw, skillFilePath);
-            if (parsed) {
-              const key = parsed.frontmatter.name.toLowerCase().trim();
-              if (this.skills.has(key)) {
-                log.warn({ key, skillFilePath }, 'duplicate skill name encountered, skipping');
-              } else {
-                this.skills.set(key, parsed);
-              }
+            let raw: string;
+            try {
+              raw = await fs.readFile(skillFilePath, 'utf8');
+            } catch {
+              // Not a skill directory.
+              continue;
             }
-          } catch (fileErr) {
-            // No SKILL.md in this subdirectory or file unreadable
+            const parsed = this.parseSkillContent(raw, skillFilePath);
+            if (typeof parsed === 'string') {
+              this.rejected.push({ dir: entry, reason: parsed });
+              continue;
+            }
+            const key = parsed.frontmatter.name;
+            // Resources are read from the directory named after the skill (getSkillResource).
+            if (key !== entry) {
+              this.rejected.push({ dir: entry, reason: `name "${key}" does not match its directory` });
+              log.warn({ key, skillFilePath }, 'skill name does not match its directory, skipping');
+            } else {
+              this.skills.set(key, parsed);
+            }
+          } catch {
             continue;
           }
         }
@@ -157,19 +186,20 @@ export class SkillService {
     }
 
     this.loaded = true;
-    log.info({ count: this.skills.size }, 'skills registry loaded');
+    log.info({ count: this.skills.size, rejected: this.rejected }, 'skills registry loaded');
   }
 
   async reload(): Promise<void> {
     await this.load();
   }
 
-  private parseSkillContent(raw: string, filePath: string): SkillEntry | null {
+  /** The parsed skill, or why it was rejected. */
+  private parseSkillContent(raw: string, filePath: string): SkillEntry | string {
     // Standard YAML frontmatter regex: starts with ---, ends with ---
     const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (!match) {
       log.warn({ filePath }, 'skill file missing valid frontmatter block');
-      return null;
+      return 'no frontmatter block';
     }
 
     const frontmatterText = match[1]!;
@@ -180,13 +210,13 @@ export class SkillService {
       parsedYaml = yaml.parse(frontmatterText);
     } catch (err) {
       log.warn({ err, filePath }, 'skill frontmatter failed YAML parse');
-      return null;
+      return 'frontmatter is not valid YAML';
     }
 
     const validated = skillFrontmatterSchema.safeParse(parsedYaml);
     if (!validated.success) {
       log.warn({ errors: validated.error.format(), filePath }, 'skill frontmatter validation failed');
-      return null;
+      return validated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     }
 
     return {

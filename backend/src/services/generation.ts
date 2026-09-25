@@ -75,7 +75,7 @@ import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
-import { SkillToolExecutor } from '../tools/skillExecutor.js';
+import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
@@ -87,6 +87,7 @@ import { assemblePrompt } from './promptCache/promptAssembly.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
+import { compact, shouldCompact } from './compaction/autoCompact.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -323,11 +324,41 @@ export class GenerationService {
     }
   }
 
-  /** The conversation's files, in manifest order, from the history and this turn's attachments. */
-  private chatFilesOf(byId: Map<string, AttachmentBlock>): ManifestFile[] {
-    return [...byId.values()]
-      .filter((a): a is AttachmentBlock & { id: string } => Boolean(a.id))
-      .map((a) => ({ id: a.id, filename: a.filename ?? a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes }));
+  /**
+   * Every file of the conversation, oldest first, then any of this turn's not yet stored on a
+   * message. Claude keeps every file of a chat in reach for the whole chat; here a file whose turn
+   * is no longer in the history (compacted, or past the backstop) is still listed and still in
+   * run_python's input/ (ADR-0019). Upload order keeps each file's input/ name stable.
+   */
+  private async chatFilesOf(chatId: string, byId: Map<string, AttachmentBlock>): Promise<ManifestFile[]> {
+    const stored = await this.db
+      .select({
+        id: attachments.id,
+        filename: attachments.filename,
+        mimeType: attachments.mimeType,
+        sizeBytes: attachments.sizeBytes,
+      })
+      .from(attachments)
+      .innerJoin(messages, eq(attachments.messageId, messages.id))
+      .where(and(eq(messages.chatId, chatId), eq(attachments.status, 'ready')))
+      .orderBy(attachments.createdAt, attachments.id);
+    const files: ManifestFile[] = stored.map((a) => ({ ...a, filename: a.filename ?? a.id }));
+    const seen = new Set(files.map((f) => f.id));
+    for (const a of byId.values()) {
+      if (!a.id || seen.has(a.id)) continue;
+      files.push({ id: a.id, filename: a.filename ?? a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes });
+    }
+    return files;
+  }
+
+  /**
+   * Where run_python's sandbox has the skill files: the warm sandbox image copies them to
+   * /skills (Dockerfile.service). The Cloud Run Jobs image does not.
+   */
+  private skillsInSandbox(): string | undefined {
+    return this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined && usesWarmSandbox(this.cfg)
+      ? SANDBOX_SKILLS_ROOT
+      : undefined;
   }
 
   /** Skill names the manifest may point to: only when load_skill can actually be called. */
@@ -348,18 +379,20 @@ export class GenerationService {
       const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
-    const latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
-      ? await compactionService.getLatestCompaction(input.chatId)
+    let latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
+      ? await compactionService.getLatestCompaction(input.chatId, this.db)
       : null;
     // Loaded before model resolution (not its historical position) because whether this turn
     // needs a vision-capable model depends on what's carried forward, not only on what's newly
     // attached — and loadHistory has no dependency on which model gets picked.
-    const { turns: history, currentUserAttachments } = await this.loadHistory(
+    const loaded = await this.loadHistory(
       input.chatId,
       input.messageId,
       latestCompaction?.throughSeq,
       input.modelAlias,
     );
+    let history = loaded.turns;
+    const currentUserAttachments = loaded.currentUserAttachments;
     if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
       input = { ...input, attachments: currentUserAttachments, hasAttachments: true };
     }
@@ -425,6 +458,15 @@ export class GenerationService {
       model: modelInfo,
     };
 
+    // --- compact a long conversation (ADR-0019) ------------------------------
+    if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
+      const compacted = yield* this.compactIfNeeded(input, prefs, entry, provider);
+      if (compacted) {
+        latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
+        ({ turns: history } = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq, input.modelAlias));
+      }
+    }
+
     // --- Skill-First -> Tool-Second Routing --------------------------------
     // G6: a file attached on an earlier turn is still available on this one.
     const historyAttachments = history.flatMap((t) => t.attachments ?? []);
@@ -465,7 +507,10 @@ export class GenerationService {
           .join('\n');
         parts.push(
           `<available_skills>\n${skillList}\n</available_skills>\n` +
-            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.',
+            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.' +
+            (this.skillsInSandbox()
+              ? ` Each skill's files are also in the sandbox at ${SANDBOX_SKILLS_ROOT}/<skill_name>/, read-only: run its scripts from run_python and use only their output.`
+              : ''),
         );
       }
 
@@ -602,7 +647,7 @@ export class GenerationService {
       const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
         entry.alias,
         await this.hydrateAttachmentBytes(input.attachments),
-        await this.hydrateHistoryAttachments(history, input.prompt),
+        await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
         releaseReservation,
       );
 
@@ -618,7 +663,7 @@ export class GenerationService {
         if (att.id) allAttachmentsMap.set(att.id, att);
       }
 
-      const chatFiles = this.chatFilesOf(allAttachmentsMap);
+      const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
       const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
         sandbox: routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
         loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
@@ -655,7 +700,7 @@ export class GenerationService {
 
     const skillToolExecutor =
       skillsEnabled && this.skills !== undefined
-        ? new SkillToolExecutor(this.skills, activeToolNames)
+        ? new SkillToolExecutor(this.skills, activeToolNames, undefined, { scriptsRoot: this.skillsInSandbox() })
         : undefined;
 
     const pendingArtifactEvents: StreamEvent[] = [];
@@ -829,7 +874,7 @@ export class GenerationService {
     const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
       entry.alias,
       await this.hydrateAttachmentBytes(input.attachments),
-      await this.hydrateHistoryAttachments(history, input.prompt),
+      await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
       releaseReservation,
     );
 
@@ -845,7 +890,7 @@ export class GenerationService {
       if (att.id) allAttachmentsMap.set(att.id, att);
     }
 
-    const chatFiles = this.chatFilesOf(allAttachmentsMap);
+    const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
     codeExecutor?.setChatFiles(chatFiles);
     const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
       sandbox: codeExecutor !== undefined,
@@ -1215,7 +1260,10 @@ export class GenerationService {
       let userVisibleOutputEmitted = false;
       const ttftController = new AbortController();
       const onParentAbort = () => ttftController.abort();
-      currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
+      // A listener added after the abort never fires: a Stop that landed before this attempt
+      // began (while history or files were still loading) ran the whole turn anyway.
+      if (currentRequest.signal.aborted) onParentAbort();
+      else currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
 
       const ttftTimer = setTimeout(() => {
         if (!firstEventReceived && !ttftController.signal.aborted) {
@@ -1379,7 +1427,7 @@ export class GenerationService {
     if (currentUserSeq !== undefined) {
       conditions.push(sql`${messages.seq} < ${currentUserSeq}`);
     }
-    if (throughSeq !== undefined && throughSeq > 0) {
+    if (throughSeq !== undefined) {
       conditions.push(sql`${messages.seq} > ${throughSeq}`);
     }
 
@@ -1387,8 +1435,10 @@ export class GenerationService {
       .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq })
       .from(messages)
       .where(and(...conditions))
-      .orderBy(desc(messages.seq))
-      .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 20));
+      // No turn count: like Claude, the whole conversation goes, up to the model's window. What
+      // keeps it inside the window is compaction (ADR-0019); the character budget below is the
+      // backstop. A 20-message cap here used to drop a file sent 11 questions ago.
+      .orderBy(desc(messages.seq));
 
     const ordered = rows
       .reverse()
@@ -1497,6 +1547,81 @@ export class GenerationService {
   }
 
   /**
+   * Compacts the chat before this turn when the previous request reached the trigger (ADR-0019),
+   * with the model this turn runs on, as Claude compacts with the model of the request. The user
+   * sees it happen, as claude.ai shows "Compacting our conversation". A failed compaction leaves
+   * the history whole and the turn goes on; an abort ends the turn.
+   */
+  private async *compactIfNeeded(
+    input: GenerateInput,
+    prefs: PreferencesRow,
+    entry: ModelEntry,
+    provider: Provider,
+  ): AsyncGenerator<StreamEvent, boolean> {
+    const [self] = await this.db
+      .select({ seq: messages.seq })
+      .from(messages)
+      .where(eq(messages.id, input.messageId))
+      .limit(1);
+    if (!self) return false;
+    // The assistant row is the one after its user message; everything before that user message.
+    const beforeSeq = self.seq - 1;
+    const window = entry.contextWindow ?? getModelCapability(entry.alias).maxInputTokens ?? null;
+    const deps = { db: this.db, cfg: this.cfg };
+    if (!(await shouldCompact(deps, input.chatId, beforeSeq, window))) return false;
+
+    const progress = (stage: 'reading' | 'complete', label: string, detail: string): StreamEvent => ({
+      type: 'research',
+      event: { stage, label, detail, at: new Date().toISOString() },
+    });
+    yield progress('reading', 'Compacting our conversation', 'Summarizing earlier messages so the chat can continue.');
+    const startedAt = new Date();
+    let usage = EMPTY_USAGE;
+    let status: 'complete' | 'error' | 'cancelled' = 'complete';
+    try {
+      const out = await compact(deps, input.chatId, beforeSeq, {
+        provider,
+        providerModelId: entry.providerModelId!,
+        providerName: entry.provider,
+        contextWindow: window,
+      }, input.signal);
+      usage = out.usage;
+      if (!out.result) {
+        yield progress('complete', 'Conversation not compacted', 'No summary came back; the full conversation is sent.');
+        return false;
+      }
+      yield progress('complete', 'Conversation compacted', 'Earlier messages are summarized; recent ones are kept word for word.');
+      return true;
+    } catch (err) {
+      if (isAbort(err) || input.signal.aborted) {
+        status = 'cancelled';
+        throw err;
+      }
+      status = 'error';
+      log.warn({ err, chatId: input.chatId }, 'compaction failed; sending the full conversation');
+      yield progress('complete', 'Conversation not compacted', 'Summarizing failed; the full conversation is sent.');
+      return false;
+    } finally {
+      // Its tokens are spent whether or not a summary came back. No messageId: the compaction is
+      // not the turn's answer, and the next trigger check reads the answer's usage.
+      await this.usage.record({
+        userId: input.userId,
+        prefs,
+        requestId: `${input.requestId}:compaction`,
+        chatId: input.chatId,
+        messageId: null,
+        projectId: input.projectId,
+        modelAlias: entry.alias,
+        provider: entry.provider,
+        providerModelId: entry.providerModelId!,
+        usage,
+        startedAt,
+        status,
+      });
+    }
+  }
+
+  /**
    * Hydrates raw storage bytes into base64 on-demand for binary attachments (PDF, images, media)
    * specifically for the ephemeral wire request sent to the provider.
    * Keeps conversation history in RAM free of large Base64 strings.
@@ -1559,13 +1684,24 @@ export class GenerationService {
 
   private async hydrateHistoryAttachments(
     turns: Turn[],
-    currentPrompt?: string,
+    currentPrompt: string | undefined,
+    alias: string,
   ): Promise<Turn[]> {
     const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
     let cumulativeBytes = 0;
 
+    // Claude has every earlier image of the chat (Vision: "Claude has access to every image from
+    // earlier turns"). The budget only guards bytes that ride inline in a request whose limit is
+    // not verified: Gemini's inline data. Claude's own request limit is verified and enforced,
+    // newest first, by enforceModelLimits; a Gemini PDF with a model-input bucket goes by gs://
+    // URI (ADR-0016) and adds nothing inline. Those are loaded whatever their size (ADR-0019).
+    const spec = getModelCapability(alias);
+    const unbudgeted = (a: AttachmentBlock): boolean =>
+      spec.maxRequestBytes !== null ||
+      (spec.provider === 'google' && this.modelInputs !== undefined && a.mimeType === 'application/pdf');
+
     // Only files sent as bytes spend the budget; Office and text files travel as extracted text.
-    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []).filter(sentAsBytes);
+    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []).filter((a) => sentAsBytes(a) && !unbudgeted(a));
 
     // Check for explicit promotions from currentPrompt
     const promotedAttachmentIds = new Set<string>();
@@ -1604,7 +1740,7 @@ export class GenerationService {
       const turn = turns[i];
       if (!turn?.attachments) continue;
       for (const att of turn.attachments) {
-        if (!sentAsBytes(att) || !att.id || hydrationDecisions.has(att.id)) continue;
+        if (!sentAsBytes(att) || unbudgeted(att) || !att.id || hydrationDecisions.has(att.id)) continue;
         const size = att.sizeBytes ?? 0;
         if (cumulativeBytes + size <= maxBudget) {
           cumulativeBytes += size;
@@ -1621,6 +1757,7 @@ export class GenerationService {
         const hydrated = await Promise.all(
           turn.attachments.map(async (att) => {
             if (!sentAsBytes(att)) return att;
+            if (unbudgeted(att)) return (await this.hydrateAttachmentBytes([att]))[0] ?? att;
             const shouldHydrateBinary = att.id ? hydrationDecisions.get(att.id) ?? false : true;
             if (shouldHydrateBinary) {
               const [h] = await this.hydrateAttachmentBytes([att]);
@@ -1683,7 +1820,7 @@ export class GenerationService {
     // 3. Conversation compaction summary
     let compactionText = '';
     if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
-      const latestCompaction = await compactionService.getLatestCompaction(input.chatId);
+      const latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
       if (latestCompaction) {
         compactionText = compactionService.formatCompactionForPrompt(latestCompaction);
       }

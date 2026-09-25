@@ -66,7 +66,8 @@ export class WebFetchService {
     const timeout = setTimeout(() => controller.abort(), this.defaultTimeoutMs);
 
     const onAbort = () => controller.abort();
-    if (signal) {
+    if (signal?.aborted) onAbort();
+    else if (signal) {
       signal.addEventListener('abort', onAbort);
     }
 

@@ -23,6 +23,18 @@ import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
 
+/**
+ * Pastes longer than this become an attached text file. claude.ai does the same past "a few
+ * thousand characters"; Anthropic does not document the number, so this one is ours.
+ */
+export const PASTE_AS_FILE_CHARS = 4000;
+
+/** The file a long paste becomes, or null when it stays message text. */
+export function pastedTextFile(text: string): File | null {
+  if (text.length <= PASTE_AS_FILE_CHARS) return null;
+  return new File([text], "pasted-text.txt", { type: "text/plain" });
+}
+
 export function deriveFollowUpSuggestion(
   history: import("./types").Message[],
 ): string {
@@ -419,6 +431,15 @@ export default function Composer({
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // A pasted file (a screenshot) attaches, and a long paste becomes a text file,
+              // as claude.ai turns it into a "pasted text" attachment instead of message text.
+              const pastedFiles = Array.from(e.clipboardData.files);
+              const asFile = pastedFiles.length ? null : pastedTextFile(e.clipboardData.getData("text/plain"));
+              if (!pastedFiles.length && !asFile) return;
+              e.preventDefault();
+              void addFiles(pastedFiles.length ? pastedFiles : [asFile!]);
+            }}
             onKeyDown={(e) => {
               if (
                 (e.key === "Tab" || e.key === "ArrowRight") &&

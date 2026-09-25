@@ -74,6 +74,12 @@ describe('image', () => {
     expect(readingFor({ mimeType: 'image/png', pageCount: null, hasText: false })).toBe('visual');
   });
 
+  it('refuses an image over 10 MB, as claude.ai does, and accepts one at exactly 10 MB', async () => {
+    const pad = (n: number) => Buffer.concat([png(10, 10), Buffer.alloc(n - png(10, 10).length)]);
+    await expect(processBytes('big.png', 'image/png', pad(FILE_LIMITS.imageMaxBytes + 1))).rejects.toThrow(/at most 10 MB/);
+    expect((await processBytes('ok.png', 'image/png', pad(FILE_LIMITS.imageMaxBytes))).status).toBe('ready');
+  });
+
   it('refuses an image wider or taller than 8000 pixels', async () => {
     await expect(processBytes('wide.png', 'image/png', png(8001, 1))).rejects.toThrow(/8001×1 pixels/);
   });

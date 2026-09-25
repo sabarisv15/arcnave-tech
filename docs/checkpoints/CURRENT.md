@@ -1,5 +1,26 @@
 # ArcNave — current checkpoint
 
+> **2026-09-25 (latest): steps 1 and 2 audit gaps closed, branch only, not deployed.**
+> - Skills follow Claude ([ADR-0018](../decisions/0018-skills-follow-claude.md)):
+>   - The skill list in the prompt comes from the skill files; the hard-coded list and triggers are gone.
+>   - Claude's frontmatter rules are enforced. Two skills (`artifact-design`, `dashboard-design`)
+>     had been silently dropped for an invalid category; they now load.
+>   - The warm sandbox image carries `/skills`. `load_skill` on a script returns how to run it,
+>     not its code.
+> - Long chats follow Claude ([ADR-0019](../decisions/0019-long-chats-follow-claude.md)):
+>   - The 20-message history cap is gone.
+>   - Compaction is on: at 150,000 exact tokens (capped at ¾ of the window), older turns become a
+>     summary and the last 2 turns stay word for word.
+>   - Every file of the chat is always listed and in `input/`.
+>   - The 12 MB history budget now applies only to Gemini inline bytes.
+> - Upload: images over 10 MB are refused (claude.ai's limit). A paste over 4,000 characters
+>   becomes `pasted-text.txt`; Anthropic does not publish its own threshold.
+> - Found and fixed on the way: a Stop that arrived before the provider call did nothing
+>   (mistakes.md).
+> - Tests: backend 858/858, frontend 55/55, sandbox 16/16.
+> - **Deploy order:** rebuild and deploy the sandbox image first
+>   ([warm-sandbox.md §1](../deploy/warm-sandbox.md)), then the backend.
+
 > **Now (2026-09-24, later): foundation fixes for general-purpose file work are on branch
 > `claude/tools-skills-architecture-jyxa61`, local only, not deployed.** A root-cause audit of two
 > failed live KVB turns found that the causes were in the harness. A 4.7 MB PDF was silently left

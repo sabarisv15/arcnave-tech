@@ -56,3 +56,37 @@ describe('page images by URI for Gemini', () => {
     expect(claude).not.toContain('gs://');
   });
 });
+
+describe('earlier files over the inline budget (ADR-0019)', () => {
+  let small: TestContext;
+  let owner: TestUser;
+  beforeAll(async () => {
+    small = await createTestApp({ HISTORY_MAX_ATTACHMENT_BYTES: '100' }, new FakeProvider(), { modelInputs: store });
+    owner = await signUp(small);
+  });
+  afterAll(async () => {
+    await small.close();
+  });
+
+  it('still reach Gemini by URI and Claude within its own request limit', async () => {
+    const headers = { cookie: owner.cookie };
+    const part = multipart('old.pdf', await pdfWithPages(1, ['Opening 100']), 'application/pdf');
+    const fileId = ((await small.app.inject({ method: 'POST', url: '/v1/files', headers: { ...part.headers, ...headers }, payload: part.payload })).json() as { id: string }).id;
+    const chatId = ((await small.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'p' } })).json() as { id: string }).id;
+    const send = async (model: string, attachmentIds: string[] = []) => {
+      await small.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers, payload: { prompt: 'read', model, attachmentIds } });
+      return small.provider.seen.at(-1)!;
+    };
+    await send('Gemini 3.8 Flash', [fileId]);
+
+    const gemini = await send('Gemini 3.8 Flash');
+    const old = gemini.history.flatMap((t) => t.attachments ?? []).find((a) => a.id === fileId)!;
+    expect(old.omittedReason).toBeUndefined();
+    expect(JSON.stringify(buildGeminiContents(gemini))).toContain('"fileUri":"gs://model-inputs/pages/');
+
+    const claude = await send('Opus 5');
+    const forClaude = claude.history.flatMap((t) => t.attachments ?? []).find((a) => a.id === fileId)!;
+    expect(forClaude.omittedReason).toBeUndefined();
+    expect(JSON.stringify(buildAnthropicMessages(claude))).toContain('"type":"base64"');
+  });
+});

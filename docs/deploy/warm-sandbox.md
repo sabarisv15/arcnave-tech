@@ -17,7 +17,15 @@ echo "backend runs as: $BACKEND_SA"      # must not be empty
 ## 1. Build the sandbox image
 
 ```bash
-gcloud builds submit backend/sandbox --config backend/sandbox/cloudbuild.service.yaml
+gcloud builds submit backend --config backend/sandbox/cloudbuild.service.yaml \
+  --ignore-file=sandbox/service.gcloudignore
+```
+
+The context is `backend/`: the image carries `backend/skills` at `/skills` (ADR-0018). Rebuild
+and redeploy the sandbox **before** a backend that tells the model about `/skills`. Check:
+
+```bash
+# after deploy, in a chat with run_python:  import os; print(sorted(os.listdir('/skills')))
 ```
 
 ## 2. Deploy the sandbox service

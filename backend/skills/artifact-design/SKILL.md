@@ -2,7 +2,7 @@
 name: artifact-design
 description: Design principles, typography, tabular alignment, and visual standards for creating high-fidelity ArcNave artifacts.
 version: 1.0.0
-category: presentation
+category: artifact
 scope: project
 autoload: false
 requires:

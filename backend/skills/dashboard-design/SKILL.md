@@ -2,7 +2,7 @@
 name: dashboard-design
 version: 1.0.0
 description: Principles for composing clean, responsive, high-signal generative UI dashboards and interactive multi-card layouts.
-category: presentation
+category: artifact
 requires:
   tools:
     - render_ui
