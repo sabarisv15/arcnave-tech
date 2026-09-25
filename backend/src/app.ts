@@ -160,6 +160,26 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       return reply.status(413).send(apiError.toBody(requestId));
     }
 
+    // Fastify's content-type parser rejects some bodies before any route schema runs. These
+    // are client mistakes, so they must not fall through to `internal_error`.
+    const fastifyCode = (error as { code?: string }).code;
+    if (
+      fastifyCode === 'FST_ERR_CTP_INVALID_JSON_BODY' ||
+      fastifyCode === 'FST_ERR_CTP_EMPTY_JSON_BODY' ||
+      fastifyCode === 'FST_ERR_CTP_INVALID_CONTENT_LENGTH'
+    ) {
+      const apiError = new ApiError('validation_error', {
+        detail: (error as Error).message,
+      });
+      return reply.status(apiError.status).send(apiError.toBody(requestId));
+    }
+    if (fastifyCode === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+      const apiError = new ApiError('unsupported_media_type', {
+        detail: `This endpoint does not accept a ${request.headers['content-type'] ?? 'missing'} request body.`,
+      });
+      return reply.status(apiError.status).send(apiError.toBody(requestId));
+    }
+
     // Anything reaching here is a bug. Log it fully; tell the client nothing but the id.
     request.log.error({ err: error, requestId }, 'unhandled error');
     const apiError = new ApiError('internal_error');

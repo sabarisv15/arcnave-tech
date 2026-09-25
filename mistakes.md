@@ -1060,3 +1060,11 @@ practice, not canon.
   label proves only that no exception was thrown. Verify: the audit
   (`phase3-root-cause-audit-2026-09-24.md`) cites payloads; the transport fix has a test that
   a 4.7 MB input is refused, never dropped (`warmSandboxClient.test.ts`).
+- **2026-09-25** — No new heading (over the cap). A malformed JSON body (`-d '{"a":}'` with
+  `content-type: application/json`) returned 500 `internal_error`. Fastify's content-type
+  parser throws `FST_ERR_CTP_*` errors (statusCode 400/415) before any route schema runs, so
+  they are neither `ApiError` nor Zod validation errors, and the global handler only special-
+  cased 413 and 429. Rule: every 4xx Fastify can raise on its own needs an explicit mapping in
+  `setErrorHandler`; never let a framework-level client error fall to `internal_error`. Verify:
+  `src/routes/bodyParseErrors.integration.test.ts` (bad JSON, empty JSON → `validation_error`
+  422; unknown content type → 415; oversized → 413).
