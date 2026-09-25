@@ -306,6 +306,10 @@ const envSchema = z.object({
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),
   STORAGE_GCS_BUCKET: optionalStr,
+  /** A deleted chat's rows and uploaded files are removed this long after deletion (Claude: 30). */
+  CHAT_PURGE_AFTER_DAYS: int(30),
+  /** An upload never sent with a message is removed after this long. */
+  UNSENT_UPLOAD_TTL_HOURS: int(24),
   /** Ceiling for uploads that pass through the backend as one request (multipart routes). */
   MAX_UPLOAD_BYTES: int(20 * 1024 * 1024),
   /**

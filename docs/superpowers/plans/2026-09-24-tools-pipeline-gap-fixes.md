@@ -137,7 +137,7 @@ one). Live verification needs approval.
 | G5 | Agent-loop routing lives in one function; the duplicate `isAgentMode` goes | Unit test |
 | G8 | Remove the dead `selectedSkills` preload; autoload follows each skill's `autoload` frontmatter instead of a hard-coded name | Skills tests |
 
-## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0012 first (ADR-0008 went to trusted work; 0009 and 0010 to background runs and the warm sandbox; 0011 to upload rules)
+## Phase 5: Agent loop / performance (G9, G10, G11, G12). ADR-0013 first (ADR-0008 went to trusted work; 0009 and 0010 to background runs and the warm sandbox; 0011 to upload rules; 0012 to retention)
 
 - **G9:** Claude models use Claude's native tool search (`defer_loading`), which Vertex
   supports. Gemini keeps `search_tools`. Verify `cache_read_input_tokens` locally (needs approval).
@@ -170,7 +170,7 @@ G24 is delivered in Phase 3 and listed here for completeness.
 | 2 | medium | 1 (G6 uses the router input) |
 | 3 | medium–large | 2 (extraction needs files in the sandbox), G20's trusted-CLI split for rendering |
 | 4 | medium | 1 |
-| 5 | large | 4, ADR-0012 |
+| 5 | large | 4, ADR-0013 |
 | 6 | medium–large | ADR-0007 (done) |
 
 Phase 3 needs the trusted-CLI permission from G20 to render pages without enabling arbitrary

@@ -8,6 +8,7 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { closeDb } from './db/client.js';
 import { logger } from './logger.js';
+import { sweepRetention } from './services/retention.js';
 
 /** How often expired session rows are swept. Cheap, indexed, and not time-critical. */
 const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -27,12 +28,27 @@ async function main(): Promise<void> {
   // Do not hold the event loop open for housekeeping.
   sweep.unref();
 
+  // Deleted chats and unsent uploads (services/retention.ts). Hourly is far inside the 30-day
+  // promise; the advisory lock makes concurrent instances take turns.
+  const retention = setInterval(() => {
+    void sweepRetention(app.services.db, app.services.storage, {
+      chatPurgeAfterDays: cfg.CHAT_PURGE_AFTER_DAYS,
+      unsentUploadTtlHours: cfg.UNSENT_UPLOAD_TTL_HOURS,
+    }, new Date(), logger)
+      .then((r) => {
+        if (r.chatsPurged > 0 || r.uploadsPurged > 0) logger.info(r, 'retention sweep');
+      })
+      .catch((err: unknown) => logger.error({ err }, 'retention sweep failed'));
+  }, SESSION_SWEEP_INTERVAL_MS);
+  retention.unref();
+
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ signal }, 'shutting down');
     clearInterval(sweep);
+    clearInterval(retention);
 
     // Abort in-flight generations first so their SSE connections close and their usage rows
     // are written, rather than being cut off mid-stream by the socket closing under them.

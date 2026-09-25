@@ -1094,3 +1094,10 @@ practice, not canon.
   resource limit comes from a measurement on the real code path, and the measurement is
   written next to the constant. Verify: `EXTRACTION_MEMORY_PER_BYTE` in `processUpload.ts`
   cites the files it was measured on; `processUpload.test.ts` pins the derived limits.
+- **2026-09-25 (shared keys)**: No new heading (over the cap). `POST /files/cleanup` deleted the
+  stored object of every stale attachment, including those picked from a project, whose
+  `storageKey` is the project file's own. Cleaning up an unsent pick would have destroyed the
+  project file. `DELETE /files/:id` already had the guard; the bulk path did not. Rule: every
+  path that deletes stored bytes checks `projectFileId`, and each such path has a test that
+  fails without the check. Verify: `retention.integration.test.ts`, "leaves the project's
+  bytes alone". Seen failing with the guard removed.

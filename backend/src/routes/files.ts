@@ -418,9 +418,11 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
             lt(attachments.createdAt, cutoff),
           ),
         )
-        .returning({ storageKey: attachments.storageKey });
+        .returning({ storageKey: attachments.storageKey, projectFileId: attachments.projectFileId });
 
       for (const row of stale) {
+        // Picked from a project: the bytes are the project file's, not this attachment's.
+        if (row.projectFileId) continue;
         try {
           await storage.delete(row.storageKey);
         } catch (err) {

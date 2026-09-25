@@ -51,6 +51,16 @@
 > 28.6 MB file with a progress percentage, and a PDF chip showed "3 pages". Not yet verified
 > live: the direct PUT to GCS. PDFs uploaded before migration 0009 have no page count and no
 > text, and they are not backfilled. Branch only, not deployed.
+> - Retention follows Claude ([ADR-0012](../decisions/0012-deleted-chats-purge-after-30-days.md)).
+>   A deleted chat, with its rows and uploaded files, is purged 30 days after deletion. Unsent
+>   uploads are purged after 24 hours. Two fixes: manual cleanup no longer deletes a project
+>   file's bytes, and the Settings count now shows the real number.
+> - Decisions from the user:
+>   - Old uploads are not backfilled (testing mode).
+>   - Page images belong to stage 2. Anthropic's docs say they are made "when you send a PDF".
+>   - The per-message limit stays at 10.
+>   - Min instances stay at 1.
+>
 > **Next: stage 2.** The adapters do not act on `reading` yet. Also to review: sandbox disk
 > for 500 MB files, and the preview panel downloading whole files.
 

@@ -895,7 +895,7 @@ export const api = {
     read: (id: string) => get<AttachmentDto>(`/files/${id}`),
     remove: (id: string) => del(`/files/${id}`),
     downloadUrl: (id: string) => url(`/files/${id}/download`),
-    cleanup: () => post<{ removed: number }>("/files/cleanup"),
+    cleanup: () => post<{ deleted: number }>("/files/cleanup", {}),
   },
 
   preferences: {
