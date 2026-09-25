@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { closeDb } from './db/client.js';
 import { logger } from './logger.js';
 import { sweepRetention } from './services/retention.js';
+import { sweepCheckpoints } from './services/sandboxCheckpoints.js';
 
 /** How often expired session rows are swept. Cheap, indexed, and not time-critical. */
 const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -34,13 +35,28 @@ async function main(): Promise<void> {
     void sweepRetention(app.services.db, app.services.storage, {
       chatPurgeAfterDays: cfg.CHAT_PURGE_AFTER_DAYS,
       unsentUploadTtlHours: cfg.UNSENT_UPLOAD_TTL_HOURS,
+      sandboxStateDays: cfg.SANDBOX_STATE_RETENTION_DAYS,
     }, new Date(), logger)
       .then((r) => {
-        if (r.chatsPurged > 0 || r.uploadsPurged > 0) logger.info(r, 'retention sweep');
+        if (r.chatsPurged > 0 || r.uploadsPurged > 0 || r.checkpointsPurged > 0) logger.info(r, 'retention sweep');
       })
       .catch((err: unknown) => logger.error({ err }, 'retention sweep failed'));
   }, SESSION_SWEEP_INTERVAL_MS);
   retention.unref();
+
+  // Idle sandbox workspaces are checkpointed to storage (ADR-0015), as Claude's containers are
+  // after about 5 minutes. Every minute; the advisory lock makes instances take turns.
+  const warmSandbox = app.services.warmSandbox;
+  if (warmSandbox) {
+    const checkpoints = setInterval(() => {
+      void sweepCheckpoints(app.services.db, warmSandbox, cfg.SANDBOX_CHECKPOINT_IDLE_SECONDS, logger)
+        .then((r) => {
+          if (r.saved > 0 || r.failed > 0) logger.info(r, 'sandbox checkpoint sweep');
+        })
+        .catch((err: unknown) => logger.error({ err }, 'sandbox checkpoint sweep failed'));
+    }, 60_000);
+    checkpoints.unref();
+  }
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

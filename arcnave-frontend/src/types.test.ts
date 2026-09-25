@@ -228,10 +228,10 @@ describe("upload policy", () => {
     );
   });
 
-  it("rejects a file past the server's 20 MB ceiling", () => {
+  it("rejects a file past the server's 30 MB ceiling", () => {
     expect(
-      validateFile({ name: "large.pdf", size: 21 * 1024 * 1024 }),
-    ).toContain("20 MB");
+      validateFile({ name: "large.pdf", size: 31 * 1024 * 1024 }),
+    ).toContain("30 MB");
   });
 
   it("rejects an empty file, which the server also refuses", () => {

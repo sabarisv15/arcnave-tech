@@ -1,6 +1,7 @@
 # ADR-0012: Deleted chats leave the back end within 30 days
 
-- Status: accepted
+- Status: accepted. A purged chat also takes its sandbox checkpoint:
+  [ADR-0015](0015-sandbox-workspaces-outlive-the-instance.md).
 - Date: 2026-09-25
 
 ## Context

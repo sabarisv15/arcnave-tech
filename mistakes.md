@@ -1122,3 +1122,10 @@ practice, not canon.
   default", and Cloud Run refused with "cannot exceed 10 GiB". Rule: before handing over an
   infrastructure command, check each size and count in it against the limit the source states,
   and quote that limit next to the command. Verify: ADR-0014 and runbook step 7 state 10 GiB.
+- **2026-09-25 (storage keys)**: No new heading (over the cap). I named checkpoint objects
+  `sandbox-state/<ws>/...` before reading `SAFE_KEY` in `storage.ts`, which accepts only
+  `generateStorageKey` output; every put would have thrown `storage_error`. Caught before running,
+  by reading the validator. Rule: a new kind of stored object gets its key from
+  `generateStorageKey`, and its location from a database column, never from a path scheme.
+  Verify: `workspaceState.integration.test.ts` stores and restores through LocalObjectStorage,
+  which applies the same key check.

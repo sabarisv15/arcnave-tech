@@ -12,7 +12,7 @@ import { sweepRetention } from './retention.js';
 
 let ctx: TestContext;
 let user: TestUser;
-const policy = { chatPurgeAfterDays: 30, unsentUploadTtlHours: 24 };
+const policy = { chatPurgeAfterDays: 30, unsentUploadTtlHours: 24, sandboxStateDays: 30 };
 const DAY = 86_400_000;
 const quiet = { warn: () => undefined };
 

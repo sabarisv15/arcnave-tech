@@ -24,6 +24,18 @@ Endpoints (all JSON unless noted; `ws` is 32 lowercase hex characters chosen by 
   GET    /v1/workspaces/<ws>/{output,view}/<name>?offset=N&length=L   raw bytes
   DELETE /v1/workspaces/<ws>
 
+Workspace state, so a chat's files outlive the instance (ADR-0015). The service has no network,
+so the backend pulls a checkpoint out and pushes it back in:
+
+  GET    /v1/workspaces?idle_s=N          workspaces idle N seconds with unsaved changes
+  GET    /v1/workspaces/<ws>/state        {generation, files:[{path, size, mtime_ns (string)}], skipped}
+  GET    /v1/workspaces/<ws>/state/file?path=P&offset=N&length=L       raw bytes
+  PUT    /v1/workspaces/<ws>/state/file?path=P&offset=N&total=T&sha256=H&mtime_ns=M
+                                       only into a fresh workspace, one that has not run yet
+  POST   /v1/workspaces/<ws>/state/restored                    the fresh workspace may run
+  POST   /v1/workspaces/<ws>/state/saved?generation=G          checkpointed up to run G
+  A run with {"restoreState": true} into a fresh workspace answers 409 {error: restore_state}.
+
 Transfers are chunked because Cloud Run caps an HTTP/1 request at 32 MiB; no file size limit
 is implied by the transport.
 """
@@ -84,6 +96,15 @@ class Workspace:
         # name -> sha256 of the complete input file, as verified on upload.
         self.inputs: dict = {}
         self.busy = False
+        # Fresh until its first run or a restore: the only time a checkpoint may be written in.
+        self.fresh = True
+        # Runs so far, and how many of them the backend has checkpointed.
+        self.generation = 0
+        self.saved_generation = 0
+
+    @property
+    def dirty(self) -> bool:
+        return self.generation > self.saved_generation
 
 
 class Registry:
@@ -103,13 +124,24 @@ class Registry:
                 idle = [w for w in self.by_id.values() if not w.busy]
                 if not idle:
                     return None
-                self._drop(min(idle, key=lambda w: w.last_used))
+                # A checkpointed workspace comes back whole; one with unsaved runs would not.
+                clean = [w for w in idle if not w.dirty]
+                self._drop(min(clean or idle, key=lambda w: w.last_used))
             used = {w.uid for w in self.by_id.values()}
             uid = os.getuid() if SINGLE_UID else next(UID_BASE + i for i in range(MAX_WORKSPACES) if UID_BASE + i not in used)
             ws = Workspace(ws_id, uid)
             _make_workspace(ws)
             self.by_id[ws_id] = ws
             return ws
+
+    def idle_dirty(self, idle_s: float) -> list:
+        with self.lock:
+            now = time.time()
+            return [
+                {"id": w.id, "generation": w.generation}
+                for w in self.by_id.values()
+                if not w.busy and w.dirty and now - w.last_used >= idle_s
+            ]
 
     def delete(self, ws_id: str) -> None:
         with self.lock:
@@ -219,6 +251,67 @@ def _snapshot(dir_fd: int) -> dict:
                 st = entry.stat(follow_symlinks=False)
                 snap[entry.name] = (st.st_mtime_ns, st.st_size)
     return snap
+
+
+STATE_SKIP_TOP = ("input", ".tmp")  # inputs come from the backend on every run anyway
+STATE_PART_RE = re.compile(r"^[A-Za-z0-9 ._()+@,=-]{1,200}$")
+MAX_STATE_DEPTH = 16
+
+
+def _state_path_ok(rel: str) -> bool:
+    parts = rel.split("/")
+    return (
+        0 < len(parts) <= MAX_STATE_DEPTH
+        and parts[0] not in STATE_SKIP_TOP
+        and all(STATE_PART_RE.match(p) and p not in (".", "..") for p in parts)
+    )
+
+
+def _state_listing(ws: Workspace) -> dict:
+    """Regular files under the workspace, never following a link. Anything else (links, sockets,
+    names outside STATE_PART_RE) is counted as skipped rather than silently dropped."""
+    files, skipped = [], 0
+    for root, dirs, names in os.walk(ws.path, followlinks=False):
+        rel_root = os.path.relpath(root, ws.path)
+        if rel_root == ".":
+            dirs[:] = [d for d in dirs if d not in STATE_SKIP_TOP]
+            rel_root = ""
+        for name in names:
+            rel = f"{rel_root}/{name}" if rel_root else name
+            try:
+                st = os.lstat(os.path.join(root, name))
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(st.st_mode) or not _state_path_ok(rel) or rel.endswith(".part"):
+                skipped += 1
+                continue
+            # A string: nanoseconds since 1970 exceed what a JSON number holds exactly in JS.
+            files.append({"path": rel, "size": st.st_size, "mtime_ns": str(st.st_mtime_ns)})
+    return {"generation": ws.generation, "files": sorted(files, key=lambda f: f["path"]), "skipped": skipped}
+
+
+def _state_parent(ws: Workspace, rel: str, create: bool) -> "tuple[int, str]":
+    """A descriptor for the directory holding `rel`, walked one component at a time with
+    O_NOFOLLOW, so a link the code planted cannot send a root-side read or write elsewhere."""
+    parts = rel.split("/")
+    fd = os.open(ws.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for comp in parts[:-1]:
+            try:
+                nxt = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(comp, 0o700, dir_fd=fd)
+                if not SINGLE_UID:
+                    os.chown(comp, ws.uid, ws.uid, dir_fd=fd, follow_symlinks=False)
+                nxt = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd, parts[-1]
 
 
 def _run_rss_bytes(uid: int, sid: int) -> int:
@@ -434,6 +527,41 @@ class Handler(BaseHTTPRequestHandler):
         parts, query = self._route()
         if parts == ["healthz"]:
             return self._send(200, {"ok": True})
+        if parts == ["v1", "workspaces"]:
+            try:
+                idle_s = float(query.get("idle_s", "300"))
+            except ValueError:
+                return self._error(400, "bad_request", "idle_s must be a number.")
+            return self._send(200, {"workspaces": REGISTRY.idle_dirty(idle_s)})
+        if len(parts) == 4 and parts[3] == "state":
+            ws = self._workspace(parts, create=False)
+            if not ws:
+                return
+            with ws.lock:
+                return self._send(200, _state_listing(ws))
+        if len(parts) == 5 and parts[3] == "state" and parts[4] == "file":
+            rel = query.get("path", "")
+            if not _state_path_ok(rel):
+                return self._error(400, "bad_request", "Not a path a checkpoint may hold.")
+            ws = self._workspace(parts, create=False)
+            if not ws:
+                return
+            offset = int(query.get("offset", "0"))
+            length = min(int(query.get("length", str(MAX_CHUNK_BYTES))), MAX_CHUNK_BYTES)
+            with ws.lock:
+                try:
+                    fd, name = _state_parent(ws, rel, create=False)
+                except OSError:
+                    return self._error(404, "no_file", "No such file.")
+                try:
+                    if not _is_plain_file(name, fd):
+                        return self._error(404, "no_file", "No such file.")
+                    with os.fdopen(os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd), "rb") as f:
+                        f.seek(offset)
+                        data = f.read(length)
+                finally:
+                    os.close(fd)
+            return self._send(200, data, "application/octet-stream")
         if len(parts) == 5 and parts[3] in RETURNED_DIRS and NAME_RE.match(parts[4]):
             ws = self._workspace(parts, create=False)
             if not ws:
@@ -456,8 +584,63 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, data, "application/octet-stream")
         self._error(404, "not_found", "Unknown path.")
 
+    def _put_state_file(self, parts, query) -> None:
+        rel = query.get("path", "")
+        sha = query.get("sha256", "")
+        try:
+            offset, total, mtime_ns = int(query.get("offset", "0")), int(query["total"]), int(query["mtime_ns"])
+        except (KeyError, ValueError):
+            return self._error(400, "bad_request", "offset, total and mtime_ns are required integers.")
+        if not _state_path_ok(rel) or not SHA_RE.match(sha) or total > MAX_WORKSPACE_BYTES or offset < 0:
+            return self._error(400, "bad_request", "A valid path, sha256 and total are required.")
+        ws = self._workspace(parts, create=True)
+        if not ws:
+            return
+        chunk = self._body(MAX_CHUNK_BYTES)
+        if chunk is None:
+            return
+        with ws.lock:
+            ws.last_used = time.time()
+            if not ws.fresh:
+                # A checkpoint never overwrites a workspace that has run: its files are newer.
+                return self._error(409, "not_fresh", "This workspace has already run.")
+            try:
+                fd, name = _state_parent(ws, rel, create=True)
+            except OSError:
+                return self._error(409, "workspace_tampered", "A directory on this path is not a plain directory.")
+            part = name + ".part"
+            try:
+                if os.path.lexists(os.path.join(ws.path, rel + ".part")) and not _is_plain_file(part, fd):
+                    os.unlink(part, dir_fd=fd)
+                size = os.stat(part, dir_fd=fd, follow_symlinks=False).st_size if _is_plain_file(part, fd) else 0
+                if offset == 0:
+                    size = 0
+                if offset != size:
+                    return self._send(409, {"error": "offset_mismatch", "expectedOffset": size})
+                if _dir_bytes(ws.path) + len(chunk) > MAX_WORKSPACE_BYTES:
+                    return self._error(413, "workspace_full", "This chat's sandbox workspace is full.")
+                flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_TRUNC if offset == 0 else os.O_APPEND)
+                with os.fdopen(os.open(part, flags, 0o600, dir_fd=fd), "wb") as f:
+                    f.write(chunk)
+                size += len(chunk)
+                if size < total:
+                    return self._send(200, {"received": size})
+                if size > total or _sha256_file(part, fd) != sha:
+                    os.unlink(part, dir_fd=fd)
+                    return self._error(422, "checksum_mismatch", "The uploaded bytes do not match sha256.")
+                os.replace(part, name, src_dir_fd=fd, dst_dir_fd=fd)
+                if not SINGLE_UID:
+                    os.chown(name, ws.uid, ws.uid, dir_fd=fd, follow_symlinks=False)
+                # The saved mtime, so the next checkpoint sees the file as unchanged.
+                os.utime(name, ns=(mtime_ns, mtime_ns), dir_fd=fd, follow_symlinks=False)
+                return self._send(200, {"received": size, "complete": True})
+            finally:
+                os.close(fd)
+
     def do_PUT(self) -> None:
         parts, query = self._route()
+        if len(parts) == 5 and parts[3] == "state" and parts[4] == "file":
+            return self._put_state_file(parts, query)
         if not (len(parts) == 5 and parts[3] == "input" and NAME_RE.match(parts[4])):
             return self._error(404, "not_found", "Unknown path.")
         sha = query.get("sha256", "")
@@ -509,7 +692,22 @@ class Handler(BaseHTTPRequestHandler):
                 os.close(fd)
 
     def do_POST(self) -> None:
-        parts, _query = self._route()
+        parts, query = self._route()
+        if len(parts) == 5 and parts[3] == "state" and parts[4] in ("restored", "saved"):
+            ws = self._workspace(parts, create=parts[4] == "restored")
+            if not ws:
+                return
+            with ws.lock:
+                if parts[4] == "restored":
+                    ws.fresh = False
+                    return self._send(200, {"restored": True})
+                try:
+                    generation = int(query["generation"])
+                except (KeyError, ValueError):
+                    return self._error(400, "bad_request", "generation is a required integer.")
+                # A run after the checkpoint began keeps the workspace dirty for the next one.
+                ws.saved_generation = max(ws.saved_generation, min(generation, ws.generation))
+                return self._send(200, {"dirty": ws.dirty})
         if not (len(parts) == 4 and parts[3] == "run"):
             return self._error(404, "not_found", "Unknown path.")
         raw = self._body(MAX_CODE_BYTES + 64 * 1024)
@@ -520,6 +718,7 @@ class Handler(BaseHTTPRequestHandler):
             code = req["code"]
             timeout_ms = min(int(req.get("timeoutMs", 60_000)), MAX_TIMEOUT_MS)
             inputs = req.get("inputs", [])
+            restore_state = bool(req.get("restoreState", False))
             assert isinstance(code, str) and isinstance(inputs, list)
         except Exception:
             return self._error(400, "bad_request", "Expected {code, timeoutMs, inputs}.")
@@ -527,6 +726,10 @@ class Handler(BaseHTTPRequestHandler):
         if not ws:
             return
         with ws.lock:
+            if ws.fresh and restore_state:
+                # The backend holds a checkpoint of this chat and this instance does not have
+                # its files: it pushes the checkpoint in first (state/file, state/restored).
+                return self._send(409, {"error": "restore_state"})
             try:
                 fd = _subdir(ws, "input")
             except OSError:
@@ -554,6 +757,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._error(503, "busy", "Other chats' code is using every run slot. Retry shortly.")
                 try:
                     remaining_ms = timeout_ms - int((time.time() - waited_from) * 1000)
+                    ws.fresh = False
+                    ws.generation += 1
                     result = _run(ws, code, max(remaining_ms, 1))
                 finally:
                     RUN_SLOTS.release()

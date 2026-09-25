@@ -1,6 +1,8 @@
 # ADR-0011: Step 1 of file handling follows Claude's published rules
 
 - Status: accepted. Stage 2 acts on `reading` for PDFs: [ADR-0013](0013-pdfs-sent-as-page-images-and-text.md).
+  2026-09-25: `MAX_UPLOAD_BYTES` (project files and the multipart route) raised from 20 MB to
+  30 MB, Claude's per-file limit for project files.
 - Date: 2026-09-25
 - See also: [ADR-0004](0004-file-handling-parity.md) (which extractors read which format)
 

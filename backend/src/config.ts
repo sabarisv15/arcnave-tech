@@ -310,8 +310,16 @@ const envSchema = z.object({
   CHAT_PURGE_AFTER_DAYS: int(30),
   /** An upload never sent with a message is removed after this long. */
   UNSENT_UPLOAD_TTL_HOURS: int(24),
-  /** Ceiling for uploads that pass through the backend as one request (multipart routes). */
-  MAX_UPLOAD_BYTES: int(20 * 1024 * 1024),
+  /** A chat's sandbox workspace is checkpointed after this long without a run (Claude: ~5 min). */
+  SANDBOX_CHECKPOINT_IDLE_SECONDS: int(300),
+  /** A checkpoint is kept this long after the chat last ran code (Claude: 30 days). */
+  SANDBOX_STATE_RETENTION_DAYS: int(30),
+  /**
+   * Ceiling for uploads that pass through the backend as one request (multipart routes):
+   * project files, whose limit in Claude is 30 MB. The body limit adds 1 MiB for framing, which
+   * keeps the request under Cloud Run's 32 MiB cap.
+   */
+  MAX_UPLOAD_BYTES: int(30 * 1024 * 1024),
   /**
    * Ceiling for a chat attachment, which the browser uploads straight to storage (Claude's
    * per-file limit). Cloud Run caps a request at 32 MiB, so only the direct path can reach it.

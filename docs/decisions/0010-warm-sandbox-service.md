@@ -1,7 +1,8 @@
 # ADR-0010: run_python runs on a warm sandbox service with a workspace per chat
 
 - Status: accepted. Capacity amended by [ADR-0014](0014-sandbox-resources-per-chat.md): files
-  on an ephemeral disk, 3 GiB per run, 2 runs at once.
+  on an ephemeral disk, 3 GiB per run, 2 runs at once. Workspaces outlive the instance by
+  [ADR-0015](0015-sandbox-workspaces-outlive-the-instance.md) checkpoints.
 - Date: 2026-09-24
 - Supersedes: [ADR-0005](0005-cloud-run-sandbox.md)'s "one fresh Cloud Run Job execution per
   `run_python` call" as the production engine. The Job remains a configurable engine

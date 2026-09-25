@@ -144,8 +144,20 @@ gcloud run services update arcnave-python-runner --region=$REGION \
 Verify in a chat: `bytearray(4 * 2**30)` fails with `MemoryError`, and the next run in the same
 chat works.
 
+## 9. Checkpoints (ADR-0015)
+
+Nothing to configure on the sandbox: the image from step 8 has the endpoints. The backend
+deploy that carries ADR-0015 applies migration 0010 and starts the one-minute checkpoint sweep.
+Deploy the sandbox image first. The backend's defaults are `SANDBOX_CHECKPOINT_IDLE_SECONDS=300`
+and `SANDBOX_STATE_RETENTION_DAYS=30`.
+
+Verify: in a chat, run `open('keep.txt','w').write('kept')`. Wait 6 minutes, and look for
+`sandbox checkpoint sweep` with `saved: 1` in the backend log. Redeploy the sandbox (step 8),
+which drops every workspace. Then in the same chat run `print(open('keep.txt').read())`, which
+must print `kept`.
+
 ## Not done here
 
-- **Workspaces are on one instance.** A redeploy or an instance restart loses them.
-  The next call re-sends its inputs automatically (409 → upload), but files a previous call
-  wrote are gone.
+- **Workspaces live on one instance, with checkpoints.** A redeploy or restart drops them. The
+  next run restores the last checkpoint (ADR-0015), so only files written in the 5 minutes
+  before the drop are lost.

@@ -80,10 +80,16 @@
 > - #6 ([ADR-0007](../decisions/0007-sandbox-no-general-egress.md)): the sandbox has no outbound
 >   internet. Verified live.
 >
+> **Also matched to Claude (local, not deployed):**
+> - Project files may be 30 MB (was 20 MB), Claude's project-file limit.
+> - A chat's sandbox files outlive the instance ([ADR-0015](../decisions/0015-sandbox-workspaces-outlive-the-instance.md)):
+>   idle 5 minutes, a workspace is checkpointed to storage; a run into an instance without it
+>   restores it first; kept 30 days after the chat last ran code, and purged with the chat.
+>   Needs the new sandbox image, then the backend deploy (migration 0010).
+>
 > **Still different from Claude:** 1.8 GiB disk per chat (Claude 5 GiB; Cloud Run caps 10 GiB per
-> instance), workspaces dropped after 2 hours idle (Claude keeps a container 30 days), no `gs://`
-> path for very large PDFs, project files capped at 20 MB (Claude 30 MB). Also to review: the
-> preview panel downloading whole files.
+> instance), and no `gs://` path for very large PDFs. Also to review: the preview panel
+> downloading whole files.
 
 **Last updated:** 2026-09-25
 **2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The

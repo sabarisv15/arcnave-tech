@@ -12,11 +12,14 @@
  * - Artifacts are the user's own library and outlive the chat (`chat_id` is set null).
  * - An upload never sent with a message is removed after UNSENT_UPLOAD_TTL_HOURS. The upload
  *   route has always said such files are "not kept forever".
+ * - A chat's sandbox checkpoint (ADR-0015) goes with the chat, and otherwise after
+ *   SANDBOX_STATE_RETENTION_DAYS without a run, as Claude's containers expire after 30 days.
  */
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
-import { attachments, chats, messages } from '../db/schema.js';
+import { attachments, chats, messages, sandboxWorkspaces } from '../db/schema.js';
+import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
 import type { ObjectStorage } from './storage.js';
 
 /** Fixed key so two instances never sweep at once; any other value would do. */
@@ -27,11 +30,13 @@ const CHATS_PER_SWEEP = 50;
 export interface RetentionPolicy {
   chatPurgeAfterDays: number;
   unsentUploadTtlHours: number;
+  sandboxStateDays: number;
 }
 
 export interface SweepResult {
   chatsPurged: number;
   uploadsPurged: number;
+  checkpointsPurged: number;
   /** True when another instance held the lock, and this one did nothing. */
   skipped: boolean;
 }
@@ -47,7 +52,7 @@ export async function sweepRetention(
     const [lock] = (await tx.execute(
       sql`select pg_try_advisory_xact_lock(${RETENTION_LOCK_KEY}) as ok`,
     )) as unknown as Array<{ ok: boolean }>;
-    if (!lock?.ok) return { chatsPurged: 0, uploadsPurged: 0, skipped: true };
+    if (!lock?.ok) return { chatsPurged: 0, uploadsPurged: 0, checkpointsPurged: 0, skipped: true };
 
     const chatCutoff = new Date(now.getTime() - policy.chatPurgeAfterDays * 86_400_000);
     const due = await tx
@@ -66,6 +71,13 @@ export async function sweepRetention(
       // Bytes first, rows second: a failed object delete keeps the row, so the next sweep
       // retries it instead of leaving bytes nothing points to.
       if (!(await deleteObjects(storage, files.map((f) => f.storageKey), log))) continue;
+      const workspaces = await tx
+        .select({ manifestKey: sandboxWorkspaces.manifestKey })
+        .from(sandboxWorkspaces)
+        .where(eq(sandboxWorkspaces.chatId, chat.id));
+      let checkpointsGone = true;
+      for (const w of workspaces) checkpointsGone = (await deleteCheckpoint(storage, w.manifestKey, log)) && checkpointsGone;
+      if (!checkpointsGone) continue;
       await tx.delete(chats).where(eq(chats.id, chat.id));
       chatsPurged++;
     }
@@ -81,7 +93,20 @@ export async function sweepRetention(
     }
     if (removable.length > 0) await tx.delete(attachments).where(inArray(attachments.id, removable));
 
-    return { chatsPurged, uploadsPurged: removable.length, skipped: false };
+    const stateCutoff = new Date(now.getTime() - policy.sandboxStateDays * 86_400_000);
+    const stale = await tx
+      .select({ ws: sandboxWorkspaces.workspaceId, manifestKey: sandboxWorkspaces.manifestKey })
+      .from(sandboxWorkspaces)
+      .where(lt(sandboxWorkspaces.lastRunAt, stateCutoff))
+      .limit(CHATS_PER_SWEEP);
+    let checkpointsPurged = 0;
+    for (const w of stale) {
+      if (!(await deleteCheckpoint(storage, w.manifestKey, log))) continue;
+      await tx.delete(sandboxWorkspaces).where(eq(sandboxWorkspaces.workspaceId, w.ws));
+      checkpointsPurged++;
+    }
+
+    return { chatsPurged, uploadsPurged: removable.length, checkpointsPurged, skipped: false };
   });
 }
 

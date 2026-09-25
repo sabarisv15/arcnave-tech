@@ -71,6 +71,13 @@
       "when": 1790306498920,
       "tag": "0009_mushy_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790400000000,
+      "tag": "0010_sandbox_workspaces",
+      "breakpoints": true
     }
   ]
 }

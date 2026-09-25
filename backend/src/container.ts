@@ -34,6 +34,7 @@ import { SandboxSemaphore } from './tools/sandbox/semaphore.js';
 import { SemaphoreSandboxClient } from './tools/sandbox/semaphoreSandboxClient.js';
 import { usesWarmSandbox } from './tools/catalog.js';
 import { WarmSandboxClient } from './tools/sandbox/warmSandboxClient.js';
+import { WorkspaceStateStore } from './tools/sandbox/workspaceState.js';
 import { logger } from './logger.js';
 
 const log = logger.child({ module: 'container' });
@@ -69,6 +70,8 @@ export interface Services {
   /** Each chat's current run and its buffered events, so a client can reattach after its
    *  connection drops. See `services/runHub.ts`. */
   runHub: RunHub;
+  /** The warm sandbox, when it is the engine: `index.ts` checkpoints its idle workspaces. */
+  warmSandbox: WarmSandboxClient | null;
 }
 
 export interface BuildOptions {
@@ -150,6 +153,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
           codeTimeoutMs: cfg.RUN_PYTHON_WARM_CODE_TIMEOUT_MS,
           transferBudgetMs: cfg.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS,
           maxCodeBytes: 512 * 1024,
+          state: new WorkspaceStateStore(db, storage),
         });
         log.info({ url: cfg.SANDBOX_SERVICE_URL }, 'run_python uses the warm sandbox service');
       }
@@ -254,6 +258,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     visionProvider: providers.google!,
     activeRuns: new Map(),
     runHub: new RunHub(),
+    warmSandbox: rawSandboxClient instanceof WarmSandboxClient ? rawSandboxClient : null,
   };
 }
 

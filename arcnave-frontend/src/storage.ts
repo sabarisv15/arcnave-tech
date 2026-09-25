@@ -46,8 +46,8 @@ export function clearLocal(key: string): void {
 export const allowed =
   /\.(pdf|docx|pptx|xlsx|xls|odt|rtf|epub|txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini|png|jpe?g|webp|gif|mp3|wav|ogg|flac|aac|mp4|webm|mov)$/i;
 
-/** Project files go through the API in one request, so they keep its 20 MB ceiling. */
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Project files go through the API in one request: Claude's 30 MB per project file. */
+export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 /** Chat attachments upload straight to storage: Claude's 500 MB per file. */
 export const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024;
 

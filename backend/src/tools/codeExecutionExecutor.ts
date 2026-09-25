@@ -158,8 +158,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     let execution;
     try {
       if (this.runtime) {
-        const sessionKey = this.userId && this.chatId ? `${this.userId}:${this.chatId}` : undefined;
-        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs, sessionKey);
+        const session = this.userId && this.chatId ? { userId: this.userId, chatId: this.chatId } : undefined;
+        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs, session);
       } else if (this.client) {
         execution = await this.client.runPython(parsed.data.code, signal, {
           workspaceDir: this.workspace?.workspaceDir,
