@@ -1,6 +1,10 @@
 # ADR-0010: run_python runs on a warm sandbox service with a workspace per chat
 
-- Status: accepted
+- Status: accepted. Capacity amended by [ADR-0014](0014-sandbox-resources-per-chat.md): files
+  on an ephemeral disk, 3 GiB per run, 2 runs at once. Workspaces outlive the instance by
+  [ADR-0015](0015-sandbox-workspaces-outlive-the-instance.md) checkpoints.
+  2026-09-25: the image also carries the skills at `/skills` and is built from `backend/`
+  ([ADR-0018](0018-skills-follow-claude.md)).
 - Date: 2026-09-24
 - Supersedes: [ADR-0005](0005-cloud-run-sandbox.md)'s "one fresh Cloud Run Job execution per
   `run_python` call" as the production engine. The Job remains a configurable engine
@@ -8,7 +12,7 @@
   statement that `run_python` stays on the Cloud Run Job. Its other rules stand: model-written
   code never runs in the backend, and trusted work runs locally.
 - Takes the "warm per-chat sandbox" item from Phase 6 of the tools pipeline plan.
-  ADR-0007 (no general egress) still applies and is still unimplemented.
+  ADR-0007 (no general egress) applies, and was implemented on this service on 2026-09-25.
 
 ## Context
 
@@ -60,9 +64,12 @@ keeps the chat's files, and has the libraries.
   scripts, compared with 20–40 s before. The code timeout is 5 minutes instead of 10 s.
   `max-instances=1` is the capacity limit until calls are routed by workspace. Workspaces live
   in instance memory, so a restart loses them; inputs are re-sent automatically.
-- **Egress.** The service still has open egress (ADR-0007 gap, same as the Job). It needs no
-  Google APIs, so the fix is a VPC with no NAT.
+- **Egress.** Closed on 2026-09-25: the service sends all traffic into a VPC with no NAT and a
+  deny-all egress rule (ADR-0007, "Implementation").
 - **Shared kernel.** Chats share one container kernel, isolated by uid, not by VM. This is
   weaker than ChatGPT's per-user container and stronger than the per-call Job's empty neighbour.
   If ArcNave is opened to untrusted users at scale, move to gVisor or a per-user sandbox.
+- **Workspaces on disk.** Decided in [ADR-0014](0014-sandbox-resources-per-chat.md): workspaces
+  move from the in-memory filesystem to a 10 GiB ephemeral disk, 5 chats of 1.8 GiB each.
+  Runbook steps 7 and 8. The disk did not start live; see ADR-0014, "Live result".
 - **Setup.** `docs/deploy/warm-sandbox.md`.

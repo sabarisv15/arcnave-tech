@@ -83,6 +83,10 @@ describe('ExecutionRuntime', () => {
     const workspace = await runtime.createWorkspace(runId);
 
     const mockStorage = {
+      // Streams to a path in the real storage; here it writes what get() returns.
+      async downloadTo(this: { get: (key: string) => Promise<Buffer> }, key: string, dest: string) {
+        await (await import('node:fs/promises')).writeFile(dest, await this.get(key));
+      },
       get: async (key: string) => Buffer.from(`contents of ${key}`),
       put: async () => {},
     } as any;
@@ -159,6 +163,10 @@ describe('ExecutionRuntime', () => {
     const mockStorage = {
       put: async (key: string, data: Buffer) => {
         storedFiles[key] = data;
+      },
+      // Streams to a path in the real storage; here it writes what get() returns.
+      async downloadTo(this: { get: (key: string) => Promise<Buffer> }, key: string, dest: string) {
+        await (await import('node:fs/promises')).writeFile(dest, await this.get(key));
       },
       get: async (key: string) => storedFiles[key]!,
     } as any;
@@ -342,6 +350,10 @@ with open('output/result.txt', 'w') as out:
     const mockStorage = {
       put: async (key: string, data: Buffer) => {
         storedFiles[key] = data;
+      },
+      // Streams to a path in the real storage; here it writes what get() returns.
+      async downloadTo(this: { get: (key: string) => Promise<Buffer> }, key: string, dest: string) {
+        await (await import('node:fs/promises')).writeFile(dest, await this.get(key));
       },
       get: async (key: string) => storedFiles[key]!,
     } as any;

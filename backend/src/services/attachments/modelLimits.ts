@@ -16,7 +16,25 @@ import type { AttachmentBlock, Turn } from '../../providers/types.js';
 
 const isImage = (a: AttachmentBlock) => a.mimeType.startsWith('image/');
 const isPdf = (a: AttachmentBlock) => a.mimeType === 'application/pdf';
-const wireBytes = (a: AttachmentBlock) => (a.base64 ? Buffer.byteLength(a.base64, 'utf8') : 0);
+/** Encoded bytes this attachment puts on the wire: its own bytes, or its page images. */
+const wireBytes = (a: AttachmentBlock) =>
+  a.pages
+    ? a.pages.reduce((n, p) => n + (p.image?.base64 ? Buffer.byteLength(p.image.base64, 'utf8') : 0), 0)
+    : a.base64
+      ? Buffer.byteLength(a.base64, 'utf8')
+      : 0;
+/** The largest single image this attachment sends. */
+const largestImage = (a: AttachmentBlock) =>
+  a.pages
+    ? Math.max(0, ...a.pages.map((p) => (p.image?.base64 ? Buffer.byteLength(p.image.base64, 'utf8') : 0)))
+    : isImage(a)
+      ? wireBytes(a)
+      : 0;
+/** PDF pages this attachment brings to the request. */
+async function pagesOf(a: AttachmentBlock): Promise<number> {
+  if (a.pages) return a.pages.length;
+  return isPdf(a) && a.base64 ? ((await pdfPageCount(a.base64)) ?? 0) : 0;
+}
 
 /** Page count, or `null` when the PDF cannot be parsed here (the provider then decides). */
 export async function pdfPageCount(base64: string): Promise<number | null> {
@@ -54,17 +72,17 @@ export async function enforceModelLimits(
   current: AttachmentBlock[],
   history: Turn[],
 ): Promise<Turn[]> {
-  const sent = (a: AttachmentBlock) => Boolean(a.base64);
+  const sent = (a: AttachmentBlock) => Boolean(a.base64 || a.pages);
   let pages = 0;
   let bytes = 0;
 
   // This turn: every limit is a hard stop.
   for (const a of current.filter(sent)) {
-    if (spec.supportsVision && isImage(a) && wireBytes(a) > spec.maxEncodedImageBytes) {
-      throw tooLarge(spec, a, 'image_bytes', spec.maxEncodedImageBytes, wireBytes(a));
+    if (spec.supportsVision && largestImage(a) > spec.maxEncodedImageBytes) {
+      throw tooLarge(spec, a, 'image_bytes', spec.maxEncodedImageBytes, largestImage(a));
     }
     if (spec.maxPdfPagesPerRequest !== null && isPdf(a)) {
-      pages += (await pdfPageCount(a.base64!)) ?? 0;
+      pages += await pagesOf(a);
       if (pages > spec.maxPdfPagesPerRequest) throw tooLarge(spec, a, 'pdf_pages', spec.maxPdfPagesPerRequest, pages);
     }
     bytes += wireBytes(a);
@@ -77,11 +95,11 @@ export async function enforceModelLimits(
   const omitted = new Set<AttachmentBlock>();
   for (let t = history.length - 1; t >= 0; t -= 1) {
     for (const a of (history[t]!.attachments ?? []).filter(sent)) {
-      if (spec.supportsVision && isImage(a) && wireBytes(a) > spec.maxEncodedImageBytes) {
+      if (spec.supportsVision && largestImage(a) > spec.maxEncodedImageBytes) {
         omitted.add(a);
         continue;
       }
-      const addPages = spec.maxPdfPagesPerRequest !== null && isPdf(a) ? ((await pdfPageCount(a.base64!)) ?? 0) : 0;
+      const addPages = spec.maxPdfPagesPerRequest !== null && isPdf(a) ? await pagesOf(a) : 0;
       const overPages = spec.maxPdfPagesPerRequest !== null && pages + addPages > spec.maxPdfPagesPerRequest;
       const overBytes = spec.maxRequestBytes !== null && bytes + wireBytes(a) > spec.maxRequestBytes;
       if (overPages || overBytes) {
@@ -100,8 +118,10 @@ export async function enforceModelLimits(
           ...turn,
           attachments: turn.attachments.map((a) => {
             if (!omitted.has(a)) return a;
-            const { base64: _dropped, ...rest } = a;
-            return { ...rest, omittedReason: 'model_limit' as const };
+            const { base64: _dropped, pages: _pages, ...rest } = a;
+            // The page text survives as extracted text; the images are what did not fit.
+            const text = a.pages?.map((p) => (p.text ? `--- Page ${String(p.num)} ---\n${p.text}` : '')).filter(Boolean).join('\n\n');
+            return { ...rest, ...(text ? { extractedText: text } : {}), omittedReason: 'model_limit' as const };
           }),
         }
       : turn,

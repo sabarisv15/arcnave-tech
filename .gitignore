@@ -49,3 +49,6 @@ arcnave-frontend.zip
 
 # Reference tools / corpus
 /tools/
+
+# Python bytecode
+__pycache__/

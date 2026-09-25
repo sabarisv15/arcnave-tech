@@ -406,6 +406,15 @@ describe('Batch 6 Freeze Check: Overflow Recovery & Streaming Safety', () => {
       // Sliced history must start with a user turn
       expect(reduced[0]?.role).toBe('user');
     });
+
+    it('keeps the question and its files when the history is a single exchange', () => {
+      const reduced = reduceHistoryForOverflow([
+        { role: 'user', text: 'Read this', attachments: [{ id: 'f1', mimeType: 'application/pdf', extractedText: 'Closing 250' }] },
+        { role: 'assistant', text: 'Done' },
+      ]);
+      expect(reduced.map((t) => t.role)).toEqual(['user', 'assistant']);
+      expect(reduced[0]?.attachments?.[0]?.extractedText).toBe('Closing 250');
+    });
   });
 
   // =========================================================================

@@ -206,6 +206,9 @@ export class ExecutionRuntime {
     userId: string,
     db: Database,
     storage: ObjectStorage,
+    /** The name under input/ the manifest promised (sandboxInputNames). When given it is used
+     *  as is, so the path the model was told is the path that exists. */
+    targetName?: string,
   ): Promise<MaterializedAttachment> {
     const [row] = await db
       .select()
@@ -217,7 +220,12 @@ export class ExecutionRuntime {
       throw new AttachmentNotFoundError(attachmentId);
     }
 
-    const data = await storage.get(row.storageKey);
+    // Streamed to disk: an attachment can be 500 MB, and a Buffer of it would sit in memory.
+    if (targetName) {
+      const target = path.join(workspace.inputDir, path.basename(targetName));
+      await storage.downloadTo(row.storageKey, target);
+      return { attachmentId: row.id, filename: path.basename(targetName), path: target, mimeType: row.mimeType, sizeBytes: row.sizeBytes };
+    }
     const sanitized = path.basename(row.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
     let safeFilename = sanitized || `attachment_${attachmentId}`;
     let filePath = path.join(workspace.inputDir, safeFilename);
@@ -235,7 +243,7 @@ export class ExecutionRuntime {
       // File does not exist yet; safeFilename is unique
     }
 
-    await fs.writeFile(filePath, data);
+    await storage.downloadTo(row.storageKey, filePath);
 
     return {
       attachmentId: row.id,
@@ -365,7 +373,7 @@ export class ExecutionRuntime {
     workspace?: WorkspaceFiles,
     signal?: AbortSignal,
     expectedOutputs?: string[],
-    sessionKey?: string,
+    session?: { userId: string; chatId: string },
   ): Promise<SandboxExecutionResult> {
     if (!this.sandboxClient) {
       throw new Error('Python sandbox execution is disabled or unavailable.');
@@ -375,7 +383,8 @@ export class ExecutionRuntime {
     return this.sandboxClient.runPython(code, execSignal, {
       workspaceDir: workspace?.workspaceDir,
       expectedOutputs,
-      sessionKey,
+      sessionKey: session ? `${session.userId}:${session.chatId}` : undefined,
+      owner: session,
     });
   }
 

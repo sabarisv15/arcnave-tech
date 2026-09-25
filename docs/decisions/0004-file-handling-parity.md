@@ -1,6 +1,6 @@
 # ADR-0004: File-handling parity with Claude.ai / ChatGPT
 
-- Status: accepted
+- Status: accepted. Chat-attachment intake (limits, types, upload path) is now [ADR-0011](0011-upload-follows-claude.md).
 - Date: 2026-09-18
 
 ## Context

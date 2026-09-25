@@ -87,6 +87,10 @@ describe('File Operation Deferred Discovery & Execution Flow', () => {
       put: async (key: string, data: Buffer) => {
         mockStorageStore[key] = data;
       },
+      // Streams to a path in the real storage; here it writes what get() returns.
+      async downloadTo(this: { get: (key: string) => Promise<Buffer> }, key: string, dest: string) {
+        await (await import('node:fs/promises')).writeFile(dest, await this.get(key));
+      },
       get: async (key: string) => mockStorageStore[key]!,
     } as any;
 

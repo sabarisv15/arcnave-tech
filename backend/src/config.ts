@@ -119,17 +119,17 @@ const envSchema = z.object({
   MAX_OUTPUT_TOKENS_CEILING: int(32_000),
   /** Character budget for retrieved project context injected into a prompt. */
   PROJECT_CONTEXT_MAX_CHARS: int(12_000),
+  /** Project files go into the prompt whole while their text totals at most this many
+   *  characters; past it, only excerpts retrieved by relevance do (ADR-0020). Claude publishes
+   *  no number ("approaches the context window limit"). This one is ArcNave's: about a third of
+   *  the compaction trigger for English text, so a chat still has room before it compacts. */
+  PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
   PROJECT_CONTEXT_MAX_CHUNKS: int(8),
-  HISTORY_MAX_TURNS: int(20),
-  /** Bytes of image/PDF attachment data carried forward from earlier turns in one chat, total,
-   *  per generate call. Oldest carried-forward attachments drop first past this cap; a file
-   *  newly attached to the current turn is never dropped by it. */
+  /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
+   *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
+   *  of the current turn never does. Claude (verified request limit) and Gemini PDFs sent by
+   *  gs:// URI are not held to it (ADR-0019). */
   HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
-  /** Characters of text-extracted (non-image/PDF) attachment content carried forward per older
-   *  turn, per generate call. Capped independently of the 200,000-char upload-time cap in
-   *  files.ts — that cap is "how much to keep at all", this one is "how much of that to re-pay
-   *  for on every later turn of the same chat". */
-  HISTORY_MAX_ATTACHMENT_TEXT_CHARS: int(8000),
 
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),
@@ -268,10 +268,6 @@ const envSchema = z.object({
   // --- Phase 5: Context Intelligence -------------------------------------
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
   ENABLE_PROMPT_CACHE: bool(true),
-  /** Minimum prefix token count required before Anthropic cache_control is placed. */
-  PROMPT_CACHE_MIN_TOKENS_ANTHROPIC: int(1024),
-  /** Minimum prefix token count expected before Gemini Vertex implicit caching kicks in. */
-  PROMPT_CACHE_MIN_TOKENS_GEMINI: int(2048),
 
   /** Master gate for persistent memory (PostgreSQL durable memory_items). */
   ENABLE_MEMORY: bool(false),
@@ -282,8 +278,11 @@ const envSchema = z.object({
   /** Maximum relevant memory items injected per turn. */
   MEMORY_RELEVANT_MAX_ITEMS: int(5),
 
-  /** Master gate for context pressure-driven conversation compaction. */
-  ENABLE_CONTEXT_COMPACTION: bool(false),
+  /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
+  ENABLE_CONTEXT_COMPACTION: bool(true),
+  /** Input tokens of the previous request at which a chat compacts: Claude's threshold default.
+   *  Capped at three quarters of the model's window, and never below Claude's 50,000 minimum. */
+  COMPACTION_TRIGGER_TOKENS: int(150_000),
   /** Headroom threshold in tokens below which compaction triggers. */
   COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),
   /** Headroom ratio (remaining context / total context window) below which compaction triggers. */
@@ -296,18 +295,42 @@ const envSchema = z.object({
   ENABLE_IMAGE_GENERATION: bool(true),
   /** Maximum bytes for a validated Generative UI response payload. */
   UI_MAX_RESPONSE_BYTES: int(100_000),
-  /** Master gate for advanced data analytics sessions and profiling. */
-  ENABLE_ANALYTICS: bool(true),
-  /** Gate for composed interactive dashboards. */
-  ENABLE_ANALYTICS_DASHBOARDS: bool(true),
-  /** Sliding TTL in hours for ephemeral derived datasets before recomputation. */
-  DERIVED_DATASET_TTL_HOURS: int(168),
 
   // --- Storage ------------------------------------------------------------
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),
   STORAGE_GCS_BUCKET: optionalStr,
-  MAX_UPLOAD_BYTES: int(20 * 1024 * 1024),
+  /**
+   * Bucket Gemini reads rendered PDF pages from, by `gs://` URI (ADR-0016). Unset, pages go
+   * inline in the request. Only Vertex's service agent needs read access to it.
+   */
+  MODEL_INPUT_BUCKET: optionalStr,
+  /** A deleted chat's rows and uploaded files are removed this long after deletion (Claude: 30). */
+  CHAT_PURGE_AFTER_DAYS: int(30),
+  /** An upload never sent with a message is removed after this long. */
+  UNSENT_UPLOAD_TTL_HOURS: int(24),
+  /** A chat's sandbox workspace is checkpointed after this long without a run (Claude: ~5 min). */
+  SANDBOX_CHECKPOINT_IDLE_SECONDS: int(300),
+  /** A checkpoint is kept this long after the chat last ran code (Claude: 30 days). */
+  SANDBOX_STATE_RETENTION_DAYS: int(30),
+  /**
+   * Ceiling for uploads that pass through the backend as one request (multipart routes):
+   * project files, whose limit in Claude is 30 MB. The body limit adds 1 MiB for framing, which
+   * keeps the request under Cloud Run's 32 MiB cap.
+   */
+  MAX_UPLOAD_BYTES: int(30 * 1024 * 1024),
+  /**
+   * Ceiling for a chat attachment, which the browser uploads straight to storage (Claude's
+   * per-file limit). Cloud Run caps a request at 32 MiB, so only the direct path can reach it.
+   */
+  ATTACHMENT_MAX_BYTES: int(500 * 1024 * 1024),
+  /**
+   * Peak memory one upload's text extraction may take; extractions run one at a time per
+   * instance. With EXTRACTION_MEMORY_PER_BYTE this gives each type's size limit for extraction
+   * (larger files are stored, not extracted). Keep it at about half the instance memory; the
+   * backend runs with 8 GiB (2026-09-25), so 4 GiB. Lower it with the memory, never above it.
+   */
+  EXTRACTION_MEMORY_BUDGET_BYTES: int(4 * 1024 * 1024 * 1024),
 
   // --- Rate limiting ------------------------------------------------------
   RATE_LIMIT_GENERATE_PER_MINUTE: int(20),

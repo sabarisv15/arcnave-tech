@@ -1,8 +1,8 @@
 ---
 name: artifact-design
-description: Design principles, typography, tabular alignment, and visual standards for creating high-fidelity ArcNave artifacts.
-version: 1.0.0
-category: presentation
+description: Layout, typography and table standards for documents written with create_artifact. Use when creating or updating an artifact such as a report, form, brief or webpage.
+version: 1.1.0
+category: artifact
 scope: project
 autoload: false
 requires:

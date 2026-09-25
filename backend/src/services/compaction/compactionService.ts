@@ -1,8 +1,9 @@
 import { desc, eq } from 'drizzle-orm';
 import { config } from '../../config.js';
-import { getDb } from '../../db/client.js';
+import { type Database, getDb } from '../../db/client.js';
 import { conversationCompactions, type ConversationCompaction } from '../../db/schema.js';
 import type { Provider, Turn } from '../../providers/types.js';
+import { isTextSummary } from './autoCompact.js';
 import {
   compactionSummarySchema,
   type CompactionSummary,
@@ -48,8 +49,7 @@ export class CompactionService {
   /**
    * Retrieves the most recent compaction summary for a chat.
    */
-  async getLatestCompaction(chatId: string): Promise<ConversationCompaction | null> {
-    const db = getDb();
+  async getLatestCompaction(chatId: string, db: Database = getDb()): Promise<ConversationCompaction | null> {
     const rows = await db
       .select()
       .from(conversationCompactions)
@@ -64,6 +64,13 @@ export class CompactionService {
    * Formats a compaction summary for injection into the dynamic prompt context.
    */
   formatCompactionForPrompt(compaction: ConversationCompaction): string {
+    if (isTextSummary(compaction.summary)) {
+      return (
+        `<conversation_compaction through_message_id="${compaction.throughMessageId}" through_seq="${compaction.throughSeq}">\n` +
+        `Summary of the conversation before the messages that follow:\n${compaction.summary.text}\n` +
+        `</conversation_compaction>`
+      );
+    }
     const s = compaction.summary as unknown as CompactionSummary;
     if (!s) return '';
 

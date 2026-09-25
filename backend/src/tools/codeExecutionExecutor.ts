@@ -24,6 +24,7 @@ import type { DeliverableWarning } from '../services/documents/primitives.js';
 import { visualQaEngine } from '../services/qa/visualQaEngine.js';
 import { AttachmentNotFoundError, ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
 import type { SandboxClient } from './sandbox/client.js';
+import { sandboxInputNames, type ManifestFile } from '../services/attachments/manifest.js';
 
 const log = logger.child({ module: 'codeExecutionExecutor' });
 
@@ -77,6 +78,9 @@ export interface CodeExecutionOptions {
   storage?: ObjectStorage;
   /** Looks at rendered output pages for visual QA (G14). Without it the visual layer is `not_checked`. */
   visionProvider?: Provider;
+  /** Every file in the conversation. All of them are placed in input/ before the first call,
+   *  under the names the attachment manifest printed, as Claude's container has uploads. */
+  chatFiles?: Pick<ManifestFile, 'id' | 'filename'>[];
 }
 
 export class CodeExecutionToolExecutor implements ToolExecutor {
@@ -91,6 +95,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
   private readonly visionProvider?: Provider;
   /** fileId → path under input/, so a second call in the same turn reuses the same path. */
   private readonly materialized = new Map<string, string>();
+  private chatFiles: Pick<ManifestFile, 'id' | 'filename'>[] = [];
+  private chatFilesReady = false;
 
   constructor(
     clientOrRuntime: SandboxClient | ExecutionRuntime,
@@ -109,6 +115,13 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     this.db = options?.db;
     this.visionProvider = options?.visionProvider;
     this.storage = options?.storage;
+    this.chatFiles = options?.chatFiles ?? [];
+  }
+
+  /** The conversation's files, once they are known (after the executor is built). */
+  setChatFiles(files: Pick<ManifestFile, 'id' | 'filename'>[]): void {
+    this.chatFiles = files;
+    this.chatFilesReady = false;
   }
 
   async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
@@ -126,6 +139,12 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
 
     const declaredOutputs = parsed.data.expected_outputs ?? parsed.data.expectedOutputs;
 
+    if (!this.chatFilesReady && this.chatFiles.length > 0) {
+      const staged = await this.materializeChatFiles();
+      if (!staged.ok) return textResult(call.id, false, staged.error);
+      this.chatFilesReady = true;
+    }
+
     let inputFiles: Array<{ fileId: string; path: string }> = [];
     if (parsed.data.input_files && parsed.data.input_files.length > 0) {
       const staged = await this.materializeInputs(parsed.data.input_files);
@@ -139,8 +158,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     let execution;
     try {
       if (this.runtime) {
-        const sessionKey = this.userId && this.chatId ? `${this.userId}:${this.chatId}` : undefined;
-        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs, sessionKey);
+        const session = this.userId && this.chatId ? { userId: this.userId, chatId: this.chatId } : undefined;
+        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs, session);
       } else if (this.client) {
         execution = await this.client.runPython(parsed.data.code, signal, {
           workspaceDir: this.workspace?.workspaceDir,
@@ -342,6 +361,30 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
    * Works the same for this turn's files and for files from earlier turns (G26, G15): identity
    * is the fileId, and the bytes come from object storage on demand.
    */
+  /** Places every conversation file in input/ under its manifest name. Once per turn. */
+  private async materializeChatFiles(): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.runtime || !this.workspace || !this.db || !this.storage || !this.userId) return { ok: true };
+    const names = sandboxInputNames(this.chatFiles);
+    for (const f of this.chatFiles) {
+      if (this.materialized.has(f.id)) continue;
+      const name = names.get(f.id)!;
+      try {
+        await this.runtime.materializeAttachment(this.workspace, f.id, this.userId, this.db, this.storage, name);
+        this.materialized.set(f.id, `input/${name}`);
+      } catch (err) {
+        log.warn({ err, fileId: f.id }, 'Failed to place a conversation file in the sandbox');
+        return {
+          ok: false,
+          error:
+            err instanceof AttachmentNotFoundError
+              ? `Conversation file "${f.filename}" (${f.id}) was not found.`
+              : `Conversation file "${f.filename}" (${f.id}) could not be read from storage. Try again, or tell the user the file is unavailable.`,
+        };
+      }
+    }
+    return { ok: true };
+  }
+
   private async materializeInputs(
     fileIds: string[],
   ): Promise<{ ok: true; files: Array<{ fileId: string; path: string }> } | { ok: false; error: string }> {

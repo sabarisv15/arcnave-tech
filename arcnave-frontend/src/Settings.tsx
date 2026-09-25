@@ -937,8 +937,8 @@ function Privacy() {
               .cleanup()
               .then((result) =>
                 toast(
-                  result.removed
-                    ? `${result.removed} unsent upload${result.removed === 1 ? "" : "s"} discarded`
+                  result.deleted
+                    ? `${result.deleted} unsent upload${result.deleted === 1 ? "" : "s"} discarded`
                     : "There were no unsent uploads",
                 ),
               )

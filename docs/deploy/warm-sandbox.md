@@ -17,7 +17,15 @@ echo "backend runs as: $BACKEND_SA"      # must not be empty
 ## 1. Build the sandbox image
 
 ```bash
-gcloud builds submit backend/sandbox --config backend/sandbox/cloudbuild.service.yaml
+gcloud builds submit backend --config backend/sandbox/cloudbuild.service.yaml \
+  --ignore-file=sandbox/service.gcloudignore
+```
+
+The context is `backend/`: the image carries `backend/skills` at `/skills` (ADR-0018). Rebuild
+and redeploy the sandbox **before** a backend that tells the model about `/skills`. Check:
+
+```bash
+# after deploy, in a chat with run_python:  import os; print(sorted(os.listdir('/skills')))
 ```
 
 ## 2. Deploy the sandbox service
@@ -33,9 +41,9 @@ gcloud run deploy arcnave-python-runner \
   --no-allow-unauthenticated \
   --execution-environment=gen2 \
   --min-instances=1 --max-instances=1 \
-  --concurrency=16 --cpu=2 --memory=4Gi --timeout=900 \
+  --concurrency=16 --cpu=2 --memory=8Gi --timeout=900 \
   --no-cpu-throttling \
-  --set-env-vars=MAX_WORKSPACES=12,MAX_WORKSPACE_BYTES=268435456,WORKSPACE_TTL_S=7200
+  --set-env-vars=MAX_WORKSPACES=5,MAX_WORKSPACE_BYTES=1932735283,WORKSPACE_TTL_S=7200
 ```
 
 What each setting is for:
@@ -45,8 +53,14 @@ What each setting is for:
   limit.
 - `--min-instances=1` and `--no-cpu-throttling`: the service stays warm, so there is no cold
   start per call.
-- `--memory=4Gi` with `MAX_WORKSPACES=12` × 256 MiB: Cloud Run's disk is memory. The workspace
-  caps keep the files within what the instance has.
+- `--memory=8Gi`: for the code itself. Workspaces are on the ephemeral disk (step 7), not in
+  memory, so memory no longer bounds how many files a chat holds. Each run may use 3 GiB
+  (`RUN_MEMORY_BYTES`) and at most 2 run at once (`MAX_CONCURRENT_RUNS`), both image defaults
+  ([ADR-0014](../decisions/0014-sandbox-resources-per-chat.md)).
+- `MAX_WORKSPACES=5` × `MAX_WORKSPACE_BYTES=1932735283` (1.8 GiB): what fits the 10 GiB disk.
+  ext4 keeps about 5% for root and the per-chat uids are not root, so about 9.3 GiB is usable.
+  A workspace is per chat, not per user. When all five are taken, the one idle the longest is
+  dropped; its inputs are re-sent on its next call, and files its code wrote are gone.
 - `--no-allow-unauthenticated`: only callers with `run.invoker` on this service can reach it.
 
 ## 3. Let the backend call it
@@ -84,12 +98,78 @@ reconnects.
 3. Start a long request, then close the tab. Reopen the chat after a minute. The reply should
    still be generating, or be finished, not "Connection interrupted".
 
+## 6. Close outbound internet (ADR-0007)
+
+The service needs no Google APIs (files come in the request body), so it goes on a VPC with no
+NAT and a deny-all egress rule. The backend must never be attached to this VPC: it would lose
+Postgres and Vertex (mistakes.md, 2026-09-17).
+
+```bash
+gcloud compute networks create arcnave-sandbox-vpc --subnet-mode=custom
+gcloud compute networks subnets create arcnave-sandbox-subnet \
+  --network=arcnave-sandbox-vpc --region=$REGION --range=10.20.0.0/26
+gcloud compute firewall-rules create arcnave-sandbox-deny-egress \
+  --network=arcnave-sandbox-vpc --direction=EGRESS --action=DENY \
+  --rules=all --destination-ranges=0.0.0.0/0 --priority=1000
+gcloud run services update arcnave-python-runner --region=$REGION \
+  --network=arcnave-sandbox-vpc --subnet=arcnave-sandbox-subnet --vpc-egress=all-traffic
+```
+
+Verify: in a chat, ask it to run
+`import urllib.request; print(urllib.request.urlopen("https://example.com", timeout=10).status)`.
+It must fail with `Network is unreachable`, and the reply must still arrive (the backend is
+unaffected). Done live on 2026-09-25.
+
+## 7. Put workspaces on disk, not in memory. Not working live; do not apply
+
+> Every revision with this disk failed to start (ADR-0014, "Live result"). The service runs
+> without it: `MAX_WORKSPACES=3`, `MAX_WORKSPACE_BYTES=1073741824`, `MAX_CONCURRENT_RUNS=1`.
+
+Cloud Run's own filesystem is memory. An ephemeral disk (Preview, $0.000109589 per GiB-hour in
+Tier 1 regions such as asia-south1, about $0.80 a month for 10 GiB) is instance-local ext4 that
+needs no network and no IAM, so ADR-0007's closed network is unaffected. The server already
+keeps workspaces under `WORK_ROOT=/work`.
+
+```bash
+gcloud beta run services update arcnave-python-runner --region=$REGION \
+  --add-volume=name=work,type=ephemeral-disk,size=10Gi \
+  --add-volume-mount=volume=work,mount-path=/work \
+  --update-env-vars=MAX_WORKSPACES=5,MAX_WORKSPACE_BYTES=1932735283
+```
+
+10 GiB is the most a service instance may have: 30 GiB was refused with "Total size of
+'ephemeral-disk' volumes cannot exceed 10 GiB". A Cloud Storage volume mount was rejected: it
+needs Private Google Access and bucket IAM on the sandbox, and it is not POSIX. Verify that
+`status.traffic` names the new revision. The spec showing `emptyDir` is not enough: the spec
+changes even when the revision never starts. Then, in a chat, `shutil.disk_usage("/work")` must
+report about 10 GB, and a 1.5 GB file must be writable.
+
+## 8. Memory per run (ADR-0014)
+
+Rebuild the image (step 1) and point the service at it; volumes, network and variables stay.
+
+```bash
+gcloud run services update arcnave-python-runner --region=$REGION \
+  --image=$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/cloud-run-source-deploy/arcnave-python-runner:latest
+```
+
+Verify in a chat: `bytearray(4 * 2**30)` fails with `MemoryError`, and the next run in the same
+chat works.
+
+## 9. Checkpoints (ADR-0015)
+
+Nothing to configure on the sandbox: the image from step 8 has the endpoints. The backend
+deploy that carries ADR-0015 applies migration 0010 and starts the one-minute checkpoint sweep.
+Deploy the sandbox image first. The backend's defaults are `SANDBOX_CHECKPOINT_IDLE_SECONDS=300`
+and `SANDBOX_STATE_RETENTION_DAYS=30`.
+
+Verify: in a chat, run `open('keep.txt','w').write('kept')`. Wait 6 minutes, and look for
+`sandbox checkpoint sweep` with `saved: 1` in the backend log. Redeploy the sandbox (step 8),
+which drops every workspace. Then in the same chat run `print(open('keep.txt').read())`, which
+must print `kept`.
+
 ## Not done here
 
-- **No-egress networking (ADR-0007).** The service still has open outbound internet, like the
-  Job. Closing it takes a VPC with no NAT (`--network … --subnet … --vpc-egress=all-traffic`)
-  and a probe that an outbound call from `run_python` fails. The service needs no Google APIs,
-  so the fully closed form works.
-- **Workspaces are in memory on one instance.** A redeploy or an instance restart loses them.
-  The next call re-sends its inputs automatically (409 → upload), but files a previous call
-  wrote are gone.
+- **Workspaces live on one instance, with checkpoints.** A redeploy or restart drops them. The
+  next run restores the last checkpoint (ADR-0015), so only files written in the 5 minutes
+  before the drop are lost.

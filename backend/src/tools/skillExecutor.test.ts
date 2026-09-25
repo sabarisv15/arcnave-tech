@@ -162,4 +162,52 @@ describe('SkillToolExecutor', () => {
     const dataTraversal = jsonContent(resWithTraversal.content);
     expect(dataTraversal.resourceContent).toBe('[Resource file not found]');
   });
+
+  it('returns how to run a script, not its code, when the sandbox has the skills (Claude level 3)', async () => {
+    const executor = new SkillToolExecutor(skillService, new Set(), undefined, { scriptsRoot: '/skills' });
+    const result = await executor.execute(
+      { id: 's1', name: 'load_skill', input: { name: 'pdf', resource: 'scripts/analyze_table_rows.py' } },
+      new AbortController().signal,
+    );
+    const data = jsonContent(result.content);
+    expect(data.resourceContent).toBeUndefined();
+    expect(JSON.stringify(data)).not.toContain('def parse_number');
+    expect(data.script).toMatchObject({ path: '/skills/pdf/scripts/analyze_table_rows.py' });
+    expect(data.files).toBe('/skills/pdf/ in the sandbox');
+
+    // A reference file is still read into context, as Claude reads FORMS.md.
+    const doc = jsonContent(
+      (await executor.execute({ id: 's2', name: 'load_skill', input: { name: 'pdf', resource: 'SKILL.md' } }, new AbortController().signal))
+        .content,
+    );
+    expect(String(doc.resourceContent)).toContain('# PDF');
+  });
+
+  it('still returns a script\'s source where no sandbox has the skills', async () => {
+    const executor = new SkillToolExecutor(skillService);
+    const data = jsonContent(
+      (
+        await executor.execute(
+          { id: 's3', name: 'load_skill', input: { name: 'pdf', resource: 'scripts/analyze_table_rows.py' } },
+          new AbortController().signal,
+        )
+      ).content,
+    );
+    expect(String(data.resourceContent)).toContain('def parse_number');
+    expect(data.script).toBeUndefined();
+  });
+
+  it('does not offer to run a script that does not exist', async () => {
+    const executor = new SkillToolExecutor(skillService, new Set(), undefined, { scriptsRoot: '/skills' });
+    const data = jsonContent(
+      (
+        await executor.execute(
+          { id: 's4', name: 'load_skill', input: { name: 'pdf', resource: 'scripts/nope.py' } },
+          new AbortController().signal,
+        )
+      ).content,
+    );
+    expect(data.script).toBeUndefined();
+    expect(data.resourceContent).toBe('[Resource file not found]');
+  });
 });

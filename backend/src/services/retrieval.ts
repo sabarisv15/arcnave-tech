@@ -9,7 +9,7 @@
  * Chunking is what keeps us inside Vertex's 30 MB payload cap and stops one large file from
  * crowding out every other source of context.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 
@@ -49,10 +49,19 @@ export async function extractText(
     return extractPdf(data, visionProvider);
   }
   if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) {
-    return extractWithOfficeParser(data, 'This Word file');
+    return extractWithOfficeParser(data, 'This Word file', 'docx');
   }
   if (lower.endsWith('.pptx') || mimeType.includes('presentationml')) {
-    return extractWithOfficeParser(data, 'This PowerPoint file');
+    return extractWithOfficeParser(data, 'This PowerPoint file', 'pptx');
+  }
+  if (lower.endsWith('.odt') || mimeType === 'application/vnd.oasis.opendocument.text') {
+    return extractWithOfficeParser(data, 'This OpenDocument file', 'odt');
+  }
+  if (lower.endsWith('.rtf') || mimeType === 'application/rtf' || mimeType === 'text/rtf') {
+    return extractWithOfficeParser(data, 'This RTF file', 'rtf');
+  }
+  if (lower.endsWith('.epub') || mimeType === 'application/epub+zip') {
+    return extractWithOfficeParser(data, 'This EPUB book', 'epub');
   }
   if (
     lower.endsWith('.xlsx') ||
@@ -206,15 +215,22 @@ async function extractAudioVideo(
 }
 
 /**
- * `.docx` and `.pptx` share a parser: officeParser renders both into an AST and can emit
+ * `.docx`, `.pptx`, `.odt`, `.rtf` and `.epub` share a parser: officeParser renders each into an AST and can emit
  * Markdown, which is what keeps a `.docx` table intact as pipe rows instead of the word soup
  * `extractRawText`-style extraction produces when it drops cell boundaries.
  */
-async function extractWithOfficeParser(data: Buffer, label: string): Promise<string> {
+async function extractWithOfficeParser(
+  data: Buffer,
+  label: string,
+  fileType: 'docx' | 'pptx' | 'odt' | 'rtf' | 'epub',
+): Promise<string> {
   let text: string;
   try {
     const { parseOffice } = await import('officeparser');
-    const ast = await parseOffice(data, { ocr: false });
+    // officeParser's docs ask for the type when parsing a Buffer; it is known from the upload
+    // check. Without it the parser sniffs the bytes, and it sniffed a 30 MB .pptx as a plain zip
+    // and refused it.
+    const ast = await parseOffice(data, { ocr: false, fileType });
     text = (await ast.to('md')).value ?? '';
   } catch (err) {
     throw new ExtractionUnsupported(`${label} could not be read: ${String(err)}`);
@@ -552,6 +568,77 @@ export function formatContext(chunks: RetrievedChunk[], maxChars: number): strin
     "Excerpts from this project's files, selected by relevance to the question. " +
     'These are partial extracts, not whole documents.\n\n' +
     parts.join('\n\n')
+  );
+}
+
+/* -------------------------------------------------------------------------- whole files */
+
+/**
+ * The text `chunkText` split, put back together: the overlap each chunk repeats from the one
+ * before it is dropped. An overlap is the longest start of a chunk that the previous one ends
+ * with, at least 20 characters, or the whole previous chunk (a short one is carried entire).
+ */
+export function joinChunks(chunks: string[]): string {
+  let out = '';
+  let prev = '';
+  for (const chunk of chunks) {
+    if (!prev) {
+      out = chunk;
+    } else {
+      let k = Math.min(prev.length, chunk.length, CHUNK_OVERLAP_CHARS * 2);
+      while (k > 0 && !prev.endsWith(chunk.slice(0, k))) k -= 1;
+      out += k >= 20 || (k > 0 && k === prev.length) ? chunk.slice(k) : `\n\n${chunk}`;
+    }
+    prev = chunk;
+  }
+  return out;
+}
+
+export interface ProjectFileText {
+  filename: string;
+  text: string;
+  /** False when indexing stopped at MAX_CHUNKS_PER_FILE, so the text is not the whole file. */
+  whole: boolean;
+}
+
+/** Every ready file of a project, as its whole text, oldest first, with page markers. */
+export async function projectFileTexts(db: Database, projectId: string): Promise<ProjectFileText[]> {
+  const rows = await db
+    .select({
+      fileId: fileChunks.projectFileId,
+      filename: projectFiles.filename,
+      chunkCount: projectFiles.chunkCount,
+      text: fileChunks.text,
+      page: fileChunks.page,
+    })
+    .from(fileChunks)
+    .innerJoin(projectFiles, eq(fileChunks.projectFileId, projectFiles.id))
+    .where(and(eq(fileChunks.projectId, projectId), eq(projectFiles.status, 'ready')))
+    .orderBy(asc(projectFiles.createdAt), asc(projectFiles.id), asc(fileChunks.ordinal));
+
+  const files: ProjectFileText[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const fileId = rows[i]!.fileId;
+    const parts: string[] = [];
+    while (i < rows.length && rows[i]!.fileId === fileId) {
+      // Chunks never straddle a page, so the overlap is undone page by page.
+      const page = rows[i]!.page;
+      const pageChunks: string[] = [];
+      while (i < rows.length && rows[i]!.fileId === fileId && rows[i]!.page === page) pageChunks.push(rows[i++]!.text);
+      parts.push(page != null ? `[Page ${String(page)}]\n${joinChunks(pageChunks)}` : joinChunks(pageChunks));
+    }
+    const first = rows.find((r) => r.fileId === fileId)!;
+    files.push({ filename: first.filename, text: parts.join('\n\n'), whole: first.chunkCount < MAX_CHUNKS_PER_FILE });
+  }
+  return files;
+}
+
+/** The project's files in full, for a prompt, as Claude puts project knowledge in context. */
+export function formatWholeFiles(files: ProjectFileText[]): string {
+  return (
+    "The complete text of this project's files. They are whole documents, not excerpts.\n\n" +
+    files.map((f) => `--- ${f.filename} ---\n${f.text}`).join('\n\n')
   );
 }
 

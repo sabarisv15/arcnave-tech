@@ -9,6 +9,7 @@ import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest, ToolResult } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
+import { pdfWithPages } from '../test/fixtures/files.js';
 import { createTestApp, multipart, signUp } from '../test/harness.js';
 
 let ctx: TestContext;
@@ -28,7 +29,10 @@ afterAll(async () => {
   await ctx.close();
 });
 
-const PDF = Buffer.from('%PDF-1.4\n' + 'x'.repeat(400) + '\n%%EOF\n');
+let PDF: Buffer;
+beforeAll(async () => {
+  PDF = await pdfWithPages(1, ['Opening balance 100']);
+});
 
 describe('G15: historical PDF over the budget', () => {
   it('keeps identity, is described (not emptied), and rehydrates exactly by fileId', async () => {
@@ -86,6 +90,6 @@ describe('G15: historical PDF over the budget', () => {
     // On demand, the exact stored bytes come back.
     expect(rehydrated!.ok).toBe(true);
     const out = (rehydrated!.content.find((c) => c.type === 'json') as { data: { stdout: string } }).data.stdout;
-    expect(out).toContain("b'%PDF-1.4");
+    expect(out).toContain("b'%PDF-1.7");
   });
 });

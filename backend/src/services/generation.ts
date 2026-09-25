@@ -61,6 +61,9 @@ import {
   withoutImageBytes,
 } from '../providers/types.js';
 import { AgentLoop } from './agentLoop.js';
+import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
+import type { ModelInputStore } from './attachments/modelInputStore.js';
+import { pdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -72,7 +75,7 @@ import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
-import { SkillToolExecutor } from '../tools/skillExecutor.js';
+import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
@@ -84,6 +87,7 @@ import { assemblePrompt } from './promptCache/promptAssembly.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
+import { compact, shouldCompact } from './compaction/autoCompact.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -97,7 +101,7 @@ import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
-import { formatContext } from './retrieval.js';
+import { formatContext, formatWholeFiles, projectFileTexts } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
 import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
@@ -185,8 +189,50 @@ function sentAsBytes(att: { mimeType: string }): boolean {
   );
 }
 
+/**
+ * The same attachments with each rendered page image stored for the model to read by URI. New
+ * objects, never the cached pages themselves: those are shared with Claude requests.
+ */
+async function referencePages(atts: AttachmentBlock[], store: ModelInputStore): Promise<AttachmentBlock[]> {
+  return Promise.all(
+    atts.map(async (a) => {
+      if (!a.pages) return a;
+      const pages = await Promise.all(
+        a.pages.map(async (p) =>
+          p.image?.base64
+            ? {
+                ...p,
+                image: {
+                  mimeType: p.image.mimeType,
+                  fileUri: await store.uriFor(Buffer.from(p.image.base64, 'base64'), p.image.mimeType),
+                },
+              }
+            : p,
+        ),
+      );
+      return { ...a, pages };
+    }),
+  );
+}
+
+/**
+ * A PDF as every provider is shown it (ADR-0013): up to 100 pages, each page's image and text;
+ * beyond that, its text only. No provider is handed the PDF's own bytes.
+ */
+async function asPdfForModel(att: AttachmentBlock, data: Buffer): Promise<AttachmentBlock> {
+  const pdf = await pdfForModel(data, att.storageKey);
+  const { base64: _drop, ...rest } = att;
+  if (pdf.kind === 'pages') return { ...rest, pages: pdf.pages };
+  if (pdf.kind === 'text') return { ...rest, extractedText: pdf.text, textOnlyPageCount: pdf.pageCount };
+  return { ...rest, omittedReason: 'unreadable', omittedDetail: pdf.reason };
+}
+
 /** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
-export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & { attachments: AttachmentBlock[] };
+export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & {
+  attachments: AttachmentBlock[];
+  /** Every file in the conversation, as the attachment manifest lists them. */
+  chatFiles?: ManifestFile[];
+};
 
 export interface GenerateInput {
   userId: string;
@@ -240,6 +286,8 @@ export class GenerationService {
     executionRuntime?: ExecutionRuntime,
     /** Reads page images for table extraction (a backend call; never from the sandbox). */
     private readonly visionProvider?: Provider,
+    /** Where Gemini reads page images from instead of the request (ADR-0016); unset, inline. */
+    private readonly modelInputs?: ModelInputStore,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
@@ -276,6 +324,49 @@ export class GenerationService {
     }
   }
 
+  /**
+   * Every file of the conversation, oldest first, then any of this turn's not yet stored on a
+   * message. Claude keeps every file of a chat in reach for the whole chat; here a file whose turn
+   * is no longer in the history (compacted, or past the backstop) is still listed and still in
+   * run_python's input/ (ADR-0019). Upload order keeps each file's input/ name stable.
+   */
+  private async chatFilesOf(chatId: string, byId: Map<string, AttachmentBlock>): Promise<ManifestFile[]> {
+    const stored = await this.db
+      .select({
+        id: attachments.id,
+        filename: attachments.filename,
+        mimeType: attachments.mimeType,
+        sizeBytes: attachments.sizeBytes,
+      })
+      .from(attachments)
+      .innerJoin(messages, eq(attachments.messageId, messages.id))
+      .where(and(eq(messages.chatId, chatId), eq(attachments.status, 'ready')))
+      .orderBy(attachments.createdAt, attachments.id);
+    const files: ManifestFile[] = stored.map((a) => ({ ...a, filename: a.filename ?? a.id }));
+    const seen = new Set(files.map((f) => f.id));
+    for (const a of byId.values()) {
+      if (!a.id || seen.has(a.id)) continue;
+      files.push({ id: a.id, filename: a.filename ?? a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes });
+    }
+    return files;
+  }
+
+  /**
+   * Where run_python's sandbox has the skill files: the warm sandbox image copies them to
+   * /skills (Dockerfile.service). The Cloud Run Jobs image does not.
+   */
+  private skillsInSandbox(): string | undefined {
+    return this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined && usesWarmSandbox(this.cfg)
+      ? SANDBOX_SKILLS_ROOT
+      : undefined;
+  }
+
+  /** Skill names the manifest may point to: only when load_skill can actually be called. */
+  private loadableSkills(loadSkillAvailable: boolean): Set<string> {
+    if (!loadSkillAvailable || !this.skills) return new Set();
+    return new Set(this.skills.listSkills().map((s) => s.name));
+  }
+
   private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
     const startedAt = new Date();
     const runId = `${input.chatId}_${input.messageId}`;
@@ -288,18 +379,20 @@ export class GenerationService {
       const prefs = await this.loadPreferences(input.userId);
 
     const project = input.projectId ? await this.loadProject(input.userId, input.projectId) : null;
-    const latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
-      ? await compactionService.getLatestCompaction(input.chatId)
+    let latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
+      ? await compactionService.getLatestCompaction(input.chatId, this.db)
       : null;
     // Loaded before model resolution (not its historical position) because whether this turn
     // needs a vision-capable model depends on what's carried forward, not only on what's newly
     // attached — and loadHistory has no dependency on which model gets picked.
-    const { turns: history, currentUserAttachments } = await this.loadHistory(
+    const loaded = await this.loadHistory(
       input.chatId,
       input.messageId,
       latestCompaction?.throughSeq,
       input.modelAlias,
     );
+    let history = loaded.turns;
+    const currentUserAttachments = loaded.currentUserAttachments;
     if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
       input = { ...input, attachments: currentUserAttachments, hasAttachments: true };
     }
@@ -365,6 +458,15 @@ export class GenerationService {
       model: modelInfo,
     };
 
+    // --- compact a long conversation (ADR-0019) ------------------------------
+    if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
+      const compacted = yield* this.compactIfNeeded(input, prefs, entry, provider);
+      if (compacted) {
+        latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
+        ({ turns: history } = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq, input.modelAlias));
+      }
+    }
+
     // --- Skill-First -> Tool-Second Routing --------------------------------
     // G6: a file attached on an earlier turn is still available on this one.
     const historyAttachments = history.flatMap((t) => t.attachments ?? []);
@@ -405,7 +507,10 @@ export class GenerationService {
           .join('\n');
         parts.push(
           `<available_skills>\n${skillList}\n</available_skills>\n` +
-            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.',
+            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.' +
+            (this.skillsInSandbox()
+              ? ` Each skill's files are also in the sandbox at ${SANDBOX_SKILLS_ROOT}/<skill_name>/, read-only: run its scripts from run_python and use only their output.`
+              : ''),
         );
       }
 
@@ -539,11 +644,10 @@ export class GenerationService {
     };
 
     if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
-      const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-      const wireHistory = await this.limitToModel(
+      const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
         entry.alias,
-        wireAttachments,
-        await this.hydrateHistoryAttachments(history, input.prompt),
+        await this.hydrateAttachmentBytes(input.attachments),
+        await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
         releaseReservation,
       );
 
@@ -559,22 +663,18 @@ export class GenerationService {
         if (att.id) allAttachmentsMap.set(att.id, att);
       }
 
-      const availableAttachments = Array.from(allAttachmentsMap.values());
-      let attachmentManifestBlock = '';
-      if (availableAttachments.length > 0) {
-        const lines = availableAttachments.map(
-          (a) =>
-            `- fileId: "${a.id}" | filename: "${a.filename}" | type: ${a.mimeType} | size: ${a.sizeBytes ?? 0} bytes`,
-        );
-        attachmentManifestBlock = `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\nUse fileId when filenames are ambiguous.\n</available_attachments>`;
-      }
+      const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
+      const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
+        sandbox: routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
+        loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
+      });
 
       const promptWithManifest = attachmentManifestBlock
         ? `${attachmentManifestBlock}\n\n${input.prompt}`
         : input.prompt;
 
       yield* this.agentLoop.stream(
-        { ...input, prompt: promptWithManifest, attachments: wireAttachments },
+        { ...input, prompt: promptWithManifest, attachments: wireAttachments, chatFiles },
         {
           entry,
           provider,
@@ -600,7 +700,7 @@ export class GenerationService {
 
     const skillToolExecutor =
       skillsEnabled && this.skills !== undefined
-        ? new SkillToolExecutor(this.skills, activeToolNames)
+        ? new SkillToolExecutor(this.skills, activeToolNames, undefined, { scriptsRoot: this.skillsInSandbox() })
         : undefined;
 
     const pendingArtifactEvents: StreamEvent[] = [];
@@ -681,23 +781,18 @@ export class GenerationService {
       toolMap.set('search_project_files', projectToolExecutor);
       toolMap.set('read_project_file', projectToolExecutor);
     }
+    let codeExecutor: CodeExecutionToolExecutor | undefined;
     if (allowPython) {
-      toolMap.set(
-        'run_python',
-        new CodeExecutionToolExecutor(
-          this.executionRuntime,
-          this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS,
-          {
-            workspace,
-            userId: input.userId,
-            messageId: input.messageId,
-            chatId: input.chatId,
-            db: this.db,
-            storage: this.storage,
-            visionProvider: this.visionProvider,
-          },
-        ),
-      );
+      codeExecutor = new CodeExecutionToolExecutor(this.executionRuntime, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS, {
+        workspace,
+        userId: input.userId,
+        messageId: input.messageId,
+        chatId: input.chatId,
+        db: this.db,
+        storage: this.storage,
+        visionProvider: this.visionProvider,
+      });
+      toolMap.set('run_python', codeExecutor);
     }
     if (routingDecision.allowedTools.includes('extract_scanned_table_rows')) {
       const tableExecutor = new TableExtractionToolExecutor(
@@ -776,11 +871,10 @@ export class GenerationService {
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
-    const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-    const wireHistory = await this.limitToModel(
+    const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
       entry.alias,
-      wireAttachments,
-      await this.hydrateHistoryAttachments(history, input.prompt),
+      await this.hydrateAttachmentBytes(input.attachments),
+      await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
       releaseReservation,
     );
 
@@ -796,15 +890,12 @@ export class GenerationService {
       if (att.id) allAttachmentsMap.set(att.id, att);
     }
 
-    const availableAttachments = Array.from(allAttachmentsMap.values());
-    let attachmentManifestBlock = '';
-    if (availableAttachments.length > 0) {
-      const lines = availableAttachments.map(
-        (a) =>
-          `- fileId: "${a.id}" | filename: "${a.filename}" | type: ${a.mimeType} | size: ${a.sizeBytes ?? 0} bytes`,
-      );
-      attachmentManifestBlock = `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\nUse fileId when filenames are ambiguous.\n</available_attachments>`;
-    }
+    const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
+    codeExecutor?.setChatFiles(chatFiles);
+    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
+      sandbox: codeExecutor !== undefined,
+      loadableSkills: this.loadableSkills(activeToolNames.has('load_skill')),
+    });
 
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
@@ -1169,7 +1260,10 @@ export class GenerationService {
       let userVisibleOutputEmitted = false;
       const ttftController = new AbortController();
       const onParentAbort = () => ttftController.abort();
-      currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
+      // A listener added after the abort never fires: a Stop that landed before this attempt
+      // began (while history or files were still loading) ran the whole turn anyway.
+      if (currentRequest.signal.aborted) onParentAbort();
+      else currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
 
       const ttftTimer = setTimeout(() => {
         if (!firstEventReceived && !ttftController.signal.aborted) {
@@ -1224,7 +1318,7 @@ export class GenerationService {
 
             const reducedHistory = this.reduceHistoryForOverflow(currentRequest.history);
             const hasHydratedHistorical = currentRequest.history.some((t) =>
-              t.attachments?.some((a) => Boolean(a.base64)),
+              t.attachments?.some((a) => Boolean(a.base64 || a.pages)),
             );
 
             if (reducedHistory.length < currentRequest.history.length || hasHydratedHistorical) {
@@ -1333,7 +1427,7 @@ export class GenerationService {
     if (currentUserSeq !== undefined) {
       conditions.push(sql`${messages.seq} < ${currentUserSeq}`);
     }
-    if (throughSeq !== undefined && throughSeq > 0) {
+    if (throughSeq !== undefined) {
       conditions.push(sql`${messages.seq} > ${throughSeq}`);
     }
 
@@ -1341,8 +1435,10 @@ export class GenerationService {
       .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq })
       .from(messages)
       .where(and(...conditions))
-      .orderBy(desc(messages.seq))
-      .limit(Math.min(this.cfg.HISTORY_MAX_TURNS, 20));
+      // No turn count: like Claude, the whole conversation goes, up to the model's window. What
+      // keeps it inside the window is compaction (ADR-0019); the character budget below is the
+      // backstop. A 20-message cap here used to drop a file sent 11 questions ago.
+      .orderBy(desc(messages.seq));
 
     const ordered = rows
       .reverse()
@@ -1451,6 +1547,81 @@ export class GenerationService {
   }
 
   /**
+   * Compacts the chat before this turn when the previous request reached the trigger (ADR-0019),
+   * with the model this turn runs on, as Claude compacts with the model of the request. The user
+   * sees it happen, as claude.ai shows "Compacting our conversation". A failed compaction leaves
+   * the history whole and the turn goes on; an abort ends the turn.
+   */
+  private async *compactIfNeeded(
+    input: GenerateInput,
+    prefs: PreferencesRow,
+    entry: ModelEntry,
+    provider: Provider,
+  ): AsyncGenerator<StreamEvent, boolean> {
+    const [self] = await this.db
+      .select({ seq: messages.seq })
+      .from(messages)
+      .where(eq(messages.id, input.messageId))
+      .limit(1);
+    if (!self) return false;
+    // The assistant row is the one after its user message; everything before that user message.
+    const beforeSeq = self.seq - 1;
+    const window = entry.contextWindow ?? getModelCapability(entry.alias).maxInputTokens ?? null;
+    const deps = { db: this.db, cfg: this.cfg };
+    if (!(await shouldCompact(deps, input.chatId, beforeSeq, window))) return false;
+
+    const progress = (stage: 'reading' | 'complete', label: string, detail: string): StreamEvent => ({
+      type: 'research',
+      event: { stage, label, detail, at: new Date().toISOString() },
+    });
+    yield progress('reading', 'Compacting our conversation', 'Summarizing earlier messages so the chat can continue.');
+    const startedAt = new Date();
+    let usage = EMPTY_USAGE;
+    let status: 'complete' | 'error' | 'cancelled' = 'complete';
+    try {
+      const out = await compact(deps, input.chatId, beforeSeq, {
+        provider,
+        providerModelId: entry.providerModelId!,
+        providerName: entry.provider,
+        contextWindow: window,
+      }, input.signal);
+      usage = out.usage;
+      if (!out.result) {
+        yield progress('complete', 'Conversation not compacted', 'No summary came back; the full conversation is sent.');
+        return false;
+      }
+      yield progress('complete', 'Conversation compacted', 'Earlier messages are summarized; recent ones are kept word for word.');
+      return true;
+    } catch (err) {
+      if (isAbort(err) || input.signal.aborted) {
+        status = 'cancelled';
+        throw err;
+      }
+      status = 'error';
+      log.warn({ err, chatId: input.chatId }, 'compaction failed; sending the full conversation');
+      yield progress('complete', 'Conversation not compacted', 'Summarizing failed; the full conversation is sent.');
+      return false;
+    } finally {
+      // Its tokens are spent whether or not a summary came back. No messageId: the compaction is
+      // not the turn's answer, and the next trigger check reads the answer's usage.
+      await this.usage.record({
+        userId: input.userId,
+        prefs,
+        requestId: `${input.requestId}:compaction`,
+        chatId: input.chatId,
+        messageId: null,
+        projectId: input.projectId,
+        modelAlias: entry.alias,
+        provider: entry.provider,
+        providerModelId: entry.providerModelId!,
+        usage,
+        startedAt,
+        status,
+      });
+    }
+  }
+
+  /**
    * Hydrates raw storage bytes into base64 on-demand for binary attachments (PDF, images, media)
    * specifically for the ephemeral wire request sent to the provider.
    * Keeps conversation history in RAM free of large Base64 strings.
@@ -1461,9 +1632,10 @@ export class GenerationService {
     if (!attachments || attachments.length === 0) return [];
     return Promise.all(
       attachments.map(async (att) => {
-        if (sentAsBytes(att) && !att.base64 && att.storageKey) {
+        if (sentAsBytes(att) && !att.base64 && !att.pages && att.storageKey) {
           try {
             const data = await this.storage.get(att.storageKey);
+            if (att.mimeType === 'application/pdf') return await asPdfForModel(att, data);
             return { ...att, base64: data.toString('base64') };
           } catch (err) {
             log.warn({ err, storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
@@ -1490,9 +1662,20 @@ export class GenerationService {
     current: AttachmentBlock[],
     history: Turn[],
     releaseReservation: () => Promise<void>,
-  ): Promise<Turn[]> {
+  ): Promise<{ current: AttachmentBlock[]; history: Turn[] }> {
     try {
-      return await enforceModelLimits(getModelCapability(alias), current, history);
+      const spec = getModelCapability(alias);
+      const limited = await enforceModelLimits(spec, current, history);
+      // Gemini reads page images from Cloud Storage, as Claude's Files API keeps a large PDF
+      // out of the request (ADR-0016). Claude on Vertex takes base64 only, so it is left as is.
+      if (spec.provider !== 'google' || !this.modelInputs) return { current, history: limited };
+      const store = this.modelInputs;
+      return {
+        current: await referencePages(current, store),
+        history: await Promise.all(
+          limited.map(async (t) => (t.attachments ? { ...t, attachments: await referencePages(t.attachments, store) } : t)),
+        ),
+      };
     } catch (err) {
       await releaseReservation();
       throw err;
@@ -1501,13 +1684,24 @@ export class GenerationService {
 
   private async hydrateHistoryAttachments(
     turns: Turn[],
-    currentPrompt?: string,
+    currentPrompt: string | undefined,
+    alias: string,
   ): Promise<Turn[]> {
     const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
     let cumulativeBytes = 0;
 
+    // Claude has every earlier image of the chat (Vision: "Claude has access to every image from
+    // earlier turns"). The budget only guards bytes that ride inline in a request whose limit is
+    // not verified: Gemini's inline data. Claude's own request limit is verified and enforced,
+    // newest first, by enforceModelLimits; a Gemini PDF with a model-input bucket goes by gs://
+    // URI (ADR-0016) and adds nothing inline. Those are loaded whatever their size (ADR-0019).
+    const spec = getModelCapability(alias);
+    const unbudgeted = (a: AttachmentBlock): boolean =>
+      spec.maxRequestBytes !== null ||
+      (spec.provider === 'google' && this.modelInputs !== undefined && a.mimeType === 'application/pdf');
+
     // Only files sent as bytes spend the budget; Office and text files travel as extracted text.
-    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []).filter(sentAsBytes);
+    const allHistoricalAtts = turns.flatMap((t) => t.attachments ?? []).filter((a) => sentAsBytes(a) && !unbudgeted(a));
 
     // Check for explicit promotions from currentPrompt
     const promotedAttachmentIds = new Set<string>();
@@ -1546,7 +1740,7 @@ export class GenerationService {
       const turn = turns[i];
       if (!turn?.attachments) continue;
       for (const att of turn.attachments) {
-        if (!sentAsBytes(att) || !att.id || hydrationDecisions.has(att.id)) continue;
+        if (!sentAsBytes(att) || unbudgeted(att) || !att.id || hydrationDecisions.has(att.id)) continue;
         const size = att.sizeBytes ?? 0;
         if (cumulativeBytes + size <= maxBudget) {
           cumulativeBytes += size;
@@ -1563,6 +1757,7 @@ export class GenerationService {
         const hydrated = await Promise.all(
           turn.attachments.map(async (att) => {
             if (!sentAsBytes(att)) return att;
+            if (unbudgeted(att)) return (await this.hydrateAttachmentBytes([att]))[0] ?? att;
             const shouldHydrateBinary = att.id ? hydrationDecisions.get(att.id) ?? false : true;
             if (shouldHydrateBinary) {
               const [h] = await this.hydrateAttachmentBytes([att]);
@@ -1625,15 +1820,35 @@ export class GenerationService {
     // 3. Conversation compaction summary
     let compactionText = '';
     if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
-      const latestCompaction = await compactionService.getLatestCompaction(input.chatId);
+      const latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
       if (latestCompaction) {
         compactionText = compactionService.formatCompactionForPrompt(latestCompaction);
       }
     }
 
-    // 4. Project search context
+    // 4. Project knowledge. Claude keeps a project's files in context and switches to search
+    // only "when your project knowledge approaches the context window limit" (Help Center, RAG
+    // for projects). So: every file whole while they fit, excerpts by relevance past that.
     let retrievedContextText: string | undefined;
-    if (project) {
+    const wholeFiles = project ? await projectFileTexts(this.db, project.id) : [];
+    const wholeChars = wholeFiles.reduce((n, f) => n + f.text.length, 0);
+    if (
+      project &&
+      wholeFiles.length > 0 &&
+      wholeFiles.every((f) => f.whole) &&
+      wholeChars <= this.cfg.PROJECT_FULL_CONTEXT_MAX_CHARS
+    ) {
+      retrievedContextText = formatWholeFiles(wholeFiles);
+      events.push({
+        type: 'research',
+        event: {
+          stage: 'reading',
+          label: `Using all ${String(wholeFiles.length)} project file${wholeFiles.length === 1 ? '' : 's'} in full`,
+          detail: wholeFiles.map((f) => f.filename).join(', '),
+          at: new Date().toISOString(),
+        },
+      });
+    } else if (project) {
       const chunks = await this.retriever.search(
         this.db,
         project.id,
@@ -1863,12 +2078,12 @@ export function reduceHistoryForOverflow(history: Turn[]): Turn[] {
   if (history.length === 0) return [];
   // Drop oldest half of completed history turns, keeping at least the most recent turn
   const keepCount = Math.max(1, Math.floor(history.length / 2));
-  let slice = history.slice(history.length - keepCount);
-
-  // API safety: history must start with a user turn
-  while (slice.length > 1 && slice[0]!.role !== 'user') {
-    slice.shift();
-  }
+  // API safety: history must start with a user turn. Walk back to the user turn that opened the
+  // kept exchange rather than forward past it: walking forward from a lone assistant reply kept
+  // the reply and dropped the question and its files.
+  let start = history.length - keepCount;
+  while (start > 0 && history[start]!.role !== 'user') start--;
+  const slice = history.slice(start);
 
   // Dehydrate any remaining historical binary attachments in the kept turns (preserve text and metadata)
   return slice.map((turn) => {

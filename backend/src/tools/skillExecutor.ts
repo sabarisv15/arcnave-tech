@@ -7,6 +7,8 @@
  * - Progressive disclosure: Returns compact summaries for list/search, full instructions for read_skill.
  * - Dependency awareness: Reports capability mode ('full' | 'guidance_only' | 'unavailable') and missing capabilities.
  */
+import path from 'node:path';
+
 import { z } from 'zod';
 
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
@@ -33,11 +35,28 @@ function jsonResult(toolCallId: string, data: unknown, ok = true): ToolResult {
   return { toolCallId, ok, content: [{ type: 'json', data }] };
 }
 
+/** Where the warm sandbox image puts the skills directory (sandbox/Dockerfile.service). */
+export const SANDBOX_SKILLS_ROOT = '/skills';
+
+/** A skill file that is code to run, not text to read. */
+const SCRIPT = /\.(py|sh)$/i;
+
+export interface SkillExecutorOptions {
+  /**
+   * Where the sandbox has the skills directory, when it has one (the warm sandbox image copies it
+   * to /skills). Claude runs a skill's scripts with bash and "receives only the output (the script
+   * code itself never enters context)" (Agent Skills overview); with this set, asking for a
+   * script returns how to run it rather than its source.
+   */
+  scriptsRoot?: string;
+}
+
 export class SkillToolExecutor implements ToolExecutor {
   constructor(
     private readonly skillService: SkillService,
     private readonly availableTools: Set<string> = new Set(),
     private readonly onSkillLoaded?: (skill: SkillDetail) => void | Promise<void>,
+    private readonly options: SkillExecutorOptions = {},
   ) {}
 
   async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
@@ -89,12 +108,26 @@ export class SkillToolExecutor implements ToolExecutor {
       await this.onSkillLoaded(skill);
     }
 
+    const root = this.options.scriptsRoot;
     let resourceContent: string | null = null;
+    let run: { path: string; how: string } | undefined;
     if (parsed.data.resource) {
       resourceContent = await this.skillService.getSkillResource(
         parsed.data.name,
         parsed.data.resource,
       );
+      if (root && resourceContent !== null && SCRIPT.test(parsed.data.resource)) {
+        const scriptPath = path.posix.join(root, skill.name, path.posix.normalize(parsed.data.resource));
+        const interpreter = parsed.data.resource.toLowerCase().endsWith('.sh') ? 'bash' : 'python3';
+        run = {
+          path: scriptPath,
+          how:
+            `This is a script: run it instead of reading it. Only its output comes back. In run_python: ` +
+            `import subprocess; r = subprocess.run(['${interpreter}', '${scriptPath}', <args>], capture_output=True, text=True); print(r.stdout, r.stderr). ` +
+            `The skill's own instructions say which arguments it takes, or whether a tool runs it for you.`,
+        };
+        resourceContent = null;
+      }
     }
 
     return jsonResult(call.id, {
@@ -105,12 +138,15 @@ export class SkillToolExecutor implements ToolExecutor {
       mode: skill.mode,
       missingCapabilities: skill.missingCapabilities,
       content: skill.content,
-      ...(parsed.data.resource
-        ? {
-            resourcePath: parsed.data.resource,
-            resourceContent: resourceContent ?? '[Resource file not found]',
-          }
-        : {}),
+      ...(root ? { files: `${path.posix.join(root, skill.name)}/ in the sandbox` } : {}),
+      ...(run
+        ? { resourcePath: parsed.data.resource, script: run }
+        : parsed.data.resource
+          ? {
+              resourcePath: parsed.data.resource,
+              resourceContent: resourceContent ?? '[Resource file not found]',
+            }
+          : {}),
     });
   }
 }

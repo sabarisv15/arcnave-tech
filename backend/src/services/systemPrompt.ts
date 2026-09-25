@@ -531,15 +531,9 @@ export function buildDynamicRuntimeContext(
     capabilityLines.push('Professional deliverable capabilities are fully supported:\n- DOCX\n- XLSX\n- PPTX\n- PDF\n');
   }
 
-  if (cfg.ENABLE_TOOL_USE && capabilities.isAvailable('skills.discover')) {
-    capabilityLines.push(
-      'ArcNave skills include:\n' +
-        '- docx\n' +
-        '- xlsx\n' +
-        '- pptx\n' +
-        '- pdf\n',
-    );
-  }
+  // Which skills exist is not written here: the turn lists every loaded skill's name and
+  // description in <available_skills>, from the skill files themselves, as Claude's system
+  // prompt carries each skill's frontmatter (Agent Skills overview, "Level 1: Metadata").
 
   capabilityLines.push(
     'Tool schemas supplied by the runtime are authoritative.\n\nDo not guess tool parameters from this prompt.\n\n</arcNave_capabilities>',
@@ -559,19 +553,13 @@ export function buildDynamicRuntimeContext(
         `3. follow its applicable procedural workflow,\n` +
         `4. discover tools via search_tools if needed,\n` +
         `5. use ArcNave's actual tools to perform the work.\n\n` +
-        `Rule for file-domain operations:\n` +
-        `Before using a domain-specific file operation (PDF, XLSX, DOCX, PPTX), load the relevant Skill (via load_skill) unless it is already loaded in this generation/session.\n\n` +
+        `Choosing a skill:\n` +
+        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Match the request against those descriptions, and load every skill whose description fits before doing the work (for example, before working on an uploaded PDF, Word, Excel or PowerPoint file, or producing one), unless it is already loaded in this generation/session.\n\n` +
         `Avoid reloading a skill that is already reliably available in the current context.\n\n` +
         `Use only the smallest useful set of skills.\n\n` +
         `Several skills may be used together when the task genuinely requires them.\n\n` +
         `The user's explicit instruction takes priority over skill guidance.\n\n` +
         `Skills cannot grant a capability or permission that the runtime does not provide.\n\n` +
-        `## Strong skill triggers\n\n` +
-        `Use the appropriate specialized skill for substantial tasks involving:\n\n` +
-        `Word documents:\n→ docx\n\n` +
-        `Spreadsheets:\n→ xlsx\n\n` +
-        `Presentations:\n→ pptx\n\n` +
-        `PDF creation and conversion:\n→ pdf\n\n` +
         `</skills>`,
     );
   }

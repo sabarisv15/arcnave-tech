@@ -7,7 +7,7 @@ import type {
   SourceDto,
 } from "./api";
 import { describeError, errorCopy } from "./api";
-import { validateFile } from "./storage";
+import { MAX_ATTACHMENT_BYTES, validateFile } from "./storage";
 
 const source = (patch: Partial<SourceDto> = {}): SourceDto => ({
   id: 1,
@@ -228,10 +228,15 @@ describe("upload policy", () => {
     );
   });
 
-  it("rejects a file past the server's 20 MB ceiling", () => {
+  it("rejects a file past the server's 30 MB ceiling", () => {
     expect(
-      validateFile({ name: "large.pdf", size: 21 * 1024 * 1024 }),
-    ).toContain("20 MB");
+      validateFile({ name: "large.pdf", size: 31 * 1024 * 1024 }),
+    ).toContain("30 MB");
+  });
+
+  it("rejects an image over claude.ai's 10 MB, even under the attachment ceiling", () => {
+    expect(validateFile({ name: "photo.jpg", size: 11 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("10 MB");
+    expect(validateFile({ name: "photo.jpg", size: 10 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
   });
 
   it("rejects an empty file, which the server also refuses", () => {
@@ -242,6 +247,16 @@ describe("upload policy", () => {
     expect(validateFile({ name: "NOTES.TXT", size: 50 })).toBeNull();
     expect(validateFile({ name: "photo.webp", size: 2048 })).toBeNull();
     expect(validateFile({ name: "sheet.xlsx", size: 2048 })).toBeNull();
+    expect(validateFile({ name: "notes.odt", size: 2048 })).toBeNull();
+    expect(validateFile({ name: "letter.rtf", size: 2048 })).toBeNull();
+    expect(validateFile({ name: "book.epub", size: 2048 })).toBeNull();
+  });
+
+  it("lets a chat attachment reach Claude's 500 MB, and no further", () => {
+    expect(validateFile({ name: "big.pdf", size: 400 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
+    expect(
+      validateFile({ name: "huge.pdf", size: MAX_ATTACHMENT_BYTES + 1 }, MAX_ATTACHMENT_BYTES),
+    ).toContain("500 MB");
   });
 });
 

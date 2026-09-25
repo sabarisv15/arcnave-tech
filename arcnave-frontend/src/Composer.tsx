@@ -18,10 +18,22 @@ import {
 import { ApiError, api } from "./api";
 import type { Attachment, Mode } from "./types";
 import { toAttachment } from "./types";
-import { sizeLabel, validateFile } from "./storage";
+import { MAX_ATTACHMENT_BYTES, sizeLabel, validateFile } from "./storage";
 import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
+
+/**
+ * Pastes longer than this become an attached text file. claude.ai does the same past "a few
+ * thousand characters"; Anthropic does not document the number, so this one is ours.
+ */
+export const PASTE_AS_FILE_CHARS = 4000;
+
+/** The file a long paste becomes, or null when it stays message text. */
+export function pastedTextFile(text: string): File | null {
+  if (text.length <= PASTE_AS_FILE_CHARS) return null;
+  return new File([text], "pasted-text.txt", { type: "text/plain" });
+}
 
 export function deriveFollowUpSuggestion(
   history: import("./types").Message[],
@@ -96,7 +108,9 @@ export function AttachmentChip({
           <strong>{file.name}</strong>
           <small>
             {file.status === "uploading"
-              ? "Uploading…"
+              ? file.progress !== undefined
+                ? `Uploading… ${Math.round(file.progress * 100)}%`
+                : "Uploading…"
               : file.status === "indexing"
                 ? "Indexing…"
                 : file.error
@@ -106,9 +120,12 @@ export function AttachmentChip({
                     : `${sizeLabel(file.size)}${
                         file.chunkCount !== undefined
                           ? ` · ${file.chunkCount} indexed chunk${file.chunkCount === 1 ? "" : "s"}`
-                          : file.hasText === false
-                            ? " · no text"
-                            : ""
+                          : file.pageCount
+                            ? ` · ${file.pageCount} page${file.pageCount === 1 ? "" : "s"}`
+                            : file.reading === "none" ||
+                                (file.reading === undefined && file.hasText === false)
+                              ? " · no text"
+                              : ""
                       }`}
           </small>
         </span>
@@ -223,7 +240,7 @@ export default function Composer({
       return;
     }
     for (const file of selected) {
-      const problem = validateFile(file);
+      const problem = validateFile(file, MAX_ATTACHMENT_BYTES);
       const localId = `upload-${crypto.randomUUID()}`;
       setFiles((f) => [
         ...f,
@@ -238,7 +255,10 @@ export default function Composer({
       ]);
       if (problem) continue;
       try {
-        const uploaded = await api.files.upload(file);
+        const uploaded = await api.files.upload(file, (progress) => {
+          if (mounted.current)
+            setFiles((f) => f.map((x) => (x.id === localId ? { ...x, progress } : x)));
+        });
         if (mounted.current)
           setFiles((f) =>
             f.map((x) => (x.id === localId ? toAttachment(uploaded) : x)),
@@ -411,6 +431,15 @@ export default function Composer({
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // A pasted file (a screenshot) attaches, and a long paste becomes a text file,
+              // as claude.ai turns it into a "pasted text" attachment instead of message text.
+              const pastedFiles = Array.from(e.clipboardData.files);
+              const asFile = pastedFiles.length ? null : pastedTextFile(e.clipboardData.getData("text/plain"));
+              if (!pastedFiles.length && !asFile) return;
+              e.preventDefault();
+              void addFiles(pastedFiles.length ? pastedFiles : [asFile!]);
+            }}
             onKeyDown={(e) => {
               if (
                 (e.key === "Tab" || e.key === "ArrowRight") &&

@@ -73,6 +73,12 @@ export interface Attachment {
   hasText?: boolean;
   /** Project files only: how many indexed chunks retrieval can see. */
   chunkCount?: number;
+  /** While uploading: how much has been sent, 0 to 1. */
+  progress?: number;
+  /** Pages in a PDF. */
+  pageCount?: number | null;
+  /** How a model is shown this file: text+visual | text | visual | media | none. */
+  reading?: string;
 }
 
 export interface ResearchEvent {
@@ -283,6 +289,8 @@ export function toAttachment(dto: AttachmentDto): Attachment {
     status: dto.status,
     ...(dto.error ? { error: dto.error } : {}),
     hasText: dto.hasText,
+    ...(dto.pageCount != null ? { pageCount: dto.pageCount } : {}),
+    ...(dto.reading ? { reading: dto.reading } : {}),
     downloadUrl: api.files.downloadUrl(dto.id),
   };
 }

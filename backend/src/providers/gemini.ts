@@ -22,7 +22,7 @@ import type {
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
-import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
+import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -33,30 +33,46 @@ const log = logger.child({ module: 'provider:gemini' });
 
 function attachmentParts(attachments: GenerationRequest['attachments']): Part[] {
   if (!attachments || attachments.length === 0) return [];
-  return attachments.map((a): Part => {
-    // 1. Binary / media (PDF, image, audio, video) with base64
-    if (
-      a.base64 &&
-      (a.mimeType === 'application/pdf' ||
-        a.mimeType.startsWith('image/') ||
-        a.mimeType.startsWith('audio/') ||
-        a.mimeType.startsWith('video/'))
-    ) {
-      return {
-        inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
-      };
+  return attachments.flatMap((a): Part[] => {
+    // 0. A PDF as its pages: each page's image, then its text (ADR-0013). Never the PDF itself.
+    if (a.pages) {
+      return a.pages.flatMap((page): Part[] => [
+        { text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
+        ...(page.image?.fileUri
+          ? [{ fileData: { mimeType: page.image.mimeType, fileUri: page.image.fileUri } }]
+          : page.image?.base64
+            ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob }]
+            : []),
+        { text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.` },
+      ]);
     }
-
-    // 2. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
-    const text = attachmentText(a);
-    if (text !== null) {
-      const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
-      return { text: `<document${nameAttr}>\n${text}\n</document>` };
-    }
-
-    // 3. Nothing sendable: say so. No raw bytes under an unsupported MIME type (G15, G17).
-    return { text: unavailableAttachmentNote(a) };
+    return [attachmentPart(a)];
   });
+}
+
+function attachmentPart(a: NonNullable<GenerationRequest['attachments']>[number]): Part {
+  // 1. Binary / media (PDF, image, audio, video) with base64
+  if (
+    a.base64 &&
+    (a.mimeType === 'application/pdf' ||
+      a.mimeType.startsWith('image/') ||
+      a.mimeType.startsWith('audio/') ||
+      a.mimeType.startsWith('video/'))
+  ) {
+    return {
+      inlineData: { mimeType: a.mimeType, data: a.base64 } satisfies GeminiBlob,
+    };
+  }
+
+  // 2. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
+  const text = attachmentText(a);
+  if (text !== null) {
+    const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
+    return { text: `<document${nameAttr}>\n${text}\n</document>` };
+  }
+
+  // 3. Nothing sendable: say so. No raw bytes under an unsupported MIME type (G15, G17).
+  return { text: unavailableAttachmentNote(a) };
 }
 
 /**

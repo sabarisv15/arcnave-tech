@@ -32,7 +32,21 @@ export function attachmentText(a: AttachmentBlock): string | null {
     if (decoded.trim() !== '') text = decoded;
   }
   if (text === null) return null;
-  return a.omittedReason ? `${unavailableAttachmentNote(a)}\nExtracted text follows.\n\n${text}` : text;
+  if (a.omittedReason) return `${unavailableAttachmentNote(a)}\nExtracted text follows.\n\n${text}`;
+  if (a.textOnlyPageCount) {
+    return (
+      `[This PDF has ${String(a.textOnlyPageCount)} pages. PDFs over 100 pages are read as text only, ` +
+      'so its images, charts and scanned pages are not included. Code can still open the file.]\n\n' +
+      text
+    );
+  }
+  return text;
+}
+
+/** The label that introduces each page, so a model can name the page it read. */
+export function pageLabel(a: AttachmentBlock, num: number): string {
+  const total = a.pages?.length ?? 0;
+  return `${a.filename ? `"${a.filename}" ` : ''}page ${String(num)} of ${String(total)}`;
 }
 
 function describe(a: AttachmentBlock): string {
@@ -58,6 +72,11 @@ export function unavailableAttachmentNote(a: AttachmentBlock): string {
       return (
         `[Attachment ${describe(a)} is not included in this request: with it, the request would ` +
         `exceed the selected model's per-request limits.${reach}]`
+      );
+    case 'unreadable':
+      return (
+        `[Attachment ${describe(a)} could not be opened as a PDF` +
+        `${a.omittedDetail ? ` (${a.omittedDetail})` : ''}, so its pages are not included.${reach}]`
       );
     case 'storage_unavailable':
       return `[Attachment ${describe(a)} could not be loaded from storage for this request.${reach}]`;

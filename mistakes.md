@@ -84,20 +84,6 @@ failure mode of this pattern, not a sign it is working.
   trigger one line and read it back.
 - **Verify:** Hit an unknown route; a `warn`/`error` line with the matching `reqId` appears.
 
-### 2026-09-16 — A decision changed and its ADR did not
-
-- **Symptom:** [`docs/decisions/0001-stack.md`](docs/decisions/0001-stack.md) still argues for
-  Python/FastAPI. The entire backend is Node and TypeScript.
-- **Cause:** The stack decision was reversed in conversation. The code followed; the document
-  that existed specifically to record the decision did not.
-- **Rule:** **A decision is not changed until the document recording it is changed.** Superseding
-  an ADR is an edit to that ADR in the same commit, not a follow-up.
-- **Verify:** `grep -ril fastapi docs/` returns nothing outside a superseded-by note.
-- **Closed 2026-09-17:** ADR-0001 is marked superseded and
-  [ADR-0003](docs/decisions/0003-node-stack.md) records the stack that exists. The original
-  text was left unedited on purpose — an ADR records what was decided, and rewriting this one
-  would erase the fact that the stack was chosen, argued for, and then reversed.
-
 ### 2026-09-17 — Test expectations asserted from memory instead of computation
 
 - **Symptom:** Two brand-new tests failed on first run — a DST boundary expected
@@ -823,6 +809,21 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** migration `0008` moves 4096 rows to 32000. `usage.integration.test.ts` checks the
   new default. `types.test.ts` `cutOffReason` checks the UI's cut-off detection.
 
+### 2026-09-25 — Stop did nothing when it landed before the provider call began
+
+- **Symptom:** After a change that only added two database reads before the provider call,
+  `runResume`'s "stop still aborts a detached run" streamed the whole answer ("abc") and
+  `stop` still returned `stopped: true`. It passed alone and failed after the file's earlier
+  tests.
+- **Cause:** The TTFT retry loop linked each attempt's controller to the turn's signal with
+  `addEventListener('abort', …)`. A listener added after the signal has already aborted never
+  fires. Before the change the Stop always arrived mid-stream; with more work before the call,
+  it arrived first, and the attempt ran unaborted. `AgentLoop` and `webFetch` had the same shape.
+- **Rule:** **Never link a controller to a signal with `addEventListener` alone.** Check
+  `signal.aborted` first and abort at once, then add the listener.
+- **Verify:** `grep -rn "addEventListener('abort'" backend/src` shows an `aborted` check just
+  before each hit; `npx vitest run src/routes/runResume.integration.test.ts` passes.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -847,6 +848,9 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-25** — Added the abort-listener entry. Retired "A decision changed and its ADR did
+  not": its rule is in `CLAUDE.md` ("A decision is not changed until the document recording it
+  is changed"), and the entry was closed on 2026-09-17 (pruning criterion 2). **40 entries.**
 - **2026-09-24** — Added the output-limit entry. Retired the Gemini `thoughtSignature` entry:
   `gemini.adapter-loop.test.ts` fails if that regresses (pruning criterion 1). **40 entries.**
 - **2026-09-24** — Added the local-vs-Cloud-Run phase entry, from Phase 3's live failure.
@@ -1060,3 +1064,78 @@ practice, not canon.
   label proves only that no exception was thrown. Verify: the audit
   (`phase3-root-cause-audit-2026-09-24.md`) cites payloads; the transport fix has a test that
   a 4.7 MB input is refused, never dropped (`warmSandboxClient.test.ts`).
+- **2026-09-25**: No new heading (over the cap). Warm-sandbox turns still produced wrong counts,
+  for three reasons, all in the model's instructions and none in the tools:
+  - The pdf skill pointed exact work at `extract_scanned_table_rows`/`analyze_table_rows`,
+    which have known column-index defects.
+  - The skill was never loaded. The only trigger was a general system-prompt rule, and the
+    model reads `run_python` as "computation", not "PDF work".
+  - Files reached the sandbox only when the model passed their UUIDs.
+  The model fell back to tesseract on phone photos and answered without verifying. Rules:
+  1. Put the path and the skill hint on the file's own manifest line, where the model looks.
+  2. Make every conversation file present in the sandbox, as Claude's container does.
+  3. When a tool's defects are found, update the skill that recommends it in the same change.
+  Verify: `attachmentContinuity.integration.test.ts` reads two files with no `input_files`;
+  `manifest.test.ts`.
+- **2026-09-25 (later)**: No new heading (over the cap). Two lessons from the stage 1 decode
+  against Claude.
+  - **Comparisons stated from memory were wrong three times in one reply.** The claims were
+    that Claude does not extract text (it does, for every non-PDF document), that the warm
+    sandbox expires after 5 minutes idle (the code says `WORKSPACE_TTL_S` = 3 hours), and that
+    .doc/.ppt are accepted (`ALLOWED` rejects both). Rule: a comparison table cites the file,
+    or the doc page, for every cell. Verify: ADR-0011's table links Claude's support article
+    and names `FILE_LIMITS`.
+  - **`drizzle-kit generate` also emitted the never-migrated `analysis_*` tables** into a
+    one-column migration. Shipped as generated, that would have created those tables in
+    production without anyone deciding to. Rule: read every generated migration. When it
+    carries unrelated drift, hand-write the SQL, and base the snapshot on the previous one
+    plus your change only. Verify: `drizzle/0009_*.sql` is one `ALTER TABLE`;
+    `grep -c analysis drizzle/meta/0009_snapshot.json` is 0.
+- **2026-09-25 (memory)**: No new heading (over the cap). I set an upload extraction limit of
+  100 MB without measuring it. Measurements showed the in-process parsers peak at 90–370× the
+  file's size: a 44 MB .xlsx reached 3.8 GB and a 4.5 MB .docx 1.65 GB, on a 4 GiB instance.
+  The guessed limit would have let one upload kill the backend for every user. Rule: every
+  resource limit comes from a measurement on the real code path, and the measurement is
+  written next to the constant. Verify: `EXTRACTION_MEMORY_PER_BYTE` in `processUpload.ts`
+  cites the files it was measured on; `processUpload.test.ts` pins the derived limits.
+- **2026-09-25 (shared keys)**: No new heading (over the cap). `POST /files/cleanup` deleted the
+  stored object of every stale attachment, including those picked from a project, whose
+  `storageKey` is the project file's own. Cleaning up an unsent pick would have destroyed the
+  project file. `DELETE /files/:id` already had the guard; the bulk path did not. Rule: every
+  path that deletes stored bytes checks `projectFileId`, and each such path has a test that
+  fails without the check. Verify: `retention.integration.test.ts`, "leaves the project's
+  bytes alone". Seen failing with the guard removed.
+- **2026-09-25 (overflow retry)**: No new heading (over the cap). On a context overflow the
+  retry halves the history, then "made it start with a user turn" by walking *forward*. For a
+  chat with one earlier exchange that kept only the assistant reply: the question and its PDF
+  were dropped, and the history opened with an assistant turn. The existing test copied the
+  retry loop into the test file and tested the copy, so it never saw the real path. Also, the
+  retry only counted `base64` as droppable, not ADR-0013's `pages`. Rule: test a recovery path
+  through the real service (FakeProvider `onRequest` can throw once), not a copy of it. Verify:
+  `files.integration.test.ts`, "when the context overflows…", and the single-exchange case in
+  `batch6OverflowStreamingSafety.test.ts`. Both seen failing without the fix.
+- **2026-09-25 (disk cap)**: No new heading (over the cap). I gave the user a Cloud Run command
+  for a 30 GiB ephemeral disk. A search result I had read said "10 GB of total space by
+  default", and I did not follow it up. The deploy was refused ("cannot exceed 10 GiB"). I also
+  first sized 5 × 2 GiB for a 10 GiB ext4 disk, forgetting ext4's ~5% root reserve, which
+  the non-root workspace uids cannot use. Rule: every limit quoted in a source is checked
+  against the plan before a command is handed over. Size partitions of a filesystem from its
+  usable space. Verify: runbook step 7 uses 10Gi and 5 × 1.8 GiB.
+- **2026-09-25 (unread limit)**: No new heading (over the cap). I gave the user a command for a
+  30 GiB Cloud Run ephemeral disk. The search result I had in hand said "10 GB of total space by
+  default", and Cloud Run refused with "cannot exceed 10 GiB". Rule: before handing over an
+  infrastructure command, check each size and count in it against the limit the source states,
+  and quote that limit next to the command. Verify: ADR-0014 and runbook step 7 state 10 GiB.
+- **2026-09-25 (storage keys)**: No new heading (over the cap). I named checkpoint objects
+  `sandbox-state/<ws>/...` before reading `SAFE_KEY` in `storage.ts`, which accepts only
+  `generateStorageKey` output; every put would have thrown `storage_error`. Caught before running,
+  by reading the validator. Rule: a new kind of stored object gets its key from
+  `generateStorageKey`, and its location from a database column, never from a path scheme.
+  Verify: `workspaceState.integration.test.ts` stores and restores through LocalObjectStorage,
+  which applies the same key check.
+- **2026-09-25 (spec is not serving)**: No new heading (over the cap). The ephemeral-disk update
+  was taken as done because `services describe` showed the volume. Every revision with the disk
+  failed its startup probe, and the old revision kept serving for hours. The spec records what
+  was asked for, not what runs. Rule: a Cloud Run change is live only when `status.traffic` names
+  the new revision; check that, then a behaviour probe. Verify: runbook step 7's verification
+  starts with `status.traffic`.

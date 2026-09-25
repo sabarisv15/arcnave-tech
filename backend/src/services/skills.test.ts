@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -121,5 +123,53 @@ describe('SkillService', () => {
     const buf = await service.getSkillResourceBuffer('docx', 'SKILL.md');
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf!.length).toBeGreaterThan(0);
+  });
+
+  it('loads every bundled skill: none is dropped by its own frontmatter', async () => {
+    const dirs = [];
+    for (const d of await fs.readdir(path.resolve(__dirname, '../../skills'))) {
+      if (await fs.stat(path.resolve(__dirname, '../../skills', d, 'SKILL.md')).then(() => true, () => false)) dirs.push(d);
+    }
+    expect(service.rejected).toEqual([]);
+    expect(service.listSkills(undefined, true).map((s) => s.name).sort()).toEqual(dirs.sort());
+  });
+});
+
+describe('SkillService frontmatter rules (Claude Agent Skills)', () => {
+  async function loadWith(skills: Record<string, string>): Promise<SkillService> {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'skills-'));
+    for (const [dir, frontmatter] of Object.entries(skills)) {
+      await fs.mkdir(path.join(root, 'skills', dir), { recursive: true });
+      await fs.writeFile(path.join(root, 'skills', dir, 'SKILL.md'), `---\n${frontmatter}\n---\n\nBody`);
+    }
+    const svc = new SkillService(root, 'skills');
+    await svc.load();
+    return svc;
+  }
+
+  it('rejects names and descriptions Claude would reject, and says why', async () => {
+    const svc = await loadWith({
+      ok: 'name: ok\ndescription: Does a thing. Use when asked.',
+      Upper: 'name: Upper\ndescription: d',
+      [`a${'b'.repeat(64)}`]: `name: a${'b'.repeat(64)}\ndescription: d`,
+      'my-claude-helper': 'name: my-claude-helper\ndescription: d',
+      long: `name: long\ndescription: ${'x'.repeat(1025)}`,
+      xml: 'name: xml\ndescription: "Use <b>this</b>"',
+      mismatch: 'name: other\ndescription: d',
+    });
+    expect(svc.listSkills().map((s) => s.name)).toEqual(['ok']);
+    const reasons = Object.fromEntries(svc.rejected.map((r) => [r.dir, r.reason]));
+    expect(reasons.Upper).toContain('lowercase');
+    expect(reasons[`a${'b'.repeat(64)}`]).toContain('name');
+    expect(reasons['my-claude-helper']).toContain('claude');
+    expect(reasons.long).toContain('description');
+    expect(reasons.xml).toContain('XML');
+    expect(reasons.mismatch).toContain('directory');
+  });
+
+  it('accepts the limits exactly', async () => {
+    const name = 'n'.repeat(64);
+    const svc = await loadWith({ [name]: `name: ${name}\ndescription: ${'x'.repeat(1024)}` });
+    expect(svc.rejected).toEqual([]);
   });
 });

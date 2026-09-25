@@ -1,8 +1,8 @@
 ---
 name: dashboard-design
-version: 1.0.0
-description: Principles for composing clean, responsive, high-signal generative UI dashboards and interactive multi-card layouts.
-category: presentation
+version: 1.1.0
+description: "Layout rules for render_ui dashboards: KPI cards, charts, tables and filters. Use when presenting several metrics or charts together in the chat."
+category: artifact
 requires:
   tools:
     - render_ui

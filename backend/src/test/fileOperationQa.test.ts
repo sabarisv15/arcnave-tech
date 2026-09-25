@@ -17,6 +17,10 @@ describe('Batch 5: Multi-Tier Post-Mutation QA & Zero-Replacement Verification',
       put: async (key: string, data: Buffer) => {
         mockStorageStore[key] = data;
       },
+      // Streams to a path in the real storage; here it writes what get() returns.
+      async downloadTo(this: { get: (key: string) => Promise<Buffer> }, key: string, dest: string) {
+        await (await import('node:fs/promises')).writeFile(dest, await this.get(key));
+      },
       get: async (key: string) => mockStorageStore[key]!,
     } as any;
 

@@ -1,7 +1,7 @@
 ---
 name: xlsx
-version: 2.0.0
-description: Professional spreadsheet architecture, formula conventions, typed StructuredWorkbook contracts, targeted cell editing, and format-native Excel generation.
+version: 2.1.0
+description: Use whenever a spreadsheet or CSV/TSV is involved — reading or analysing an uploaded .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file. Load it before working on an uploaded spreadsheet's contents.
 category: artifact
 scope: builtin
 requires:
@@ -45,7 +45,7 @@ Uploaded spreadsheets (.xlsx) are ingested via ArcNave's Provider File Adapter a
 
 ### B. Deterministic Structural Inspection
 When programmatic workflows require exact sheet names, row counts, or cell type profiles:
-- Call `inspectSpreadsheet(inputBuffer)` to obtain:
+- Call the `inspectSpreadsheet` tool with the file's `fileId` to obtain:
   - `sheetNames`: Array of active worksheet names.
   - `totalRows`: Total row count across sheets.
   - `cellTypes`: Dictionary mapping cell addresses (`Sheet!A1`) to value types (`number`, `string`, `formula`, `date`, `boolean`).
@@ -83,7 +83,7 @@ For simple spreadsheets:
 
 ### Targeted Cell Editing (`editSpreadsheetCells`)
 When modifying an existing workbook (e.g. updating an assumption, changing a cell value, inserting a formula):
-- Use `editSpreadsheetCells(inputBuffer, edits)`:
+- Call the `editSpreadsheetCells` tool with `fileId` and `edits`:
   - `edits`: Array of `{ sheet: string, cell: string, value: unknown, type?: string, format?: string }`.
   - Example: `[{ sheet: 'Q1', cell: 'B8', value: 15000, type: 'number', format: '$#,##0' }, { sheet: 'Q1', cell: 'B9', value: '=B8*1.1', type: 'formula' }]`.
 - **Preservation Principle**: Preserves all untouched sheets, formulas, cell styles, fonts, and grid dimensions intact. **Do NOT convert an existing workbook to Markdown and rebuild it from scratch.**
@@ -93,7 +93,7 @@ When modifying an existing workbook (e.g. updating an assumption, changing a cel
 ## 6. Multi-File Operations & Deduplication
 
 ### Combining Workbooks (`combineWorkbooks`)
-- Use `combineWorkbooks(inputBuffers)` to merge sheets from multiple workbooks into a single consolidated workbook.
+- Call the `combineWorkbooks` tool with `fileIds` to merge sheets from multiple workbooks into a single consolidated workbook.
 - Name collisions are automatically disambiguated (e.g. `Data` and `Data_2`).
 
 ### Chunk Deduplication Rule
@@ -133,11 +133,14 @@ No single skill owns an entire cross-format workflow. The source skill extracts;
 ## 10. Warnings & Limitations
 
 - **No Magic Binary Conversion**: `generate_deliverable` requires structured markdown or `StructuredWorkbook` upstream; it does not transcode binary source files directly.
-- **No Native OpenXML Charts**: Native Excel chart generation via DrawingML is not currently exposed in `generate_deliverable`. Present visual charts via `render_ui` in chat.
+- **Charts**: `generate_deliverable` does not make Excel charts. For a native chart in the file, build
+  it in `run_python` with `openpyxl` (`openpyxl.chart`) and save the workbook to `output/`. For a
+  chart shown in the chat, use `render_ui`.
 - **No External Links**: Formulas referencing external workbooks (`='[other.xlsx]Sheet1'!A1`) are unsupported.
 
 ---
 
 ## 11. Available Resources & Scripts
 
-- No external script or template files currently exist in this skill package (`scripts = 0`, `templates = 0`). All operations run via native runtime functions.
+- This skill has no scripts or templates. For analysis beyond the tools, `run_python` has
+  pandas, openpyxl, xlrd and xlsxwriter; the file is in `input/`.

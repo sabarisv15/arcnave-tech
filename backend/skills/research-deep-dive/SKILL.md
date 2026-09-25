@@ -1,13 +1,11 @@
 ---
 name: research-deep-dive
-version: 1.1.0
-description: Multi-source research, source quality evaluation, web search & fetch, cross-verification, and citation synthesis.
+version: 1.2.0
+description: Researches a question across web sources, uploaded files and project files, weighs source quality, cross-checks claims and cites them. Use for questions that need several sources, current facts, or a researched report.
 category: research
 requires:
   tools:
-    - search_project_files
-  capabilities:
-    - project.search
+    - web_search
 autoload: false
 metadata:
   source: arcnave

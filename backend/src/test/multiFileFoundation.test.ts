@@ -26,6 +26,10 @@ describe('Multi-File Foundation (Authoritative Identity & Duplicate Filename Saf
       const pdfBytesB = Buffer.from(await docB.save());
 
       const mockStorage = {
+        // Streams to a path in the real storage; here it writes what get() returns.
+        async downloadTo(this: { get: (key: string) => Promise<Buffer> }, key: string, dest: string) {
+          await (await import('node:fs/promises')).writeFile(dest, await this.get(key));
+        },
         get: async (key: string) => {
           if (key === 'key-a') return pdfBytesA;
           if (key === 'key-b') return pdfBytesB;

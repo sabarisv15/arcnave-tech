@@ -1,5 +1,37 @@
 # ArcNave — current checkpoint
 
+> **2026-09-25 (latest): steps 1 and 2 audit gaps closed, branch only, not deployed.**
+> - Skills follow Claude ([ADR-0018](../decisions/0018-skills-follow-claude.md)):
+>   - The skill list in the prompt comes from the skill files; the hard-coded list and triggers are gone.
+>   - Claude's frontmatter rules are enforced. Two skills (`artifact-design`, `dashboard-design`)
+>     had been silently dropped for an invalid category; they now load.
+>   - The warm sandbox image carries `/skills`. `load_skill` on a script returns how to run it,
+>     not its code.
+> - Long chats follow Claude ([ADR-0019](../decisions/0019-long-chats-follow-claude.md)):
+>   - The 20-message history cap is gone.
+>   - Compaction is on: at 150,000 exact tokens (capped at ¾ of the window), older turns become a
+>     summary and the last 2 turns stay word for word.
+>   - Every file of the chat is always listed and in `input/`.
+>   - The 12 MB history budget now applies only to Gemini inline bytes.
+> - Upload: images over 10 MB are refused (claude.ai's limit). A paste over 4,000 characters
+>   becomes `pasted-text.txt`; Anthropic does not publish its own threshold.
+> - An earlier file's whole extracted text goes on every later turn, as Claude keeps a file in
+>   context (test in `longChat.integration.test.ts`). `HISTORY_MAX_ATTACHMENT_TEXT_CHARS` was
+>   removed: nothing had read it since 2026-09-22, and its 8,000-character comment misled an audit.
+> - Project files go in whole while they total ≤ 200,000 characters; excerpts past that, as
+>   Claude switches to RAG ([ADR-0020](../decisions/0020-project-files-in-context.md)).
+> - Five settings that nothing read were removed (`ENABLE_ANALYTICS`, `ENABLE_ANALYTICS_DASHBOARDS`,
+>   `DERIVED_DATASET_TTL_HOURS`, `PROMPT_CACHE_MIN_TOKENS_ANTHROPIC`/`_GEMINI`).
+>   `configUsage.test.ts` now fails on any setting nothing reads.
+> - Skill content matches the code (ADR-0018 status). Eight skills corrected, and seven
+>   descriptions now say when to use them. `skillContent.test.ts` guards this. Still to do: a
+>   live eval that the model loads the skill before its tools, after deploy.
+> - Found and fixed on the way: a Stop that arrived before the provider call did nothing
+>   (mistakes.md).
+> - Tests: see the latest commit message for counts.
+> - **Deploy order:** rebuild and deploy the sandbox image first
+>   ([warm-sandbox.md §1](../deploy/warm-sandbox.md)), then the backend.
+
 > **Now (2026-09-24, later): foundation fixes for general-purpose file work are on branch
 > `claude/tools-skills-architecture-jyxa61`, local only, not deployed.** A root-cause audit of two
 > failed live KVB turns found that the causes were in the harness. A 4.7 MB PDF was silently left
@@ -15,11 +47,88 @@
 > Backend 789/789, frontend 51/51, sandbox server 8/8. A local smoke run showed the backend
 > selecting the warm engine. **Deploying needs the one-time setup in
 > [`docs/deploy/warm-sandbox.md`](../deploy/warm-sandbox.md), with the user's approval.**
+> **2026-09-25: file handling now follows Claude's reference.** Live, the warm sandbox works: the
+> PDF reached it and the answer came back complete (KVB 48 = 41 + 7, Federal 277, total 325).
+> Two figures were still wrong: the Federal debit/credit split (245/32 against 244/33), and 4
+> IMPS charges classified wrongly. Three causes were fixed:
+> 1. Every conversation file is now already in `input/`, at a path printed in the manifest.
+> 2. Each file's manifest line names its skill.
+> 3. The pdf skill (v3.0.0) now teaches a general method: transcribe to named fields, verify
+>    against the document's own figures, compute in code.
+>
+> Backend 796/796. Not yet live-tested.
 > Not fixed yet: the analyzer's per-page column mapping and the handling of non-transaction rows
 > (audit items 1–4). Phase 3 still needs a live pass. Phase 4 has not started. The earlier
 > record: [`2026-09-24-phase3-live-failure.md`](2026-09-24-phase3-live-failure.md).
 
-**Last updated:** 2026-09-24
+> **2026-09-25 (later): stage 1 of the file-handling decode (upload) now follows Claude's
+> published rules** ([ADR-0011](../decisions/0011-upload-follows-claude.md)).
+> - Limits: 500 MB per file, 20 files per chat, PDFs up to 1,000 pages, images up to 8000 px.
+> - ODT, RTF and EPUB are now accepted.
+> - The browser uploads straight to GCS. This needs the one-time bucket CORS rule in
+>   [`docs/deploy/direct-upload.md`](../deploy/direct-upload.md).
+> - PDFs are counted and read locally with poppler, so upload no longer depends on the model.
+>   Each file records `reading` (text+visual, text, visual, media or none).
+>
+> - Extracted text is kept whole. The old 200,000-character cap is gone; the model's
+>   context window is the limit, checked in stage 2.
+> - Extraction is gated by measured memory. Each type's limit is `EXTRACTION_MEMORY_BUDGET_BYTES`
+>   (4 GiB) divided by its measured ratio (DOCX ~370×, XLSX ~90×, and so on), and extractions
+>   run one at a time.
+> - The backend is now 8 GiB. The user changed it on 2026-09-25.
+> - The bucket CORS rule is applied (user, 2026-09-25).
+> - Large PPTX decks now parse: officeParser gets the file type instead of sniffing it.
+>
+> Backend 820/820, frontend 52/52. A real browser, against local dev servers, uploaded a
+> 28.6 MB file with a progress percentage, and a PDF chip showed "3 pages". Not yet verified
+> live: the direct PUT to GCS. PDFs uploaded before migration 0009 have no page count and no
+> text, and they are not backfilled. Branch only, not deployed.
+> - Retention follows Claude ([ADR-0012](../decisions/0012-deleted-chats-purge-after-30-days.md)).
+>   A deleted chat, with its rows and uploaded files, is purged 30 days after deletion. Unsent
+>   uploads are purged after 24 hours. Two fixes: manual cleanup no longer deletes a project
+>   file's bytes, and the Settings count now shows the real number.
+> - Decisions from the user:
+>   - Old uploads are not backfilled (testing mode).
+>   - Page images belong to stage 2. Anthropic's docs say they are made "when you send a PDF".
+>   - The per-message limit stays at 10.
+>   - Min instances stay at 1.
+>
+> **Stage 2 started, items #1–#3 done** ([ADR-0013](../decisions/0013-pdfs-sent-as-page-images-and-text.md)).
+> - A PDF is sent to any model the way Claude's docs describe: each page as a 2000 px JPEG plus
+>   that page's text, for up to 100 pages. Over 100 pages, text only, with a note. The PDF's own
+>   bytes no longer go to a provider.
+> - Real KVB statement: 12 pages rendered in 0.76 s, 9.5 MB.
+> - Known: a very large PDF can exceed a provider's request size (a typed error). `gs://` page
+>   images for Gemini are not built.
+>
+> **Stage 2 #4–#6 done.**
+> - #4: a context overflow retries once with the older half of history and without earlier page
+>   images, keeping their text, then fails as a typed `context_overflow`. A bug that dropped the
+>   question and its files on a one-exchange chat was fixed (mistakes.md).
+> - #5 ([ADR-0014](../decisions/0014-sandbox-resources-per-chat.md)): the sandbox is 8 GiB / 2 CPU
+>   with a 10 GiB ephemeral disk at `/work` (5 chats × 1.8 GiB). Each run gets 3 GiB (measured:
+>   2.36 GB peak for a 500 MB CSV pipeline), 2 run at once. Tested locally in a container.
+>   **Live: the disk failed.** Every revision with it timed out at startup (ADR-0014, "Live
+>   result"). It runs without the disk: 3 workspaces × 1 GiB in memory, 1 run at a time.
+> - #6 ([ADR-0007](../decisions/0007-sandbox-no-general-egress.md)): the sandbox has no outbound
+>   internet. Verified live.
+>
+> **Also matched to Claude (local, not deployed):**
+> - Project files may be 30 MB (was 20 MB), Claude's project-file limit.
+> - A chat's sandbox files outlive the instance ([ADR-0015](../decisions/0015-sandbox-workspaces-outlive-the-instance.md)):
+>   idle 5 minutes, a workspace is checkpointed to storage; a run into an instance without it
+>   restores it first; kept 30 days after the chat last ran code, and purged with the chat.
+>   Needs the new sandbox image, then the backend deploy (migration 0010).
+>
+> - Large PDFs ([ADR-0016](../decisions/0016-gemini-reads-page-images-by-uri.md)): Gemini reads
+>   page images by `gs://` URI from `MODEL_INPUT_BUCKET`, as Claude's Files API keeps a PDF out of
+>   the request. Claude on Vertex takes base64 only, so a Claude request over 30 MB still fails
+>   typed. Needs `docs/deploy/model-inputs.md`, including its probe.
+>
+> **Still different from Claude:** 1 GiB per chat, in memory (Claude 5 GiB of disk), until the
+> ephemeral disk works; 3 workspaces and 1 run at a time. Also to review: the preview panel downloading whole files.
+
+**Last updated:** 2026-09-25
 **2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The
 running pipeline was audited against the locked architecture and Claude's tool-use pipeline:
 26 gaps are listed in [`docs/tools-skills-architecture.md`](../tools-skills-architecture.md),

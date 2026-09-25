@@ -1,8 +1,10 @@
 # Builds the warm sandbox service image (ADR-0010). Run from the repo root:
-#   gcloud builds submit backend/sandbox --config backend/sandbox/cloudbuild.service.yaml
+#   gcloud builds submit backend --config backend/sandbox/cloudbuild.service.yaml \
+#     --ignore-file=sandbox/service.gcloudignore
+# The context is backend/, not backend/sandbox/: the image carries backend/skills too.
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ['build', '-f', 'Dockerfile.service', '-t', '${_IMAGE}', '.']
+    args: ['build', '-f', 'sandbox/Dockerfile.service', '-t', '${_IMAGE}', '.']
 images: ['${_IMAGE}']
 substitutions:
   _IMAGE: asia-south1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/arcnave-python-runner:latest

@@ -79,10 +79,8 @@ export const RUN_PYTHON: ToolDefinition = {
   description:
     'Runs Python code in an isolated, single-use sandbox. Do not rely on network access. Use it for ' +
     'computation — arithmetic, data transformation, analysing an uploaded file, verifying a calculation. ' +
-    'To work on uploaded files, list their fileIds in "input_files"; each file is then readable at ' +
-    '"input/<filename>" (characters other than letters, digits, ".", "_" and "-" become "_"; when two ' +
-    'listed files share a name, the later one gets "_<first 8 characters of its fileId>" before the ' +
-    'extension). The result reports the exact path of every input file. ' +
+    'Every file in the conversation is placed in "input/" before the code runs, at the "run_python path" ' +
+    'printed on its line in the attachment list; open it there directly. "input_files" is not needed. ' +
     'If the code generates deliverable files (e.g. charts, spreadsheets, reports, data files), ' +
     'save them to the "output/" directory and explicitly declare their exact filenames in "expected_outputs". ' +
     'Only declared output files will be authorized and uploaded from the sandbox; undeclared files are rejected. ' +
@@ -95,7 +93,7 @@ export const RUN_PYTHON: ToolDefinition = {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Optional fileIds of uploaded attachments (from the conversation attachment list) to place in "input/" before the code runs.',
+          'Not needed: every conversation file is already in "input/". Accepted for compatibility.',
       },
       expected_outputs: {
         type: 'array',
@@ -124,10 +122,8 @@ export const RUN_PYTHON_WARM: ToolDefinition = {
     'matplotlib, openpyxl, xlrd, xlsxwriter, pdfplumber, pypdf, pymupdf (fitz), python-docx, python-pptx, ' +
     'pillow, opencv, pytesseract with tesseract (eng, tam), poppler (pdftoppm, pdftotext), pandoc, ' +
     'LibreOffice. Nothing can be installed. ' +
-    'To work on uploaded files, list their fileIds in "input_files"; each file is then readable at ' +
-    '"input/<filename>" (characters other than letters, digits, ".", "_" and "-" become "_"; when two ' +
-    'listed files share a name, the later one gets "_<first 8 characters of its fileId>" before the ' +
-    'extension). The result reports the exact path of every input file. Any size of file works. ' +
+    'Every file in the conversation is already in "input/", at the "run_python path" printed on its ' +
+    'line in the attachment list; open it there directly. "input_files" is not needed. Any size of file works. ' +
     'Files written or changed in "output/" during the call are returned to the user as downloads. ' +
     'To look at something yourself, save an image (PNG/JPEG/WebP) to "view/": it is shown to you with the ' +
     'result, up to 4 per call. For a scanned page, render just the region you need at high resolution ' +
@@ -142,7 +138,7 @@ export const RUN_PYTHON_WARM: ToolDefinition = {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Optional fileIds of uploaded attachments (from the conversation attachment list) to place in "input/" before the code runs.',
+          'Not needed: every conversation file is already in "input/". Accepted for compatibility.',
       },
     },
     required: ['code'],

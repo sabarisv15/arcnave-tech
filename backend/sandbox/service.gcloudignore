@@ -1,0 +1,7 @@
+# Upload filter for the warm sandbox image build (cloudbuild.service.yaml): the build context is
+# backend/, and the image needs only sandbox/ and skills/.
+*
+!sandbox/
+!sandbox/**
+!skills/
+!skills/**

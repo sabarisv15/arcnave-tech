@@ -31,6 +31,7 @@ import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { AttachmentRef } from '../providers/types.js';
 import { toAttachmentRef } from '../services/attachments/attachmentRef.js';
+import { FILE_LIMITS } from '../services/attachments/processUpload.js';
 import type { Run } from '../services/runHub.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -873,6 +874,33 @@ async function appendTurn(
   const { db } = request.services;
 
   return db.transaction(async (tx) => {
+    if (attachmentIds.length > 0) {
+      // Serialises turns on this chat, so two sends cannot both fit under the file limit.
+      await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, chatId)).for('update');
+      const incoming = await tx
+        .select({ id: attachmentsTable.id, status: attachmentsTable.status, messageId: attachmentsTable.messageId })
+        .from(attachmentsTable)
+        .where(and(inArray(attachmentsTable.id, attachmentIds), eq(attachmentsTable.userId, userId)));
+      if (incoming.some((a) => a.status === 'uploading')) {
+        throw new ApiError('upload_incomplete', {
+          detail: 'A file is still uploading. Wait for it to finish, then send.',
+        });
+      }
+      const fresh = incoming.filter((a) => a.messageId === null).length;
+      const [held] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(attachmentsTable)
+        .innerJoin(messages, eq(messages.id, attachmentsTable.messageId))
+        .where(eq(messages.chatId, chatId));
+      if ((held?.n ?? 0) + fresh > FILE_LIMITS.maxFilesPerChat) {
+        throw new ApiError('too_many_files', {
+          detail:
+            `This chat already has ${String(held?.n ?? 0)} files, and a chat can hold at most ` +
+            `${String(FILE_LIMITS.maxFilesPerChat)}. Start a new chat to add more.`,
+        });
+      }
+    }
+
     // An aggregate without GROUP BY always yields exactly one row, but the driver types it
     // as possibly-empty, so the fallback keeps the sequence correct rather than asserting.
     const seqRows = await tx

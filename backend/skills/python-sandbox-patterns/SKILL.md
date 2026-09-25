@@ -1,7 +1,7 @@
 ---
 name: python-sandbox-patterns
-version: 1.0.0
-description: Safe bounded computation, memory-aware transforms, stdout and stderr handling, and sandbox timeout awareness.
+version: 2.0.0
+description: How ArcNave's run_python sandbox behaves (files, outputs, limits) and how to write code for it. Applied automatically whenever run_python is available.
 category: internal
 requires:
   tools:
@@ -11,24 +11,44 @@ metadata:
   source: arcnave
 ---
 
-# Python Sandbox Patterns & Execution Constraints
+# Python Sandbox Patterns
 
-Internal skill automatically applied when preparing or executing Python code in ArcNave's sandbox.
+Applied automatically when `run_python` is available. The `run_python` tool description is
+authoritative for this chat; where it differs from this skill, follow it.
 
-## Sandbox Environment & Hard Limits
+## Where things are
 
-- **Execution Model**: Stateless ephemeral container. No state or files persist between independent `run_python` calls.
-- **Output Ceilings**: Stdout and Stderr are truncated at configured byte limits. Keep print statements targeted and concise; avoid dumping entire raw DataFrames or massive lists.
-- **Timeouts**: Execution is bounded by strict orchestration deadlines. Avoid unbounded loops or complex algorithmic bottlenecks.
-- **Resource Constraints**: Avoid excessive memory allocation. Use chunked processing or iterators when processing large numeric sequences.
+- `input/`: every file of the conversation, at the `run_python path` printed on its attachment
+  line. Open it there; nothing needs uploading.
+- `output/`: files for the user. Save deliverables (spreadsheets, charts, reports) here. If the
+  tool description asks for `expected_outputs`, list each filename there.
+- `view/`: images for you. Save a PNG/JPEG there to look at it (a chart you made, a rendered
+  page or a cropped region).
+- `/skills/<name>/`: the skills' own files, read-only, when the skills list says the sandbox
+  has them.
 
-## Robust Execution Patterns
+## Persistence
 
-- Always wrap critical calculations with clean error handling.
-- Print final summaries or JSON formatted outputs cleanly at the end of the script:
+On this chat's sandbox computer, **files persist between calls; Python variables do not**.
+Parse a file once, save the result (`rows.json`, `.parquet`), and reuse it next call. If the
+tool description says each call starts fresh, write everything a later call needs into the
+same call's output instead.
+
+## Limits
+
+- No network and no `pip install`. Use the pre-installed libraries the tool description lists.
+- stdout/stderr are truncated when large: print counts, totals and a few examples, not whole
+  tables. Write full results to a file.
+- Memory per run is bounded; a run over it stops with `MemoryError`. Process large data in
+  chunks or with iterators.
+- A call has a time limit. Avoid unbounded loops; batch work into a few calls.
+
+## Patterns
+
+- End with a short, parseable summary:
   ```python
   import json
-  result = {"status": "success", "data": calculated_values}
-  print(json.dumps(result))
+  print(json.dumps({"rows": len(df), "total": float(df.amount.sum())}))
   ```
-- Do not attempt network socket calls or arbitrary host filesystem accesses outside the isolated container boundary.
+- Catch and report errors with context (which file, which row) rather than letting a
+  traceback be the only output.

@@ -19,6 +19,8 @@ export interface SandboxExecutionOptions {
   /** Keeps a sandbox workspace across calls (one per chat) on engines that can. Without it
    *  every call starts from an empty machine. */
   sessionKey?: string;
+  /** Whose chat the session is, so the engine can keep its workspace beyond one instance. */
+  owner?: { userId: string; chatId: string };
 }
 
 export interface SandboxClient {

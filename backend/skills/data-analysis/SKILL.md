@@ -1,7 +1,7 @@
 ---
 name: data-analysis
-version: 1.1.0
-description: Tabular data exploration, cleaning, descriptive statistics, chart selection, and structured generative UI dashboards.
+version: 2.0.0
+description: Explores, cleans and summarises tabular data with statistics and charts. Use when the user asks to analyse a dataset, CSV or table, find trends, compare groups, or present findings as metrics, charts or a dashboard.
 category: analysis
 requires:
   tools:
@@ -11,31 +11,28 @@ metadata:
   source: arcnave
 ---
 
-# Data Analysis & Generative Visualization
+# Data Analysis & Visualization
 
-Use this skill when exploring datasets, calculating statistics, cleaning tabular data, and presenting interactive dashboards.
+Use this skill when exploring datasets, calculating statistics, cleaning tabular data, and
+presenting findings.
 
 ## Analysis Process
 
-1. **Inspection & Validation**:
-   - Work with dataset handles (`datasetHandle`) provided in the context (e.g. `ds_...`). Never ask for or expose internal storage keys.
-   - Inspect shape, columns, missing values, and data types before computing aggregates.
-   - Detect outliers or anomalies and note them explicitly.
-
-2. **Descriptive Statistics**:
-   - Compute distribution summaries (mean, median, standard deviation, interquartile range).
-   - Use median over mean for heavily skewed data (e.g. income, latency).
-
-3. **Visualization Selection**:
-   - **Trend over time**: Line chart with clear temporal x-axis.
-   - **Comparison across categories**: Horizontal or vertical bar chart with sorted bars.
-   - **Part-to-whole**: Stacked bar chart or donut chart (only for <= 5 categories).
-   - **Correlation / Distribution**: Scatter plot or histogram.
-
-4. **Structured Presentation with `render_ui`**:
-   - When presenting data findings, call `render_ui` to provide rich inline blocks:
-     - `metric`: Key quantitative indicators with units and provenance.
-     - `chart`: Visual data trends.
-     - `table`: Structured numerical rows with sorting.
-     - `dashboard`: Cohesive layout combining metrics and charts.
-   - Always accompany visual UI blocks with concise narrative takeaways.
+1. **Load and inspect** in `run_python`: the file is in `input/` (its `run_python path` is on
+   its attachment line). Check shape, columns, types and missing values before computing
+   anything. For an Excel or CSV file, also load the `xlsx` skill.
+2. **Clean deliberately**: say what you dropped, filled or converted, and how many rows it
+   touched. Save the cleaned table to a file and reuse it in later calls.
+3. **Describe**: mean, median, standard deviation, interquartile range. Prefer the median for
+   skewed data (income, latency). Name outliers and anomalies explicitly.
+4. **Compute every figure in code**, never by reading numbers off a table in context.
+5. **Choose the chart**:
+   - Trend over time: line chart with a time x-axis.
+   - Comparison across categories: bar chart, sorted.
+   - Part-to-whole: stacked bar, or donut for 5 categories or fewer.
+   - Relationship or distribution: scatter plot or histogram.
+6. **Present**:
+   - In the chat: `render_ui` with `metric`, `chart`, `table` or `dashboard` blocks, built from
+     the numbers the code printed. See the `dashboard-design` skill for layout.
+   - As a file: a chart image or workbook saved to `output/` (see the `dataviz` and `xlsx` skills).
+   - Always add a short narrative of what the numbers mean.

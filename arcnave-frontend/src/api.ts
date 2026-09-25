@@ -106,6 +106,14 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "That file type is not supported",
     detail: "Try a document, image, spreadsheet, or code file.",
   },
+  too_many_files: {
+    title: "Too many files in this chat",
+    detail: "A chat can hold at most 20 files. Start a new chat to add more.",
+  },
+  upload_incomplete: {
+    title: "The upload did not finish",
+    detail: "Not all of the file arrived. Remove it and upload it again.",
+  },
   rate_limit: {
     title: "Too many requests",
     detail: "Wait a moment, then try again.",
@@ -160,7 +168,7 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
   context_overflow: {
     title: "Conversation exceeded context limit",
     detail:
-      "The conversation is too long for this model even after trimming. Shorten it or start a new chat.",
+      "The conversation and its files are too large for this model, even after trimming. Ask about a smaller part of a large file, or start a new chat.",
   },
   export_unsupported: {
     title: "This version cannot be exported to that format",
@@ -544,7 +552,56 @@ export interface AttachmentDto {
   status: string;
   error: string;
   hasText: boolean;
+  /** Pages in a PDF; null for every other type. */
+  pageCount?: number | null;
+  /** How a model is shown this file: text+visual | text | visual | media | none. */
+  reading?: string;
   createdAt: string | null;
+}
+
+/** `POST /files/uploads`: the new attachment, and where to send its bytes. */
+export interface DirectUploadDto {
+  file: AttachmentDto;
+  upload: {
+    url: string;
+    method: "PUT";
+    headers: Record<string, string>;
+    /** True when `url` is this API; false for the storage bucket (no cookie goes there). */
+    withCredentials: boolean;
+  };
+}
+
+/**
+ * Sends the file's bytes where `POST /files/uploads` said to. XHR rather than fetch because
+ * only XHR reports upload progress, and a file can be hundreds of megabytes.
+ */
+function sendBytes(
+  upload: DirectUploadDto["upload"],
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(upload.method, upload.withCredentials ? url(upload.url) : upload.url);
+    xhr.withCredentials = upload.withCredentials;
+    for (const [name, value] of Object.entries(upload.headers)) xhr.setRequestHeader(name, value);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let code = "upload_incomplete";
+      try {
+        const body = JSON.parse(xhr.responseText) as { code?: string };
+        if (upload.withCredentials && body.code && errorCopy[body.code]) code = body.code;
+      } catch {
+        /* The bucket answers in XML; the status is all that matters. */
+      }
+      reject(new ApiError({ code, ...errorCopy[code]! }));
+    };
+    xhr.onerror = () => reject(new ApiError({ code: "network", ...errorCopy["network"]! }));
+    xhr.send(file);
+  });
 }
 
 export interface PreferencesDto {
@@ -820,15 +877,25 @@ export const api = {
   },
 
   files: {
-    upload: (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return request<AttachmentDto>("POST", "/files", { form });
+    /** Start the upload, send the bytes (straight to storage when it allows), then finish. */
+    upload: async (file: File, onProgress?: (fraction: number) => void) => {
+      const started = await post<DirectUploadDto>("/files/uploads", {
+        filename: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      });
+      try {
+        await sendBytes(started.upload, file, onProgress);
+        return await post<AttachmentDto>(`/files/${started.file.id}/complete`);
+      } catch (error) {
+        void del(`/files/${started.file.id}`).catch(() => {});
+        throw error;
+      }
     },
     read: (id: string) => get<AttachmentDto>(`/files/${id}`),
     remove: (id: string) => del(`/files/${id}`),
     downloadUrl: (id: string) => url(`/files/${id}/download`),
-    cleanup: () => post<{ removed: number }>("/files/cleanup"),
+    cleanup: () => post<{ deleted: number }>("/files/cleanup", {}),
   },
 
   preferences: {

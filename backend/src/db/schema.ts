@@ -10,6 +10,7 @@
  */
 import { relations, sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   check,
   doublePrecision,
@@ -371,9 +372,12 @@ export const attachments = pgTable(
     mimeType: varchar('mime_type', { length: 160 }).notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     storageKey: varchar('storage_key', { length: 300 }).notNull(),
+    /** uploading (bytes not yet confirmed) | ready | unsupported (stored, but no text). */
     status: varchar('status', { length: 16 }).notNull().default('ready'),
     error: text('error').notNull().default(''),
     extractedText: text('extracted_text'),
+    /** Pages in a PDF, counted at upload; null for every other type and for unreadable PDFs. */
+    pageCount: integer('page_count'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -381,6 +385,31 @@ export const attachments = pgTable(
     index('ix_attachments_message').on(t.messageId),
     index('ix_attachments_user').on(t.userId),
   ],
+);
+
+/**
+ * A chat's sandbox workspace, checkpointed to storage so its files outlive the sandbox instance
+ * (ADR-0015), as Claude's code-execution containers are restored for 30 days. The manifest names
+ * every stored object of the checkpoint; this row is how restore and retention find it.
+ */
+export const sandboxWorkspaces = pgTable(
+  'sandbox_workspaces',
+  {
+    workspaceId: varchar('workspace_id', { length: 32 }).primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Null until the first checkpoint. */
+    savedAt: timestamp('saved_at', { withTimezone: true }),
+    /** Storage key of the current checkpoint's manifest; null until the first checkpoint. */
+    manifestKey: varchar('manifest_key', { length: 200 }),
+    savedBytes: bigint('saved_bytes', { mode: 'number' }).notNull().default(0),
+  },
+  (t) => [index('ix_sandbox_workspaces_chat').on(t.chatId), index('ix_sandbox_workspaces_last_run').on(t.lastRunAt)],
 );
 
 /* -------------------------------------------------------------------------- artifacts */
@@ -935,6 +964,7 @@ export type MemoryItem = typeof memoryItems.$inferSelect;
 export type NewMemoryItem = typeof memoryItems.$inferInsert;
 export type ConversationCompaction = typeof conversationCompactions.$inferSelect;
 export type NewConversationCompaction = typeof conversationCompactions.$inferInsert;
+export type SandboxWorkspace = typeof sandboxWorkspaces.$inferSelect;
 export type AnalysisSession = typeof analysisSessions.$inferSelect;
 export type NewAnalysisSession = typeof analysisSessions.$inferInsert;
 export type AnalysisDataset = typeof analysisDatasets.$inferSelect;

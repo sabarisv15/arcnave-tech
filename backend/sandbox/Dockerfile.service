@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+# Build from backend/ (it copies backend/skills): see cloudbuild.service.yaml.
+#
 # ArcNave warm run_python sandbox — a long-lived Cloud Run *service* (ADR-0010), one workspace
 # per chat. Deployed with a runtime service account that has zero project IAM and reachable only
 # through Cloud Run IAM from the backend's service account; see docs/runbooks/warm-sandbox.md.
@@ -28,7 +30,13 @@ RUN pip install --no-cache-dir \
         pillow pytesseract opencv-python-headless \
         tabulate chardet
 
-COPY server.py /opt/arcnave/server.py
+COPY sandbox/server.py /opt/arcnave/server.py
+
+# The skills, as Claude's code-execution container has them: the model reads a skill's files and
+# runs its scripts here, and only a script's output enters its context (Agent Skills overview,
+# "Level 3"). Owned by root and not writable by the per-chat uids the code runs as.
+COPY skills /skills
+RUN chmod -R a+rX,go-w /skills
 
 ENV PYTHONUNBUFFERED=1 \
     WORK_ROOT=/work

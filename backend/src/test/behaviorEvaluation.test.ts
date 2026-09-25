@@ -109,12 +109,12 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
 
     it('Eval 6: Document / PDF -> Word conversion -> Enforces source transformation and docx skill', () => {
       expect(masterPrompt).toContain('TRANSFORM. DO NOT SILENTLY REWRITE.');
-      expect(masterPrompt).toContain('Word documents:\n→ docx');
+      expect(masterPrompt).toContain('Match the request against those descriptions');
       expect(masterPrompt).toContain('Preserve meaningful source structure');
     });
 
     it('Eval 7: "Create financial spreadsheet" -> Enforces xlsx skill, formulas-first, and export workflow', () => {
-      expect(masterPrompt).toContain('Spreadsheets:\n→ xlsx');
+      expect(masterPrompt).toContain('Match the request against those descriptions');
       expect(masterPrompt).toContain('Use spreadsheet semantics such as:');
       expect(masterPrompt).toContain('formulas');
       expect(masterPrompt).toContain('typed cells');
@@ -122,7 +122,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
     });
 
     it('Eval 8: "Create presentation" -> Enforces pptx skill, readability floor, and deliverable cover note', () => {
-      expect(masterPrompt).toContain('Presentations:\n→ pptx');
+      expect(masterPrompt).toContain('Match the request against those descriptions');
       expect(masterPrompt).toContain('Use presentation semantics such as:');
       expect(masterPrompt).toContain('readable typography');
       expect(masterPrompt).toContain('continuation slides');
