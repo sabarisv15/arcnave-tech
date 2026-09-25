@@ -1087,3 +1087,10 @@ practice, not canon.
     carries unrelated drift, hand-write the SQL, and base the snapshot on the previous one
     plus your change only. Verify: `drizzle/0009_*.sql` is one `ALTER TABLE`;
     `grep -c analysis drizzle/meta/0009_snapshot.json` is 0.
+- **2026-09-25 (memory)**: No new heading (over the cap). I set an upload extraction limit of
+  100 MB without measuring it. Measurements showed the in-process parsers peak at 90–370× the
+  file's size: a 44 MB .xlsx reached 3.8 GB and a 4.5 MB .docx 1.65 GB, on a 4 GiB instance.
+  The guessed limit would have let one upload kill the backend for every user. Rule: every
+  resource limit comes from a measurement on the real code path, and the measurement is
+  written next to the constant. Verify: `EXTRACTION_MEMORY_PER_BYTE` in `processUpload.ts`
+  cites the files it was measured on; `processUpload.test.ts` pins the derived limits.

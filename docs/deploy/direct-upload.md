@@ -24,17 +24,20 @@ gcloud storage buckets update gs://arcnave-attachments --cors-file=/tmp/cors.jso
 gcloud storage buckets describe gs://arcnave-attachments --format="default(cors_config)"
 ```
 
-The session URI is the only credential the browser gets. It can write one object, and it
-expires after a week. The bucket stays private: CORS decides which pages may send requests,
+The session URI is the only credential the browser gets, and it can write that one object
+only. The bucket stays private: CORS decides which pages may send requests,
 not who may read.
 
 ## 2. Nothing else changes on the backend service
 
 - Opening a resumable session uses the service's own identity, which can already write to the
   bucket. No signing permission is needed.
-- `ATTACHMENT_MAX_BYTES` (default 500 MB) and `ATTACHMENT_PROCESS_MAX_BYTES` (default 100 MB)
-  can be left at their defaults. Raise the second one only together with the service's
-  memory: extracting text holds the file in memory.
+- The backend must have **8 GiB** of memory. It was changed on 2026-09-25 with
+  `gcloud run services update arcnave-sandbox-service --region asia-south1 --memory=8Gi`.
+  `EXTRACTION_MEMORY_BUDGET_BYTES` defaults to 4 GiB, half of that. If the memory is ever
+  lowered, lower the budget with it (`--update-env-vars=EXTRACTION_MEMORY_BUDGET_BYTES=...`),
+  or a large Word or Excel upload can exhaust the instance.
+- `ATTACHMENT_MAX_BYTES` (default 500 MB) can stay at its default.
 - The migration `0009` adds `attachments.page_count`. It runs with the other migrations.
 
 ## 3. Verify live

@@ -480,7 +480,7 @@ async function finishUpload(
       mimeType: row.mimeType,
       sizeBytes: row.sizeBytes,
       visionProvider,
-      maxProcessBytes: cfg.ATTACHMENT_PROCESS_MAX_BYTES,
+      memoryBudgetBytes: cfg.EXTRACTION_MEMORY_BUDGET_BYTES,
     });
   } catch (err) {
     if (err instanceof UploadRejected) {

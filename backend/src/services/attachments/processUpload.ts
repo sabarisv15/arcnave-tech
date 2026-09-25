@@ -86,17 +86,87 @@ export interface ProcessUploadInput {
   mimeType: string;
   sizeBytes: number;
   visionProvider?: Provider;
-  /** Files larger than this are stored but not read into memory for text extraction. */
-  maxProcessBytes: number;
+  /**
+   * Peak memory one extraction may take. A file whose extractor would need more (by
+   * EXTRACTION_MEMORY_PER_BYTE) is stored with a note and its text is not extracted.
+   */
+  memoryBudgetBytes: number;
+}
+
+type Extractor = 'pdf' | 'docx' | 'odt' | 'epub' | 'xlsx' | 'xls' | 'rtf' | 'pptx' | 'text' | 'media';
+
+/**
+ * Peak memory an extractor takes per byte of file, measured 2026-09-25 on generated files
+ * (PDF 1.8 MB/1,000 pages, DOCX 4.5 MB, ODT 4.3 MB, EPUB 4.3 MB, XLSX 8.7 and 44 MB, XLS 6.6 MB,
+ * RTF 3 MB, PPTX 49 MB, CSV 62 MB), rounded up. The in-process parsers build a whole document
+ * tree, so they take tens to hundreds of times the file's size; one 44 MB workbook peaked at
+ * 3.8 GB. `media` is not measured: it is the copies transcription makes (the file, its base64,
+ * the request body).
+ */
+export const EXTRACTION_MEMORY_PER_BYTE: Record<Extractor, number> = {
+  pdf: 2,
+  docx: 370,
+  odt: 210,
+  epub: 80,
+  xlsx: 90,
+  xls: 35,
+  rtf: 20,
+  pptx: 16,
+  text: 2,
+  media: 4,
+};
+
+function extractorFor(mimeType: string, filename: string): Extractor {
+  const ext = filename.toLowerCase().split('.').pop() ?? '';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (ext === 'docx' || mimeType.includes('wordprocessingml')) return 'docx';
+  if (ext === 'pptx' || mimeType.includes('presentationml')) return 'pptx';
+  if (ext === 'odt' || mimeType === 'application/vnd.oasis.opendocument.text') return 'odt';
+  if (ext === 'rtf' || mimeType.endsWith('/rtf')) return 'rtf';
+  if (ext === 'epub' || mimeType === 'application/epub+zip') return 'epub';
+  if (ext === 'xlsx' || mimeType.includes('spreadsheetml')) return 'xlsx';
+  if (ext === 'xls' || mimeType.includes('ms-excel')) return 'xls';
+  if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) return 'media';
+  return 'text';
+}
+
+/** The largest file of this type whose extraction fits the budget. */
+export function extractionLimitBytes(mimeType: string, filename: string, memoryBudgetBytes: number): number {
+  return Math.floor(memoryBudgetBytes / EXTRACTION_MEMORY_PER_BYTE[extractorFor(mimeType, filename)]);
+}
+
+// One extraction at a time per instance: the budget is sized for one, and two large uploads
+// arriving together would otherwise take twice the memory and could kill the instance.
+let queue: Promise<unknown> = Promise.resolve();
+export function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const next = queue.then(fn, fn);
+  queue = next.catch(() => undefined);
+  return next;
 }
 
 export async function processUpload(input: ProcessUploadInput): Promise<ProcessedUpload> {
-  if (input.mimeType === 'application/pdf') return processPdf(input);
   if (input.mimeType.startsWith('image/')) return processImage(input);
-  return processDocument(input);
+  const limit = extractionLimitBytes(input.mimeType, input.filename, input.memoryBudgetBytes);
+  if (input.mimeType === 'application/pdf') return oneAtATime(() => processPdf(input, limit));
+  if (input.sizeBytes > limit) {
+    return {
+      // `ready`, not `unsupported`: only a ready file reaches later turns and code.
+      status: 'ready',
+      error:
+        `Text is extracted from files of this type up to ${formatMb(limit)}; this one is ` +
+        `${formatMb(input.sizeBytes)}. It is stored, and code can still open it.`,
+      extractedText: null,
+      pageCount: null,
+    };
+  }
+  return oneAtATime(() => processDocument(input));
 }
 
-async function processPdf(input: ProcessUploadInput): Promise<ProcessedUpload> {
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+async function processPdf(input: ProcessUploadInput, textLimitBytes: number): Promise<ProcessedUpload> {
   let pageCount: number;
   try {
     const { stdout } = await run('pdfinfo', [input.path], { timeout: 60_000, maxBuffer: 1024 * 1024 });
@@ -128,24 +198,29 @@ async function processPdf(input: ProcessUploadInput): Promise<ProcessedUpload> {
   }
 
   let text = '';
-  try {
-    // One text block per page, split on the form feed pdftotext ends each page with, so a page
-    // number in the text is the page the words are on.
-    const { stdout } = await run('pdftotext', ['-enc', 'UTF-8', input.path, '-'], {
-      timeout: 120_000,
-      maxBuffer: 256 * 1024 * 1024,
-    });
-    text = stdout
-      .split('\f')
-      .map((page, i) => ({ num: i + 1, body: page.trim() }))
-      .filter((p) => p.num <= pageCount && p.body !== '')
-      .map((p) => `--- Page ${String(p.num)} ---\n${p.body}`)
-      .join('\n\n');
-  } catch (err) {
-    notes.push(`The text of this PDF could not be read (${pdfError(err)}).`);
+  const tooLargeToRead = input.sizeBytes > textLimitBytes;
+  if (tooLargeToRead) {
+    notes.push(`Text is extracted from PDFs up to ${formatMb(textLimitBytes)}; this one is ${formatMb(input.sizeBytes)}.`);
+  } else {
+    try {
+      // One text block per page, split on the form feed pdftotext ends each page with, so a page
+      // number in the text is the page the words are on.
+      const { stdout } = await run('pdftotext', ['-enc', 'UTF-8', input.path, '-'], {
+        timeout: 120_000,
+        maxBuffer: 256 * 1024 * 1024,
+      });
+      text = stdout
+        .split('\f')
+        .map((page, i) => ({ num: i + 1, body: page.trim() }))
+        .filter((p) => p.num <= pageCount && p.body !== '')
+        .map((p) => `--- Page ${String(p.num)} ---\n${p.body}`)
+        .join('\n\n');
+    } catch (err) {
+      notes.push(`The text of this PDF could not be read (${pdfError(err)}).`);
+    }
   }
 
-  if (text === '' && pageCount > FILE_LIMITS.pdfVisualMaxPages) {
+  if (!tooLargeToRead && text === '' && pageCount > FILE_LIMITS.pdfVisualMaxPages) {
     notes.push('It has no text layer, so nothing in it can be read.');
   }
   return {
@@ -184,18 +259,6 @@ async function processImage(input: ProcessUploadInput): Promise<ProcessedUpload>
 }
 
 async function processDocument(input: ProcessUploadInput): Promise<ProcessedUpload> {
-  if (input.sizeBytes > input.maxProcessBytes) {
-    const mb = Math.round(input.maxProcessBytes / (1024 * 1024));
-    return {
-      // `ready`, not `unsupported`: only a ready file reaches later turns and code.
-      status: 'ready',
-      error:
-        `This file is larger than ${String(mb)} MB, so its text was not extracted. ` +
-        'It is stored and code can still open it.',
-      extractedText: null,
-      pageCount: null,
-    };
-  }
   try {
     const data = await readFile(input.path);
     const text = await extractText(data, input.mimeType, input.filename, input.visionProvider);

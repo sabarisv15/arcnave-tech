@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { pdfWithPages, png } from '../../test/fixtures/files.js';
-import { FILE_LIMITS, processUpload, readingFor, UploadRejected } from './processUpload.js';
+import { extractionLimitBytes, FILE_LIMITS, oneAtATime, processUpload, readingFor, UploadRejected } from './processUpload.js';
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../test/fixtures/documents');
 let dir: string;
@@ -24,10 +24,10 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function processBytes(filename: string, mimeType: string, bytes: Buffer, maxProcessBytes = 10 * 1024 * 1024) {
+async function processBytes(filename: string, mimeType: string, bytes: Buffer, memoryBudgetBytes = 2 * 1024 ** 3) {
   const p = path.join(dir, filename);
   await writeFile(p, bytes);
-  return processUpload({ path: p, filename, mimeType, sizeBytes: bytes.length, maxProcessBytes });
+  return processUpload({ path: p, filename, mimeType, sizeBytes: bytes.length, memoryBudgetBytes });
 }
 
 describe('PDF', () => {
@@ -92,8 +92,41 @@ describe('documents Claude reads as text', () => {
   });
 
   it('stores a document too large to extract as ready, with the reason, so code can still open it', async () => {
-    const out = await processBytes('big.csv', 'text/csv', Buffer.from('a,b\n1,2\n'), 4);
+    // A .docx takes ~370 bytes of memory per byte to extract; this budget allows 270 bytes.
+    const out = await processBytes(
+      'big.docx',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      Buffer.alloc(1000),
+      100_000,
+    );
     expect(out).toMatchObject({ status: 'ready', extractedText: null });
-    expect(out.error).toContain('its text was not extracted');
+    expect(out.error).toContain('Text is extracted from files of this type up to');
+  });
+
+  it('gives each type the size its measured memory cost allows', () => {
+    const budget = 4 * 1024 ** 3; // an 8 GiB instance
+    const mb = (bytes: number) => Math.floor(bytes / 1024 ** 2);
+    expect(mb(extractionLimitBytes('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'a.docx', budget))).toBe(11);
+    expect(mb(extractionLimitBytes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'a.xlsx', budget))).toBe(45);
+    expect(mb(extractionLimitBytes('application/pdf', 'a.pdf', budget))).toBe(2048);
+    // The limit follows the type, not the name the browser gave it.
+    expect(extractionLimitBytes('text/csv', 'a.csv', budget)).toBeGreaterThan(500 * 1024 ** 2);
+  });
+
+  it('runs extractions one at a time, so two large uploads never add up', async () => {
+    let running = 0;
+    let most = 0;
+    const task = () =>
+      oneAtATime(async () => {
+        running++;
+        most = Math.max(most, running);
+        await new Promise((r) => setTimeout(r, 20));
+        running--;
+      });
+    await Promise.all([task(), task(), task(), task()]);
+    expect(most).toBe(1);
+    // A failing extraction does not jam the queue for the next upload.
+    await expect(oneAtATime(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
+    await expect(oneAtATime(async () => 'next')).resolves.toBe('next');
   });
 });

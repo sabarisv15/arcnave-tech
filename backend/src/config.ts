@@ -314,11 +314,12 @@ const envSchema = z.object({
    */
   ATTACHMENT_MAX_BYTES: int(500 * 1024 * 1024),
   /**
-   * An attachment above this is stored but its text is not extracted, because extraction
-   * holds the whole file in memory (and Cloud Run's disk is memory too). Size it to the
-   * backend's memory.
+   * Peak memory one upload's text extraction may take; extractions run one at a time per
+   * instance. With EXTRACTION_MEMORY_PER_BYTE this gives each type's size limit for extraction
+   * (larger files are stored, not extracted). Keep it at about half the instance memory; the
+   * backend runs with 8 GiB (2026-09-25), so 4 GiB. Lower it with the memory, never above it.
    */
-  ATTACHMENT_PROCESS_MAX_BYTES: int(100 * 1024 * 1024),
+  EXTRACTION_MEMORY_BUDGET_BYTES: int(4 * 1024 * 1024 * 1024),
 
   // --- Rate limiting ------------------------------------------------------
   RATE_LIMIT_GENERATE_PER_MINUTE: int(20),

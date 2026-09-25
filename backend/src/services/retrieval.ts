@@ -49,19 +49,19 @@ export async function extractText(
     return extractPdf(data, visionProvider);
   }
   if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) {
-    return extractWithOfficeParser(data, 'This Word file');
+    return extractWithOfficeParser(data, 'This Word file', 'docx');
   }
   if (lower.endsWith('.pptx') || mimeType.includes('presentationml')) {
-    return extractWithOfficeParser(data, 'This PowerPoint file');
+    return extractWithOfficeParser(data, 'This PowerPoint file', 'pptx');
   }
   if (lower.endsWith('.odt') || mimeType === 'application/vnd.oasis.opendocument.text') {
-    return extractWithOfficeParser(data, 'This OpenDocument file');
+    return extractWithOfficeParser(data, 'This OpenDocument file', 'odt');
   }
   if (lower.endsWith('.rtf') || mimeType === 'application/rtf' || mimeType === 'text/rtf') {
-    return extractWithOfficeParser(data, 'This RTF file');
+    return extractWithOfficeParser(data, 'This RTF file', 'rtf');
   }
   if (lower.endsWith('.epub') || mimeType === 'application/epub+zip') {
-    return extractWithOfficeParser(data, 'This EPUB book');
+    return extractWithOfficeParser(data, 'This EPUB book', 'epub');
   }
   if (
     lower.endsWith('.xlsx') ||
@@ -219,11 +219,18 @@ async function extractAudioVideo(
  * Markdown, which is what keeps a `.docx` table intact as pipe rows instead of the word soup
  * `extractRawText`-style extraction produces when it drops cell boundaries.
  */
-async function extractWithOfficeParser(data: Buffer, label: string): Promise<string> {
+async function extractWithOfficeParser(
+  data: Buffer,
+  label: string,
+  fileType: 'docx' | 'pptx' | 'odt' | 'rtf' | 'epub',
+): Promise<string> {
   let text: string;
   try {
     const { parseOffice } = await import('officeparser');
-    const ast = await parseOffice(data, { ocr: false });
+    // officeParser's docs ask for the type when parsing a Buffer; it is known from the upload
+    // check. Without it the parser sniffs the bytes, and it sniffed a 30 MB .pptx as a plain zip
+    // and refused it.
+    const ast = await parseOffice(data, { ocr: false, fileType });
     text = (await ast.to('md')).value ?? '';
   } catch (err) {
     throw new ExtractionUnsupported(`${label} could not be read: ${String(err)}`);

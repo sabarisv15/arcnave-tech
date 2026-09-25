@@ -38,8 +38,19 @@
 > - PDFs are counted and read locally with poppler, so upload no longer depends on the model.
 >   Each file records `reading` (text+visual, text, visual, media or none).
 >
-> Backend 818/818, frontend 52/52. Local smoke passed: begin → PUT → complete gives 3 pages
-> and `text+visual`, and the downloaded bytes are identical. Branch only, not deployed.
+> - Extracted text is kept whole. The old 200,000-character cap is gone; the model's
+>   context window is the limit, checked in stage 2.
+> - Extraction is gated by measured memory. Each type's limit is `EXTRACTION_MEMORY_BUDGET_BYTES`
+>   (4 GiB) divided by its measured ratio (DOCX ~370×, XLSX ~90×, and so on), and extractions
+>   run one at a time.
+> - The backend is now 8 GiB. The user changed it on 2026-09-25.
+> - The bucket CORS rule is applied (user, 2026-09-25).
+> - Large PPTX decks now parse: officeParser gets the file type instead of sniffing it.
+>
+> Backend 820/820, frontend 52/52. A real browser, against local dev servers, uploaded a
+> 28.6 MB file with a progress percentage, and a PDF chip showed "3 pages". Not yet verified
+> live: the direct PUT to GCS. PDFs uploaded before migration 0009 have no page count and no
+> text, and they are not backfilled. Branch only, not deployed.
 > **Next: stage 2.** The adapters do not act on `reading` yet. Also to review: sandbox disk
 > for 500 MB files, and the preview panel downloading whole files.
 

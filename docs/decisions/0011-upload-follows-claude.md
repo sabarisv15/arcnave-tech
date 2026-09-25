@@ -67,9 +67,20 @@ one provider's PDF reader, then changing the model changes what the file says.
 - **Bucket CORS.** The GCS bucket needs a CORS rule for the site's origin. The steps are in
   [`docs/deploy/direct-upload.md`](../deploy/direct-upload.md). Without the rule, a
   cross-origin PUT from the browser fails, and the file shows "The upload did not finish".
-- **Extraction limit.** Extraction of files above `ATTACHMENT_PROCESS_MAX_BYTES` (100 MB by
-  default) is skipped. Extraction holds the whole file in memory, and Cloud Run's disk is
-  memory too. Raise the limit only together with the backend's memory.
+- **Extraction is gated by measured memory, not by a flat size.**
+  - The in-process parsers build a whole document tree. Measured peak memory per byte of
+    file: DOCX ~370×, ODT ~210×, XLSX ~90×, EPUB ~80×, XLS ~35×, RTF ~20×, PPTX ~16×, and
+    CSV/text and PDF (poppler) ~2×. One 44 MB workbook peaked at 3.8 GB.
+  - The measurements are in `EXTRACTION_MEMORY_PER_BYTE`. Each type's size limit is
+    `EXTRACTION_MEMORY_BUDGET_BYTES` divided by its ratio. The budget is 4 GiB on the 8 GiB
+    backend.
+  - A larger file is stored and marked `ready` with a note, so code can still open it.
+  - Extractions run one at a time per instance.
+  - Resulting limits: DOCX ~11 MB, ODT ~19 MB, XLSX ~45 MB, EPUB ~51 MB, XLS ~117 MB, RTF
+    ~204 MB, PPTX ~256 MB, and text and PDF up to the 500 MB upload limit.
+  - This is a measured boundary, not a match with Claude. Claude extracts larger Office files.
+    Closing the gap needs streaming parsers or more memory; the budget should rise only
+    together with the memory.
 - **Stage 2 is still open.** Stage 1 records `reading`, but the provider adapters do not act on
   it yet. PDFs still go to Gemini as bytes, so a PDF over 100 pages is still shown to Gemini
   visually. The sandbox's per-workspace disk and the file preview panel also still assume
