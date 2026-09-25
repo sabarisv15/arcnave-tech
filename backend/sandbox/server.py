@@ -55,6 +55,16 @@ MAX_TIMEOUT_MS = int(os.environ.get("MAX_CODE_TIMEOUT_MS", str(15 * 60_000)))
 MAX_STDOUT_BYTES = int(os.environ.get("MAX_STDOUT_BYTES", "262144"))
 MAX_STDERR_BYTES = int(os.environ.get("MAX_STDERR_BYTES", "65536"))
 MAX_OUTPUT_FILES = 50
+# Memory is per run, like Claude's per-container limit: one chat's code that runs away is stopped
+# on its own instead of taking the instance, and every other chat's files, down with it.
+# 3 GiB measured: pandas peaks at 1.6 GB reading a 500 MB CSV (the largest upload) and at
+# 2.36 GB for read, sort, merge and write of it; a 48 MB .xlsx read peaks at 0.7 GB.
+RUN_MEMORY_BYTES = int(os.environ.get("RUN_MEMORY_BYTES", str(3 * 1024**3)))
+# Runs at once. With RUN_MEMORY_BYTES each, they must fit in the instance's memory with room for
+# the server: 2 x 3 GiB on an 8 GiB instance. A run over the limit waits for a slot.
+MAX_CONCURRENT_RUNS = int(os.environ.get("MAX_CONCURRENT_RUNS", "2"))
+RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
+MEMORY_POLL_S = 0.1
 PYTHON = os.environ.get("SANDBOX_PYTHON", sys.executable)
 # Local development only: every workspace shares the server's own uid. Refused as root.
 SINGLE_UID = os.environ.get("SANDBOX_SINGLE_UID") == "1"
@@ -211,6 +221,29 @@ def _snapshot(dir_fd: int) -> dict:
     return snap
 
 
+def _run_rss_bytes(uid: int, sid: int) -> int:
+    """Resident memory of every process in this run: by uid in production, where a process can
+    leave the session but not the uid; by session in single-uid local development."""
+    page = os.sysconf("SC_PAGE_SIZE")
+    total = 0
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            if SINGLE_UID:
+                with open(f"/proc/{pid}/stat", "rb") as f:
+                    fields = f.read().rsplit(b")", 1)[1].split()
+                if int(fields[3]) != sid:  # after ")": state, ppid, pgrp, session
+                    continue
+            elif os.stat(f"/proc/{pid}").st_uid != uid:
+                continue
+            with open(f"/proc/{pid}/statm", "rb") as f:
+                total += int(f.read().split()[1]) * page
+        except (FileNotFoundError, ProcessLookupError, PermissionError, IndexError, ValueError):
+            pass
+    return total
+
+
 RETURNED_DIRS = ("output", "view")  # output/: files for the user; view/: images for the model
 
 
@@ -236,6 +269,9 @@ def _run(ws: Workspace, code: str, timeout_ms: int) -> dict:
         os.setsid()
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_WORKSPACE_BYTES, MAX_WORKSPACE_BYTES))
+        # One process cannot allocate past the run's limit even between two polls of the
+        # watchdog below, which is what bounds the run's processes together.
+        resource.setrlimit(resource.RLIMIT_DATA, (RUN_MEMORY_BYTES, RUN_MEMORY_BYTES))
         if not SINGLE_UID:
             resource.setrlimit(resource.RLIMIT_NPROC, (256, 256))
             os.setgroups([])
@@ -265,15 +301,25 @@ def _run(ws: Workspace, code: str, timeout_ms: int) -> dict:
     except BrokenPipeError:
         pass
     timed_out = False
-    try:
-        proc.wait(timeout=timeout_ms / 1000)
-    except subprocess.TimeoutExpired:
-        timed_out = True
+    over_memory = False
+    deadline = started + timeout_ms / 1000
+    while True:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+            proc.wait(timeout=MEMORY_POLL_S)
+            break
+        except subprocess.TimeoutExpired:
             pass
-        proc.wait()
+        timed_out = time.time() >= deadline
+        over_memory = not timed_out and _run_rss_bytes(ws.uid, proc.pid) > RUN_MEMORY_BYTES
+        if timed_out or over_memory:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            if not SINGLE_UID:
+                _kill_uid(ws.uid)
+            proc.wait()
+            break
     if not SINGLE_UID:
         _kill_uid(ws.uid)
     t_out.join(5)
@@ -304,11 +350,19 @@ def _run(ws: Workspace, code: str, timeout_ms: int) -> dict:
     stderr = err.get("data", b"").decode("utf-8", "replace")
     if timed_out:
         stderr += f"\nTimed out after {timeout_ms} ms; the process was killed."
+    if over_memory:
+        stderr += (
+            f"\nStopped: this run used more than {RUN_MEMORY_BYTES // 1024**2} MiB of memory. "
+            "Process the file in parts (for example pandas read_csv with chunksize, or fewer columns)."
+        )
     return {
         "msg_out": out.get("data", b"").decode("utf-8", "replace"),
         "msg_err": stderr,
-        "exit_code": proc.returncode,
+        # A run stopped for memory failed, even when its parent process exited cleanly after the
+        # children it was waiting on were killed.
+        "exit_code": proc.returncode if not over_memory or proc.returncode else -signal.SIGKILL,
         "timed_out": timed_out,
+        "memory_exceeded": over_memory,
         "truncated": bool(out.get("truncated") or err.get("truncated")),
         "duration_ms": int((time.time() - started) * 1000),
         "outputs": outputs,
@@ -493,7 +547,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "missing_inputs", "missing": missing})
             ws.busy = True
             try:
-                result = _run(ws, code, timeout_ms)
+                # Waiting for a slot spends the run's own time, so the backend's deadline, which
+                # is the code timeout plus a transfer budget, still holds.
+                waited_from = time.time()
+                if not RUN_SLOTS.acquire(timeout=timeout_ms / 1000):
+                    return self._error(503, "busy", "Other chats' code is using every run slot. Retry shortly.")
+                try:
+                    remaining_ms = timeout_ms - int((time.time() - waited_from) * 1000)
+                    result = _run(ws, code, max(remaining_ms, 1))
+                finally:
+                    RUN_SLOTS.release()
             finally:
                 ws.busy = False
                 ws.last_used = time.time()

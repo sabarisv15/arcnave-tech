@@ -24,7 +24,7 @@ import type {
 } from './types.js';
 import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
-import { attachmentText, unavailableAttachmentNote } from './attachmentContent.js';
+import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -135,46 +135,63 @@ type CacheableBlock = Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam |
 
 function attachmentBlocks(attachments: GenerationRequest['attachments']): CacheableBlock[] {
   if (!attachments || attachments.length === 0) return [];
-  return attachments.map((a): CacheableBlock => {
-    // 1. Native PDF (base64)
-    if (a.mimeType === 'application/pdf' && a.base64) {
-      const block: Anthropic.DocumentBlockParam = {
-        type: 'document',
-        source: {
-          type: 'base64',
-          media_type: 'application/pdf',
-          data: a.base64,
+  return attachments.flatMap((a): CacheableBlock[] => {
+    // 0. A PDF as its pages: each page's image, then its text (ADR-0013). Never the PDF itself.
+    if (a.pages) {
+      return a.pages.flatMap((page): CacheableBlock[] => [
+        { type: 'text', text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
+        ...(page.image
+          ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: page.image.mimeType, data: page.image.base64 } }]
+          : []),
+        {
+          type: 'text',
+          text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.`,
         },
-      };
-      if (a.filename) block.title = a.filename;
-      return block;
+      ]);
     }
-
-    // 2. Native Image (base64)
-    if (a.mimeType.startsWith('image/') && a.base64) {
-      return {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: a.mimeType as Anthropic.Base64ImageSource['media_type'],
-          data: a.base64,
-        },
-      };
-    }
-
-    // 3. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
-    const text = attachmentText(a);
-    if (text !== null) {
-      const block: Anthropic.DocumentBlockParam = {
-        type: 'document',
-        source: { type: 'text', media_type: 'text/plain', data: text },
-      };
-      if (a.filename) block.title = a.filename;
-      return block;
-    }
-    // 4. Nothing sendable: say so, never an empty document or decoded binary (G15, G17).
-    return { type: 'text', text: unavailableAttachmentNote(a) };
+    return [attachmentBlock(a)];
   });
+}
+
+function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number]): CacheableBlock {
+  // 1. Native PDF (base64)
+  if (a.mimeType === 'application/pdf' && a.base64) {
+    const block: Anthropic.DocumentBlockParam = {
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: a.base64,
+      },
+    };
+    if (a.filename) block.title = a.filename;
+    return block;
+  }
+
+  // 2. Native Image (base64)
+  if (a.mimeType.startsWith('image/') && a.base64) {
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: a.mimeType as Anthropic.Base64ImageSource['media_type'],
+        data: a.base64,
+      },
+    };
+  }
+
+  // 3. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
+  const text = attachmentText(a);
+  if (text !== null) {
+    const block: Anthropic.DocumentBlockParam = {
+      type: 'document',
+      source: { type: 'text', media_type: 'text/plain', data: text },
+    };
+    if (a.filename) block.title = a.filename;
+    return block;
+  }
+  // 4. Nothing sendable: say so, never an empty document or decoded binary (G15, G17).
+  return { type: 'text', text: unavailableAttachmentNote(a) };
 }
 
 /**

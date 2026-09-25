@@ -149,7 +149,8 @@ export const ERROR_CATALOG = {
   context_overflow: {
     status: 400,
     title: 'Conversation exceeded context limit',
-    detail: 'The conversation exceeded the maximum context window for this model and could not be completed after trimming history. Please shorten the conversation or start a new chat.',
+    detail:
+      "The conversation and its files are larger than this model's context window, even after trimming history. Ask about a smaller part of a large file, or start a new chat. Code can still work on the whole file.",
   },
   provider_error: {
     status: 502,

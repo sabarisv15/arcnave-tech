@@ -172,14 +172,30 @@ export interface AttachmentRef {
   extractedText?: string | null;
 }
 
+/** One page of a PDF as a model is shown it: an image of the page, and its text (ADR-0013). */
+export interface AttachmentPage {
+  num: number;
+  text: string;
+  image?: { mimeType: 'image/jpeg'; base64: string };
+}
+
 /** An attachment as sent to a provider: its identity plus, when hydrated, its bytes. */
 export interface AttachmentBlock {
   id?: string;
   filename?: string;
   mimeType: string;
   /** Why the bytes were deliberately not loaded for this request. Adapters say so (G15). */
-  omittedReason?: 'history_budget' | 'storage_unavailable' | 'model_limit';
+  omittedReason?: 'history_budget' | 'storage_unavailable' | 'model_limit' | 'unreadable';
+  /** For `unreadable`: what the reader reported. */
+  omittedDetail?: string;
   base64?: string;
+  /**
+   * A PDF of up to 100 pages, as its page images and page text. When set, `base64` is not:
+   * no provider is handed the PDF itself.
+   */
+  pages?: AttachmentPage[];
+  /** Pages in a PDF sent as text only (over 100 pages). */
+  textOnlyPageCount?: number;
   extractedText?: string | null;
   sizeBytes?: number;
   storageKey?: string;

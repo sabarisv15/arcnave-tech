@@ -1101,3 +1101,24 @@ practice, not canon.
   path that deletes stored bytes checks `projectFileId`, and each such path has a test that
   fails without the check. Verify: `retention.integration.test.ts`, "leaves the project's
   bytes alone". Seen failing with the guard removed.
+- **2026-09-25 (overflow retry)**: No new heading (over the cap). On a context overflow the
+  retry halves the history, then "made it start with a user turn" by walking *forward*. For a
+  chat with one earlier exchange that kept only the assistant reply: the question and its PDF
+  were dropped, and the history opened with an assistant turn. The existing test copied the
+  retry loop into the test file and tested the copy, so it never saw the real path. Also, the
+  retry only counted `base64` as droppable, not ADR-0013's `pages`. Rule: test a recovery path
+  through the real service (FakeProvider `onRequest` can throw once), not a copy of it. Verify:
+  `files.integration.test.ts`, "when the context overflows…", and the single-exchange case in
+  `batch6OverflowStreamingSafety.test.ts`. Both seen failing without the fix.
+- **2026-09-25 (disk cap)**: No new heading (over the cap). I gave the user a Cloud Run command
+  for a 30 GiB ephemeral disk. A search result I had read said "10 GB of total space by
+  default", and I did not follow it up. The deploy was refused ("cannot exceed 10 GiB"). I also
+  first sized 5 × 2 GiB for a 10 GiB ext4 disk, forgetting ext4's ~5% root reserve, which
+  the non-root workspace uids cannot use. Rule: every limit quoted in a source is checked
+  against the plan before a command is handed over. Size partitions of a filesystem from its
+  usable space. Verify: runbook step 7 uses 10Gi and 5 × 1.8 GiB.
+- **2026-09-25 (unread limit)**: No new heading (over the cap). I gave the user a command for a
+  30 GiB Cloud Run ephemeral disk. The search result I had in hand said "10 GB of total space by
+  default", and Cloud Run refused with "cannot exceed 10 GiB". Rule: before handing over an
+  infrastructure command, check each size and count in it against the limit the source states,
+  and quote that limit next to the command. Verify: ADR-0014 and runbook step 7 state 10 GiB.

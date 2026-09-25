@@ -220,10 +220,10 @@ export class ExecutionRuntime {
       throw new AttachmentNotFoundError(attachmentId);
     }
 
-    const data = await storage.get(row.storageKey);
+    // Streamed to disk: an attachment can be 500 MB, and a Buffer of it would sit in memory.
     if (targetName) {
       const target = path.join(workspace.inputDir, path.basename(targetName));
-      await fs.writeFile(target, data);
+      await storage.downloadTo(row.storageKey, target);
       return { attachmentId: row.id, filename: path.basename(targetName), path: target, mimeType: row.mimeType, sizeBytes: row.sizeBytes };
     }
     const sanitized = path.basename(row.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -243,7 +243,7 @@ export class ExecutionRuntime {
       // File does not exist yet; safeFilename is unique
     }
 
-    await fs.writeFile(filePath, data);
+    await storage.downloadTo(row.storageKey, filePath);
 
     return {
       attachmentId: row.id,

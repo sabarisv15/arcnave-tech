@@ -62,6 +62,7 @@ import {
 } from '../providers/types.js';
 import { AgentLoop } from './agentLoop.js';
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
+import { pdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -184,6 +185,18 @@ function sentAsBytes(att: { mimeType: string }): boolean {
     att.mimeType.startsWith('audio/') ||
     att.mimeType.startsWith('video/')
   );
+}
+
+/**
+ * A PDF as every provider is shown it (ADR-0013): up to 100 pages, each page's image and text;
+ * beyond that, its text only. No provider is handed the PDF's own bytes.
+ */
+async function asPdfForModel(att: AttachmentBlock, data: Buffer): Promise<AttachmentBlock> {
+  const pdf = await pdfForModel(data, att.storageKey);
+  const { base64: _drop, ...rest } = att;
+  if (pdf.kind === 'pages') return { ...rest, pages: pdf.pages };
+  if (pdf.kind === 'text') return { ...rest, extractedText: pdf.text, textOnlyPageCount: pdf.pageCount };
+  return { ...rest, omittedReason: 'unreadable', omittedDetail: pdf.reason };
 }
 
 /** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
@@ -1230,7 +1243,7 @@ export class GenerationService {
 
             const reducedHistory = this.reduceHistoryForOverflow(currentRequest.history);
             const hasHydratedHistorical = currentRequest.history.some((t) =>
-              t.attachments?.some((a) => Boolean(a.base64)),
+              t.attachments?.some((a) => Boolean(a.base64 || a.pages)),
             );
 
             if (reducedHistory.length < currentRequest.history.length || hasHydratedHistorical) {
@@ -1467,9 +1480,10 @@ export class GenerationService {
     if (!attachments || attachments.length === 0) return [];
     return Promise.all(
       attachments.map(async (att) => {
-        if (sentAsBytes(att) && !att.base64 && att.storageKey) {
+        if (sentAsBytes(att) && !att.base64 && !att.pages && att.storageKey) {
           try {
             const data = await this.storage.get(att.storageKey);
+            if (att.mimeType === 'application/pdf') return await asPdfForModel(att, data);
             return { ...att, base64: data.toString('base64') };
           } catch (err) {
             log.warn({ err, storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
@@ -1869,12 +1883,12 @@ export function reduceHistoryForOverflow(history: Turn[]): Turn[] {
   if (history.length === 0) return [];
   // Drop oldest half of completed history turns, keeping at least the most recent turn
   const keepCount = Math.max(1, Math.floor(history.length / 2));
-  let slice = history.slice(history.length - keepCount);
-
-  // API safety: history must start with a user turn
-  while (slice.length > 1 && slice[0]!.role !== 'user') {
-    slice.shift();
-  }
+  // API safety: history must start with a user turn. Walk back to the user turn that opened the
+  // kept exchange rather than forward past it: walking forward from a lone assistant reply kept
+  // the reply and dropped the question and its files.
+  let start = history.length - keepCount;
+  while (start > 0 && history[start]!.role !== 'user') start--;
+  const slice = history.slice(start);
 
   // Dehydrate any remaining historical binary attachments in the kept turns (preserve text and metadata)
   return slice.map((turn) => {

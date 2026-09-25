@@ -168,7 +168,7 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
   context_overflow: {
     title: "Conversation exceeded context limit",
     detail:
-      "The conversation is too long for this model even after trimming. Shorten it or start a new chat.",
+      "The conversation and its files are too large for this model, even after trimming. Ask about a smaller part of a large file, or start a new chat.",
   },
   export_unsupported: {
     title: "This version cannot be exported to that format",

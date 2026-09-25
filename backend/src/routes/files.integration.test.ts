@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import { attachments } from '../db/schema.js';
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
+import { ProviderError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { png, pdfWithPages } from '../test/fixtures/files.js';
 import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
@@ -540,5 +541,75 @@ describe('direct upload (the path the browser uses, for files up to 500 MB)', ()
     const over = await send(1);
     expect(over.statusCode).toBe(409);
     expect(over.json()).toMatchObject({ error: { code: 'too_many_files' } });
+  });
+});
+
+/* -------------------------------------------------------------------------- PDFs at send time */
+
+describe('a PDF sent to a model (ADR-0013: page images and text, as in Claude)', () => {
+  async function send(pdf: Buffer): Promise<ReturnType<typeof ctx.provider.seen.at>> {
+    const owner = await signUp(ctx);
+    const headers = { cookie: owner.cookie };
+    const part = multipart('statement.pdf', pdf, 'application/pdf');
+    const up = await ctx.app.inject({ method: 'POST', url: '/v1/files', headers: { ...part.headers, ...headers }, payload: part.payload });
+    const chat = await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'pdf' } });
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/chats/${(chat.json() as { id: string }).id}/generate`,
+      headers,
+      payload: { prompt: 'read it', attachmentIds: [(up.json() as { id: string }).id] },
+    });
+    expect(parseSse(res.body).at(-1)!.event).toBe('done');
+    return ctx.provider.seen.at(-1);
+  }
+
+  it('sends each page as an image with its text, to Gemini and Claude alike, and never the PDF', async () => {
+    const seen = (await send(await pdfWithPages(2, ['Opening balance 100', 'Closing 250'])))!;
+    const pdf = seen.attachments!.find((a) => a.mimeType === 'application/pdf')!;
+    expect(pdf.base64).toBeUndefined();
+    expect(pdf.pages).toHaveLength(2);
+
+    for (const wire of [JSON.stringify(buildGeminiContents(seen)), JSON.stringify(buildAnthropicMessages(seen))]) {
+      expect(wire).toContain('image/jpeg');
+      expect(wire).not.toContain('"application/pdf"');
+      expect(wire).toContain('Text of page 1:\\nOpening balance 100');
+      expect(wire).toContain('\\"statement.pdf\\" page 2 of 2');
+    }
+  });
+
+  it('sends a PDF over 100 pages as text only, and says so', async () => {
+    const seen = (await send(await pdfWithPages(101, ['Intro words'])))!;
+    for (const wire of [JSON.stringify(buildGeminiContents(seen)), JSON.stringify(buildAnthropicMessages(seen))]) {
+      expect(wire).not.toContain('image/jpeg');
+      expect(wire).toContain('PDFs over 100 pages are read as text only');
+      expect(wire).toContain('Intro words');
+    }
+  });
+
+  it('when the context overflows, retries once without earlier page images, keeping their text', async () => {
+    const owner = await signUp(ctx);
+    const headers = { cookie: owner.cookie };
+    const part = multipart('statement.pdf', await pdfWithPages(2, ['Opening balance 100', 'Closing 250']), 'application/pdf');
+    const up = await ctx.app.inject({ method: 'POST', url: '/v1/files', headers: { ...part.headers, ...headers }, payload: part.payload });
+    const chatId = ((await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'pdf' } })).json() as { id: string }).id;
+    const turn = (payload: object) => ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers, payload });
+    expect(parseSse((await turn({ prompt: 'read it', attachmentIds: [(up.json() as { id: string }).id] })).body).at(-1)!.event).toBe('done');
+
+    const before = ctx.provider.seen.length;
+    let calls = 0;
+    ctx.provider.onRequest = async () => {
+      if (++calls === 1) throw new ProviderError('input token count exceeds the maximum', { code: 'context_overflow' });
+    };
+    try {
+      expect(parseSse((await turn({ prompt: 'what was the closing balance?' })).body).at(-1)!.event).toBe('done');
+    } finally {
+      ctx.provider.onRequest = null;
+    }
+
+    const [first, retry] = ctx.provider.seen.slice(before);
+    const pdfIn = (req: typeof first) => req!.history.flatMap((t) => t.attachments ?? []).find((a) => a.mimeType === 'application/pdf');
+    expect(pdfIn(first)?.pages).toHaveLength(2);
+    expect(pdfIn(retry)?.pages).toBeUndefined();
+    expect(pdfIn(retry)?.extractedText).toContain('Closing 250');
   });
 });

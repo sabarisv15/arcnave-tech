@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -38,6 +39,9 @@ class ServerTest(unittest.TestCase):
             "PORT": str(cls.port),
             "WORK_ROOT": os.path.join(cls.root, "work"),
             "SECRET_TOKEN": "server-only",
+            # Small, so the memory tests are quick; one slot, so the queueing test can see a wait.
+            "RUN_MEMORY_BYTES": str(400 * 1024**2),
+            "MAX_CONCURRENT_RUNS": "1",
         }
         cls.proc = subprocess.Popen([sys.executable, SERVER], env=env, stderr=subprocess.DEVNULL)
         for _ in range(100):
@@ -161,6 +165,43 @@ class ServerTest(unittest.TestCase):
             "import os\ntry:\n    os.kill(int(open('pid').read()),0)\n    print('alive')\nexcept ProcessLookupError:\n    print('gone')",
         )
         self.assertEqual(res["msg_out"].strip(), "gone")
+
+    def test_a_run_over_its_memory_is_stopped_and_other_chats_keep_their_files(self):
+        other, greedy = "4" * 32, "5" * 32
+        self.run_code(other, "open('keep.txt','w').write('still here')")
+        # Three processes of 200 MiB each: no one process passes the limit, together they do.
+        status, res = self.run_code(
+            greedy,
+            "import subprocess,sys\n"
+            "ps=[subprocess.Popen([sys.executable,'-c','b=bytearray(200*2**20);import time;time.sleep(30)']) for _ in range(3)]\n"
+            "[p.wait() for p in ps]",
+            timeout_ms=20_000,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(res["memory_exceeded"], res)
+        self.assertNotEqual(res["exit_code"], 0)
+        self.assertFalse(res["timed_out"])
+        self.assertIn("more than 400 MiB", res["msg_err"])
+        status, res = self.run_code(other, "print(open('keep.txt').read())")
+        self.assertEqual(res["msg_out"].strip(), "still here")
+
+    def test_one_process_cannot_allocate_past_the_limit(self):
+        status, res = self.run_code("6" * 32, "b = bytearray(600 * 2**20)")
+        self.assertEqual(status, 200)
+        self.assertIn("MemoryError", res["msg_err"])
+
+    def test_runs_beyond_the_slot_count_wait_instead_of_failing(self):
+        first = {}
+        t = threading.Thread(target=lambda: first.update(r=self.run_code("7" * 32, "import time; time.sleep(1.5)")))
+        t.start()
+        time.sleep(0.3)
+        started = time.time()
+        status, res = self.run_code("8" * 32, "print('ran')")
+        waited = time.time() - started
+        t.join()
+        self.assertEqual((status, res["msg_out"].strip()), (200, "ran"))
+        self.assertGreater(waited, 0.9)
+        self.assertEqual(first["r"][0], 200)
 
 
 if __name__ == "__main__":

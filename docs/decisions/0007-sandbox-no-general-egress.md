@@ -1,6 +1,6 @@
 # ADR-0007: The execution sandbox has no general outbound internet
 
-- Status: accepted, not yet implemented (Phase 6 of the tools pipeline plan)
+- Status: accepted, implemented 2026-09-25 on the warm sandbox service (see "Implementation")
 - Date: 2026-09-24
 - Supersedes: the network-egress sentence in [ADR-0005](0005-cloud-run-sandbox.md), section
   "Runtime image" ("Outbound network egress is **allowed** … accepted as the trade-off against
@@ -48,3 +48,21 @@ scripts) works offline.
   today.
 - Phase 3's table extraction is split accordingly: the sandbox renders pages and does the
   deterministic post-processing; the backend makes the vision call.
+
+## Implementation (2026-09-25)
+
+The production engine is now the warm sandbox service ([ADR-0010](0010-warm-sandbox-service.md)),
+not the Job, and it needs no Google APIs: files arrive in the request body. So decision 4's
+staging bucket and Private Google Access are not needed, and the fully closed form is used:
+
+- `arcnave-python-runner` sends all traffic (`--vpc-egress=all-traffic`) into
+  `arcnave-sandbox-vpc` / `arcnave-sandbox-subnet` (10.20.0.0/26, asia-south1).
+- That VPC has no Cloud NAT, and firewall `arcnave-sandbox-deny-egress` denies all egress.
+- The backend is not on this VPC. Calls into the sandbox are ingress and are unaffected.
+
+Verified live on revision `arcnave-python-runner-00002-5hn`: `run_python` with
+`urllib.request.urlopen("https://example.com")` failed with `[Errno 101] Network is unreachable`,
+and the same chat turn completed, so the backend still reached Postgres and Vertex.
+
+The Cloud Run Job engine (`SANDBOX_ENGINE=cloud-run`) is not on this VPC and still has open
+egress. It is not the production engine.

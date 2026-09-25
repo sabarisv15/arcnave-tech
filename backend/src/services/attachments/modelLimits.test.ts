@@ -73,3 +73,44 @@ describe('enforceModelLimits (G18)', () => {
     await expect(enforceModelLimits(getModelCapability('Gemini 3.8 Flash'), current, [])).resolves.toEqual([]);
   });
 });
+
+describe('enforceModelLimits with a PDF sent as page images (ADR-0013)', () => {
+  const page = (num: number, bytes: number) => ({
+    num,
+    text: `page ${String(num)}`,
+    image: { mimeType: 'image/jpeg' as const, base64: 'A'.repeat(bytes) },
+  });
+  const asPages = (id: string, pages: ReturnType<typeof page>[]): AttachmentBlock => ({
+    id,
+    filename: `${id}.pdf`,
+    mimeType: 'application/pdf',
+    pages,
+  });
+
+  it('checks each page image against the per-image limit', async () => {
+    const err = await limitError(
+      enforceModelLimits(spec({ maxEncodedImageBytes: 100 }), [asPages('a', [page(1, 50), page(2, 150)])], []),
+    );
+    expect(err.meta).toMatchObject({ limit: 'image_bytes', actual: 150 });
+  });
+
+  it('counts all page images toward the request limit, and pages toward the page limit', async () => {
+    const bytes = await limitError(
+      enforceModelLimits(spec({ maxRequestBytes: 250 }), [asPages('a', [page(1, 100), page(2, 100), page(3, 100)])], []),
+    );
+    expect(bytes.meta).toMatchObject({ limit: 'request_bytes', actual: 300 });
+    const pages = await limitError(
+      enforceModelLimits(spec({ maxPdfPagesPerRequest: 2 }), [asPages('a', [page(1, 1), page(2, 1), page(3, 1)])], []),
+    );
+    expect(pages.meta).toMatchObject({ limit: 'pdf_pages', actual: 3 });
+  });
+
+  it('drops the images of an earlier PDF that no longer fit, and keeps its page text', async () => {
+    const old = asPages('old', [page(1, 200)]);
+    const history: Turn[] = [{ role: 'user', text: 'earlier', attachments: [old] }];
+    const out = await enforceModelLimits(spec({ maxRequestBytes: 100 }), [], history);
+    const kept = out[0]!.attachments![0]!;
+    expect(kept.pages).toBeUndefined();
+    expect(kept).toMatchObject({ omittedReason: 'model_limit', extractedText: '--- Page 1 ---\npage 1' });
+  });
+});
