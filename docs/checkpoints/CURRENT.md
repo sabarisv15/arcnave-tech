@@ -1,7 +1,14 @@
 # ArcNave — current checkpoint
 
-> **2026-09-25 (latest): the model sees what earlier turns did, and settles the request first.
-> Branch only, not deployed** ([ADR-0022](../decisions/0022-requests-carry-what-the-conversation-did.md)).
+> **2026-09-25 (latest): tool calls show as one activity block, Claude-style. Branch only, not
+> deployed.** `ToolActivity.tsx` replaces the per-call cards. While the turn works it sits above
+> the answer, names the step in progress ("Running command", "Loading skill") with an animated
+> spark, a shimmer and a timer; once the answer arrives it folds into one line ("Loaded a skill,
+> ran 4 commands, created a file") that expands to a timeline, each step opening its code and
+> output. File and image cards are unchanged.
+>
+> **2026-09-25: the model sees what earlier turns did, and settles the request first.
+> Deployed as revision `arcnave-sandbox-service-00136-gzl`** ([ADR-0022](../decisions/0022-requests-carry-what-the-conversation-did.md)).
 > - **History.** Earlier tool calls and results go back into the history.
 >   - Gemini gets its signed `functionCall`s; Claude gets `tool_use`/`tool_result`.
 >   - Calls that cannot go natively (no signature, undeclared tool) go as text.

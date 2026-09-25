@@ -50,6 +50,7 @@ import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage } from "./Content";
+import ToolActivity from "./ToolActivity";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -820,7 +821,12 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && <ResponseActivity message={m} />}
+      {loading && !m.text && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
+        <ResponseActivity message={m} />
+      )}
+      {m.toolCalls && m.toolCalls.length > 0 && (
+        <ToolActivity calls={m.toolCalls} working={loading} answering={!!m.text} />
+      )}
       {m.text && (
         <Suspense fallback={<p className="markdown">{m.text}</p>}>
           <Markdown
@@ -850,9 +856,6 @@ function MessageView({
           </div>
         );
       })()}
-      {m.toolCalls && m.toolCalls.length > 0 && (
-        <ToolCallList calls={m.toolCalls} />
-      )}
       <div className="generation-status" role="status" aria-live="polite">
         {m.status === "stopped" && (
           <span className="stopped-label">
@@ -1127,66 +1130,6 @@ function ImageCard({ item }: { item: ImageData }) {
           Download Image
         </button>
       </div>
-    </div>
-  );
-}
-
-/**
- * The `tool_use`/`tool_result` frames the backend streams for item 9's tool-calling loop.
- */
-function ToolCallList({ calls }: { calls: ToolCall[] }) {
-  const visibleCalls = calls.filter((c) => c.name !== "render_ui");
-  if (visibleCalls.length === 0) return null;
-  return (
-    <div className="tool-call-list">
-      {visibleCalls.map((call, i) => (
-        <ToolCallRow key={`${call.toolCallId}-${i}`} call={call} />
-      ))}
-    </div>
-  );
-}
-
-function ToolCallRow({ call }: { call: ToolCall }) {
-  const [open, setOpen] = useState(false);
-  const running = call.ok === undefined;
-  const detail =
-    call.content
-      ?.map((c) => (c.type === "text" ? c.text : JSON.stringify(c.data)))
-      .join("\n") ??
-    call.preview ??
-    "";
-
-  return (
-    <div className={`tool-call-row ${call.ok === false ? "tool-call-failed" : ""}`}>
-      <button
-        className="tool-call-summary"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {running ? (
-          <Loader2 size={14} className="spin" />
-        ) : call.ok ? (
-          <Terminal size={14} />
-        ) : (
-          <X size={14} />
-        )}
-        <code>{call.name}</code>
-        <span className="tool-call-status">
-          {running ? "Running…" : call.ok ? "Done" : "Failed"}
-        </span>
-        <ChevronRight
-          size={13}
-          className={open ? "tool-call-chevron open" : "tool-call-chevron"}
-        />
-      </button>
-      {open && (
-        <div className="tool-call-detail">
-          {call.input !== undefined && (
-            <pre>{JSON.stringify(call.input, null, 2)}</pre>
-          )}
-          {detail && <pre>{detail}</pre>}
-        </div>
-      )}
     </div>
   );
 }
