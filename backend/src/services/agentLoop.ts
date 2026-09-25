@@ -34,7 +34,7 @@ import type {
   ToolResult,
   Turn,
 } from '../providers/types.js';
-import { EMPTY_USAGE, isAbort, primaryToolContent, toolContentText, withoutImageBytes } from '../providers/types.js';
+import { addRequestUsage, EMPTY_USAGE, isAbort, primaryToolContent, toolContentText, withoutImageBytes } from '../providers/types.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -71,16 +71,6 @@ function toolResultPreview(result: ToolResult, maxChars: number): string {
   if (!block) return '';
   const text = block.type === 'text' ? block.text : JSON.stringify(block.data);
   return text.slice(0, maxChars);
-}
-
-function sumUsage(a: ProviderUsage, b: ProviderUsage): ProviderUsage {
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
-    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
-    exact: a.exact && b.exact,
-  };
 }
 
 import { ExecutionRuntime, type WorkspaceFiles } from '../tools/execution/executionRuntime.js';
@@ -213,7 +203,8 @@ export class AgentLoop {
     if (input.signal.aborted) onAbort();
     else input.signal.addEventListener('abort', onAbort, { once: true });
 
-    let cumulativeUsage: ProviderUsage = EMPTY_USAGE;
+    // Null until the first step: starting from EMPTY_USAGE (exact:false) made every sum inexact.
+    let cumulativeUsage: ProviderUsage | null = null;
     let finishReason = 'stop';
     let status: 'complete' | 'cancelled' | 'error' = 'complete';
     let errorCode: string | null = null;
@@ -331,7 +322,7 @@ export class AgentLoop {
           contextWindowTokens: resolvedCombinedWindow,
           activeInputTokensExact: null,
           inputTokensRemainingExact: null,
-          lastRequestPromptTokensExact: lastStepUsage?.exact ? lastStepUsage.inputTokens : null,
+          lastRequestPromptTokensExact: lastStepUsage?.lastRequest?.inputTokens ?? null,
           exact: false,
           contextLimit: resolvedMaxInput,
           tokensUsed: null,
@@ -708,7 +699,7 @@ export class AgentLoop {
         }
 
         // Token accounting: exact accounting per step
-        cumulativeUsage = sumUsage(cumulativeUsage, stepUsage);
+        cumulativeUsage = addRequestUsage(cumulativeUsage, stepUsage);
         lastStepUsage = stepUsage;
         const stepTotalTokens = (stepUsage.inputTokens ?? 0) + (stepUsage.outputTokens ?? 0);
 
@@ -775,7 +766,7 @@ export class AgentLoop {
           code: errorCode,
           title: typed?.title ?? 'Agent Loop Failure',
           detail: typed?.detail ?? (err instanceof Error ? err.message : String(err)),
-          usage: toUsageDto(cumulativeUsage, null),
+          usage: toUsageDto(cumulativeUsage ?? EMPTY_USAGE, null),
         };
         return;
       }
@@ -814,7 +805,7 @@ export class AgentLoop {
               text += ev.text;
               yield { type: 'delta', text: ev.text };
             } else if (ev.type === 'completed') {
-              cumulativeUsage = sumUsage(cumulativeUsage, ev.usage);
+              cumulativeUsage = addRequestUsage(cumulativeUsage, ev.usage);
             }
           }
         } catch (synthErr) {
@@ -844,7 +835,7 @@ export class AgentLoop {
       modelAlias: entry.alias,
       provider: entry.provider,
       providerModelId: entry.providerModelId!,
-      usage: cumulativeUsage,
+      usage: cumulativeUsage ?? EMPTY_USAGE,
       startedAt,
       status: status === 'cancelled' ? 'cancelled' : 'complete',
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
@@ -854,7 +845,7 @@ export class AgentLoop {
       yield {
         type: 'done',
         questions: [],
-        usage: toUsageDto(cumulativeUsage, computeCostFor(this.cfg, entry.providerModelId!, cumulativeUsage)),
+        usage: toUsageDto(cumulativeUsage ?? EMPTY_USAGE, computeCostFor(this.cfg, entry.providerModelId!, cumulativeUsage ?? EMPTY_USAGE)),
         finishReason,
       };
     }

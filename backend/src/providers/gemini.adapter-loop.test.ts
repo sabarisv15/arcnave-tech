@@ -135,6 +135,32 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'STOP' });
   });
 
+  it('bills every round of the loop, and keeps the last request apart for compaction', async () => {
+    const call = (id: string): FakeChunk => ({ functionCalls: [{ id, name: 'search_project_files', args: { query: 'q' } }] });
+    const usage = (prompt: number, out: number): FakeChunk => ({ usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: out } });
+    const run = async (rounds: FakeChunk[][]) => {
+      const client = new FakeGeminiClient();
+      client.responses = rounds.map(fakeStream);
+      const executor = new ScriptedExecutor();
+      const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+      const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+      return events.at(-1);
+    };
+
+    // Each round resends the conversation: 3 requests of 1000, 1100, 1200 prompt tokens. Within a
+    // response Gemini's counts are cumulative, so only a round's last value is its own.
+    expect(await run([[call('a'), usage(1000, 5), usage(1000, 10)], [call('b'), usage(1100, 10)], [{ text: 'done' }, usage(1200, 30)]])).toEqual({
+      type: 'completed',
+      finishReason: 'stop',
+      usage: { inputTokens: 3300, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true, lastRequest: { inputTokens: 1200, outputTokens: 30 } },
+    });
+
+    // One round with no reported count: the turn's total is unknown, not the part that was.
+    expect(await run([[call('a')], [{ text: 'done' }, usage(1200, 30)]])).toMatchObject({
+      usage: { inputTokens: 0, outputTokens: 0, exact: false },
+    });
+  });
+
   it('feeds a tool failure back to the model rather than throwing', async () => {
     const client = new FakeGeminiClient();
     client.responses = [

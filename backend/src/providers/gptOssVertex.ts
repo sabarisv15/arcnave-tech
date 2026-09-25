@@ -17,7 +17,7 @@ import { GoogleAuth } from 'google-auth-library';
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import type { GenerationRequest, Provider, ProviderEvent, ProviderUsage } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
+import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, ProviderError } from './types.js';
 
 const log = logger.child({ module: 'provider:gpt-oss' });
 
@@ -193,7 +193,8 @@ export class GptOssVertexProvider implements Provider {
       await reader.cancel().catch(() => undefined);
     }
 
-    yield { type: 'completed', usage, finishReason };
+    // One request: its usage is also the last request's.
+    yield { type: 'completed', usage: usage.exact ? addRequestUsage(null, usage) : usage, finishReason };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

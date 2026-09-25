@@ -20,7 +20,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
+import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
@@ -262,7 +262,8 @@ export class GeminiProvider implements Provider {
       };
     }
 
-    let usage = EMPTY_USAGE;
+    // Summed over the rounds: each round is its own request, billed on its own.
+    let usage: ProviderUsage | null = null;
     let finishReason = 'stop';
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
@@ -323,6 +324,7 @@ export class GeminiProvider implements Provider {
         }
 
         let roundText = '';
+        let roundUsage = EMPTY_USAGE;
         const roundCalls: {
           id?: string;
           name: string;
@@ -331,7 +333,10 @@ export class GeminiProvider implements Provider {
         }[] = [];
 
         for await (const chunk of stream) {
-          if (request.signal.aborted) break roundLoop;
+          if (request.signal.aborted) {
+            usage = addRequestUsage(usage, roundUsage);
+            break roundLoop;
+          }
 
           const text = chunk.text;
           if (text) {
@@ -370,8 +375,8 @@ export class GeminiProvider implements Provider {
           });
 
           const chunkUsage = usageFrom(chunk.usageMetadata);
-          // Gemini reports cumulative usage; the last non-empty value is the running total.
-          if (chunkUsage.exact) usage = chunkUsage;
+          // Within one response Gemini's usage is cumulative: the last value is the round's.
+          if (chunkUsage.exact) roundUsage = chunkUsage;
 
           for (const candidate of chunk.candidates ?? []) {
             if (candidate.groundingMetadata) {
@@ -380,6 +385,7 @@ export class GeminiProvider implements Provider {
             if (candidate.finishReason) finishReason = String(candidate.finishReason);
           }
         }
+        usage = addRequestUsage(usage, roundUsage);
 
         if (!useTools || roundCalls.length === 0) break;
         // A call on the final round is not run: there is no round left to answer after it.
@@ -475,7 +481,7 @@ export class GeminiProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

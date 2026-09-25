@@ -22,7 +22,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from './types.js';
-import { EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
+import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
@@ -98,7 +98,7 @@ function usageFrom(raw: AnthropicUsage | undefined | null): ProviderUsage {
 }
 
 /**
- * Anthropic splits usage across `message_start` and `message_delta`.
+ * Anthropic splits one message's usage across `message_start` and `message_delta`.
  *
  * `message_start` carries input and cache counts; `message_delta` carries the final output
  * count. Take the max per field so a later frame that omits a value cannot erase an earlier one.
@@ -111,6 +111,22 @@ function merge(base: ProviderUsage, update: ProviderUsage): ProviderUsage {
     cacheReadTokens: Math.max(base.cacheReadTokens, update.cacheReadTokens),
     cacheWriteTokens: Math.max(base.cacheWriteTokens, update.cacheWriteTokens),
     exact: true,
+  };
+}
+
+/**
+ * One request's usage with its whole prompt size. `input_tokens` is only the part after the last
+ * cache breakpoint: "total_input_tokens = cache_read_input_tokens + cache_creation_input_tokens +
+ * input_tokens" (Claude docs, Prompt caching).
+ */
+function requestUsage(round: ProviderUsage): ProviderUsage {
+  if (!round.exact) return round;
+  return {
+    ...round,
+    lastRequest: {
+      inputTokens: round.inputTokens + round.cacheReadTokens + round.cacheWriteTokens,
+      outputTokens: round.outputTokens,
+    },
   };
 }
 
@@ -289,7 +305,8 @@ export class AnthropicVertexProvider implements Provider {
       };
     }
 
-    let usage = EMPTY_USAGE;
+    // Summed over the rounds: each round is its own request, billed on its own.
+    let usage: ProviderUsage | null = null;
     let finishReason = 'stop';
     const searchBlocks: SearchResultBlock[] = [];
     let messages = buildAnthropicMessages(request);
@@ -352,8 +369,12 @@ export class AnthropicVertexProvider implements Provider {
           { signal: request.signal },
         );
 
+        let roundUsage = EMPTY_USAGE;
         for await (const event of stream) {
-          if (request.signal.aborted) break roundLoop;
+          if (request.signal.aborted) {
+            usage = addRequestUsage(usage, requestUsage(roundUsage));
+            break roundLoop;
+          }
           switch (event.type) {
             case 'content_block_delta': {
               const delta = event.delta;
@@ -363,10 +384,10 @@ export class AnthropicVertexProvider implements Provider {
               break;
             }
             case 'message_start':
-              usage = merge(usage, usageFrom(event.message.usage as AnthropicUsage));
+              roundUsage = merge(roundUsage, usageFrom(event.message.usage as AnthropicUsage));
               break;
             case 'message_delta': {
-              usage = merge(usage, usageFrom(event.usage as AnthropicUsage));
+              roundUsage = merge(roundUsage, usageFrom(event.usage as AnthropicUsage));
               if (event.delta.stop_reason) finishReason = String(event.delta.stop_reason);
               break;
             }
@@ -381,7 +402,8 @@ export class AnthropicVertexProvider implements Provider {
         }
 
         const final = await stream.finalMessage();
-        usage = merge(usage, usageFrom(final.usage as AnthropicUsage));
+        roundUsage = merge(roundUsage, usageFrom(final.usage as AnthropicUsage));
+        usage = addRequestUsage(usage, requestUsage(roundUsage));
         if (final.stop_reason) finishReason = String(final.stop_reason);
         if (final.stop_reason === 'refusal') {
           const details = final.stop_details ?? null;
@@ -471,7 +493,7 @@ export class AnthropicVertexProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

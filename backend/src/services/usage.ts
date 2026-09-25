@@ -327,6 +327,9 @@ export class UsageService {
       cacheReadTokens: input.usage.cacheReadTokens,
       cacheWriteTokens: input.usage.cacheWriteTokens,
       tokensExact: input.usage.exact,
+      contextTokens: input.usage.exact && input.usage.lastRequest
+        ? input.usage.lastRequest.inputTokens + input.usage.lastRequest.outputTokens
+        : null,
       startedAt: input.startedAt,
       completedAt,
       latencyMs: completedAt.getTime() - input.startedAt.getTime(),

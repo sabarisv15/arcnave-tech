@@ -499,6 +499,11 @@ export const usageRecords = pgTable(
     cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
     cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
     tokensExact: boolean('tokens_exact').notNull().default(false),
+    /**
+     * The turn's last provider request, prompt plus answer: what the next turn resends. The
+     * totals above sum every request of a tool loop; compaction reads this. Null when not exact.
+     */
+    contextTokens: integer('context_tokens'),
 
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     completedAt: timestamp('completed_at', { withTimezone: true }),

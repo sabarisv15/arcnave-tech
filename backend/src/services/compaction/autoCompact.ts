@@ -8,14 +8,16 @@
  * compaction, so this is Claude's third option, "your own summarizer", with its keep-recent-turns
  * shape: the older turns become a summary, the last KEEP_TURNS turns stay word for word.
  *
- * The trigger is the previous request's size as the provider reported it: its input plus output
- * tokens, the amount the next request resends (the docs' own loop counts the same). No estimate
- * (Invariant 3): a turn whose usage is not exact never triggers a compaction.
+ * The trigger is the previous turn's last provider request as the provider reported it: its whole
+ * prompt plus its answer, the amount the next request resends (the docs' own loop counts the
+ * same). Not the turn's total: a turn of 13 tool rounds sends the conversation 14 times and its
+ * total counts every one. No estimate (Invariant 3): a turn whose usage is not exact never
+ * triggers a compaction.
  *
  * Messages are never deleted. A compaction row records the summary and the seq it covers
  * through; history for later turns starts after that seq.
  */
-import { and, desc, eq, gt, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, lt } from 'drizzle-orm';
 
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
@@ -84,8 +86,9 @@ export async function latestCompactionSeq(db: Database, chatId: string): Promise
 }
 
 /**
- * Whether the request before `beforeSeq` was large enough to compact. Reads the latest exact
- * usage row of the last assistant message; a compaction's own usage has no message and is not it.
+ * Whether the request before `beforeSeq` was large enough to compact. Reads the latest usage row
+ * of the last assistant message that has an exact context size; a compaction's own usage has no
+ * message and is not it.
  */
 export async function shouldCompact(
   deps: CompactionDeps,
@@ -101,13 +104,13 @@ export async function shouldCompact(
     .limit(1);
   if (!last) return false;
   const [usage] = await deps.db
-    .select({ input: usageRecords.inputTokens, output: usageRecords.outputTokens })
+    .select({ context: usageRecords.contextTokens })
     .from(usageRecords)
-    .where(and(eq(usageRecords.messageId, last.id), eq(usageRecords.tokensExact, true)))
+    .where(and(eq(usageRecords.messageId, last.id), isNotNull(usageRecords.contextTokens)))
     .orderBy(desc(usageRecords.startedAt))
     .limit(1);
-  if (!usage) return false;
-  return usage.input + usage.output >= compactionTrigger(deps.cfg.COMPACTION_TRIGGER_TOKENS, contextWindow);
+  if (!usage?.context) return false;
+  return usage.context >= compactionTrigger(deps.cfg.COMPACTION_TRIGGER_TOKENS, contextWindow);
 }
 
 /**

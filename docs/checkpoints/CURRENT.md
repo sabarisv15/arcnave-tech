@@ -1,6 +1,26 @@
 # ArcNave — current checkpoint
 
-> **2026-09-25 (latest): steps 1 and 2 audit gaps closed, branch only, not deployed.**
+> **2026-09-25 (latest): turn usage fixed, branch only, not deployed.**
+> [ADR-0021](../decisions/0021-turn-usage-sums-every-request.md).
+> - **Found live:** a 16-request PDF turn showed one request's tokens. Each adapter overwrote
+>   (Gemini) or took the max of (Anthropic) its rounds, and agent-mode usage was always
+>   `exact: false`. Now every request of a turn is summed.
+> - Compaction reads the new `usage_records.context_tokens` (the last request's size), not the
+>   total (migration 0011).
+> - Guard added: `src/db/journal.test.ts`. The generated 0011 had been stamped before 0010 and
+>   would have been skipped in production.
+> - Backend 929/929.
+> - **Eval A, live on the previous deploy:**
+>   - `load_skill` ran first ✅.
+>   - The answer repeated the known Federal split error: 245/32 against 244/33. Totals were
+>     right (48, 277, 325).
+> - **Open:**
+>   - Gemini thinking tokens (`thoughtsTokenCount`) are not counted in `outputTokens`, and
+>     Vertex billing for them is unverified.
+>   - `analysis_*` tables are in `schema.ts` but in no migration.
+>   - The backend trigger did not fire on the push to main.
+
+> **2026-09-25: steps 1 and 2 audit gaps closed; deployed 2026-09-25 (sandbox 00008-bgx, backend 00135-bbm).**
 > - Skills follow Claude ([ADR-0018](../decisions/0018-skills-follow-claude.md)):
 >   - The skill list in the prompt comes from the skill files; the hard-coded list and triggers are gone.
 >   - Claude's frontmatter rules are enforced. Two skills (`artifact-design`, `dashboard-design`)

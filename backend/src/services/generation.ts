@@ -52,6 +52,7 @@ import type {
   Turn,
 } from '../providers/types.js';
 import {
+  addRequestUsage,
   EMPTY_USAGE,
   isAbort,
   ModelNotFoundError,
@@ -1083,7 +1084,8 @@ export class GenerationService {
             collectedText.push(event.text);
             yield { type: 'delta', text: event.text };
           } else if (event.type === 'completed') {
-            usage = event.usage;
+            // A second request of the same turn: billed on top of the first.
+            usage = addRequestUsage(usage, event.usage);
             finishReason = event.finishReason;
           }
         }

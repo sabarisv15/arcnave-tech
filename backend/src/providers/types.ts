@@ -49,6 +49,12 @@ export interface ProviderUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   exact: boolean;
+  /**
+   * The last provider request of the turn: its whole prompt (cached part included) and its
+   * answer. That is what the next turn resends, so compaction reads this and not the turn's
+   * total, which counts the conversation once per tool round. Present only when exact.
+   */
+  lastRequest?: { inputTokens: number; outputTokens: number };
 }
 
 export const EMPTY_USAGE: ProviderUsage = {
@@ -61,6 +67,29 @@ export const EMPTY_USAGE: ProviderUsage = {
 
 export function totalTokens(usage: ProviderUsage): number {
   return usage.inputTokens + usage.outputTokens;
+}
+
+/**
+ * A turn's usage after one more provider request. Every round of a tool loop is a new request
+ * that resends the conversation ("Send a new request containing the original messages, the
+ * assistant's response, and ... the tool_result blocks", Claude docs, How tool use works), and
+ * each is billed, so a turn's tokens are the sum of its requests. The sum is exact only when
+ * every request's count was reported; one missing count makes the turn exact:false with zeros
+ * (Invariant 3), never a part shown as the whole.
+ *
+ * `turn` is null before the first request. A request without `lastRequest` counts its own
+ * input and output as that.
+ */
+export function addRequestUsage(turn: ProviderUsage | null, request: ProviderUsage): ProviderUsage {
+  if (!request.exact || (turn !== null && !turn.exact)) return EMPTY_USAGE;
+  return {
+    inputTokens: (turn?.inputTokens ?? 0) + request.inputTokens,
+    outputTokens: (turn?.outputTokens ?? 0) + request.outputTokens,
+    cacheReadTokens: (turn?.cacheReadTokens ?? 0) + request.cacheReadTokens,
+    cacheWriteTokens: (turn?.cacheWriteTokens ?? 0) + request.cacheWriteTokens,
+    exact: true,
+    lastRequest: request.lastRequest ?? { inputTokens: request.inputTokens, outputTokens: request.outputTokens },
+  };
 }
 
 /**
