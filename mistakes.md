@@ -1129,3 +1129,9 @@ practice, not canon.
   `generateStorageKey`, and its location from a database column, never from a path scheme.
   Verify: `workspaceState.integration.test.ts` stores and restores through LocalObjectStorage,
   which applies the same key check.
+- **2026-09-25 (spec is not serving)**: No new heading (over the cap). The ephemeral-disk update
+  was taken as done because `services describe` showed the volume. Every revision with the disk
+  failed its startup probe, and the old revision kept serving for hours. The spec records what
+  was asked for, not what runs. Rule: a Cloud Run change is live only when `status.traffic` names
+  the new revision; check that, then a behaviour probe. Verify: runbook step 7's verification
+  starts with `status.traffic`.

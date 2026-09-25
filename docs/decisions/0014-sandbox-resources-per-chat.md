@@ -1,6 +1,7 @@
 # ADR-0014: Sandbox resources per chat: memory per run, files on disk
 
-- Status: accepted. Code tested locally; the live disk and image are pending (see "Rollout").
+- Status: accepted; decision 1 (ephemeral disk) **did not work live** and is not in use (see
+  "Live result, 2026-09-25"). Decisions 2 and 3 stand.
 - Date: 2026-09-25
 - Amends: [ADR-0010](0010-warm-sandbox-service.md)'s capacity. The single warm instance stays.
 
@@ -54,3 +55,19 @@ session affinity is best effort only, so that is an architecture change and is n
 2. Image: rebuild with this `server.py` and redeploy. The defaults are `RUN_MEMORY_BYTES` 3 GiB
    and `MAX_CONCURRENT_RUNS` 2.
 3. Verify live: `shutil.disk_usage("/work")` reports about 10 GB, and a 1.5 GB file writes.
+
+## Live result, 2026-09-25
+
+Every revision with the ephemeral disk failed to start: 00004 (the old image), 00005, and 00006
+(this image). The message was "Container failed to become healthy. Startup probes timed out
+after 4m". The server logged nothing, so the process never ran. A new instance was attempted
+every minute. Revision 00003, which has no disk, kept serving, so users were not affected. The
+cause is not known yet; Cloud Run's system logs for 00006 are the next thing to read.
+
+Until it is found, the service runs without the disk, and workspace files are in memory again:
+`MAX_WORKSPACES=3` × 1 GiB and `MAX_CONCURRENT_RUNS=1` × 3 GiB, 6 GiB of the 8. The checkpoints
+of [ADR-0015](0015-sandbox-workspaces-outlive-the-instance.md) make the smaller slot count
+safe: a chat whose workspace is dropped gets it back on its next run.
+
+Verified live on the diskless revision: `bytearray(4 * 2**30)` inside `run_python` raised
+`MemoryError`. The old image allowed it on the same 8 GiB instance, so the per-run limit is live.

@@ -76,7 +76,8 @@
 > - #5 ([ADR-0014](../decisions/0014-sandbox-resources-per-chat.md)): the sandbox is 8 GiB / 2 CPU
 >   with a 10 GiB ephemeral disk at `/work` (5 chats × 1.8 GiB). Each run gets 3 GiB (measured:
 >   2.36 GB peak for a 500 MB CSV pipeline), 2 run at once. Tested locally in a container.
->   **Not live yet:** the disk and the new image are applied with runbook steps 7 and 8.
+>   **Live: the disk failed.** Every revision with it timed out at startup (ADR-0014, "Live
+>   result"). It runs without the disk: 3 workspaces × 1 GiB in memory, 1 run at a time.
 > - #6 ([ADR-0007](../decisions/0007-sandbox-no-general-egress.md)): the sandbox has no outbound
 >   internet. Verified live.
 >
@@ -92,8 +93,8 @@
 >   the request. Claude on Vertex takes base64 only, so a Claude request over 30 MB still fails
 >   typed. Needs `docs/deploy/model-inputs.md`, including its probe.
 >
-> **Still different from Claude:** 1.8 GiB disk per chat (Claude 5 GiB; Cloud Run caps 10 GiB per
-> instance). Also to review: the preview panel downloading whole files.
+> **Still different from Claude:** 1 GiB per chat, in memory (Claude 5 GiB of disk), until the
+> ephemeral disk works; 3 workspaces and 1 run at a time. Also to review: the preview panel downloading whole files.
 
 **Last updated:** 2026-09-25
 **2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The

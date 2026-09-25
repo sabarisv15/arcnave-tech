@@ -69,5 +69,5 @@ keeps the chat's files, and has the libraries.
   If ArcNave is opened to untrusted users at scale, move to gVisor or a per-user sandbox.
 - **Workspaces on disk.** Decided in [ADR-0014](0014-sandbox-resources-per-chat.md): workspaces
   move from the in-memory filesystem to a 10 GiB ephemeral disk, 5 chats of 1.8 GiB each.
-  Runbook steps 7 and 8.
+  Runbook steps 7 and 8. The disk did not start live; see ADR-0014, "Live result".
 - **Setup.** `docs/deploy/warm-sandbox.md`.

@@ -112,7 +112,10 @@ Verify: in a chat, ask it to run
 It must fail with `Network is unreachable`, and the reply must still arrive (the backend is
 unaffected). Done live on 2026-09-25.
 
-## 7. Put workspaces on disk, not in memory
+## 7. Put workspaces on disk, not in memory. Not working live; do not apply
+
+> Every revision with this disk failed to start (ADR-0014, "Live result"). The service runs
+> without it: `MAX_WORKSPACES=3`, `MAX_WORKSPACE_BYTES=1073741824`, `MAX_CONCURRENT_RUNS=1`.
 
 Cloud Run's own filesystem is memory. An ephemeral disk (Preview, $0.000109589 per GiB-hour in
 Tier 1 regions such as asia-south1, about $0.80 a month for 10 GiB) is instance-local ext4 that
@@ -128,9 +131,10 @@ gcloud beta run services update arcnave-python-runner --region=$REGION \
 
 10 GiB is the most a service instance may have: 30 GiB was refused with "Total size of
 'ephemeral-disk' volumes cannot exceed 10 GiB". A Cloud Storage volume mount was rejected: it
-needs Private Google Access and bucket IAM on the sandbox, and it is not POSIX. Verify: the
-service shows `emptyDir: {medium: Disk, sizeLimit: 10Gi}` mounted at `/work`, and in a chat
-`shutil.disk_usage("/work")` reports about 10 GB and a 1.5 GB file can be written.
+needs Private Google Access and bucket IAM on the sandbox, and it is not POSIX. Verify that
+`status.traffic` names the new revision. The spec showing `emptyDir` is not enough: the spec
+changes even when the revision never starts. Then, in a chat, `shutil.disk_usage("/work")` must
+report about 10 GB, and a 1.5 GB file must be writable.
 
 ## 8. Memory per run (ADR-0014)
 
