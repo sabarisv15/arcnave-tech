@@ -23,6 +23,9 @@
 > - Five settings that nothing read were removed (`ENABLE_ANALYTICS`, `ENABLE_ANALYTICS_DASHBOARDS`,
 >   `DERIVED_DATASET_TTL_HOURS`, `PROMPT_CACHE_MIN_TOKENS_ANTHROPIC`/`_GEMINI`).
 >   `configUsage.test.ts` now fails on any setting nothing reads.
+> - Skill content matches the code (ADR-0018 status). Eight skills corrected, and seven
+>   descriptions now say when to use them. `skillContent.test.ts` guards this. Still to do: a
+>   live eval that the model loads the skill before its tools, after deploy.
 > - Found and fixed on the way: a Stop that arrived before the provider call did nothing
 >   (mistakes.md).
 > - Tests: see the latest commit message for counts.

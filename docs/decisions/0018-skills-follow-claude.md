@@ -1,6 +1,13 @@
 # ADR-0018: Skills follow Claude's Agent Skills rules
 
 - Status: accepted. Tested locally; the sandbox image carrying `/skills` is not live.
+  2026-09-25: skill content brought in line with the code. `python-sandbox-patterns` said no
+  files persist; the office and pdf skills showed `op(inputBuffer)` calls where the tools take
+  `fileId`; docx and pptx said ArcNave has no Pandoc or LibreOffice; `data-analysis` named
+  dataset handles nothing produces; `dataviz` said to print base64. Seven descriptions gained a
+  "Use when…" clause. `skillContent.test.ts` now checks that named tools exist, that named
+  sandbox libraries are in the image, that retired wording stays out, and that every
+  description says when to use the skill.
 - Date: 2026-09-25
 - See also: [docs/tools-skills-architecture.md](../tools-skills-architecture.md),
   [ADR-0010](0010-warm-sandbox-service.md) (the warm sandbox image)

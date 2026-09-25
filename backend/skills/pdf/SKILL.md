@@ -1,6 +1,6 @@
 ---
 name: pdf
-version: 3.0.0
+version: 3.1.0
 description: Use whenever a PDF is involved — reading, summarizing, extracting text or tables, counting or totalling rows, classifying entries, scanned or photographed PDFs, converting a PDF to Excel/Word, splitting, merging, or creating a PDF. Load it before working on an uploaded PDF's contents.
 category: artifact
 scope: builtin
@@ -42,11 +42,14 @@ Procedural knowledge for handling PDF documents in ArcNave: native document unde
 
 ## 3. Understand & Inspect Existing Files
 
-### A. Provider-Native Direct Understanding
+### A. What You Already See
 When the user asks questions or requests a summary of an uploaded PDF ("What is the total revenue in this invoice?", "Summarize page 2"):
-- The AI model receives the document directly via the Provider File Adapter (provider-native multimodal/document representation where supported).
-- **No tool call is necessary.** Answer directly from native vision/understanding.
-- Do NOT invoke execution tools or Python simply to read or summarize a PDF.
+- A PDF of up to 100 pages reaches you as an image of every page plus that page's text. Past 100
+  pages you get its text only: images, charts and scanned pages in it are not shown to you. The
+  attachment says which.
+- **No tool call is necessary** to read or summarize what you can see. Answer directly.
+- For a text-only PDF, a scanned page, or a figure you need, open the file in `run_python`
+  (it is in `input/`) and render the page into `view/` to look at it.
 
 ### B. Exact and Exhaustive Work — Counting, Totals, "Every Row"
 Native reading is fine for a summary. It is **not** enough when the answer must be exact or
@@ -57,7 +60,8 @@ document's own figures, and compute answers from the checked records. This appli
 document: statements, invoices, registers, mark sheets, bills of quantities.
 
 The file is already in run_python's working directory (its `run_python path` is on its
-attachment line). Files you write there stay for the rest of the conversation.
+attachment line). On this chat's sandbox, files you write there stay for the rest of the
+conversation; the `run_python` description says so when they do.
 
 1. **Find out what kind of PDF it is**, in one call: page count and whether each page has a
    text layer (`pymupdf`: `len(page.get_text().strip())`).
@@ -102,7 +106,7 @@ run_python is not available, and verify their result the same way (step 3).
 
 ### C. Deterministic Structural Inspection
 When programmatic workflows require exact page counts or metadata:
-- Use the Skill operation `inspectPdf(inputBuffer)` to obtain:
+- Call the `inspectPdf` tool with the file's `fileId` to obtain:
   - `pageCount`: Total page count.
   - `title`: Embedded document title (if present).
   - `author`: Embedded document author (if present).
@@ -134,16 +138,17 @@ PDF is a compiled, fixed-layout vector format. It lacks reflowable paragraphs or
 
 ### B. Format-Preserving Page Operations
 When modifying existing PDF files, preserve unaffected pages and vector structures intact:
-- **Split / Extract Pages**: Use `splitPdfFile(inputBuffer, pageRanges)` where `pageRanges` is an array of 1-indexed `[startPage, endPage]` tuples (e.g. `[[1, 3], [5, 5]]`). Vector graphics, embedded fonts, and page elements are preserved with zero re-encoding loss.
-- **Merge Documents**: Use `mergePdfFiles(inputBuffers)` to concatenate native PDF buffers sequentially without re-rasterization.
+- **Split / Extract Pages**: Call `splitPdfFile` with `fileId` and `pageRanges`, an array of 1-indexed `[startPage, endPage]` pairs (e.g. `[[1, 3], [5, 5]]`). Vector graphics, embedded fonts, and page elements are preserved with zero re-encoding loss.
+- **Merge Documents**: Call `mergePdfFiles` with `fileIds` in the order wanted (at least 2). Pages are concatenated without re-rasterization.
 - **Extensive Revision**: If the textual content must be significantly rewritten, extract the text/data to Markdown and compile a new version via `generate_deliverable`.
 
 ---
 
 ## 6. Multi-File Operations
 
-- **Combining Multiple PDFs**: Collect buffers in the desired sequence and execute `mergePdfFiles`.
-- **Workspace Isolation**: When working with multiple uploaded files with identical filenames, rely on `ExecutionRuntime` workspace materialization (`materializeInputFiles`) to maintain scoped, distinct filesystem paths.
+- **Combining Multiple PDFs**: Call `mergePdfFiles` with the `fileIds` in the desired sequence.
+- **Same filename twice**: each file has its own `run_python path` on its attachment line (a
+  duplicate name gets part of its fileId added). Use that path, or the `fileId` for tools.
 
 ---
 
@@ -184,7 +189,7 @@ No single skill owns an entire cross-format workflow. The source skill handles u
 
 - **No Magic Binary Conversion**: `generate_deliverable` is a renderer, not an arbitrary binary converter. Source attachments without extracted text must be parsed into structured markdown or `StructuredWorkbook` upstream.
 - **No In-Place PDF Text Editing**: Compiled PDF text runs cannot be edited like Word documents; use `splitPdfFile`/`mergePdfFiles` for page-level modifications.
-- **Page rendering for extraction** uses `pdftoppm` as a trusted CLI in the execution sandbox (no network). Page reading is done by a vision model called from the backend, so extracted rows are probabilistic until reconciled.
+- **`extract_scanned_table_rows`** renders pages with `pdftoppm` and has a vision model read them, so its rows are probabilistic until reconciled (section 3B, step 3).
 
 ---
 
@@ -192,4 +197,5 @@ No single skill owns an entire cross-format workflow. The source skill handles u
 
 - `scripts/normalize_table_rows.py`: deterministic post-processing behind `extract_scanned_table_rows` (normalise cells, drop repeated header rows across pages, index rows, flag low-confidence, ragged and possibly duplicated rows).
 - `scripts/analyze_table_rows.py`: deterministic `count`, `sum` and `running_balance` behind `analyze_table_rows`.
-- Both run as trusted skill scripts in the sandbox; you call them through the tools, not directly.
+- Both are run for you by those two tools. Do not run or read them directly: they expect the
+  tools' input format, not command-line arguments.

@@ -1,6 +1,6 @@
 ---
 name: pptx
-version: 2.0.0
+version: 2.1.0
 description: Use whenever a presentation is involved — reading or extracting from an uploaded .pptx/.ppt, editing slides, or producing a PowerPoint deck. Load it before working on an uploaded presentation's contents.
 category: artifact
 scope: builtin
@@ -45,7 +45,7 @@ Uploaded PowerPoint presentations (.pptx) are ingested via ArcNave's Provider Fi
 
 ### B. Deterministic Structural Inspection
 When programmatic workflows require exact slide counts or titles:
-- Call `inspectPptxStructure(inputBuffer)` to obtain:
+- Call the `inspectPptxStructure` tool with the file's `fileId` to obtain:
   - `slideCount`: Total number of slides registered in `<p:sldIdLst>`.
   - `titles`: Array of extracted slide title strings.
 
@@ -78,15 +78,15 @@ ArcNave's format-native presentation engine (`pptxRenderer`) compiles Markdown t
 
 ### A. Targeted Slide Text Editing (`editPptxSlideText`)
 When modifying text on a specific slide in an existing uploaded `.pptx`:
-- Use `editPptxSlideText(inputBuffer, slideIndex1Indexed, replacements)`:
-  - `slideIndex1Indexed`: 1-based slide index (e.g. `2`).
+- Call the `editPptxSlideText` tool with `fileId`, `slideIndex` and `replacements`:
+  - `slideIndex`: 1-based slide index (e.g. `2`).
   - `replacements`: Array of `{ search: string, replace: string }`.
 - **Preservation Principle**: Edits only `ppt/slides/slideN.xml`. Master layouts, themes, slide transitions, embedded vector shapes, and untouched slides are preserved with zero corruption. **Never rebuild an entire presentation from scratch for a single text edit.**
 
 ### B. Slide Reordering (`reorderPptxSlides`)
 When rearranging slides in an existing deck:
-- Use `reorderPptxSlides(inputBuffer, newOrder1Indexed)`:
-  - `newOrder1Indexed`: Array of 1-based slide indices in desired sequence (e.g. `[2, 1, 3]`).
+- Call the `reorderPptxSlides` tool with `fileId` and `newOrder`:
+  - `newOrder`: Array of 1-based slide indices in desired sequence (e.g. `[2, 1, 3]`).
 - Rearranges `<p:sldId>` entries in `ppt/presentation.xml` without altering or re-encoding individual slide files.
 
 ---
@@ -129,7 +129,9 @@ No single skill owns an entire cross-format workflow. The source skill extracts;
 
 - **No Magic Binary Conversion**: `generate_deliverable` requires structured markdown upstream; it does not transcode binary source files directly.
 - **No Native OpenXML Charts**: Native PowerPoint chart series generation is not currently exposed in `generate_deliverable`. Present visual charts via `render_ui` in chat or tabular slide cards.
-- **No External CLI Dependencies**: ArcNave does NOT use `pdftoppm` or `LibreOffice`. All operations rely on native `pptxgenjs` and JSZip libraries.
+- **Two ways to work**: the tools above run on the server with `pptxgenjs` and JSZip. For anything
+  they do not cover, `run_python` has `python-pptx` and LibreOffice. To see slides, convert with
+  `soffice --headless --convert-to pdf`, render pages with `pdftoppm` into `view/`, and look.
 
 ---
 

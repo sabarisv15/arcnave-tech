@@ -1,6 +1,6 @@
 ---
 name: docx
-version: 2.0.0
+version: 2.1.0
 description: Use whenever a Word document is involved — reading, summarizing or extracting from an uploaded .docx/.doc, editing it, or producing a Word file. Load it before working on an uploaded Word document's contents.
 category: artifact
 scope: builtin
@@ -43,9 +43,13 @@ Procedural knowledge for creating, formatting, inspecting, and editing professio
 ### A. Provider File Adapter & Extracted Document Representation
 Uploaded Word documents (.docx) are ingested via ArcNave's Provider File Adapter as extracted text/document blocks. For reading, analyzing, or summarizing the content of an uploaded Word document, the adapter's extracted document representation is sufficient. Answer directly from the provided document context without unnecessary tool calls. Do not expect providers to consume raw OOXML binary packages natively for comprehension.
 
+Extracted text leaves out images, and it can flatten layout. When those matter, open the file
+in `run_python` (it is in `input/`) with `python-docx`, or convert it with LibreOffice
+(`soffice --headless --convert-to pdf`) and render pages into `view/` to look at them.
+
 ### B. Deterministic Structural Inspection
 When programmatic workflows require exact paragraph counts, table counts, or section headings:
-- Call `inspectDocxStructure(inputBuffer)` to obtain:
+- Call the `inspectDocxStructure` tool with the file's `fileId` to obtain:
   - `paragraphsCount`: Total `<w:p>` paragraph elements.
   - `tablesCount`: Total `<w:tbl>` table structures.
   - `headings`: Extracted document headings from Heading styles or lead paragraphs.
@@ -75,12 +79,12 @@ ArcNave's format-native Word engine (`docxRenderer`) compiles Markdown to OpenXM
 
 ### A. Targeted Content Replacement (`editDocxContent`)
 When editing an existing uploaded `.docx` (e.g. replacing company names, updating terms, fixing dates, updating clauses):
-- Use `editDocxContent(inputBuffer, replacements)`:
+- Call the `editDocxContent` tool with `fileId` and `replacements`:
   - `replacements`: Array of `{ search: string, replace: string }`.
 - **Preservation Principle**: Edits `word/document.xml` in place while preserving the entire existing OOXML package, including styles, fonts, margins, header/footer relationships, and embedded media. **Never rebuild an existing document from scratch if a targeted edit is requested.**
 
 ### B. Appending Content (`appendDocxSection`)
-- Use `appendDocxSection(inputBuffer, heading, paragraphs)` to append new sections and paragraphs before `</w:body>` without disturbing prior document sections.
+- Call the `appendDocxSection` tool with `fileId`, `heading` and `paragraphs` to append new sections and paragraphs before `</w:body>` without disturbing prior document sections.
 
 ---
 
@@ -125,10 +129,12 @@ Extract or verify Markdown content, then invoke `generate_deliverable(format: 'p
 
 - **No Magic Binary Conversion**: `generate_deliverable` requires structured markdown upstream; it does not transcode binary source files directly.
 - **No Tracked Changes or Comments**: Tracked changes and comment authoring are not currently supported by native operations.
-- **No External CLI Dependencies**: ArcNave does NOT use `Pandoc` or `LibreOffice`. All operations rely on native `docx` and JSZip libraries.
+- **Two ways to work**: the tools above (`generate_deliverable`, `editDocxContent`, …) run on the
+  server with the `docx` and JSZip libraries. For anything they do not cover, `run_python` has
+  `python-docx`, `pandoc` and LibreOffice; a file written to `output/` is returned to the user.
 
 ---
 
 ## 11. Available Resources & Scripts
 
-- No external script or template files currently exist in this skill package (`scripts = 0`, `templates = 0`). All operations run via native runtime functions.
+- This skill has no scripts or templates.

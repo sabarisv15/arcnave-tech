@@ -1,7 +1,7 @@
 ---
 name: skill-creator
-version: 1.0.0
-description: Guide and schema for authoring new ArcNave SKILL.md procedural workflow instructions and metadata.
+version: 1.1.0
+description: "Writes and checks SKILL.md files: frontmatter rules, structure and quality checklist. Use when the user wants to create, edit or review a skill."
 category: meta
 requires:
   tools: []

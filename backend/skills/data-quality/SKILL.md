@@ -1,7 +1,7 @@
 ---
 name: data-quality
-version: 1.0.0
-description: Automated tabular data quality auditing, missing value profiling, outlier detection, and data hygiene recommendations.
+version: 1.1.0
+description: Audits a table for missing values, duplicates, invalid entries and outliers, and recommends fixes. Use when the user asks whether data is clean or reliable, or before analysing a dataset of unknown quality.
 category: analysis
 requires:
   tools:
