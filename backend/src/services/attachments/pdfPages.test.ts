@@ -19,7 +19,7 @@ describe('pdfForModel', () => {
     expect(out.pages.map((p) => p.text)).toEqual(['Opening balance 100', '', 'Closing 250']);
     for (const page of out.pages) {
       expect(page.image?.mimeType).toBe('image/jpeg');
-      const { width, height } = imageSize(Buffer.from(page.image!.base64, 'base64'));
+      const { width, height } = imageSize(Buffer.from(page.image!.base64!, 'base64'));
       expect(Math.max(width!, height!)).toBe(PAGE_IMAGE_LONG_EDGE_PX);
     }
   });

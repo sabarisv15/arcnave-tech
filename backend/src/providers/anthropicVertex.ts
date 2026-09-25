@@ -140,9 +140,12 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
     if (a.pages) {
       return a.pages.flatMap((page): CacheableBlock[] => [
         { type: 'text', text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
-        ...(page.image
+        ...(page.image?.base64
           ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: page.image.mimeType, data: page.image.base64 } }]
-          : []),
+          : page.image
+            ? // Claude on Vertex reads base64 only; a URI here is a wiring bug, said, not dropped.
+              [{ type: 'text' as const, text: `The image of page ${String(page.num)} could not be sent to this model.` }]
+            : []),
         {
           type: 'text',
           text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.`,

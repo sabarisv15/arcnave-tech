@@ -35,6 +35,8 @@ import { SemaphoreSandboxClient } from './tools/sandbox/semaphoreSandboxClient.j
 import { usesWarmSandbox } from './tools/catalog.js';
 import { WarmSandboxClient } from './tools/sandbox/warmSandboxClient.js';
 import { WorkspaceStateStore } from './tools/sandbox/workspaceState.js';
+import { GcsModelInputStore, type ModelInputStore } from './services/attachments/modelInputStore.js';
+import { Storage as GcsClient } from '@google-cloud/storage';
 import { logger } from './logger.js';
 
 const log = logger.child({ module: 'container' });
@@ -83,6 +85,8 @@ export interface BuildOptions {
   /** Test seam — a real `CloudRunSandboxClient` is never constructed unless a GCP project is
    *  configured, mirroring how the provider adapters lazily construct their own Vertex clients. */
   sandboxClient?: SandboxClient;
+  /** Test seam: where Gemini reads page images from. Built from MODEL_INPUT_BUCKET otherwise. */
+  modelInputs?: ModelInputStore;
   /** Test seam for the trusted executor. With an injected `sandboxClient` and no trusted client,
    *  trusted work goes to the injected sandbox, as it did before ADR-0008. */
   trustedClient?: SandboxClient;
@@ -240,6 +244,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     capabilities,
     executionRuntime,
     providers.google,
+    options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined),
   );
 
   return {

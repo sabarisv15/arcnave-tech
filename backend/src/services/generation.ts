@@ -62,6 +62,7 @@ import {
 } from '../providers/types.js';
 import { AgentLoop } from './agentLoop.js';
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
+import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { pdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
@@ -188,6 +189,32 @@ function sentAsBytes(att: { mimeType: string }): boolean {
 }
 
 /**
+ * The same attachments with each rendered page image stored for the model to read by URI. New
+ * objects, never the cached pages themselves: those are shared with Claude requests.
+ */
+async function referencePages(atts: AttachmentBlock[], store: ModelInputStore): Promise<AttachmentBlock[]> {
+  return Promise.all(
+    atts.map(async (a) => {
+      if (!a.pages) return a;
+      const pages = await Promise.all(
+        a.pages.map(async (p) =>
+          p.image?.base64
+            ? {
+                ...p,
+                image: {
+                  mimeType: p.image.mimeType,
+                  fileUri: await store.uriFor(Buffer.from(p.image.base64, 'base64'), p.image.mimeType),
+                },
+              }
+            : p,
+        ),
+      );
+      return { ...a, pages };
+    }),
+  );
+}
+
+/**
  * A PDF as every provider is shown it (ADR-0013): up to 100 pages, each page's image and text;
  * beyond that, its text only. No provider is handed the PDF's own bytes.
  */
@@ -258,6 +285,8 @@ export class GenerationService {
     executionRuntime?: ExecutionRuntime,
     /** Reads page images for table extraction (a backend call; never from the sandbox). */
     private readonly visionProvider?: Provider,
+    /** Where Gemini reads page images from instead of the request (ADR-0016); unset, inline. */
+    private readonly modelInputs?: ModelInputStore,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
@@ -570,10 +599,9 @@ export class GenerationService {
     };
 
     if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
-      const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-      const wireHistory = await this.limitToModel(
+      const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
         entry.alias,
-        wireAttachments,
+        await this.hydrateAttachmentBytes(input.attachments),
         await this.hydrateHistoryAttachments(history, input.prompt),
         releaseReservation,
       );
@@ -798,10 +826,9 @@ export class GenerationService {
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
 
-    const wireAttachments = await this.hydrateAttachmentBytes(input.attachments);
-    const wireHistory = await this.limitToModel(
+    const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
       entry.alias,
-      wireAttachments,
+      await this.hydrateAttachmentBytes(input.attachments),
       await this.hydrateHistoryAttachments(history, input.prompt),
       releaseReservation,
     );
@@ -1510,9 +1537,20 @@ export class GenerationService {
     current: AttachmentBlock[],
     history: Turn[],
     releaseReservation: () => Promise<void>,
-  ): Promise<Turn[]> {
+  ): Promise<{ current: AttachmentBlock[]; history: Turn[] }> {
     try {
-      return await enforceModelLimits(getModelCapability(alias), current, history);
+      const spec = getModelCapability(alias);
+      const limited = await enforceModelLimits(spec, current, history);
+      // Gemini reads page images from Cloud Storage, as Claude's Files API keeps a large PDF
+      // out of the request (ADR-0016). Claude on Vertex takes base64 only, so it is left as is.
+      if (spec.provider !== 'google' || !this.modelInputs) return { current, history: limited };
+      const store = this.modelInputs;
+      return {
+        current: await referencePages(current, store),
+        history: await Promise.all(
+          limited.map(async (t) => (t.attachments ? { ...t, attachments: await referencePages(t.attachments, store) } : t)),
+        ),
+      };
     } catch (err) {
       await releaseReservation();
       throw err;

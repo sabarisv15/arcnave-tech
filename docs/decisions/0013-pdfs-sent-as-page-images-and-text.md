@@ -1,6 +1,7 @@
 # ADR-0013: A PDF is sent to a model as page images and page text
 
-- Status: accepted
+- Status: accepted. Gemini's page images go by `gs://` URI when a bucket is configured:
+  [ADR-0016](0016-gemini-reads-page-images-by-uri.md).
 - Date: 2026-09-25
 - Builds on: [ADR-0011](0011-upload-follows-claude.md) (the upload-time `reading` value)
 

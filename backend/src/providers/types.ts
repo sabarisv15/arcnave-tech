@@ -176,7 +176,11 @@ export interface AttachmentRef {
 export interface AttachmentPage {
   num: number;
   text: string;
-  image?: { mimeType: 'image/jpeg'; base64: string };
+  /**
+   * The page image: its bytes, or, for a provider that reads from Cloud Storage (Gemini), a
+   * `gs://` URI in their place (ADR-0016). Never both empty.
+   */
+  image?: { mimeType: 'image/jpeg'; base64?: string; fileUri?: string };
 }
 
 /** An attachment as sent to a provider: its identity plus, when hydrated, its bytes. */

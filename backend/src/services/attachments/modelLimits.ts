@@ -19,14 +19,14 @@ const isPdf = (a: AttachmentBlock) => a.mimeType === 'application/pdf';
 /** Encoded bytes this attachment puts on the wire: its own bytes, or its page images. */
 const wireBytes = (a: AttachmentBlock) =>
   a.pages
-    ? a.pages.reduce((n, p) => n + (p.image ? Buffer.byteLength(p.image.base64, 'utf8') : 0), 0)
+    ? a.pages.reduce((n, p) => n + (p.image?.base64 ? Buffer.byteLength(p.image.base64, 'utf8') : 0), 0)
     : a.base64
       ? Buffer.byteLength(a.base64, 'utf8')
       : 0;
 /** The largest single image this attachment sends. */
 const largestImage = (a: AttachmentBlock) =>
   a.pages
-    ? Math.max(0, ...a.pages.map((p) => (p.image ? Buffer.byteLength(p.image.base64, 'utf8') : 0)))
+    ? Math.max(0, ...a.pages.map((p) => (p.image?.base64 ? Buffer.byteLength(p.image.base64, 'utf8') : 0)))
     : isImage(a)
       ? wireBytes(a)
       : 0;

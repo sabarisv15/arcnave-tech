@@ -87,9 +87,13 @@
 >   restores it first; kept 30 days after the chat last ran code, and purged with the chat.
 >   Needs the new sandbox image, then the backend deploy (migration 0010).
 >
+> - Large PDFs ([ADR-0016](../decisions/0016-gemini-reads-page-images-by-uri.md)): Gemini reads
+>   page images by `gs://` URI from `MODEL_INPUT_BUCKET`, as Claude's Files API keeps a PDF out of
+>   the request. Claude on Vertex takes base64 only, so a Claude request over 30 MB still fails
+>   typed. Needs `docs/deploy/model-inputs.md`, including its probe.
+>
 > **Still different from Claude:** 1.8 GiB disk per chat (Claude 5 GiB; Cloud Run caps 10 GiB per
-> instance), and no `gs://` path for very large PDFs. Also to review: the preview panel
-> downloading whole files.
+> instance). Also to review: the preview panel downloading whole files.
 
 **Last updated:** 2026-09-25
 **2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The

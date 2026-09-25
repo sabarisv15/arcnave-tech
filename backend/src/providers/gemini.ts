@@ -38,7 +38,11 @@ function attachmentParts(attachments: GenerationRequest['attachments']): Part[] 
     if (a.pages) {
       return a.pages.flatMap((page): Part[] => [
         { text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
-        ...(page.image ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob }] : []),
+        ...(page.image?.fileUri
+          ? [{ fileData: { mimeType: page.image.mimeType, fileUri: page.image.fileUri } }]
+          : page.image?.base64
+            ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob }]
+            : []),
         { text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.` },
       ]);
     }

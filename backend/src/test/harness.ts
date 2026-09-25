@@ -22,6 +22,7 @@ import postgres from 'postgres';
 
 import { createApp } from '../app.js';
 import type { Config } from '../config.js';
+import type { BuildOptions } from '../container.js';
 import { loadConfig } from '../config.js';
 import type { Database } from '../db/client.js';
 import { setDb } from '../db/client.js';
@@ -171,6 +172,8 @@ function baseEnv(): Record<string, string> {
 export async function createTestApp(
   env: Record<string, string> = {},
   provider = new FakeProvider(),
+  /** Further service seams, e.g. `modelInputs`. */
+  seams: Pick<BuildOptions, 'modelInputs'> = {},
 ): Promise<TestContext> {
   const storageRoot = await mkdtemp(join(tmpdir(), 'arcnave-test-'));
   const cfg = loadConfig({ ...baseEnv(), STORAGE_LOCAL_PATH: storageRoot, ...env });
@@ -184,6 +187,7 @@ export async function createTestApp(
   const app = await createApp(cfg, {
     db,
     providers: { google: provider, anthropic: provider, 'openai-oss': provider },
+    ...seams,
   });
   await app.ready();
 

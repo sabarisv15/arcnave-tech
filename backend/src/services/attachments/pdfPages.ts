@@ -47,7 +47,7 @@ let cachedBytes = 0;
 function remember(key: string, value: PdfForModel): void {
   const bytes =
     value.kind === 'pages'
-      ? value.pages.reduce((n, p) => n + (p.image?.base64.length ?? 0) + p.text.length, 0)
+      ? value.pages.reduce((n, p) => n + (p.image?.base64?.length ?? 0) + p.text.length, 0)
       : value.kind === 'text'
         ? value.text.length
         : 0;
