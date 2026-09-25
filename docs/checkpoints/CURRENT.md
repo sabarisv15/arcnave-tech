@@ -14,10 +14,20 @@
 >   - `load_skill` ran first ✅.
 >   - The answer repeated the known Federal split error: 245/32 against 244/33. Totals were
 >     right (48, 277, 325).
+> - **`analysis_*` tables removed (dead):**
+>   - Four tables (`analysis_sessions`, `analysis_datasets`, `analysis_results`,
+>     `analysis_transformations`) were in `schema.ts` but in no migration.
+>   - Their only users were `services/analytics/session.ts`, `sandboxDataBridge.ts` and
+>     `analyticsPipeline.ts`. Nothing reachable imported those (no route, no `container.ts`
+>     wiring), and they are deleted.
+>   - `profiler.ts` and `quality.ts` stay, because `scripts/runLiveAnalyticsEvaluation.ts` uses
+>     them.
+>   - No database change: the tables never existed.
+>   - `journal.test.ts` now fails if a `schema.ts` table is missing from the latest snapshot,
+>     and `drizzle-kit generate` reports no changes.
 > - **Open:**
 >   - Gemini thinking tokens (`thoughtsTokenCount`) are not counted in `outputTokens`, and
 >     Vertex billing for them is unverified.
->   - `analysis_*` tables are in `schema.ts` but in no migration.
 >   - The backend trigger did not fire on the push to main.
 
 > **2026-09-25: steps 1 and 2 audit gaps closed; deployed 2026-09-25 (sandbox 00008-bgx, backend 00135-bbm).**

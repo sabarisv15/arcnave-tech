@@ -792,11 +792,13 @@ failure mode of this pattern, not a sign it is working.
   test database applies every file.
 - **Cause:** Drizzle's migrator applies a migration only when `created_at < folderMillis` for
   the last applied one. Production already had 0010, so 0011 would have been silently skipped.
-  The same generate also added `CREATE TABLE analysis_*` for schema tables that no migration
-  ever created.
+  The same generate also added `CREATE TABLE analysis_*` for four `schema.ts` tables that no
+  migration ever created. Nothing reachable used them, so they were removed with their dead
+  service code.
 - **Rule:** **After `drizzle-kit generate`, read the SQL and the journal.** Keep only the
   change you meant, and stamp `when` after the previous entry.
-- **Verify:** `npx vitest run src/db/journal.test.ts`.
+- **Verify:** `npx vitest run src/db/journal.test.ts` (stamp order, and every `schema.ts`
+  table in the latest snapshot); `npx drizzle-kit generate` says "No schema changes".
 
 ## Convention and sources
 
