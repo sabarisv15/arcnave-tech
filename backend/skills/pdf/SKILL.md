@@ -1,7 +1,7 @@
 ---
 name: pdf
-version: 2.2.0
-description: PDF document understanding, page inspection, splitting, merging, and format-native print deliverable generation.
+version: 3.0.0
+description: Use whenever a PDF is involved — reading, summarizing, extracting text or tables, counting or totalling rows, classifying entries, scanned or photographed PDFs, converting a PDF to Excel/Word, splitting, merging, or creating a PDF. Load it before working on an uploaded PDF's contents.
 category: artifact
 scope: builtin
 requires:
@@ -49,45 +49,56 @@ When the user asks questions or requests a summary of an uploaded PDF ("What is 
 - Do NOT invoke execution tools or Python simply to read or summarize a PDF.
 
 ### B. Exact and Exhaustive Work — Counting, Totals, "Every Row"
-Native reading is fine for a summary. It is **not** enough when the answer is a number that must
-be exact or a list that must be complete: "count every transaction", "how many rows", "total of
-the debit column", "list every entry", "classify all of them". A model reading a page image can
-skip or merge a row without noticing. For these tasks, go straight to extraction: do not first
-try `run_python` or `read_uploaded_file` on the PDF. A scanned page has no text for them to
-read, and each detour spends one of the turn's limited tool rounds.
+Native reading is fine for a summary. It is **not** enough when the answer must be exact or
+complete: "count every transaction", "total of this column", "list every entry", "classify all
+of them". Reading a page can skip, merge or misread a row without noticing. Exact work is done
+the way a careful person does it: write every record down, check the records against the
+document's own figures, and compute answers from the checked records. This applies to any
+document: statements, invoices, registers, mark sheets, bills of quantities.
 
-1. Find the extraction tool with `search_tools` (e.g. "extract table rows") and call
-   `extract_scanned_table_rows(fileId)`. It works on scanned PDFs with no text layer, reads every
-   page, and returns rows `{page, rowIndex, cells, confidence}` plus an `extractionId`.
-2. Check the result before using it:
-   - `complete` must be true. If `failedPages` or `missingPages` is non-empty, call the tool
-     again for those pages with the same `extractionId`. Never answer as if they were read.
-   - `lowConfidenceRows` and `possibleDuplicates` must be looked at and mentioned to the user.
-3. Decide what each column means from `header` and the rows (date, description, debit,
-   credit, balance, name…). That understanding is yours; the counting is not.
-4. Compute every count and total with `analyze_table_rows(extractionId, operations)`. Never
-   count rows by reading them yourself. For a classification ("with a party name / without"),
-   use one `classify` operation: write each category as a rule (label, reason, `where`
-   filters), leave anything no rule covers as `UNKNOWN`, and use `capture` to pull the name
-   only where the text states it (an IFSC or account number alone is not a name). Report the
-   per-label counts it returns, which always add up to its total, and the rules you used.
-   When one PDF holds several statements, select each with a `pageFrom`/`pageTo` filter and
-   report each separately as well as combined.
-5. Reconcile against the document's own figures whenever it prints any:
-   - a printed count or total → pass it as `expected` on the matching `count` / `sum`;
-   - a running balance column → run `running_balance` (previous balance + credits − debits =
-     balance).
-6. If a check fails, the extraction is suspect, not the document. Re-extract the
-   `suspiciousPages` with `pages` and the same `extractionId` (they are re-read at higher
-   resolution), then analyze again. Repeat at most twice.
-7. In the answer, give the computed figures, which checks passed, and anything that stayed
-   unreconciled or low-confidence, with page numbers. If a figure could not be verified, say so;
-   do not present it as exact.
-8. Do not print more than about 50 rows in the chat. Give the counts, totals and per-label
-   classification, plus a few examples of each label, in chat. When the user needs the full
-   row list, put it in a spreadsheet with `generate_deliverable` (format `xlsx`, one row per
-   transaction with its page, label and captured name), and point to the file. A long list in
-   chat is slow and gets cut off at the output limit.
+The file is already in run_python's working directory (its `run_python path` is on its
+attachment line). Files you write there stay for the rest of the conversation.
+
+1. **Find out what kind of PDF it is**, in one call: page count and whether each page has a
+   text layer (`pymupdf`: `len(page.get_text().strip())`).
+2. **Transcribe every record into a file**, with named fields, never column positions.
+   - Decide the fields from the document (e.g. date, description, debit, credit, balance; or
+     item, qty, rate, amount) and give every record a `kind`: `data`, `opening`, `subtotal`,
+     `total` or `header`, plus its `page`. Only `data` records are counted.
+   - **Text layer present:** extract with `pdfplumber` (tables or words by position) in code.
+   - **Scanned (no text layer):** you can see the pages. Read them yourself, a few pages per
+     call, and write the records into the file with code (e.g. append to `rows.json`). Do not
+     rely on tesseract for figures on photographed or scanned pages: its digits are unreliable,
+     and each unusable OCR attempt costs a tool round. When a value is hard to read, render
+     just that region at 200–300 dpi into `view/` (`page.get_pixmap(dpi=250, clip=rect)`) and
+     look at it.
+   - If a layout changes between pages (a column missing or merged), the field names stay the
+     same; only where you read them from changes.
+3. **Check the records against the document itself**, in code, before answering. Use every
+   check the document offers:
+   - a running balance: previous balance + credits − debits = balance, on every row;
+   - printed totals, counts, opening/closing balances;
+   - arithmetic inside a row (qty × rate = amount) and column sums;
+   - records per page against what the page shows.
+   A failed check means a record is wrong, not the document. Look at those rows again (crop
+   into `view/`), fix the record, and re-run the checks. Never adjust a number to make a
+   check pass without looking.
+4. **Compute every answer in code from the checked file**: counts, sums, per-group splits,
+   classifications. For a classification, write the rules down (label, condition, reason), apply
+   them in code, keep anything no rule covers as `UNKNOWN`, and report the rules with the counts.
+   When one PDF holds several documents (two bank statements), keep a `source` field and report
+   each separately as well as combined.
+5. **Answer with the evidence**: the figures, which checks passed, and anything unreconciled
+   (page and row). If something could not be verified, say so; do not present it as exact.
+6. **Budget.** A turn has a limited number of tool rounds. If one approach fails twice (e.g.
+   OCR output is unreadable), switch approach instead of retrying it. Batch several pages per
+   call.
+7. Do not print more than about 50 rows in chat. Give counts, totals and a few examples; when
+   the user needs the full list, write it to `output/` as a spreadsheet (or use
+   `generate_deliverable` with format `xlsx`) and point to the file.
+
+`extract_scanned_table_rows` / `analyze_table_rows` are an older path. Use them only when
+run_python is not available, and verify their result the same way (step 3).
 
 ### C. Deterministic Structural Inspection
 When programmatic workflows require exact page counts or metadata:

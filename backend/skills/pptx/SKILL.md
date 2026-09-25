@@ -1,7 +1,7 @@
 ---
 name: pptx
 version: 2.0.0
-description: 16:9 widescreen presentation design, visual storytelling, slide cards, targeted slide editing, slide reordering, and format-native PowerPoint generation.
+description: Use whenever a presentation is involved — reading or extracting from an uploaded .pptx/.ppt, editing slides, or producing a PowerPoint deck. Load it before working on an uploaded presentation's contents.
 category: artifact
 scope: builtin
 requires:

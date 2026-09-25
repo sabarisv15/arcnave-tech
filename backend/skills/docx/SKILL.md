@@ -1,7 +1,7 @@
 ---
 name: docx
 version: 2.0.0
-description: Professional Word document structure, heading hierarchy, callouts, targeted OOXML editing, and format-native Word deliverable generation.
+description: Use whenever a Word document is involved — reading, summarizing or extracting from an uploaded .docx/.doc, editing it, or producing a Word file. Load it before working on an uploaded Word document's contents.
 category: artifact
 scope: builtin
 requires:

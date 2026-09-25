@@ -1,7 +1,7 @@
 ---
 name: xlsx
 version: 2.0.0
-description: Professional spreadsheet architecture, formula conventions, typed StructuredWorkbook contracts, targeted cell editing, and format-native Excel generation.
+description: Use whenever a spreadsheet or CSV/TSV is involved — reading or analysing an uploaded .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file. Load it before working on an uploaded spreadsheet's contents.
 category: artifact
 scope: builtin
 requires:

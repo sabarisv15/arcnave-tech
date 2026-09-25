@@ -15,6 +15,16 @@
 > Backend 789/789, frontend 51/51, sandbox server 8/8. A local smoke run showed the backend
 > selecting the warm engine. **Deploying needs the one-time setup in
 > [`docs/deploy/warm-sandbox.md`](../deploy/warm-sandbox.md), with the user's approval.**
+> **2026-09-25: file handling now follows Claude's reference.** Live, the warm sandbox works: the
+> PDF reached it and the answer came back complete (KVB 48 = 41 + 7, Federal 277, total 325).
+> Two figures were still wrong: the Federal debit/credit split (245/32 against 244/33), and 4
+> IMPS charges classified wrongly. Three causes were fixed:
+> 1. Every conversation file is now already in `input/`, at a path printed in the manifest.
+> 2. Each file's manifest line names its skill.
+> 3. The pdf skill (v3.0.0) now teaches a general method: transcribe to named fields, verify
+>    against the document's own figures, compute in code.
+>
+> Backend 796/796. Not yet live-tested.
 > Not fixed yet: the analyzer's per-page column mapping and the handling of non-transaction rows
 > (audit items 1–4). Phase 3 still needs a live pass. Phase 4 has not started. The earlier
 > record: [`2026-09-24-phase3-live-failure.md`](2026-09-24-phase3-live-failure.md).

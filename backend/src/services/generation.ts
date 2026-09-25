@@ -61,6 +61,7 @@ import {
   withoutImageBytes,
 } from '../providers/types.js';
 import { AgentLoop } from './agentLoop.js';
+import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -186,7 +187,11 @@ function sentAsBytes(att: { mimeType: string }): boolean {
 }
 
 /** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
-export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & { attachments: AttachmentBlock[] };
+export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & {
+  attachments: AttachmentBlock[];
+  /** Every file in the conversation, as the attachment manifest lists them. */
+  chatFiles?: ManifestFile[];
+};
 
 export interface GenerateInput {
   userId: string;
@@ -274,6 +279,19 @@ export class GenerationService {
       clearTimeout(timer);
       input.signal.removeEventListener('abort', onUserAbort);
     }
+  }
+
+  /** The conversation's files, in manifest order, from the history and this turn's attachments. */
+  private chatFilesOf(byId: Map<string, AttachmentBlock>): ManifestFile[] {
+    return [...byId.values()]
+      .filter((a): a is AttachmentBlock & { id: string } => Boolean(a.id))
+      .map((a) => ({ id: a.id, filename: a.filename ?? a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes }));
+  }
+
+  /** Skill names the manifest may point to: only when load_skill can actually be called. */
+  private loadableSkills(loadSkillAvailable: boolean): Set<string> {
+    if (!loadSkillAvailable || !this.skills) return new Set();
+    return new Set(this.skills.listSkills().map((s) => s.name));
   }
 
   private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
@@ -559,22 +577,18 @@ export class GenerationService {
         if (att.id) allAttachmentsMap.set(att.id, att);
       }
 
-      const availableAttachments = Array.from(allAttachmentsMap.values());
-      let attachmentManifestBlock = '';
-      if (availableAttachments.length > 0) {
-        const lines = availableAttachments.map(
-          (a) =>
-            `- fileId: "${a.id}" | filename: "${a.filename}" | type: ${a.mimeType} | size: ${a.sizeBytes ?? 0} bytes`,
-        );
-        attachmentManifestBlock = `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\nUse fileId when filenames are ambiguous.\n</available_attachments>`;
-      }
+      const chatFiles = this.chatFilesOf(allAttachmentsMap);
+      const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
+        sandbox: routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
+        loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
+      });
 
       const promptWithManifest = attachmentManifestBlock
         ? `${attachmentManifestBlock}\n\n${input.prompt}`
         : input.prompt;
 
       yield* this.agentLoop.stream(
-        { ...input, prompt: promptWithManifest, attachments: wireAttachments },
+        { ...input, prompt: promptWithManifest, attachments: wireAttachments, chatFiles },
         {
           entry,
           provider,
@@ -681,23 +695,18 @@ export class GenerationService {
       toolMap.set('search_project_files', projectToolExecutor);
       toolMap.set('read_project_file', projectToolExecutor);
     }
+    let codeExecutor: CodeExecutionToolExecutor | undefined;
     if (allowPython) {
-      toolMap.set(
-        'run_python',
-        new CodeExecutionToolExecutor(
-          this.executionRuntime,
-          this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS,
-          {
-            workspace,
-            userId: input.userId,
-            messageId: input.messageId,
-            chatId: input.chatId,
-            db: this.db,
-            storage: this.storage,
-            visionProvider: this.visionProvider,
-          },
-        ),
-      );
+      codeExecutor = new CodeExecutionToolExecutor(this.executionRuntime, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS, {
+        workspace,
+        userId: input.userId,
+        messageId: input.messageId,
+        chatId: input.chatId,
+        db: this.db,
+        storage: this.storage,
+        visionProvider: this.visionProvider,
+      });
+      toolMap.set('run_python', codeExecutor);
     }
     if (routingDecision.allowedTools.includes('extract_scanned_table_rows')) {
       const tableExecutor = new TableExtractionToolExecutor(
@@ -796,15 +805,12 @@ export class GenerationService {
       if (att.id) allAttachmentsMap.set(att.id, att);
     }
 
-    const availableAttachments = Array.from(allAttachmentsMap.values());
-    let attachmentManifestBlock = '';
-    if (availableAttachments.length > 0) {
-      const lines = availableAttachments.map(
-        (a) =>
-          `- fileId: "${a.id}" | filename: "${a.filename}" | type: ${a.mimeType} | size: ${a.sizeBytes ?? 0} bytes`,
-      );
-      attachmentManifestBlock = `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\nUse fileId when filenames are ambiguous.\n</available_attachments>`;
-    }
+    const chatFiles = this.chatFilesOf(allAttachmentsMap);
+    codeExecutor?.setChatFiles(chatFiles);
+    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
+      sandbox: codeExecutor !== undefined,
+      loadableSkills: this.loadableSkills(activeToolNames.has('load_skill')),
+    });
 
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);

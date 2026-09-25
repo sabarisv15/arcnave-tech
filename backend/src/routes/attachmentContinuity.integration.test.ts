@@ -105,6 +105,29 @@ const readAll = (paths: string[]) =>
   paths.map((p) => `print(open(${JSON.stringify(p)}).read().strip())`).join('\n');
 
 describe('G26: attachments reach the sandbox by fileId', () => {
+  it('every conversation file is already in input/ at the manifest path, with no input_files', async () => {
+    const older = await upload(user, 'old ledger.csv', 'older-file');
+    const chatId = await newChat();
+    await generate(chatId, { prompt: 'Here is the old one', attachmentIds: [older] });
+    const current = await upload(user, 'sales.csv', 'current-file');
+
+    let prompt = '';
+    const run = runPythonOnce({ code: readAll(['input/old_ledger.csv', 'input/sales.csv']) });
+    const capture = ctx.provider.onRequest!;
+    ctx.provider.onRequest = async (request: GenerationRequest) => {
+      prompt ||= request.prompt;
+      await capture(request);
+    };
+    await generate(chatId, { prompt: 'Compare both files', attachmentIds: [current] });
+
+    expect(prompt).toContain('run_python path: input/old_ledger.csv');
+    expect(prompt).toContain('run_python path: input/sales.csv');
+    expect(prompt).toContain('already in run_python\'s working directory');
+    const result = run.result();
+    expect(result.ok).toBe(true);
+    expect(data(result).stdout).toBe('older-file\ncurrent-file\n');
+  });
+
   it('chat path: this turn\'s attachment is materialised into input/', async () => {
     const fileId = await upload(user, 'sales.csv', 'month,total\njan,10');
     const chatId = await newChat();

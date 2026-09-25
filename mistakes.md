@@ -1060,3 +1060,16 @@ practice, not canon.
   label proves only that no exception was thrown. Verify: the audit
   (`phase3-root-cause-audit-2026-09-24.md`) cites payloads; the transport fix has a test that
   a 4.7 MB input is refused, never dropped (`warmSandboxClient.test.ts`).
+- **2026-09-25**: No new heading (over the cap). Warm-sandbox turns still produced wrong counts,
+  for three reasons, all in the model's instructions and none in the tools:
+  - The pdf skill pointed exact work at `extract_scanned_table_rows`/`analyze_table_rows`,
+    which have known column-index defects.
+  - The skill was never loaded. The only trigger was a general system-prompt rule, and the
+    model reads `run_python` as "computation", not "PDF work".
+  - Files reached the sandbox only when the model passed their UUIDs.
+  The model fell back to tesseract on phone photos and answered without verifying. Rules:
+  1. Put the path and the skill hint on the file's own manifest line, where the model looks.
+  2. Make every conversation file present in the sandbox, as Claude's container does.
+  3. When a tool's defects are found, update the skill that recommends it in the same change.
+  Verify: `attachmentContinuity.integration.test.ts` reads two files with no `input_files`;
+  `manifest.test.ts`.

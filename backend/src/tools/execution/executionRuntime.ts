@@ -206,6 +206,9 @@ export class ExecutionRuntime {
     userId: string,
     db: Database,
     storage: ObjectStorage,
+    /** The name under input/ the manifest promised (sandboxInputNames). When given it is used
+     *  as is, so the path the model was told is the path that exists. */
+    targetName?: string,
   ): Promise<MaterializedAttachment> {
     const [row] = await db
       .select()
@@ -218,6 +221,11 @@ export class ExecutionRuntime {
     }
 
     const data = await storage.get(row.storageKey);
+    if (targetName) {
+      const target = path.join(workspace.inputDir, path.basename(targetName));
+      await fs.writeFile(target, data);
+      return { attachmentId: row.id, filename: path.basename(targetName), path: target, mimeType: row.mimeType, sizeBytes: row.sizeBytes };
+    }
     const sanitized = path.basename(row.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
     let safeFilename = sanitized || `attachment_${attachmentId}`;
     let filePath = path.join(workspace.inputDir, safeFilename);

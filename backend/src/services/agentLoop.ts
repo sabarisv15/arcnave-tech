@@ -450,9 +450,11 @@ export class AgentLoop {
                 workspace,
                 userId: input.userId,
                 messageId: input.messageId,
+                chatId: input.chatId,
                 db: this.db,
                 storage: this.storage,
                 visionProvider: this.visionProvider,
+                chatFiles: input.chatFiles,
               },
             ),
           );
