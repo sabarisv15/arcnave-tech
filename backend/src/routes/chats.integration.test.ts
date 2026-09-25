@@ -14,6 +14,7 @@ import { toolCalls } from '../db/schema.js';
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { TestContext, TestUser } from '../test/harness.js';
+import { png } from '../test/fixtures/files.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp, sleep, sseText } from '../test/harness.js';
 
 let ctx: TestContext;
@@ -663,7 +664,7 @@ describe('attachments carried across turns', () => {
     const chatId = await newChat();
     const part = multipart(
       'photo.png',
-      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 2)]),
+      png(4, 4),
       'image/png',
     );
     const upload = await ctx.app.inject({

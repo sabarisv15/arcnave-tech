@@ -29,7 +29,21 @@
 > (audit items 1–4). Phase 3 still needs a live pass. Phase 4 has not started. The earlier
 > record: [`2026-09-24-phase3-live-failure.md`](2026-09-24-phase3-live-failure.md).
 
-**Last updated:** 2026-09-24
+> **2026-09-25 (later): stage 1 of the file-handling decode (upload) now follows Claude's
+> published rules** ([ADR-0011](../decisions/0011-upload-follows-claude.md)).
+> - Limits: 500 MB per file, 20 files per chat, PDFs up to 1,000 pages, images up to 8000 px.
+> - ODT, RTF and EPUB are now accepted.
+> - The browser uploads straight to GCS. This needs the one-time bucket CORS rule in
+>   [`docs/deploy/direct-upload.md`](../deploy/direct-upload.md).
+> - PDFs are counted and read locally with poppler, so upload no longer depends on the model.
+>   Each file records `reading` (text+visual, text, visual, media or none).
+>
+> Backend 818/818, frontend 52/52. Local smoke passed: begin → PUT → complete gives 3 pages
+> and `text+visual`, and the downloaded bytes are identical. Branch only, not deployed.
+> **Next: stage 2.** The adapters do not act on `reading` yet. Also to review: sandbox disk
+> for 500 MB files, and the preview panel downloading whole files.
+
+**Last updated:** 2026-09-25
 **2026-09-24 — tools pipeline realignment, Phases 0–1 done, local only, not deployed.** The
 running pipeline was audited against the locked architecture and Claude's tool-use pipeline:
 26 gaps are listed in [`docs/tools-skills-architecture.md`](../tools-skills-architecture.md),

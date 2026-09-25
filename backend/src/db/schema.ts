@@ -371,9 +371,12 @@ export const attachments = pgTable(
     mimeType: varchar('mime_type', { length: 160 }).notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     storageKey: varchar('storage_key', { length: 300 }).notNull(),
+    /** uploading (bytes not yet confirmed) | ready | unsupported (stored, but no text). */
     status: varchar('status', { length: 16 }).notNull().default('ready'),
     error: text('error').notNull().default(''),
     extractedText: text('extracted_text'),
+    /** Pages in a PDF, counted at upload; null for every other type and for unreadable PDFs. */
+    pageCount: integer('page_count'),
     createdAt: createdAt(),
   },
   (t) => [

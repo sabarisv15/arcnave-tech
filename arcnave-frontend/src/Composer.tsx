@@ -18,7 +18,7 @@ import {
 import { ApiError, api } from "./api";
 import type { Attachment, Mode } from "./types";
 import { toAttachment } from "./types";
-import { sizeLabel, validateFile } from "./storage";
+import { MAX_ATTACHMENT_BYTES, sizeLabel, validateFile } from "./storage";
 import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
@@ -96,7 +96,9 @@ export function AttachmentChip({
           <strong>{file.name}</strong>
           <small>
             {file.status === "uploading"
-              ? "Uploading…"
+              ? file.progress !== undefined
+                ? `Uploading… ${Math.round(file.progress * 100)}%`
+                : "Uploading…"
               : file.status === "indexing"
                 ? "Indexing…"
                 : file.error
@@ -106,9 +108,12 @@ export function AttachmentChip({
                     : `${sizeLabel(file.size)}${
                         file.chunkCount !== undefined
                           ? ` · ${file.chunkCount} indexed chunk${file.chunkCount === 1 ? "" : "s"}`
-                          : file.hasText === false
-                            ? " · no text"
-                            : ""
+                          : file.pageCount
+                            ? ` · ${file.pageCount} page${file.pageCount === 1 ? "" : "s"}`
+                            : file.reading === "none" ||
+                                (file.reading === undefined && file.hasText === false)
+                              ? " · no text"
+                              : ""
                       }`}
           </small>
         </span>
@@ -223,7 +228,7 @@ export default function Composer({
       return;
     }
     for (const file of selected) {
-      const problem = validateFile(file);
+      const problem = validateFile(file, MAX_ATTACHMENT_BYTES);
       const localId = `upload-${crypto.randomUUID()}`;
       setFiles((f) => [
         ...f,
@@ -238,7 +243,10 @@ export default function Composer({
       ]);
       if (problem) continue;
       try {
-        const uploaded = await api.files.upload(file);
+        const uploaded = await api.files.upload(file, (progress) => {
+          if (mounted.current)
+            setFiles((f) => f.map((x) => (x.id === localId ? { ...x, progress } : x)));
+        });
         if (mounted.current)
           setFiles((f) =>
             f.map((x) => (x.id === localId ? toAttachment(uploaded) : x)),

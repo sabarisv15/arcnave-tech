@@ -75,6 +75,16 @@ export const ERROR_CATALOG = {
     title: 'That file type is not supported',
     detail: 'Try a document, image, spreadsheet, or code file.',
   },
+  too_many_files: {
+    status: 409,
+    title: 'Too many files in this chat',
+    detail: 'A chat can hold at most 20 files. Start a new chat to add more.',
+  },
+  upload_incomplete: {
+    status: 409,
+    title: 'The upload did not finish',
+    detail: 'Not all of the file arrived. Remove it and upload it again.',
+  },
   rate_limit: { status: 429, title: 'Too many requests', detail: 'Wait a moment, then try again.' },
   idempotency_conflict: {
     status: 409,

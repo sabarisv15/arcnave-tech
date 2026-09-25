@@ -307,7 +307,19 @@ const envSchema = z.object({
   STORAGE_BACKEND: z.enum(['local', 'gcs']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./var/uploads'),
   STORAGE_GCS_BUCKET: optionalStr,
+  /** Ceiling for uploads that pass through the backend as one request (multipart routes). */
   MAX_UPLOAD_BYTES: int(20 * 1024 * 1024),
+  /**
+   * Ceiling for a chat attachment, which the browser uploads straight to storage (Claude's
+   * per-file limit). Cloud Run caps a request at 32 MiB, so only the direct path can reach it.
+   */
+  ATTACHMENT_MAX_BYTES: int(500 * 1024 * 1024),
+  /**
+   * An attachment above this is stored but its text is not extracted, because extraction
+   * holds the whole file in memory (and Cloud Run's disk is memory too). Size it to the
+   * backend's memory.
+   */
+  ATTACHMENT_PROCESS_MAX_BYTES: int(100 * 1024 * 1024),
 
   // --- Rate limiting ------------------------------------------------------
   RATE_LIMIT_GENERATE_PER_MINUTE: int(20),

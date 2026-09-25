@@ -13,6 +13,7 @@ import { attachments } from '../db/schema.js';
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { TestContext, TestUser } from '../test/harness.js';
+import { png, pdfWithPages } from '../test/fixtures/files.js';
 import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
 
 let ctx: TestContext;
@@ -61,11 +62,7 @@ describe('upload and extraction', () => {
   });
 
   it('marks an image as viewable rather than running text extraction on it', async () => {
-    const png = Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      Buffer.alloc(32, 3),
-    ]);
-    const { statusCode, body } = await upload('pic.png', png, 'image/png');
+    const { statusCode, body } = await upload('pic.png', png(4, 4), 'image/png');
 
     expect(statusCode).toBe(201);
     expect(body).toMatchObject({ status: 'ready', hasText: false, viewable: true, error: '' });
@@ -403,5 +400,144 @@ describe('picking a file from a project', () => {
       headers: auth(),
     });
     expect(stillThere.statusCode).toBe(200);
+  });
+});
+
+/* -------------------------------------------------------------------------- direct upload */
+
+describe('direct upload (the path the browser uses, for files up to 500 MB)', () => {
+  async function begin(filename: string, mimeType: string, sizeBytes: number, headers = auth()) {
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/files/uploads',
+      headers,
+      payload: { filename, mimeType, sizeBytes },
+    });
+    return { statusCode: res.statusCode, body: res.json() as Record<string, any> };
+  }
+
+  async function put(url: string, bytes: Buffer, headers = auth()) {
+    return ctx.app.inject({
+      method: 'PUT',
+      url: `/v1${url}`,
+      headers: { ...headers, 'content-type': 'application/octet-stream' },
+      payload: bytes,
+    });
+  }
+
+  const complete = (id: string, headers = auth()) =>
+    ctx.app.inject({ method: 'POST', url: `/v1/files/${id}/complete`, headers });
+
+  async function uploadDirect(filename: string, mimeType: string, bytes: Buffer, headers = auth()) {
+    const started = await begin(filename, mimeType, bytes.length, headers);
+    expect(started.statusCode).toBe(201);
+    expect((await put(started.body.upload.url, bytes, headers)).statusCode).toBe(204);
+    return complete(started.body.file.id, headers);
+  }
+
+  it('accepts a file above the one-request limit and reads it on complete', async () => {
+    // MAX_UPLOAD_BYTES is 2 MB in the test app; the direct path is bounded by ATTACHMENT_MAX_BYTES.
+    const text = Buffer.from('total 4521\n'.repeat(300_000));
+    const started = await begin('big.txt', 'text/plain', text.length);
+    expect(started.statusCode).toBe(201);
+    expect(started.body.file).toMatchObject({ status: 'uploading', reading: 'none' });
+    expect(started.body.upload).toMatchObject({ method: 'PUT', withCredentials: true });
+
+    expect((await put(started.body.upload.url, text)).statusCode).toBe(204);
+    const done = await complete(started.body.file.id);
+    expect(done.statusCode).toBe(200);
+    expect(done.json()).toMatchObject({ status: 'ready', hasText: true, reading: 'text', sizeBytes: text.length });
+  });
+
+  it('reports PDF pages and reads a PDF of up to 100 pages as text and page images', async () => {
+    const done = await uploadDirect('statement.pdf', 'application/pdf', await pdfWithPages(2, ['Opening balance 100']));
+    expect(done.json()).toMatchObject({ status: 'ready', pageCount: 2, reading: 'text+visual', hasText: true });
+  });
+
+  it('refuses a file over 500 MB before any byte is sent', async () => {
+    const started = await begin('huge.pdf', 'application/pdf', 500 * 1024 * 1024 + 1);
+    expect(started.statusCode).toBe(413);
+    expect(started.body.error.code).toBe('payload_too_large');
+  });
+
+  it('accepts the ODT, RTF and EPUB files Claude accepts', async () => {
+    for (const [filename, mimeType] of [
+      ['a.odt', 'application/vnd.oasis.opendocument.text'],
+      ['a.rtf', 'application/rtf'],
+      ['a.epub', 'application/epub+zip'],
+    ] as const) {
+      expect((await begin(filename, mimeType, 10)).statusCode).toBe(201);
+    }
+  });
+
+  it('removes a PDF over 1,000 pages and says why', async () => {
+    const done = await uploadDirect('huge.pdf', 'application/pdf', await pdfWithPages(1001));
+    expect(done.statusCode).toBe(413);
+    expect(done.json()).toMatchObject({ error: { code: 'payload_too_large' } });
+    expect((done.json() as { error: { detail: string } }).error.detail).toContain('1,001 pages');
+  });
+
+  it('removes an image over 8000 pixels and says why', async () => {
+    const done = await uploadDirect('wide.png', 'image/png', png(8001, 1));
+    expect(done.statusCode).toBe(413);
+    expect((done.json() as { error: { detail: string } }).error.detail).toContain('8001×1');
+  });
+
+  it('refuses to finish an upload whose bytes did not all arrive', async () => {
+    const started = await begin('short.txt', 'text/plain', 100);
+    expect((await put(started.body.upload.url, Buffer.from('only forty bytes arrived here..........'))).statusCode).toBe(409);
+    const read = await ctx.app.inject({ url: `/v1/files/${started.body.file.id}`, headers: auth() });
+    expect(read.statusCode).toBe(404);
+  });
+
+  it('refuses to complete before the bytes are sent', async () => {
+    const started = await begin('never.txt', 'text/plain', 10);
+    const done = await complete(started.body.file.id);
+    expect(done.statusCode).toBe(409);
+    expect(done.json()).toMatchObject({ error: { code: 'upload_incomplete' } });
+  });
+
+  it('will not send a message with a file that is still uploading', async () => {
+    const started = await begin('pending.txt', 'text/plain', 10);
+    const chat = await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers: auth(), payload: { title: 'pending' } });
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/chats/${(chat.json() as { id: string }).id}/generate`,
+      headers: auth(),
+      payload: { prompt: 'read it', attachmentIds: [started.body.file.id] },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ error: { code: 'upload_incomplete' } });
+  });
+
+  it("does not let another user send bytes into someone else's upload", async () => {
+    const started = await begin('mine.txt', 'text/plain', 5);
+    const other = await signUp(ctx);
+    expect((await put(started.body.upload.url, Buffer.from('hello'), { cookie: other.cookie })).statusCode).toBe(404);
+  });
+
+  it('holds a chat to 20 files', async () => {
+    const owner = await signUp(ctx);
+    const headers = { cookie: owner.cookie };
+    const chat = await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'many' } });
+    const chatId = (chat.json() as { id: string }).id;
+    const send = async (count: number) => {
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const { body } = await upload(`f${String(i)}.txt`, `file ${String(i)}`, 'text/plain', headers);
+        ids.push(String(body['id']));
+      }
+      return ctx.app.inject({
+        method: 'POST',
+        url: `/v1/chats/${chatId}/generate`,
+        headers,
+        payload: { prompt: 'files', attachmentIds: ids },
+      });
+    };
+    expect((await send(10)).statusCode).toBe(200);
+    expect((await send(10)).statusCode).toBe(200);
+    const over = await send(1);
+    expect(over.statusCode).toBe(409);
+    expect(over.json()).toMatchObject({ error: { code: 'too_many_files' } });
   });
 });

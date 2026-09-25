@@ -54,6 +54,15 @@ export async function extractText(
   if (lower.endsWith('.pptx') || mimeType.includes('presentationml')) {
     return extractWithOfficeParser(data, 'This PowerPoint file');
   }
+  if (lower.endsWith('.odt') || mimeType === 'application/vnd.oasis.opendocument.text') {
+    return extractWithOfficeParser(data, 'This OpenDocument file');
+  }
+  if (lower.endsWith('.rtf') || mimeType === 'application/rtf' || mimeType === 'text/rtf') {
+    return extractWithOfficeParser(data, 'This RTF file');
+  }
+  if (lower.endsWith('.epub') || mimeType === 'application/epub+zip') {
+    return extractWithOfficeParser(data, 'This EPUB book');
+  }
   if (
     lower.endsWith('.xlsx') ||
     lower.endsWith('.xls') ||
@@ -206,7 +215,7 @@ async function extractAudioVideo(
 }
 
 /**
- * `.docx` and `.pptx` share a parser: officeParser renders both into an AST and can emit
+ * `.docx`, `.pptx`, `.odt`, `.rtf` and `.epub` share a parser: officeParser renders each into an AST and can emit
  * Markdown, which is what keeps a `.docx` table intact as pipe rows instead of the word soup
  * `extractRawText`-style extraction produces when it drops cell boundaries.
  */

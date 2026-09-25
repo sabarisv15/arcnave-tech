@@ -1073,3 +1073,17 @@ practice, not canon.
   3. When a tool's defects are found, update the skill that recommends it in the same change.
   Verify: `attachmentContinuity.integration.test.ts` reads two files with no `input_files`;
   `manifest.test.ts`.
+- **2026-09-25 (later)**: No new heading (over the cap). Two lessons from the stage 1 decode
+  against Claude.
+  - **Comparisons stated from memory were wrong three times in one reply.** The claims were
+    that Claude does not extract text (it does, for every non-PDF document), that the warm
+    sandbox expires after 5 minutes idle (the code says `WORKSPACE_TTL_S` = 3 hours), and that
+    .doc/.ppt are accepted (`ALLOWED` rejects both). Rule: a comparison table cites the file,
+    or the doc page, for every cell. Verify: ADR-0011's table links Claude's support article
+    and names `FILE_LIMITS`.
+  - **`drizzle-kit generate` also emitted the never-migrated `analysis_*` tables** into a
+    one-column migration. Shipped as generated, that would have created those tables in
+    production without anyone deciding to. Rule: read every generated migration. When it
+    carries unrelated drift, hand-write the SQL, and base the snapshot on the previous one
+    plus your change only. Verify: `drizzle/0009_*.sql` is one `ALTER TABLE`;
+    `grep -c analysis drizzle/meta/0009_snapshot.json` is 0.

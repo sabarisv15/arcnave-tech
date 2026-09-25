@@ -4963,6 +4963,13 @@
                     "viewable": {
                       "type": "boolean"
                     },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
                     "createdAt": {
                       "nullable": true,
                       "type": "string"
@@ -4978,6 +4985,282 @@
                     "error",
                     "hasText",
                     "viewable",
+                    "pageCount",
+                    "reading",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/uploads": {
+      "post": {
+        "summary": "Start an upload of a file to attach to a message",
+        "tags": [
+          "projects"
+        ],
+        "description": "For files of any size up to ATTACHMENT_MAX_BYTES. Returns the attachment (status `uploading`) and where to PUT its bytes; with GCS storage that is the bucket itself, so the file never passes through this API. Then call `POST /files/:id/complete`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "mimeType": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "sizeBytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "filename",
+                  "sizeBytes"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "messageId": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "filename": {
+                          "type": "string"
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "sizeBytes": {
+                          "type": "number"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "hasText": {
+                          "type": "boolean"
+                        },
+                        "viewable": {
+                          "type": "boolean"
+                        },
+                        "pageCount": {
+                          "nullable": true,
+                          "type": "number"
+                        },
+                        "reading": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "nullable": true,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "messageId",
+                        "filename",
+                        "mimeType",
+                        "sizeBytes",
+                        "status",
+                        "error",
+                        "hasText",
+                        "viewable",
+                        "pageCount",
+                        "reading",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "upload": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": [
+                            "PUT"
+                          ]
+                        },
+                        "headers": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "withCredentials": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "url",
+                        "method",
+                        "headers",
+                        "withCredentials"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "file",
+                    "upload"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}/content": {
+      "put": {
+        "summary": "Receive the bytes of an upload (local storage only)",
+        "tags": [
+          "projects"
+        ],
+        "description": "Only handed out by `POST /files/uploads` when storage cannot take the upload directly. The body is the raw file, exactly as many bytes as were declared.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}/complete": {
+      "post": {
+        "summary": "Finish an upload: check the bytes arrived, then read the file",
+        "tags": [
+          "projects"
+        ],
+        "description": "Applies the per-type limits (PDF pages, image dimensions) and extracts text. A file that breaks a limit is deleted and the call fails with the reason.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "hasText": {
+                      "type": "boolean"
+                    },
+                    "viewable": {
+                      "type": "boolean"
+                    },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "messageId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "hasText",
+                    "viewable",
+                    "pageCount",
+                    "reading",
                     "createdAt"
                   ],
                   "additionalProperties": false
@@ -5051,6 +5334,13 @@
                     "viewable": {
                       "type": "boolean"
                     },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
                     "createdAt": {
                       "nullable": true,
                       "type": "string"
@@ -5066,6 +5356,8 @@
                     "error",
                     "hasText",
                     "viewable",
+                    "pageCount",
+                    "reading",
                     "createdAt"
                   ],
                   "additionalProperties": false
@@ -5130,6 +5422,13 @@
                     "viewable": {
                       "type": "boolean"
                     },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
                     "createdAt": {
                       "nullable": true,
                       "type": "string"
@@ -5145,6 +5444,8 @@
                     "error",
                     "hasText",
                     "viewable",
+                    "pageCount",
+                    "reading",
                     "createdAt"
                   ],
                   "additionalProperties": false
