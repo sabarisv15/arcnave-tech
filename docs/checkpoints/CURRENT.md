@@ -11,6 +11,10 @@
 >
 > Tests: backend 964, frontend 66.
 >
+> UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
+> packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). None started.
+>
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode
 >   only, and `capabilityPolicy.ts` is deleted.
