@@ -25,7 +25,6 @@ import {
   messages,
   messageSources,
   preferences as preferencesTable,
-  projectFiles,
   projects,
   researchEvents,
   toolCalls,
@@ -64,7 +63,7 @@ import {
 import { AgentLoop } from './agentLoop.js';
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
-import { pdfForModel } from './attachments/pdfPages.js';
+import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -222,8 +221,8 @@ async function referencePages(atts: AttachmentBlock[], store: ModelInputStore): 
  * A PDF as every provider is shown it (ADR-0013): up to 100 pages, each page's image and text;
  * beyond that, its text only. No provider is handed the PDF's own bytes.
  */
-async function asPdfForModel(att: AttachmentBlock, data: Buffer): Promise<AttachmentBlock> {
-  const pdf = await pdfForModel(data, att.storageKey);
+async function asPdfForModel(att: AttachmentBlock, data: Buffer | PdfForModel): Promise<AttachmentBlock> {
+  const pdf = Buffer.isBuffer(data) ? await pdfForModel(data, att.storageKey) : data;
   const { base64: _drop, ...rest } = att;
   if (pdf.kind === 'pages') return { ...rest, pages: pdf.pages };
   if (pdf.kind === 'text') return { ...rest, extractedText: pdf.text, textOnlyPageCount: pdf.pageCount };
@@ -271,6 +270,11 @@ export interface PreferencesRow {
 /** Characters of a skill given again after a compaction. Claude Code caps each at 5,000 tokens;
  *  ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
 const REINJECTED_SKILL_MAX_CHARS = 20_000;
+
+/** A turn without tools gets project excerpts instead of the search tool: how many, and their
+ *  character budget (the values the former PROJECT_CONTEXT_MAX_* settings had). */
+const PROJECT_EXCERPTS_WITHOUT_TOOLS = 8;
+const PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS = 12_000;
 
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
@@ -1679,6 +1683,10 @@ export class GenerationService {
     return Promise.all(
       attachments.map(async (att) => {
         if (sentAsBytes(att) && !att.base64 && !att.pages && att.storageKey) {
+          // Pages rendered on an earlier turn are reused before the file is fetched again: the
+          // stored bytes behind a key never change (audit B6).
+          const rendered = att.mimeType === 'application/pdf' ? cachedPdfForModel(att.storageKey) : undefined;
+          if (rendered) return asPdfForModel(att, rendered);
           try {
             const data = await this.storage.get(att.storageKey);
             if (att.mimeType === 'application/pdf') return await asPdfForModel(att, data);
@@ -1915,42 +1923,42 @@ export class GenerationService {
           at: new Date().toISOString(),
         },
       });
-    } else if (project) {
-      const chunks = await this.retriever.search(
-        this.db,
-        project.id,
-        input.prompt,
-        this.cfg.PROJECT_CONTEXT_MAX_CHUNKS,
-      );
-      const context = formatContext(chunks, this.cfg.PROJECT_CONTEXT_MAX_CHARS);
+    } else if (project && wholeFiles.length > 0 && allowedToolNames?.includes('search_project_files')) {
+      // Past the limit Claude "uses a project knowledge search tool to retrieve relevant
+      // information" (Help Center, RAG for projects): the model searches when it needs to. Chunks
+      // picked here by the prompt's words changed the system prompt every turn and broke its
+      // cache (audit B9, B10).
+      retrievedContextText =
+        `<project_knowledge>\nThis project's ${String(wholeFiles.length)} file${wholeFiles.length === 1 ? ' is' : 's are'} ` +
+        'too large to include here. Search them with search_project_files and read the parts you need with ' +
+        'read_project_file before answering from them.\nFiles: ' +
+        wholeFiles.map((f) => f.filename).join(', ') +
+        '\n</project_knowledge>';
+      events.push({
+        type: 'research',
+        event: {
+          stage: 'reading',
+          label: 'Project knowledge is searched as needed',
+          detail: `${String(wholeFiles.length)} project file${wholeFiles.length === 1 ? '' : 's'}, too large to include whole.`,
+          at: new Date().toISOString(),
+        },
+      });
+    } else if (project && wholeFiles.length > 0) {
+      // No tools on this turn, so no search tool: excerpts chosen by the question are the only
+      // way the model sees the files.
+      const chunks = await this.retriever.search(this.db, project.id, input.prompt, PROJECT_EXCERPTS_WITHOUT_TOOLS);
+      const context = formatContext(chunks, PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS);
       if (context) {
         retrievedContextText = context;
-        const files = new Set(chunks.map((c) => c.filename));
         events.push({
           type: 'research',
           event: {
             stage: 'reading',
-            label: `Retrieved ${chunks.length} excerpt${chunks.length === 1 ? '' : 's'} from project files`,
-            detail: `Matched by keyword relevance in: ${[...files].join(', ')}.`,
+            label: `Retrieved ${String(chunks.length)} excerpt${chunks.length === 1 ? '' : 's'} from project files`,
+            detail: `Matched by keyword relevance in: ${[...new Set(chunks.map((c) => c.filename))].join(', ')}.`,
             at: new Date().toISOString(),
           },
         });
-      } else {
-        const [counts] = await this.db
-          .select({ total: sql<number>`count(*)::int` })
-          .from(projectFiles)
-          .where(and(eq(projectFiles.projectId, project.id), eq(projectFiles.status, 'ready')));
-        if ((counts?.total ?? 0) > 0) {
-          events.push({
-            type: 'research',
-            event: {
-              stage: 'reading',
-              label: 'No project files matched this question',
-              detail: 'Project instructions are still applied.',
-              at: new Date().toISOString(),
-            },
-          });
-        }
       }
     }
 

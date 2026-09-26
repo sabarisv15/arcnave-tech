@@ -137,5 +137,27 @@ describe('CodeExecutionToolExecutor.execute', () => {
     });
     expect((block.data as { notice?: string }).notice).toContain('surprise.csv');
   });
-});
 
+  it('keeps the head and tail of long output, and the end of a traceback (Claude Code output limits)', async () => {
+    const out = `START${'x'.repeat(50_000)}END`;
+    const err = `Traceback head${'y'.repeat(20_000)}ValueError: bad row`;
+    const executor = new CodeExecutionToolExecutor(
+      fakeClient(async () => ({
+        outputs: [{ mimeType: 'application/json', text: JSON.stringify({ msg_out: out, msg_err: err }) }],
+      })),
+      30_000,
+    );
+    const result = await executor.execute(
+      { id: 'call-9', name: 'run_python', input: { code: 'x' } },
+      new AbortController().signal,
+    );
+    const data = (result.content[0] as { data: { stdout: string; stderr: string; truncated: boolean } }).data;
+    expect(data.stderr.length).toBeLessThanOrEqual(10_000);
+    expect(data.stderr).toContain('ValueError: bad row');
+    expect(data.stdout.startsWith('START')).toBe(true);
+    expect(data.stdout.endsWith('END')).toBe(true);
+    expect(data.stdout.length + data.stderr.length).toBeLessThanOrEqual(30_000);
+    expect(data.stdout).toContain('characters omitted');
+    expect(data.truncated).toBe(true);
+  });
+});

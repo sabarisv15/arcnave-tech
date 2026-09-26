@@ -1,6 +1,7 @@
 /**
  * Project files reach the model whole while they fit, as Claude keeps project knowledge in
- * context, and as excerpts past that, as Claude switches to search (ADR-0020). The limit is
+ * context, and through search past that, as Claude switches to its project knowledge search tool
+ * (ADR-0020). The limit is
  * shrunk so a small fixture crosses it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -12,7 +13,7 @@ let ctx: TestContext;
 let user: TestUser;
 
 beforeAll(async () => {
-  ctx = await createTestApp({ PROJECT_FULL_CONTEXT_MAX_CHARS: '20000' });
+  ctx = await createTestApp({ PROJECT_FULL_CONTEXT_MAX_CHARS: '20000', ENABLE_TOOL_USE: 'true' });
   user = await signUp(ctx);
 });
 afterAll(async () => {
@@ -58,13 +59,48 @@ describe('project knowledge (ADR-0020)', () => {
     expect(labels).toContain('Using all 2 project files in full');
   });
 
-  it('sends excerpts by relevance once the files are past the limit', async () => {
+  it('gives the search tools, not excerpts, once the files are past the limit', async () => {
     const projectId = await projectWith({ 'big.txt': `${doc('big', 150)}\n\nThe budget figure is 4200.` });
-    const { request } = await ask(projectId, 'what is the budget figure');
+    const first = await ask(projectId, 'what is the budget figure');
+    const second = await ask(projectId, 'and the plan?');
 
-    expect(request.systemInstruction).not.toContain('They are whole documents');
-    expect(request.systemInstruction).toContain('These are partial extracts, not whole documents.');
-    expect(request.systemInstruction).toContain('The budget figure is 4200.');
-    expect(request.systemInstruction).not.toContain('big paragraph 3:');
+    for (const { request } of [first, second]) {
+      expect(request.systemInstruction).not.toContain('They are whole documents');
+      expect(request.systemInstruction).not.toContain('The budget figure is 4200.');
+      expect(request.systemInstruction).toContain('Search them with search_project_files');
+      expect(request.systemInstruction).toContain('Files: big.txt');
+      expect((request.tools ?? []).map((t) => t.name)).toEqual(
+        expect.arrayContaining(['search_project_files', 'read_project_file']),
+      );
+    }
+    // The same text whatever the question, so the prompt's cached prefix holds (audit B9).
+    const knowledge = (s: string) => s.slice(s.indexOf('<project_knowledge>'), s.indexOf('</project_knowledge>'));
+    expect(knowledge(first.request.systemInstruction)).toBe(knowledge(second.request.systemInstruction));
+  });
+});
+
+describe('project knowledge on a turn without tools', () => {
+  let bare: TestContext;
+  let owner: TestUser;
+  beforeAll(async () => {
+    bare = await createTestApp({ PROJECT_FULL_CONTEXT_MAX_CHARS: '20000', ENABLE_TOOL_USE: 'false' });
+    owner = await signUp(bare);
+  });
+  afterAll(async () => {
+    await bare.close();
+  });
+
+  it('sends excerpts by relevance, since there is no search tool to name', async () => {
+    const h = { cookie: owner.cookie };
+    const project = await bare.app.inject({ method: 'POST', url: '/v1/projects', headers: h, payload: { title: 'p' } });
+    const projectId = (project.json() as { id: string }).id;
+    const part = multipart('big.txt', Buffer.from(`${doc('big', 150)}\n\nThe budget figure is 4200.`), 'text/plain');
+    await bare.app.inject({ method: 'POST', url: `/v1/projects/${projectId}/files`, headers: { ...part.headers, ...h }, payload: part.payload });
+    const chat = await bare.app.inject({ method: 'POST', url: '/v1/chats', headers: h, payload: { title: 'c', projectId } });
+    const chatId = (chat.json() as { id: string }).id;
+    await bare.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: h, payload: { prompt: 'what is the budget figure' } });
+    const system = bare.provider.seen.at(-1)!.systemInstruction;
+    expect(system).toContain('The budget figure is 4200.');
+    expect(system).not.toContain('search_project_files');
   });
 });
