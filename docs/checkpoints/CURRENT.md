@@ -9,7 +9,7 @@
 > date and names only tools the turn allows; a test enforces it. Migration 0013 adds
 > `messages.thinking`. Backend 967 tests, frontend 58, both clean.
 > Production: B7 model-input bucket set up and verified 2026-09-26 (revision 00139-49j); B11
-> min instances already 1. Open: B12 Drive save, incognito chats.
+> min instances already 1. B12 Drive save and incognito chats are future scope.
 > Next: deploy with approval, then live-check `turn timing` (probe gone), `includeThoughts`
 > accepted by Vertex, memory save/load, and a long chat's compaction.
 >

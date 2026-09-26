@@ -29,13 +29,13 @@ Each finding below, with what was done. "Local" means tested here (backend 967 t
 | B9 cache prefix | Fixed: memory text stable; project excerpts no longer per prompt | ADR-0025, ADR-0029 |
 | B10 project RAG | Fixed: search tool past the limit | ADR-0029 |
 | B11 cold start | Already set: `minScale` 1 on production | — |
-| B12 Drive save | Open: needs a Drive connector decision | — |
+| B12 Drive save | Future scope (decided 2026-09-26) | — |
 | C1 memory off | Fixed: on by default | ADR-0025 |
 | C2 no create | Fixed: `save_memory`, `POST /memory`, `PATCH /memory/:id` | ADR-0025 |
 | C3 false policy | Fixed: policy rewritten to the tools that exist | ADR-0025 |
 | C4 regex distiller | Left off: the model saves as the user chats, as Claude does | ADR-0025 |
 | C5 AND query | Fixed: any word matches | ADR-0025 |
-| C6 Claude features | Partly: topics editable, per-project memory, chat search; incognito not done | ADR-0025 |
+| C6 Claude features | Topics editable, per-project memory, chat search; incognito is future scope (decided 2026-09-26) | ADR-0025 |
 | D1 PDF→Excel heuristic | Fixed: model reads and passes rows; `sourceAttachmentId` copies text files only | `deliverableExecutor.ts` |
 | D2 goal tools | Fixed: named only in agent mode with a goal | `systemPrompt.ts` |
 | D3 parallel contradiction | Fixed by B3 | ADR-0026 |
