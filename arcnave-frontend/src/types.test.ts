@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { toMessage, toPreferences, toProjectFile, toSource } from "./types";
+import { adoptServerId, toMessage, toPreferences, toProjectFile, toSource } from "./types";
+import type { Message } from "./types";
 import type {
   MessageDto,
   PreferencesDto,
@@ -268,5 +269,19 @@ describe("cutOffReason", () => {
     expect(cutOffReason("tool_limit")).toBe("tool_limit");
     expect(cutOffReason("STOP")).toBeNull();
     expect(cutOffReason(undefined)).toBeNull();
+  });
+});
+
+describe("adoptServerId", () => {
+  it("renames the placeholder it was made for, even when run after the caller moved on", () => {
+    let current = "pending-1";
+    const update = adoptServerId(current, "real-1", { status: "generating" });
+    current = "real-1"; // the run loop now addresses the real id
+    const rows = [
+      { id: "u", role: "user", text: "hi", mode: "chat", status: "complete" },
+      { id: "pending-1", role: "assistant", text: "", mode: "chat", status: "submitting" },
+    ] as Message[];
+    expect(update(rows).map((m) => `${m.id}:${m.status}`)).toEqual(["u:complete", "real-1:generating"]);
+    expect(current).toBe("real-1");
   });
 });

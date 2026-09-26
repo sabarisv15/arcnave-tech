@@ -68,5 +68,5 @@ tools, model choice). Claude's behaviour is cited from Claude's docs and Help Ce
 | I5 | Fixed: "You have access" policies only for declared tools; guard test extended. |
 | I6 | Done: prompt rewritten calm and without duplicates (30,500 → 23,500 characters). |
 | I7 | Fixed in PR #21. |
-| I8 | Open: waiting on the DevTools timing check. |
+| I8 | Fixed: a frontend state bug (the `start` updater read a reassigned id), found by a local Playwright repro; not the network. |
 | Added | Reasoning effort (`REASONING_EFFORT`, default high) and 64K output. |
