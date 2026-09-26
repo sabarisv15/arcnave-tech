@@ -446,6 +446,7 @@ export interface MessageDto {
   finishReason: string | null;
   artifactId: string | null;
   searchEntryPoint: string | null;
+  thinking?: string | null;
   createdAt: string | null;
   completedAt: string | null;
   sources: SourceDto[];

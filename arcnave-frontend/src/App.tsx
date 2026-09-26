@@ -50,7 +50,7 @@ import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage } from "./Content";
-import ToolActivity from "./ToolActivity";
+import ToolActivity, { ThinkingBlock } from "./ToolActivity";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -821,7 +821,8 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
+      {m.thinking && <ThinkingBlock text={m.thinking} working={loading} answering={!!m.text} />}
+      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
         <ResponseActivity message={m} />
       )}
       {m.toolCalls && m.toolCalls.length > 0 && (

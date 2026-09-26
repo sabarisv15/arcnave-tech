@@ -201,6 +201,23 @@ describe('streaming generation', () => {
 
 /* -------------------------------------------------------------------------- code execution */
 
+describe('thinking (audit B8)', () => {
+  it('streams the thought summary apart from the answer and keeps it on the message', async () => {
+    ctx.provider.script = [
+      { type: 'thinking', text: 'Reading the notes first.' },
+      { type: 'delta', text: 'The notes say 4200.' },
+      { type: 'completed', usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+    ];
+    const chatId = await newChat();
+    const { body } = await generate(chatId);
+    const frames = parseSse(body);
+    expect(frames.find((f) => f.event === 'thinking')?.data).toMatchObject({ text: 'Reading the notes first.' });
+    const message = (await transcript(chatId)).messages.find((m) => m.role === 'assistant')! as { text: string; thinking?: string };
+    expect(message.text).toBe('The notes say 4200.');
+    expect(message.thinking).toBe('Reading the notes first.');
+  });
+});
+
 describe('model availability (ADR-0028)', () => {
   it('sends the turn without a probe call first, as Claude\'s SDK sends the request itself', async () => {
     ctx.app.services.registry.invalidate();

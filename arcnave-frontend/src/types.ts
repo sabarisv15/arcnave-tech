@@ -139,6 +139,8 @@ export interface Message {
   errorDetail?: string;
   modelAlias?: string;
   providerModelId?: string;
+  /** The model's thought summary, shown collapsed above the answer. */
+  thinking?: string;
   createdAt?: string | null;
   usage?: MessageUsage;
   /** The provider's stop reason as stored, e.g. "MAX_TOKENS" when the answer hit its limit. */
@@ -361,6 +363,7 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.errorCode ? { error: dto.errorCode } : {}),
     ...(dto.modelAlias ? { modelAlias: dto.modelAlias } : {}),
     ...(dto.providerModelId ? { providerModelId: dto.providerModelId } : {}),
+    ...(dto.thinking ? { thinking: dto.thinking } : {}),
     ...(dto.createdAt ? { createdAt: dto.createdAt } : {}),
     ...(dto.usage ? { usage: toUsage(dto.usage) } : {}),
     ...(dto.finishReason ? { finishReason: dto.finishReason } : {}),

@@ -194,20 +194,28 @@ interface GeminiUsageMetadata {
   promptTokenCount?: number;
   candidatesTokenCount?: number;
   cachedContentTokenCount?: number;
+  thoughtsTokenCount?: number;
 }
 
-/** Read exact counts from `usageMetadata`. Absent metadata yields exact:false, not a guess. */
-function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage {
+/**
+ * Read exact counts from `usageMetadata`. Absent metadata yields exact:false, not a guess.
+ *
+ * Thinking is billed as output: Vertex prices "Text output (response and reasoning)" at one rate
+ * (Agent Platform pricing), and `candidatesTokenCount` leaves the thoughts out. So output is both.
+ * The request's context for compaction stays prompt plus answer: thoughts are not sent back.
+ */
+export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage {
   if (!meta) return EMPTY_USAGE;
-  const { promptTokenCount, candidatesTokenCount, cachedContentTokenCount } = meta;
+  const { promptTokenCount, candidatesTokenCount, cachedContentTokenCount, thoughtsTokenCount } = meta;
   if (promptTokenCount == null && candidatesTokenCount == null) return EMPTY_USAGE;
   return {
     inputTokens: promptTokenCount ?? 0,
-    outputTokens: candidatesTokenCount ?? 0,
+    outputTokens: (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0),
     cacheReadTokens: cachedContentTokenCount ?? 0,
     // Gemini reports cached-content reads but not a separate cache-write count.
     cacheWriteTokens: 0,
     exact: true,
+    lastRequest: { inputTokens: promptTokenCount ?? 0, outputTokens: candidatesTokenCount ?? 0 },
   };
 }
 
@@ -344,6 +352,9 @@ export class GeminiProvider implements Provider {
                 }
               : {}),
             ...(forceAnswer ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
+            // Thought summaries, shown to the user as Claude shows its thinking (audit B8). They
+            // arrive as parts marked `thought`, which `chunk.text` leaves out of the answer.
+            thinkingConfig: { includeThoughts: true },
             // The SDK aborts the underlying HTTP request on this signal, which is what makes
             // client cancellation actually stop provider work rather than just stop reading it.
             abortSignal: request.signal,
@@ -378,6 +389,9 @@ export class GeminiProvider implements Provider {
             break roundLoop;
           }
 
+          for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+            if (part.thought && part.text) yield { type: 'thinking', text: part.text };
+          }
           const text = chunk.text;
           if (text) {
             accumulated.push(text);

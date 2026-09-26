@@ -5497,3 +5497,16 @@ select:focus-visible {
   .activity-step.is-running .activity-step-icon { animation: none; }
   .shimmer-text { color: var(--ink); background: none; }
 }
+
+/* The model's thought summary: muted, readable, scrolls when long. */
+.thinking-text {
+  margin: 4px 0 2px 26px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}

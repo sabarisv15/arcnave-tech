@@ -200,6 +200,8 @@ export function toolResultPreview(result: ToolResult, maxChars: number): string 
 
 export type ProviderEvent =
   | { type: 'delta'; text: string }
+  /** A piece of the model's thought summary: shown to the user, never part of the answer. */
+  | { type: 'thinking'; text: string }
   | { type: 'sources'; sources: ProviderSource[]; searchEntryPoint?: string }
   | { type: 'progress'; stage: Stage; label: string; detail: string }
   | { type: 'code'; code?: string; language?: string; output?: string }

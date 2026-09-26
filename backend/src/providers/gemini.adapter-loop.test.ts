@@ -385,4 +385,20 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     controller.abort();
     await expect(collect(provider.stream(baseRequest({ signal: controller.signal })))).rejects.toMatchObject({ name: 'AbortError' });
   });
+
+  it('asks for thought summaries and yields them as thinking, apart from the answer (audit B8)', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [
+      fakeStream([
+        { candidates: [{ content: { parts: [{ text: 'Plan: add them.', thought: true }] } }] },
+        { text: '5', candidates: [{ content: { parts: [{ text: '5' }] }, finishReason: 'STOP' }] },
+      ] as never),
+    ];
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({})));
+    expect(events.filter((e) => e.type === 'thinking')).toEqual([{ type: 'thinking', text: 'Plan: add them.' }]);
+    expect(events.filter((e) => e.type === 'delta')).toEqual([{ type: 'delta', text: '5' }]);
+    const req = client.calls[0] as { config: { thinkingConfig?: { includeThoughts?: boolean } } };
+    expect(req.config.thinkingConfig?.includeThoughts).toBe(true);
+  });
 });

@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildGeminiContents, toGeminiFunctionDeclaration, toGeminiFunctionResponsePart } from './gemini.js';
+import { buildGeminiContents, toGeminiFunctionDeclaration, toGeminiFunctionResponsePart, usageFrom } from './gemini.js';
 import { RENDER_UI } from '../tools/definitions.js';
 import type { GenerationRequest } from './types.js';
 
@@ -221,5 +221,14 @@ describe('replaying an earlier turn\'s parallel calls (ADR-0026)', () => {
       }),
     );
     expect(contents.some((c) => c.parts?.some((p) => p.functionCall))).toBe(false);
+  });
+});
+
+describe('usageFrom', () => {
+  it('bills thinking as output, and leaves it out of the context the next request resends', () => {
+    const usage = usageFrom({ promptTokenCount: 1000, candidatesTokenCount: 200, thoughtsTokenCount: 800 });
+    expect(usage.outputTokens).toBe(1000);
+    expect(usage.lastRequest).toEqual({ inputTokens: 1000, outputTokens: 200 });
+    expect(usage.exact).toBe(true);
   });
 });

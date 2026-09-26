@@ -219,3 +219,24 @@ export default function ToolActivity({
     </div>
   );
 }
+
+/**
+ * The model's thought summary, as Claude shows its thinking: open while the model is still
+ * thinking, folded into "Thought process" once the answer starts, and expandable afterwards.
+ */
+export function ThinkingBlock({ text, working, answering }: { text: string; working: boolean; answering: boolean }) {
+  const live = working && !answering;
+  const [open, setOpen] = useState(live);
+  useEffect(() => setOpen(live), [live]);
+  if (!text.trim()) return null;
+  return (
+    <div className={`tool-activity thinking-block ${live ? "is-live" : ""}`}>
+      <button type="button" className="tool-activity-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Brain size={14} aria-hidden="true" />
+        <span className={live ? "shimmer-text" : ""}>{live ? "Thinking" : "Thought process"}</span>
+        <ChevronRight size={13} className={open ? "activity-chevron open" : "activity-chevron"} />
+      </button>
+      {open && <div className="thinking-text">{text}</div>}
+    </div>
+  );
+}

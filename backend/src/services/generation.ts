@@ -123,6 +123,7 @@ export type StreamEvent =
   | { type: 'start'; messageId: string; chatId: string; requestId: string; model: ModelInfo }
   | { type: 'research'; event: { stage: string; label: string; detail: string; at: string } }
   | { type: 'delta'; text: string }
+  | { type: 'thinking'; text: string }
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
@@ -968,6 +969,7 @@ export class GenerationService {
     let status: 'complete' | 'cancelled' | 'error' = 'complete';
     let errorCode: string | null = null;
     const collectedText: string[] = [];
+    const collectedThinking: string[] = [];
     const collectedSources: ProviderSource[] = [];
     let searchEntryPoint: string | undefined;
     let eventOrdinal = contextEvents.length;
@@ -992,6 +994,11 @@ export class GenerationService {
           case 'delta':
             collectedText.push(event.text);
             yield { type: 'delta', text: event.text };
+            break;
+
+          case 'thinking':
+            collectedThinking.push(event.text);
+            yield { type: 'thinking', text: event.text };
             break;
 
           case 'sources': {
@@ -1089,6 +1096,7 @@ export class GenerationService {
         log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
         await this.finalise(input, {
           text: collectedText.join(''),
+          thinking: collectedThinking.join(''),
           sources: collectedSources,
           searchEntryPoint,
           status: 'error',
@@ -1172,6 +1180,7 @@ export class GenerationService {
 
     await this.finalise(input, {
       text,
+      thinking: collectedThinking.join(''),
       sources: collectedSources,
       searchEntryPoint,
       status: status === 'cancelled' ? 'stopped' : status === 'error' ? 'error' : 'complete',
@@ -2064,6 +2073,7 @@ export class GenerationService {
       entry: ModelEntry;
       mode: Mode;
       questions?: string[];
+      thinking?: string;
     },
   ): Promise<void> {
     const researchStage =
@@ -2081,6 +2091,7 @@ export class GenerationService {
       .update(messages)
       .set({
         text: result.text,
+        ...(result.thinking ? { thinking: result.thinking } : {}),
         status: result.status,
         errorCode: result.errorCode,
         researchStage,
