@@ -1,5 +1,11 @@
 # ArcNave — current checkpoint
 
+> **2026-09-26 (latest): Claude-parity audit written down, nothing changed by it yet.**
+> [docs/audits/2026-09-26-claude-parity-audit.md](../audits/2026-09-26-claude-parity-audit.md)
+> lists 4 fixed and ~40 open findings (latency, memory, system prompt vs code), each marked code /
+> docs / live. Start there: confirm the `18e7606` deploy, read `turn timing` logs, then the
+> small prompt fixes.
+>
 > **2026-09-26 (latest): provider timeouts follow Claude's SDK**
 > ([ADR-0024](../decisions/0024-provider-timeouts-follow-claudes-sdk.md)). The 12 s first-token
 > cutoff is gone: it aborted large PDF follow-ups that were still thinking. A provider request
