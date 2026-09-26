@@ -4860,7 +4860,7 @@
                     "enum": [
                       "sans",
                       "serif",
-                      "mono"
+                      "readable"
                     ]
                   },
                   "modelAlias": {

@@ -237,7 +237,7 @@ export interface Artifact {
 
 export interface Preferences {
   theme: "light" | "dark" | "system";
-  font: "sans" | "serif";
+  font: "sans" | "serif" | "readable";
   modelAlias: string;
   instructions: string;
   enterToSend: boolean;
@@ -453,7 +453,7 @@ export function toArtifact(dto: ArtifactDto): Artifact {
 export function toPreferences(dto: PreferencesDto): Preferences {
   return {
     theme: dto.theme === "light" || dto.theme === "dark" ? dto.theme : "system",
-    font: dto.font === "serif" ? "serif" : "sans",
+    font: dto.font === "serif" ? "serif" : dto.font === "readable" ? "readable" : "sans",
     modelAlias: dto.modelAlias,
     instructions: dto.instructions,
     enterToSend: dto.enterToSend,

@@ -1,6 +1,13 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
+> **2026-09-26 (latest): WP-03 (Keyboard shortcuts and readable font — Gaps 17 and 20) completed on branch `feat/wp-03-shortcuts-font`.**
+> - Worktree: `d:/arcnave-wp03` on branch `feat/wp-03-shortcuts-font`.
+> - Shortcuts: Added `Ctrl/Cmd + Shift + O` (new conversation) and `Ctrl/Cmd + Shift + C` (copy last complete assistant answer, with toast feedback). Retained `Ctrl/Cmd + K`, `Ctrl/Cmd + P`, and `Ctrl/Cmd + ,`. Noted browser conflicts (DevTools inspect on `Ctrl+Shift+C`, bookmarks on `Ctrl+Shift+O`) in Settings -> Keyboard shortcuts.
+> - Font: Added self-hosted Atkinson Hyperlegible font via `@fontsource/atkinson-hyperlegible`. Labeled as "Readable (Atkinson Hyperlegible)" in Settings -> Appearance. Applied `data-font="readable"` mirroring both existing serif rule blocks with identical selectors.
+> - Backend: Restricted `PATCH /preferences` font enum to `['sans', 'serif', 'readable']` with typed `validation_error` (HTTP 422). Removed unused `mono` from PATCH enum while GET returns `z.string()`. Regenerated `docs/openapi.json`.
+> - Tests & artifacts: Frontend tests clean (77/77 passing across 9 files), backend preferences integration tests clean (5/5 passing), backend typecheck clean, frontend build clean (local font assets emitted), and full browser acceptance walkthrough recorded with 7 screenshots.
+>
+> **2026-09-26: WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
 > - Fixed blocker hook crash in `CodeBlock.tsx`: made `pre` a thin hookless dispatcher rendering either `<PlainCodeBlock>` or lazy `<MermaidBlock>`, eliminating "Rendered fewer hooks than expected" during streaming fence transitions (```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
 > - Added `MarkdownErrorBoundary` around every message's Markdown so any rendering error recovers to displaying raw source without blanking the application.
 > - Added `MarkdownStreaming.test.tsx` using `jsdom` (added to devDependencies), `createRoot`, and `act()` verifying sequential streaming fence transitions and error boundary fallback.
@@ -39,11 +46,10 @@
 > - The chat now typesets `$$…$$` with KaTeX (`remark-math` + `rehype-katex`,
 >   `arcnave-frontend/src/markdownPlugins.ts`), as Claude's app does. A single `$` stays text.
 >
-> Tests: backend 964, frontend 66.
+> Tests: backend 969, frontend 91.
 >
 > UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
-> packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
-> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-01 and WP-02 complete.
+> packages (27 gaps against the Claude app). WP-00, WP-01, WP-02, and WP-03 completed.
 >
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode

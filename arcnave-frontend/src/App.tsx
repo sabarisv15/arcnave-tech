@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { WorkspaceProvider, useWorkspace } from "./workspace";
 import { SessionProvider, useSession } from "./session";
+import { handleAppKeyDown } from "./shortcuts";
 import Auth from "./Auth";
 import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
@@ -134,6 +135,8 @@ function Shell() {
     setSearch,
     setSettings,
     activeRun,
+    messages,
+    toast,
   } = useWorkspace();
   const [collapsed, setCollapsed] = useState(
       () => readLocal("sidebar") === "collapsed",
@@ -148,23 +151,19 @@ function Shell() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        navigate("/");
-        setPanel({ kind: "closed" });
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
-        e.preventDefault();
-        setSearch(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        setSettings(true);
-      }
+      handleAppKeyDown(e, {
+        navigate,
+        setPanel,
+        setSearch,
+        setSettings,
+        toast,
+        activeChatId: activeChat?.id,
+        messages,
+      });
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [navigate, setPanel, setSearch, setSettings]);
+  }, [navigate, setPanel, setSearch, setSettings, toast, activeChat?.id, messages]);
 
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine);

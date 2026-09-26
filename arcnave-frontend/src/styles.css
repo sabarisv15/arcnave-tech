@@ -3312,6 +3312,15 @@ textarea {
   font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
   font-weight: 600;
 }
+[data-font="readable"] .assistant-message > .markdown {
+  font-family: "Atkinson Hyperlegible", system-ui, sans-serif;
+  font-size: 18px;
+  line-height: 1.8;
+}
+[data-font="readable"] .assistant-message .markdown h2 {
+  font-family: "Atkinson Hyperlegible", system-ui, sans-serif;
+  font-weight: 600;
+}
 /* Claude-style conversation typography: chat content stays sans-serif even if an older
    account preference selected the legacy serif option. Branding headings remain serif. */
 [data-font="serif"] .assistant-message > .markdown,
@@ -4088,6 +4097,12 @@ select,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
   font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+[data-font="readable"] .assistant-message > .markdown,
+[data-font="readable"] .assistant-message > .markdown h1,
+[data-font="readable"] .assistant-message > .markdown h2,
+[data-font="readable"] .assistant-message > .markdown h3 {
+  font-family: "Atkinson Hyperlegible", system-ui, sans-serif;
 }
 
 .brand,

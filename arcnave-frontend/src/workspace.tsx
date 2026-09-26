@@ -253,6 +253,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     // Remembered locally only so the sign-in screen and the next cold start match; the stored
     // preference itself lives on the server.
     writeLocal("theme", preferences.theme);
+    writeLocal("font", preferences.font);
     query.addEventListener("change", apply);
     return () => query.removeEventListener("change", apply);
   }, [preferences.theme, preferences.font, preferences.reducedMotion]);

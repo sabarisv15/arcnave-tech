@@ -1140,4 +1140,9 @@ practice, not canon.
   Rules of Hooks during fence streaming, resolved by making `pre` a hookless dispatcher and adding
   `MarkdownErrorBoundary`). Retired the 2026-09-17 `.dockerignore` entry (Docker builds have been
   stable and verified by CI). **40 entries.**
+- **2026-09-26 (WP-03)** — No new heading (at the 40-entry cap). Vite dev server defaults `API_BASE`
+  to the Cloud Run URL when `VITE_API_BASE` is unset, bypassing local `VITE_API_PROXY`; set
+  `VITE_API_BASE="/v1"` when testing against alternate backend ports. Fastify schema validation
+  maps to typed `validation_error` (HTTP 422, not 400). Rule: always trace `API_BASE` in client
+  config and assert HTTP 422 for schema rejections.
 

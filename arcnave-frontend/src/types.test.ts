@@ -193,6 +193,13 @@ describe("preferences mapping", () => {
     expect(mapped.theme).toBe("system");
     expect(mapped.defaultMode).toBe("chat");
   });
+
+  it("maps readable and serif font preferences, falling back to sans for unknown font", () => {
+    expect(toPreferences(prefs({ font: "readable" })).font).toBe("readable");
+    expect(toPreferences(prefs({ font: "serif" })).font).toBe("serif");
+    expect(toPreferences(prefs({ font: "mono" })).font).toBe("sans");
+    expect(toPreferences(prefs({ font: "unknown" })).font).toBe("sans");
+  });
 });
 
 describe("error copy", () => {
