@@ -171,6 +171,14 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('own them and work to fix them');
     });
 
+    it('Eval 11c: The reply-language rule is in the opening block, before <core_behavior>', () => {
+      // Gemini 3 guidance: behavioural constraints at the top of the system instruction.
+      const rule = masterPrompt.indexOf('Reply in the language and script the user writes in');
+      expect(rule).toBeGreaterThanOrEqual(0);
+      expect(rule).toBeLessThan(masterPrompt.indexOf('<core_behavior>'));
+      expect(masterPrompt.indexOf('Reply in the language and script', rule + 1)).toBe(-1);
+    });
+
     it('Eval 12: Disabled capability -> Strictly hides unconfigured tools and prevents hallucinations', () => {
       const disabledWebCfg = loadConfig({
         ENABLE_TOOL_USE: 'true',

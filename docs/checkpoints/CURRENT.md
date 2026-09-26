@@ -1,6 +1,17 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): one loop, Claude-doc guidance (ADR-0032), on branch, not live.**
+> **2026-09-26 (latest): reply-language rule moved to the top; math rendered in chat.**
+> - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
+>   ran 3 commands, made no unrequested file, and every figure matched the PDF.
+> - That reply was in Tamil script for a Latin-script message. The language rule moved from
+>   `<communication>` to the opening block of the prompt (Gemini 3 guidance: behavioural
+>   constraints at the top). Eval 11c holds its position. Not yet verified live.
+> - The chat now typesets `$$…$$` with KaTeX (`remark-math` + `rehype-katex`,
+>   `arcnave-frontend/src/markdownPlugins.ts`), as Claude's app does. A single `$` stays text.
+>
+> Tests: backend 964, frontend 66.
+>
+> **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode
 >   only, and `capabilityPolicy.ts` is deleted.
 > - The prompt uses Claude's scope sample and effort line, without anti-laziness or
