@@ -90,6 +90,7 @@ import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compact, shouldCompact } from './compaction/autoCompact.js';
+import { TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -371,8 +372,10 @@ export class GenerationService {
 
   private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
     const startedAt = new Date();
+    const timing = new TurnTiming();
     const runId = `${input.chatId}_${input.messageId}`;
     const workspace = await this.executionRuntime.createWorkspace(runId);
+    timing.mark('workspace');
 
     try {
       // Attachments are not copied into the workspace up front. A tool that needs one names its
@@ -393,6 +396,7 @@ export class GenerationService {
       latestCompaction?.throughSeq,
       input.modelAlias,
     );
+    timing.mark('history');
     let history = loaded.turns;
     const currentUserAttachments = loaded.currentUserAttachments;
     if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
@@ -410,6 +414,10 @@ export class GenerationService {
       requiresVision,
       project?.instructions.length ?? 0,
     );
+    timing.mark('model_resolve');
+    // A probe ran inside resolution when the alias's status was checked during this turn.
+    timing.note('probed', (this.registry.lastProbedAt(entry.alias) ?? 0) >= timing.since);
+    timing.note('model', entry.alias);
     const provider = this.registry.providerFor(entry);
     if (!provider) {
       throw new ApiError('model_unavailable', {
@@ -462,7 +470,10 @@ export class GenerationService {
 
     // --- compact a long conversation (ADR-0019) ------------------------------
     if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
+      timing.mark('before_compaction');
       const compacted = yield* this.compactIfNeeded(input, prefs, entry, provider);
+      timing.mark('compaction');
+      timing.note('compacted', compacted);
       if (compacted) {
         latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
         ({ turns: history } = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq, input.modelAlias));
@@ -598,6 +609,7 @@ export class GenerationService {
         ));
 
     // --- assemble context -------------------------------------------------
+    timing.mark('skills_tools');
     const { systemInstruction, contextEvents, promptAssembly } = await this.buildSystemInstruction(
       input,
       prefs,
@@ -612,6 +624,7 @@ export class GenerationService {
       await this.persistEvent(input.messageId, event);
     }
 
+    timing.mark('system_prompt');
     const maxOutputTokens = Math.min(
       prefs.maxOutputTokens || this.cfg.DEFAULT_MAX_OUTPUT_TOKENS,
       this.cfg.MAX_OUTPUT_TOKENS_CEILING,
@@ -873,6 +886,7 @@ export class GenerationService {
     }
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
+    timing.mark('tools_setup');
 
     const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
       entry.alias,
@@ -880,6 +894,7 @@ export class GenerationService {
       await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
       releaseReservation,
     );
+    timing.mark('attachments');
 
     const allAttachmentsMap = new Map<string, AttachmentBlock>();
     for (const h of wireHistory) {
@@ -936,8 +951,16 @@ export class GenerationService {
 
     try {
       const stream = this.streamWithRetry(provider.stream.bind(provider), request);
+      timing.mark('before_provider');
+      let firstProviderEvent = true;
+      let toolCallCount = 0;
 
       for await (const event of stream) {
+        if (firstProviderEvent) {
+          firstProviderEvent = false;
+          timing.mark('provider_first_event');
+        }
+        if (event.type === 'tool_use') timing.note('toolCalls', (toolCallCount += 1));
         switch (event.type) {
           case 'delta':
             collectedText.push(event.text);
@@ -1180,6 +1203,8 @@ export class GenerationService {
       };
     }
     } finally {
+      timing.mark('stream_and_persist');
+      log.info({ chatId: input.chatId, messageId: input.messageId, ...timing.summary() }, 'turn timing');
       await this.executionRuntime.cleanupWorkspace(workspace);
     }
   }
@@ -1247,6 +1272,12 @@ export class GenerationService {
    *
    * Only retries before the first event is yielded downstream. Once the client has seen a
    * token, a restart would duplicate text, so the failure propagates instead.
+   *
+   * There is no first-token cutoff, as Claude's SDK has none: a request is bounded by the
+   * adapter's PROVIDER_TIMEOUT_MS (10 minutes, the SDK's default) and retried only when it fails
+   * (connection error, timeout, 408/409/429/5xx), never for being slow. A 12 s cutoff aborted
+   * large follow-ups that were still reading, and each retry repeated the same slow request
+   * (ADR-0024).
    */
   private async *streamWithRetry(
     open: (req: GenerationRequest) => AsyncGenerator<ProviderEvent>,
@@ -1255,44 +1286,18 @@ export class GenerationService {
     let attempt = 0;
     let overflowRetried = false;
     let currentRequest = request;
-    const ttftBase = this.cfg.PROVIDER_TTFT_BUDGET_MS;
-    const modeBudget = request.mode === 'research' ? ttftBase + 8_000 : request.mode === 'search' ? ttftBase + 3_000 : ttftBase;
-    // A multi-page scanned PDF or large image is read before the first token; a 12-page
-    // statement measured 6.7 s bare, so the text-only budget is too tight for it.
-    const carriesMedia =
-      (request.attachments?.length ?? 0) > 0 || request.history.some((t) => t.attachments?.some((a) => Boolean(a.base64)));
-    const ttftBudgetMs = carriesMedia ? modeBudget * 3 : modeBudget;
-
     for (;;) {
       let firstEventReceived = false;
       let userVisibleOutputEmitted = false;
-      const ttftController = new AbortController();
-      const onParentAbort = () => ttftController.abort();
-      // A listener added after the abort never fires: a Stop that landed before this attempt
-      // began (while history or files were still loading) ran the whole turn anyway.
-      if (currentRequest.signal.aborted) onParentAbort();
-      else currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
-
-      const ttftTimer = setTimeout(() => {
-        if (!firstEventReceived && !ttftController.signal.aborted) {
-          ttftController.abort(
-            new ProviderError(`First token wait exceeded ${ttftBudgetMs}ms`, {
-              code: 'provider_timeout',
-              retryable: true,
-            }),
-          );
-        }
-      }, ttftBudgetMs);
-
+      const attemptStartedAt = Date.now();
       try {
-        const attemptRequest: GenerationRequest = {
-          ...currentRequest,
-          signal: ttftController.signal,
-        };
-        for await (const event of open(attemptRequest)) {
+        // A Stop that landed before this attempt began (while history or files were still
+        // loading) must not run the turn anyway.
+        if (currentRequest.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        for await (const event of open(currentRequest)) {
           if (!firstEventReceived) {
             firstEventReceived = true;
-            clearTimeout(ttftTimer);
+            log.info({ ttftMs: Date.now() - attemptStartedAt, attempt }, 'provider first event');
           }
           if (
             (event.type === 'delta' && event.text.length > 0) ||
@@ -1304,14 +1309,15 @@ export class GenerationService {
         }
         return;
       } catch (err) {
-        clearTimeout(ttftTimer);
         if (currentRequest.signal.aborted) throw err;
-        // Our own first-token timer aborted the attempt: that is a retryable provider timeout,
-        // not a user cancel. Rethrowing the AbortError stored the turn as `stopped` with no
-        // error event and left the client waiting.
-        const timeout = ttftController.signal.reason;
-        if (timeout instanceof ProviderError && timeout.code === 'provider_timeout') err = timeout;
-        else if (isAbort(err)) throw err;
+        // Check who aborted, not the error's shape: the caller did not, so an abort here is a
+        // provider-side timeout, typed and retryable, never stored as the user pressing Stop.
+        if (isAbort(err)) {
+          err = new ProviderError(`Provider request aborted without a cancel: ${String(err)}`, {
+            code: 'provider_timeout',
+            retryable: true,
+          });
+        }
 
         // Context Overflow Recovery with Streaming Safety Rule:
         // Retry is allowed strictly if no user-visible assistant output has been committed/emitted (userVisibleOutputEmitted === false).
@@ -1359,9 +1365,6 @@ export class GenerationService {
         const delay = base + Math.random() * base * 0.5;
         log.warn({ attempt, delay, err: String(err) }, 'retrying provider call');
         await sleep(delay, currentRequest.signal);
-      } finally {
-        clearTimeout(ttftTimer);
-        currentRequest.signal.removeEventListener('abort', onParentAbort);
       }
     }
   }

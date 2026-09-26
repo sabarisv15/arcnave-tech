@@ -371,3 +371,21 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(client.calls).toHaveLength(1);
   });
 });
+
+describe('GeminiProvider timeouts (ADR-0024)', () => {
+  it("reports the SDK's own timeout as a retryable provider_timeout, not a cancel", async () => {
+    const client = new FakeGeminiClient();
+    client.models.generateContentStream.mockRejectedValueOnce(new DOMException('This operation was aborted', 'AbortError'));
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    await expect(collect(provider.stream(baseRequest()))).rejects.toMatchObject({ code: 'provider_timeout', retryable: true });
+  });
+
+  it('passes a caller abort through as an abort', async () => {
+    const client = new FakeGeminiClient();
+    client.models.generateContentStream.mockRejectedValueOnce(new DOMException('This operation was aborted', 'AbortError'));
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(collect(provider.stream(baseRequest({ signal: controller.signal })))).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});

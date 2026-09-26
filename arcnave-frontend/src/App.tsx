@@ -653,7 +653,7 @@ function ResponseActivity({ message: m }: { message: Message }) {
         ? { label: toolActivity(latestTool.name, false), detail: "Reviewing the result" }
         : m.status === "submitting"
           ? { label: "Sending request", detail: "Connecting to the model" }
-          : { label: "Waiting for the model", detail: "No tool is running" };
+          : { label: "Thinking", detail: "The model is working on your request" };
 
   return (
     <div className="response-wait" role="status" aria-live="polite">

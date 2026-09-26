@@ -361,23 +361,6 @@ failure mode of this pattern, not a sign it is working.
   `files.integration.test.ts` case uploading a real `.xlsx` buffer as `octet-stream` through
   `POST /files` end to end.
 
-### 2026-09-18 — `z.coerce.boolean()` on a query string is not what it looks like
-
-- **Symptom:** `GET /models?probe=false` — the frontend's own cached-status request — took
-  30.59s in production, hitting the probe abort timeout exactly. The composer was paying for a
-  live provider call to every alias on every login, not just when Settings' "Refresh" was
-  clicked.
-- **Cause:** `probe: z.coerce.boolean().default(true)` in [`models.ts`](backend/src/routes/models.ts).
-  `z.coerce.boolean()` runs `Boolean(value)`, and `Boolean("false")` is `true` — any non-empty
-  query string coerces to `true`, so `probe=false` was silently indistinguishable from
-  `probe=true` or no param at all.
-- **Rule:** **Never use `z.coerce.boolean()` on a query string.** Use an explicit
-  `z.enum(['true', 'false']).transform(v => v === 'true')`, or any coercion that actually
-  branches on the string's content instead of its truthiness.
-- **Verify:** `node -e "require('zod').z.coerce.boolean().parse('false')"` must never print
-  `true`. `src/routes/models.ts`'s querystring schema is the only place this pattern could
-  recur — grepped clean as of this fix.
-
 ### 2026-09-18 — `postgres.js` does not understand `pg`'s `?host=` Unix-socket convention
 
 - **Symptom:** Two consecutive production deploys (revisions `00045`, `00046`) never became
@@ -689,10 +672,9 @@ failure mode of this pattern, not a sign it is working.
   retry loop rethrew every `isAbort(err)` as a cancel before it checked `signal.reason`.
 - **Rule:** **Never classify an abort by the error's shape. Check who aborted.** Only the
   caller's own signal is a user cancel. An abort from an internal timer is a typed, retryable
-  failure. A time budget must also scale with the payload: media turns get 3× the base budget.
-- **Verify:** `backend/src/routes/ttftTimeout.integration.test.ts` checks that the provider was
-  tried twice, `provider_timeout` was streamed and the row was saved as `error`. Remove the
-  `signal.reason` check and the test fails.
+  failure. (The first-token budget itself was removed by ADR-0024; the rule stands.)
+- **Verify:** `backend/src/routes/providerTimeout.integration.test.ts`: an abort the caller did
+  not request streams `provider_timeout` and saves the row as `error`.
 
 ### 2026-09-24 — A phase passed locally on a warm process sandbox and failed on cold Cloud Run Jobs
 
@@ -709,7 +691,7 @@ failure mode of this pattern, not a sign it is working.
   and compare the total with the platform timeout before shipping. Trusted work now runs in the
   backend (ADR-0008), and every turn has its own deadline (`TURN_DEADLINE_MS`).
 - **Verify:** `executionRuntime.trusted.test.ts` routes poppler and skill scripts to the trusted
-  executor and `run_python` to the sandbox. `ttftTimeout.integration.test.ts` checks that a turn
+  executor and `run_python` to the sandbox. `providerTimeout.integration.test.ts` checks that a turn
   over its deadline ends as `turn_deadline_exceeded`. Live: the same prompt on the real PDF
   finishes well inside the deadline.
 
@@ -802,6 +784,20 @@ failure mode of this pattern, not a sign it is working.
   does.
 - **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts` (every result past
   100,000 tokens is replayed in full).
+
+### 2026-09-26 — Our own first-token cutoff aborted large follow-ups that were still working
+
+- **Symptom:** Live: the 3rd to 5th reply in a two-PDF chat failed with "The model took too
+  long". Every attempt logged `First token wait exceeded 12000ms`.
+- **Cause:** ArcNave cut off a request that had sent nothing for 12 s, then retried the same
+  slow request. History PDFs travel as `pages`, which the media check missed. And Gemini sends
+  nothing while it thinks, so a large request looked hung. Claude's SDK has no such cutoff: a
+  request gets 10 minutes, and only failures are retried.
+- **Rule:** **Do not treat "slow" as "failed".** Bound a request by a total timeout and retry
+  only real failures (connection error, timeout, 408/409/429/5xx). A first draft scaled the
+  cutoff by a guessed ms-per-token; a number with no measurement behind it is not a fix.
+- **Verify:** `npx vitest run src/routes/providerTimeout.integration.test.ts` (a slow first
+  event completes with one request).
 
 ## Convention and sources
 
