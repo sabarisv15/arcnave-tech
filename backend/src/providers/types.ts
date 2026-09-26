@@ -140,7 +140,11 @@ export function toolCallAsText(call: HistoryToolCall): string {
  *  Gemini, signed). Otherwise the whole turn's calls go as text, so no turn is half of each. */
 export function replayNatively(calls: HistoryToolCall[], request: GenerationRequest, needsSignature: boolean): boolean {
   const declared = new Set((request.tools ?? []).map((t) => t.name));
-  return calls.every((c) => declared.has(c.name) && (!needsSignature || Boolean(c.thoughtSignature)));
+  // Gemini signs the first call of each response only (see responseGroups): the turn's first call
+  // must be signed; later unsigned ones are the rest of a parallel response.
+  return (
+    calls.every((c) => declared.has(c.name)) && (!needsSignature || Boolean(calls[0]?.thoughtSignature))
+  );
 }
 
 export function toolContentText(c: ToolContent): string {

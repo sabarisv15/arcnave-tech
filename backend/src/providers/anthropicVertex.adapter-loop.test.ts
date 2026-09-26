@@ -99,7 +99,7 @@ async function collect<T>(gen: AsyncGenerator<T>): Promise<T[]> {
 }
 
 describe('AnthropicVertexProvider tool-calling loop', () => {
-  it('sends disable_parallel_tool_use and runs search then read then final text', async () => {
+  it('allows parallel tool use and runs search then read then final text', async () => {
     const client = new FakeAnthropicClient();
     client.responses = [
       fakeMessageStream([], {
@@ -141,8 +141,9 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
 
     expect(executor.calls.map((c) => c.name)).toEqual(['search_project_files', 'read_project_file']);
     expect(client.calls).toHaveLength(3);
-    const firstReq = client.calls[0] as { tool_choice: { disable_parallel_tool_use: boolean } };
-    expect(firstReq.tool_choice.disable_parallel_tool_use).toBe(true);
+    // Claude's default: "By default, Claude may call multiple tools in a single response".
+    const firstReq = client.calls[0] as { tool_choice: { disable_parallel_tool_use?: boolean } };
+    expect(firstReq.tool_choice.disable_parallel_tool_use).toBeUndefined();
     expect(events.filter((e) => e.type === 'tool_use')).toHaveLength(2);
     expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(2);
     expect(events.some((e) => e.type === 'delta' && e.text.includes('March'))).toBe(true);
@@ -153,6 +154,37 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     const lastMsg = secondReq.messages.at(-1)!;
     expect(lastMsg.role).toBe('user');
     expect((lastMsg.content as { type: string }[])[0]!.type).toBe('tool_result');
+  });
+
+  it('runs every tool call of one response and returns all results in one message (ADR-0026)', async () => {
+    const client = new FakeAnthropicClient();
+    client.responses = [
+      fakeMessageStream([], {
+        content: [
+          { type: 'tool_use', id: 't1', name: 'search_project_files', input: { query: 'cooling' } },
+          { type: 'tool_use', id: 't2', name: 'read_project_file', input: { fileId: 'f1' } },
+        ],
+        usage: { input_tokens: 20, output_tokens: 5 },
+        stop_reason: 'tool_use',
+      }),
+      fakeMessageStream(
+        [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Both done.' } }],
+        { content: [{ type: 'text' }], usage: { input_tokens: 40, output_tokens: 8 }, stop_reason: 'end_turn' },
+      ),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', { toolCallId: 't1', ok: true, content: [{ type: 'text', text: 'found' }] });
+    executor.results.set('read_project_file', { toolCallId: 't2', ok: true, content: [{ type: 'text', text: 'read' }] });
+
+    const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL, READ_TOOL], toolExecutor: executor })));
+
+    expect(executor.calls.map((c) => c.name)).toEqual(['search_project_files', 'read_project_file']);
+    expect(client.calls).toHaveLength(2);
+    const second = client.calls[1] as { messages: { role: string; content: { type: string; tool_use_id?: string }[] }[] };
+    const results = second.messages.at(-1)!;
+    expect(results.role).toBe('user');
+    expect(results.content.map((b) => b.tool_use_id)).toEqual(['t1', 't2']);
   });
 
   it('bills every round of the loop, and keeps the last request apart for compaction', async () => {

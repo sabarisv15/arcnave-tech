@@ -181,3 +181,45 @@ describe('toGeminiFunctionResponsePart', () => {
     });
   });
 });
+
+describe('replaying an earlier turn\'s parallel calls (ADR-0026)', () => {
+  const tool = { name: 'search_project_files', description: 'd', inputSchema: { type: 'object' } };
+  const call = (id: string, sig?: string) => ({
+    id,
+    name: 'search_project_files',
+    input: { query: id },
+    result: { toolCallId: id, ok: true, content: [{ type: 'text' as const, text: id }] },
+    ...(sig ? { thoughtSignature: sig } : {}),
+  });
+
+  it('puts calls from one response back in one model turn, with their responses in one user turn', () => {
+    // Gemini signs only the first call of a parallel response: a, b were one response; c another.
+    const contents = buildGeminiContents(
+      baseRequest({
+        tools: [tool],
+        history: [
+          { role: 'user', text: 'find a and b' },
+          { role: 'assistant', text: 'done', toolCalls: [call('a', 's1'), call('b'), call('c', 's2')] },
+        ],
+      }),
+    );
+    const replay = contents.slice(1, 5);
+    expect(replay.map((c) => c.role)).toEqual(['model', 'user', 'model', 'user']);
+    expect(replay[0]!.parts!.map((p) => p.functionCall?.name && p.thoughtSignature)).toEqual(['s1', undefined]);
+    expect(replay[1]!.parts!.map((p) => p.functionResponse?.id)).toEqual(['a', 'b']);
+    expect(replay[2]!.parts!.map((p) => p.thoughtSignature)).toEqual(['s2']);
+  });
+
+  it('falls back to text when the turn\'s first call is unsigned', () => {
+    const contents = buildGeminiContents(
+      baseRequest({
+        tools: [tool],
+        history: [
+          { role: 'user', text: 'x' },
+          { role: 'assistant', text: 'done', toolCalls: [call('a'), call('b', 's1')] },
+        ],
+      }),
+    );
+    expect(contents.some((c) => c.parts?.some((p) => p.functionCall))).toBe(false);
+  });
+});
