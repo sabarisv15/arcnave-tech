@@ -1,6 +1,37 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
+> **2026-09-26 (latest): WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
+> - Fixed blocker hook crash in `CodeBlock.tsx`: made `pre` a thin hookless dispatcher rendering either `<PlainCodeBlock>` or lazy `<MermaidBlock>`, eliminating "Rendered fewer hooks than expected" during streaming fence transitions (```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
+> - Added `MarkdownErrorBoundary` around every message's Markdown so any rendering error recovers to displaying raw source without blanking the application.
+> - Added `MarkdownStreaming.test.tsx` using `jsdom` (added to devDependencies), `createRoot`, and `act()` verifying sequential streaming fence transitions and error boundary fallback.
+> - Fixed language detection in `markdownPlugins.ts`: removed `detect: true` from shared `rehypePlugins` to ensure plain fences are never mislabeled (e.g. bank statements as makefile); exported `rehypePluginsWithDetection` for code artifacts in `Panels.tsx` without a known extension. Added test for plain fences showing empty language label.
+> - Added shared verified clipboard helper `copyTextToClipboard` in `clipboard.ts` with honest feedback ("Copied" on success, "Copy failed" on failure) wired into both `PlainCodeBlock` and `MermaidBlock`. Added failure path tests for both.
+> - Added theme re-render support in `MermaidBlock.tsx` listening to `document.documentElement` `data-theme` mutations and system color-scheme changes, re-rendering diagrams dynamically when theme changes. Added test for theme re-render.
+>
+> Tests: frontend 91/91 passing across 13 test files (`tsc -b && vite build` clean). Branch: `feat/wp-02-mermaid`.
+>
+> **2026-09-26: WP-02 Mermaid diagrams complete.**
+> - Completed WP-02 from UI parity plan (`docs/handover/2026-09-26-claude-ui-parity-plan.md`, Gap 2).
+> - Added `mermaid` package with lazy-loading (`await import('mermaid')`), keeping it isolated in dynamic chunks without bloating the initial chat bundle.
+> - `MermaidBlock.tsx` renders SVG diagrams with `{ startOnLoad: false, securityLevel: 'strict', theme }` matching the light/dark theme.
+> - Streaming & debounce: shows source while block is unclosed during streaming; renders diagram once closed or message is complete (debounced by 300ms).
+> - Toolbar controls: "Diagram / Code" view toggle, copy source button (with 2s Copied feedback), and download `.svg` button.
+> - Robust error fallback: on render/syntax error, displays "Diagram could not be drawn" notice with source code fallback, never breaking the conversation.
+> - Runtime capability reflection: added "The chat renders Markdown, `$$…$$` math with KaTeX, and ```mermaid``` diagrams." to dynamic runtime context in `backend/src/services/systemPrompt.ts`.
+> - Browser acceptance verified with Chrome CDP: non-diagram chat does not load mermaid chunk; flowchart renders SVG in light/dark modes; broken diagram gracefully shows error note with source.
+>
+> Tests: backend 965, frontend 82. Branch: `feat/wp-02-mermaid`.
+>
+> **2026-09-26: WP-01 code block copy button and correct code language complete.**
+> - Completed WP-01 from UI parity plan (`docs/handover/2026-09-26-claude-ui-parity-plan.md`, Gaps 5, 6).
+> - Every code block in chat responses and generative UI renders with a language header and accessible Copy button (`navigator.clipboard.writeText`, 2s "Copied" feedback, `aria-label`).
+> - Shared markdown component map (`sharedMarkdownComponents`) unified in `markdownPlugins.ts` for both `Content.tsx` and `generative-ui/blocks/TextBlock.tsx`. Auto-detection configured (`rehype-highlight` `detect: true`).
+> - Code artifacts in `Panels.tsx` derive language from filename extension via `languageFromFilename` (`codeLanguage.ts`), falling back to automatic detection.
+> - Acceptance verified in browser against local stack (Python and SQL snippets copy test, `x.py` code artifact syntax highlighting).
+>
+> Tests: backend 964, frontend 75. Branch: `feat/wp-01-code-blocks`.
+>
+> **2026-09-26: reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
 >   ran 3 commands, made no unrequested file, and every figure matched the PDF.
 > - The reply-language rule is removed, as in Claude's app prompt: the model chooses the
@@ -12,7 +43,7 @@
 >
 > UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
 > packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
-> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). None started.
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-01 and WP-02 complete.
 >
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode

@@ -24,6 +24,8 @@ import type { ArtifactVersionDto } from "./api";
 import { useWorkspace } from "./workspace";
 import { EmptyState, IconButton } from "./ui";
 import { Markdown } from "./Content";
+import { rehypePluginsWithDetection } from "./markdownPlugins";
+import { languageFromFilename } from "./codeLanguage";
 import type { Attachment, Source } from "./types";
 import {
   canPreviewText,
@@ -747,7 +749,20 @@ function ArtifactPanel({ id }: { id: string }) {
             />
           )
         ) : kind === "code" ? (
-          <Markdown text={"```javascript\n" + content + "\n```"} />
+          <Markdown
+            text={
+              "```" +
+              (languageFromFilename(meta?.title) ?? "") +
+              "\n" +
+              content +
+              "\n```"
+            }
+            rehypePlugins={
+              !languageFromFilename(meta?.title)
+                ? rehypePluginsWithDetection
+                : undefined
+            }
+          />
         ) : (
           <Markdown text={content} />
         )}

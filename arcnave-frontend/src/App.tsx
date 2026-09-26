@@ -50,7 +50,7 @@ import { extractToolCardData, type DeliverableData, type ImageData } from "./too
 import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
-import { AuthenticatedImage } from "./Content";
+import { AuthenticatedImage, MarkdownErrorBoundary } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
 
 const ContextPanel = lazy(() => import("./Panels"));
@@ -837,15 +837,18 @@ function MessageView({
             return <ToolActivity key={i} calls={calls} working={loading && last} answering={false} />;
           }
           return (
-            <Suspense key={i} fallback={<p className="markdown">{seg.text}</p>}>
-              <Markdown
-                text={seg.text}
-                sources={m.sources}
-                onCitation={(selected) =>
-                  setPanel({ kind: "sources", chatId, messageId: m.id, selected })
-                }
-              />
-            </Suspense>
+            <MarkdownErrorBoundary key={i} fallbackText={seg.text}>
+              <Suspense fallback={<p className="markdown">{seg.text}</p>}>
+                <Markdown
+                  text={seg.text}
+                  sources={m.sources}
+                  isStreaming={loading && last}
+                  onCitation={(selected) =>
+                    setPanel({ kind: "sources", chatId, messageId: m.id, selected })
+                  }
+                />
+              </Suspense>
+            </MarkdownErrorBoundary>
           );
         })
       ) : (
@@ -855,15 +858,18 @@ function MessageView({
             <ToolActivity calls={m.toolCalls} working={loading} answering={!!m.text} />
           )}
           {m.text && (
-            <Suspense fallback={<p className="markdown">{m.text}</p>}>
-              <Markdown
-                text={m.text}
-                sources={m.sources}
-                onCitation={(selected) =>
-                  setPanel({ kind: "sources", chatId, messageId: m.id, selected })
-                }
-              />
-            </Suspense>
+            <MarkdownErrorBoundary fallbackText={m.text}>
+              <Suspense fallback={<p className="markdown">{m.text}</p>}>
+                <Markdown
+                  text={m.text}
+                  sources={m.sources}
+                  isStreaming={loading}
+                  onCitation={(selected) =>
+                    setPanel({ kind: "sources", chatId, messageId: m.id, selected })
+                  }
+                />
+              </Suspense>
+            </MarkdownErrorBoundary>
           )}
         </>
       )}
@@ -952,9 +958,11 @@ function MessageView({
             <details key={i} className="ran-code-block">
               <summary>Ran code{block.language ? ` (${block.language})` : ""}</summary>
               {block.code && (
-                <Suspense fallback={<pre>{block.code}</pre>}>
-                  <Markdown text={"```" + (block.language ?? "") + "\n" + block.code + "\n```"} />
-                </Suspense>
+                <MarkdownErrorBoundary fallbackText={block.code}>
+                  <Suspense fallback={<pre>{block.code}</pre>}>
+                    <Markdown text={"```" + (block.language ?? "") + "\n" + block.code + "\n```"} />
+                  </Suspense>
+                </MarkdownErrorBoundary>
               )}
               {block.output && (
                 <pre className="ran-code-output">{block.output}</pre>

@@ -103,15 +103,12 @@ failure mode of this pattern, not a sign it is working.
 - **Note:** This is the same failure the project's own ADR-0002 exists to prevent — a label that
   does not name what actually happens.
 
-### 2026-09-17 — `.dockerignore` excluded a file the Dockerfile copies
+### 2026-09-26 — Returning early before useEffect broke the Rules of Hooks during fence streaming
 
-- **Symptom:** `docker compose build` failed with `"/nginx.conf": not found` on a `COPY` of a
-  file that plainly exists in the directory.
-- **Cause:** I listed `nginx.conf` in `.dockerignore` while thinking about image size. A file
-  excluded from the build context cannot be copied *out* of it, however present it is on disk.
-- **Rule:** **Before ignoring a path, grep the Dockerfile for it.** `.dockerignore` controls
-  what the daemon can see, not merely what it ships.
-- **Verify:** `docker compose build` completes.
+- **Symptom:** App crashed blank with `Rendered fewer hooks than expected. This may be caused by an accidental early return statement.` while a reply was streaming (e.g. ```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
+- **Cause:** `CodeBlock.tsx` declared hooks (`useState`, `useRef`) and then returned early when `language === "mermaid"` before its `useEffect`. During streaming, the fence prefix changed languages dynamically, altering hook counts between renders. With no Error Boundary around message Markdown, the entire React root went blank.
+- **Rule:** **Never branch or return early between hook calls based on dynamic props/classes. Keep dispatchers pure and hookless, delegating to specialized child components that own their hooks.** And always enclose markdown render trees in an `ErrorBoundary` that recovers to raw text.
+- **Verify:** `npx vitest run src/MarkdownStreaming.test.tsx` (using `jsdom`, `createRoot`, and `act`) verifies sequential transition across `"```m\nx"`, `"```mer\nx"`, `"```mermaid\ngraph TD;A-->B"`.
 
 ### 2026-09-17 — A devDependency the production image asks for but does not have
 
@@ -1139,3 +1136,8 @@ practice, not canon.
 - **2026-09-26** — The language-rule placement note above is superseded: the user chose to
   remove the rule, as Claude's app prompt has none. The rule stays: read the vendor's own
   guidance before rewording a rule a model ignores.
+- **2026-09-26** — Added the streaming hook violation entry (`CodeBlock.tsx` early return breaking
+  Rules of Hooks during fence streaming, resolved by making `pre` a hookless dispatcher and adding
+  `MarkdownErrorBoundary`). Retired the 2026-09-17 `.dockerignore` entry (Docker builds have been
+  stable and verified by CI). **40 entries.**
+

@@ -1,11 +1,70 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, createContext, Component } from "react";
 import * as HoverCard from "@radix-ui/react-hover-card";
 import ReactMarkdown from "react-markdown";
+import type { Options } from "react-markdown";
 import { ExternalLink, Download, Image as ImageIcon, AlertCircle } from "lucide-react";
 import type { Source } from "./types";
 import { url as resolveApiUrl } from "./api";
 import { downloadAuthenticated } from "./storage";
-import { remarkPlugins, rehypePlugins } from "./markdownPlugins";
+import { remarkPlugins, rehypePlugins, sharedMarkdownComponents } from "./markdownPlugins";
+
+export interface MarkdownContextValue {
+  isStreaming: boolean;
+  rawText: string;
+}
+
+export const MarkdownContext = createContext<MarkdownContextValue>({
+  isStreaming: false,
+  rawText: "",
+});
+
+export interface MarkdownErrorBoundaryProps {
+  children: React.ReactNode;
+  fallbackText: string;
+}
+
+interface MarkdownErrorBoundaryState {
+  hasError: boolean;
+}
+
+/**
+ * Catches rendering errors in Markdown (e.g. malformed syntax or hook exceptions)
+ * and safely displays the raw source text instead of crashing the entire view.
+ */
+export class MarkdownErrorBoundary extends Component<
+  MarkdownErrorBoundaryProps,
+  MarkdownErrorBoundaryState
+> {
+  constructor(props: MarkdownErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): MarkdownErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  override componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
+    console.error("Markdown rendering error caught by boundary:", error, errorInfo);
+  }
+
+  override componentDidUpdate(prevProps: MarkdownErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.fallbackText !== this.props.fallbackText) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <pre className="markdown-error-fallback" tabIndex={0}>
+          <code>{this.props.fallbackText}</code>
+        </pre>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export function AuthenticatedImage({
   src,
@@ -168,84 +227,92 @@ export function Markdown({
   text,
   sources = [],
   onCitation,
+  isStreaming = false,
+  rehypePlugins: customRehypePlugins,
 }: {
   text: string;
   sources?: Source[];
   onCitation?: (id: number) => void;
+  isStreaming?: boolean;
+  rehypePlugins?: NonNullable<Options["rehypePlugins"]>;
 }) {
   return (
-    <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        components={{
-          a: ({ href, children }) => {
-            const id = href?.match(/^#source-(\d+)$/)?.[1];
-            const source = sources.find((s) => s.id === Number(id));
-            if (source && onCitation) {
-              return (
-                <Citation
-                  source={source}
-                  onSelect={() => onCitation(source.id)}
-                />
-              );
-            }
-            if (href?.startsWith("#source-")) {
-              return <span className="missing-citation">[reference unavailable]</span>;
-            }
+    <MarkdownErrorBoundary fallbackText={text}>
+      <MarkdownContext.Provider value={{ isStreaming, rawText: text }}>
+        <div className="markdown">
+          <ReactMarkdown
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={customRehypePlugins ?? rehypePlugins}
+            components={{
+            ...sharedMarkdownComponents,
+            a: ({ href, children }) => {
+              const id = href?.match(/^#source-(\d+)$/)?.[1];
+              const source = sources.find((s) => s.id === Number(id));
+              if (source && onCitation) {
+                return (
+                  <Citation
+                    source={source}
+                    onSelect={() => onCitation(source.id)}
+                  />
+                );
+              }
+              if (href?.startsWith("#source-")) {
+                return <span className="missing-citation">[reference unavailable]</span>;
+              }
 
-            const isDownload =
-              href &&
-              (href.includes("/files/") ||
-                href.includes("/download") ||
-                href.includes("/artifacts/") ||
-                /\.(xlsx|docx|pptx|pdf|png|jpe?g|webp)$/i.test(href));
+              const isDownload =
+                href &&
+                (href.includes("/files/") ||
+                  href.includes("/download") ||
+                  href.includes("/artifacts/") ||
+                  /\.(xlsx|docx|pptx|pdf|png|jpe?g|webp)$/i.test(href));
 
-            if (isDownload && href) {
-              const filename =
-                typeof children === "string" && children.trim().length > 0
-                  ? children.trim()
-                  : href.split("/").pop() || "download";
+              if (isDownload && href) {
+                const filename =
+                  typeof children === "string" && children.trim().length > 0
+                    ? children.trim()
+                    : href.split("/").pop() || "download";
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void downloadAuthenticated(href, filename);
+                    }}
+                    className="download-link"
+                  >
+                    {children}
+                    <Download size={11} />
+                  </a>
+                );
+              }
+
               return (
-                <a
-                  href={href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void downloadAuthenticated(href, filename);
-                  }}
-                  className="download-link"
-                >
+                <a href={href} target="_blank" rel="noopener noreferrer">
                   {children}
-                  <Download size={11} />
+                  <ExternalLink size={11} />
                 </a>
               );
-            }
-
-            return (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-                <ExternalLink size={11} />
-              </a>
-            );
-          },
-          table: ({ children }) => (
-            <div
-              className="table-scroll"
-              tabIndex={0}
-              role="region"
-              aria-label="Answer table"
-            >
-              <table>{children}</table>
-            </div>
-          ),
-          pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
-          img: ({ src, alt }) => (
-            <AuthenticatedImage src={src} alt={alt || "Response image"} />
-          ),
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
+            },
+            table: ({ children }) => (
+              <div
+                className="table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Answer table"
+              >
+                <table>{children}</table>
+              </div>
+            ),
+            img: ({ src, alt }) => (
+              <AuthenticatedImage src={src} alt={alt || "Response image"} />
+            ),
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      </div>
+    </MarkdownContext.Provider>
+    </MarkdownErrorBoundary>
   );
 }
