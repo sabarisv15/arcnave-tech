@@ -1136,3 +1136,6 @@ practice, not canon.
   constraints at the top of the system instruction). Rule: when a model ignores a rule that is
   in the prompt, check its vendor's placement guidance before rewording or repeating it.
   Verify: Eval 11c, then a live Tanglish turn.
+- **2026-09-26** — The language-rule placement note above is superseded: the user chose to
+  remove the rule, as Claude's app prompt has none. The rule stays: read the vendor's own
+  guidance before rewording a rule a model ignores.

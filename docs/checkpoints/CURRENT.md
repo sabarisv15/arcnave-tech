@@ -1,11 +1,10 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): reply-language rule moved to the top; math rendered in chat.**
+> **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
 >   ran 3 commands, made no unrequested file, and every figure matched the PDF.
-> - That reply was in Tamil script for a Latin-script message. The language rule moved from
->   `<communication>` to the opening block of the prompt (Gemini 3 guidance: behavioural
->   constraints at the top). Eval 11c holds its position. Not yet verified live.
+> - The reply-language rule is removed, as in Claude's app prompt: the model chooses the
+>   language and script. Eval 11c checks it stays out.
 > - The chat now typesets `$$…$$` with KaTeX (`remark-math` + `rehype-katex`,
 >   `arcnave-frontend/src/markdownPlugins.ts`), as Claude's app does. A single `$` stays text.
 >

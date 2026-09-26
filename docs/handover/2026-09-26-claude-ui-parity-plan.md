@@ -34,7 +34,7 @@
 
 | WP | Gaps | What | Phase | ADR | Done |
 |---|---|---|---|---|---|
-| WP-00 | 7 | Ship the LaTeX + language fix already on `claude/tools-skills-architecture-jyxa61` | 0 | no | [ ] |
+| WP-00 | 7 | Ship the LaTeX fix and language-rule removal | 0 | no | [x] |
 | WP-01 | 5, 6 | Code block copy button; correct language in code artifacts | 1 | no | [ ] |
 | WP-02 | 2 | Mermaid diagrams in chat and documents | 1 | no | [ ] |
 | WP-03 | 17, 20 | More keyboard shortcuts; a readable (dyslexia-friendly) font | 1 | no | [ ] |
@@ -64,9 +64,8 @@ WPs inside one phase are independent unless a WP says otherwise.
 
 - Branch `claude/tools-skills-architecture-jyxa61`, commit `dfdb8cd`:
   - LaTeX (`$$…$$`) typeset with KaTeX in chat (`arcnave-frontend/src/markdownPlugins.ts`);
-  - the reply-language rule moved to the top of the system prompt.
-- Open a PR, merge it, deploy, and send one Tanglish message. The reply should be in Latin letters
-  and a `$$` formula should render.
+  - the reply-language rule removed (the model chooses, as in Claude's app prompt).
+- Merged to `main` on 2026-09-26. After deploy, check that a `$$` formula renders.
 
 ---
 
