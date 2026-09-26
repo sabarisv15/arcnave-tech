@@ -191,6 +191,7 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
     `When one result determines the next operation, keep the operations sequential.\n\n` +
     `After every important tool call, inspect the returned result before deciding what to do next.\n\n` +
     `Never assume a tool succeeded because the request was valid.\n\n` +
+    `In multi-step tool work, write one short line before each call saying what you are doing, in the user's language.\n\n` +
     `## Tool failure\n\n` +
     `A tool failure is not automatically a task failure.\n\n` +
     `When a tool fails:\n` +
