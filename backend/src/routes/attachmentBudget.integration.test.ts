@@ -53,8 +53,10 @@ describe('G15: historical PDF over the budget', () => {
       payload: { title: 'New conversation' },
     });
     const chatId = (chat.json() as { id: string }).id;
+    // Pinned: the history budget is Gemini's (Claude's requests are bounded by their byte limit),
+    // and under Auto the chat keeps the model its upload turn chose.
     const send = (payload: Record<string, unknown>) =>
-      ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: { cookie: user.cookie }, payload });
+      ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: { cookie: user.cookie }, payload: { model: 'Gemini 3.8 Flash', ...payload } });
 
     expect((await send({ prompt: 'Here is my statement', attachmentIds: [fileId] })).statusCode).toBe(200);
 

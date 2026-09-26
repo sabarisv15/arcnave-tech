@@ -1,6 +1,25 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): Claude-parity work merged and deployed (PR #19, PR #20). Start here.**
+> **2026-09-26 (latest): model capability set up at ArcNave level (ADR-0031), on branch, not live.**
+> From the [intelligence and latency audit](../audits/2026-09-26-intelligence-latency-audit.md):
+> - reasoning effort (`REASONING_EFFORT`, default high → Gemini thinkingLevel HIGH, Claude
+>   `output_config.effort`);
+> - 64K output (migration 0015);
+> - web search on Chat turns, which the model decides to use;
+> - Auto keeps one model per chat;
+> - old tool results cleared past 100k (keep 3, batches of 5; Gemini adapter);
+> - skills load for procedure only;
+> - prompt rewritten calm (30.5k → 23.5k chars);
+> - render_ui policy only when declared.
+>
+> Also on the branch: `turn timing` `streamMs` (model versus tool time). Tests: backend 982,
+> frontend 62. Live checks after deploy:
+> - `turn timing` shows `effort: "high"`;
+> - a Chat question needing current facts shows sources;
+> - a long tool turn's later requests are smaller.
+> Still open: I8 streaming hold (DevTools timing check).
+>
+> **2026-09-26: Claude-parity work merged and deployed (PR #19, PR #20).**
 >
 > **Session handoff (read this first next session).**
 > Goal throughout: ArcNave (Gemini on Vertex, provider-agnostic) behaves like Claude. Claude
@@ -43,7 +62,13 @@
 >    read that request's logs); files saved twice in a turn showed twice (now one card per
 >    filename, latest version); the prompt now asks for one short line before each tool call.
 >    The 2,240,480-in turn was real for a ~10-round tool loop: each round resends the chat.
-> 8. Tests at handoff: backend 970, frontend 62, typecheck and build clean. Migrations 0013
+>    Logs (revision 00141, PR #20 build): the "Sending request 229 s" turn sent `start` within
+>    ~130 ms and got the model's first event at 10.4 s, yet the browser showed nothing, so the
+>    frames were held between Cloud Run and the browser (request logged as HTTP/1.1; check
+>    DevTools → Network → Protocol / EventStream). Turns themselves are slow: 472 s with 2
+>    tool calls, 729 s with 15 (first event 74 s). `turn timing` now carries `streamMs`
+>    {model, tools, longestModelWait, modelRequests} to say which one.
+> 8. Tests at handoff: backend 971, frontend 62, typecheck and build clean. Migrations 0013
 >    (`messages.thinking`) and 0014 (`messages.segments`) are stamped after 0012.
 >
 > **2026-09-26: Claude-parity audit written down** ([audit](../audits/2026-09-26-claude-parity-audit.md)).

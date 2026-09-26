@@ -80,6 +80,7 @@ export interface AgentLoopOptions {
   entry: ModelEntry;
   provider: Provider;
   maxOutputTokens: number;
+  reasoningEffort?: import('../providers/types.js').ReasoningEffort;
   prefs: PreferencesRow;
   project: { id: string; instructions: string } | null;
   history: Turn[];
@@ -172,6 +173,7 @@ export class AgentLoop {
       entry,
       provider,
       maxOutputTokens,
+      reasoningEffort,
       prefs,
       project,
       history,
@@ -593,6 +595,7 @@ export class AgentLoop {
           promptAssembly,
           mode: input.mode,
           maxOutputTokens,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
           providerModelId: entry.providerModelId!,
           grounded,
           codeExecution,
@@ -799,6 +802,7 @@ export class AgentLoop {
             systemInstruction,
             mode: input.mode,
             maxOutputTokens,
+            ...(reasoningEffort ? { reasoningEffort } : {}),
             providerModelId: entry.providerModelId!,
             grounded: false,
             codeExecution: false,

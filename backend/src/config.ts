@@ -115,8 +115,16 @@ const envSchema = z.object({
   TURN_DEADLINE_MS: int(3_540_000),
 
   // --- Generation limits --------------------------------------------------
-  DEFAULT_MAX_OUTPUT_TOKENS: int(32_000),
-  MAX_OUTPUT_TOKENS_CEILING: int(32_000),
+  // Claude's docs: "Set it to 64,000 for agentic work (128,000 at xhigh or max effort)". A turn
+  // never asks for more than its model's own maximum (capabilitiesTable maxOutputTokens).
+  DEFAULT_MAX_OUTPUT_TOKENS: int(64_000),
+  MAX_OUTPUT_TOKENS_CEILING: int(128_000),
+  /** Clearing old tool results (providers/contextEditing.ts), with Claude's defaults. */
+  CONTEXT_EDIT_TRIGGER_TOKENS: int(100_000),
+  CONTEXT_EDIT_KEEP_TOOL_RESULTS: int(3),
+  CONTEXT_EDIT_CLEAR_BATCH: int(5),
+  /** How hard models think (ReasoningEffort). Clamped per model to the levels it supports. */
+  REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   /** Project files go into the prompt whole while their text totals at most this many
    *  characters; past it, the model searches them with search_project_files, as Claude's
    *  project knowledge search tool does (ADR-0020). Claude publishes no number ("approaches the

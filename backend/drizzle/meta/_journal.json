@@ -106,6 +106,13 @@
       "when": 1790800000000,
       "tag": "0014_message_segments",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0015_max_output_64k",
+      "breakpoints": true
     }
   ]
 }

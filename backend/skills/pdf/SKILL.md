@@ -1,7 +1,7 @@
 ---
 name: pdf
 version: 3.1.0
-description: Use whenever a PDF is involved — reading, summarizing, extracting text or tables, counting or totalling rows, classifying entries, scanned or photographed PDFs, converting a PDF to Excel/Word, splitting, merging, or creating a PDF. Load it before working on an uploaded PDF's contents.
+description: "Use when a task needs PDF procedure beyond reading pages already shown: exact text or table extraction, counting or totalling rows, classifying entries, scanned or photographed PDFs, converting a PDF to Excel/Word, splitting, merging, or creating a PDF. Not needed to answer a question from a PDF already in the conversation."
 category: artifact
 scope: builtin
 requires:

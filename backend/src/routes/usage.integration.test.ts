@@ -195,7 +195,7 @@ describe('preferences', () => {
       modelAlias: 'Auto',
       enterToSend: true,
       // 4096 cut Gemini answers short: its thinking tokens count against the same limit.
-      maxOutputTokens: 32000,
+      maxOutputTokens: 64000,
       version: 1,
     });
   });

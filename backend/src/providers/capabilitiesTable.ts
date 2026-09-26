@@ -5,6 +5,8 @@
  * resolution thresholds, and tool capabilities. Eliminates hardcoded magic numbers across adapters.
  */
 
+import type { ReasoningEffort } from './types.js';
+
 export interface ModelCapabilitySpec {
   alias: string;
   provider: 'google' | 'anthropic' | 'openai-oss';
@@ -25,6 +27,8 @@ export interface ModelCapabilitySpec {
   maxInputTokens?: number;
   /** Maximum output tokens supported by the provider endpoint. */
   maxOutputTokens?: number;
+  /** Effort levels the model accepts, low to high; empty when it has no effort control. */
+  reasoningEfforts: readonly ReasoningEffort[];
   /** Maximum combined context window size in tokens, only when specifically defined that way. */
   contextWindowTokens?: number;
   /**
@@ -59,6 +63,7 @@ const CLAUDE_SONNET_5_SPEC: ModelCapabilitySpec = {
   supportsImageGeneration: true, // routed via generate_image tool
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
   maxPdfPagesPerRequest: CLAUDE_VERTEX_MAX_PDF_PAGES,
   maxRequestBytes: CLAUDE_VERTEX_MAX_REQUEST_BYTES,
 };
@@ -75,6 +80,7 @@ const CLAUDE_OPUS_5_SPEC: ModelCapabilitySpec = {
   supportsImageGeneration: true,
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
   maxPdfPagesPerRequest: CLAUDE_VERTEX_MAX_PDF_PAGES,
   maxRequestBytes: CLAUDE_VERTEX_MAX_REQUEST_BYTES,
 };
@@ -91,6 +97,8 @@ const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
   supportsImageGeneration: true,
   maxInputTokens: 1_048_576,
   maxOutputTokens: 65_536,
+  // thinkingLevel LOW, MEDIUM (default), HIGH; MINIMAL is refused on 3.8 Flash (Google's 3.8 Flash guide).
+  reasoningEfforts: ['low', 'medium', 'high'],
   contextWindowTokens: 1_048_576, // 1M combined tokens
   // No verified per-request PDF-page or body limit for this model on Vertex yet; the provider's
   // own rejection (mapped to provider_payload_limit) is the backstop.
@@ -110,6 +118,7 @@ const GPT_OSS_120B_SPEC: ModelCapabilitySpec = {
   supportsImageGeneration: true,
   maxInputTokens: 128_000,
   maxOutputTokens: 8_192,
+  reasoningEfforts: [],
   contextWindowTokens: 128_000,
   maxPdfPagesPerRequest: null,
   maxRequestBytes: null,
@@ -151,8 +160,21 @@ export function getModelCapability(aliasOrModelId: string): ModelCapabilitySpec 
     supportsImageGeneration: false,
     maxInputTokens: 128_000,
     maxOutputTokens: 4_096,
+    reasoningEfforts: [],
     contextWindowTokens: 128_000,
     maxPdfPagesPerRequest: null,
     maxRequestBytes: null,
   };
+}
+
+/**
+ * The effort a model runs at: the requested level, or the highest level below it the model
+ * accepts. Undefined for a model with no effort control, so nothing is sent.
+ */
+export function effortFor(spec: ModelCapabilitySpec, requested: ReasoningEffort): ReasoningEffort | undefined {
+  const ladder = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+  for (let i = ladder.indexOf(requested); i >= 0; i -= 1) {
+    if (spec.reasoningEfforts.includes(ladder[i]!)) return ladder[i];
+  }
+  return spec.reasoningEfforts[0];
 }

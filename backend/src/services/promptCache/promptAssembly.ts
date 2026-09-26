@@ -32,7 +32,9 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedTool
     STATIC_BASE_SYSTEM_PROMPT_V1,
     ...(allowed.has('save_memory') ? [STATIC_MEMORY_POLICY_V1] : []),
     STATIC_COMPACTION_POLICY_V1,
-    ...(allowed.has('render_ui') ? [GENERATIVE_UI_POLICY_V1] : []),
+    // render_ui's policy says "You have access to the render_ui tool", so it goes in only when
+    // the tool is declared: a model can only call what it was declared (Gemini function calling).
+    ...(authorizedTools.some((t) => t.name === 'render_ui') ? [GENERATIVE_UI_POLICY_V1] : []),
     ...(allowed.has('run_python') ? [ANALYTICS_POLICY_V1] : []),
   ].join('\n\n');
 

@@ -401,4 +401,49 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     const req = client.calls[0] as { config: { thinkingConfig?: { includeThoughts?: boolean } } };
     expect(req.config.thinkingConfig?.includeThoughts).toBe(true);
   });
+
+  it('sends the requested effort as thinkingLevel, and none when the request has no effort', async () => {
+    const client = new FakeGeminiClient();
+    const reply = () => fakeStream([{ text: 'ok', candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }] }] as never);
+    client.responses = [reply(), reply()];
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    await collect(provider.stream(baseRequest({ reasoningEffort: 'xhigh' })));
+    await collect(provider.stream(baseRequest({})));
+    const level = (i: number) => (client.calls[i] as { config: { thinkingConfig?: { thinkingLevel?: string } } }).config.thinkingConfig?.thinkingLevel;
+    expect(level(0)).toBe('HIGH');
+    expect(level(1)).toBeUndefined();
+  });
+
+  it('in Chat, offers Google Search with the functions and reports no search the model did not run', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [fakeStream([{ text: '4', candidates: [{ content: { parts: [{ text: '4' }] }, finishReason: 'STOP' }] }] as never)];
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', ENABLE_GOOGLE_SEARCH_GROUNDING: 'true' }), client as never);
+    const executor = new ScriptedExecutor();
+    const events = await collect(provider.stream(baseRequest({ grounded: true, tools: [SEARCH_TOOL], toolExecutor: executor })));
+    const tools = (client.calls[0] as { config: { tools?: object[] } }).config.tools ?? [];
+    expect(tools.some((t) => 'googleSearch' in t)).toBe(true);
+    expect(tools.some((t) => 'functionDeclarations' in t)).toBe(true);
+    expect(events.filter((e) => e.type === 'progress')).toEqual([]);
+  });
+
+  it('clears the oldest tool results once a request passes the context-editing threshold', async () => {
+    const client = new FakeGeminiClient();
+    const big = { usageMetadata: { promptTokenCount: 150_000, candidatesTokenCount: 5 } };
+    client.responses = [
+      ...Array.from({ length: 8 }, (_, i) =>
+        fakeStream([{ functionCalls: [{ id: `c${i}`, name: 'search_project_files', args: { query: String(i) } }], ...big }]),
+      ),
+      fakeStream([{ text: 'done', ...big, candidates: [{ finishReason: 'STOP' }] }]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'hit' }] });
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '16' }), client as never);
+    await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+
+    const last = client.calls.at(-1) as { contents: { parts?: { functionResponse?: { response: { output: unknown } } }[] }[] };
+    const outputs = last.contents.flatMap((c) => c.parts ?? []).filter((p) => p.functionResponse).map((p) => p.functionResponse!.response.output);
+    expect(outputs).toHaveLength(8);
+    expect(outputs.slice(0, 5).every((o) => typeof o === 'string' && o.includes('cleared'))).toBe(true);
+    expect(outputs.slice(5)).toEqual(['hit', 'hit', 'hit']);
+  });
 });

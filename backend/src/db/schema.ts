@@ -90,7 +90,7 @@ export const preferences = pgTable(
     saveHistory: boolean('save_history').notNull().default(true),
 
     // Usage & limits
-    maxOutputTokens: integer('max_output_tokens').notNull().default(32000),
+    maxOutputTokens: integer('max_output_tokens').notNull().default(64000),
     dailyTokenBudget: integer('daily_token_budget'),
     monthlyTokenBudget: integer('monthly_token_budget'),
     warnThresholdPct: integer('warn_threshold_pct').notNull().default(80),

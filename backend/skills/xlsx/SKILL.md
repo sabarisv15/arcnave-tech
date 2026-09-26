@@ -1,7 +1,7 @@
 ---
 name: xlsx
 version: 2.1.0
-description: Use whenever a spreadsheet or CSV/TSV is involved — reading or analysing an uploaded .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file. Load it before working on an uploaded spreadsheet's contents.
+description: "Use when a task works on spreadsheet data: analysing or computing over an uploaded .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file. Not needed to answer a question from a sheet's text already in the conversation."
 category: artifact
 scope: builtin
 requires:
