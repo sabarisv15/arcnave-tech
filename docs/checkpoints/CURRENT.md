@@ -1,6 +1,18 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): WP-01 code block copy button and correct code language complete.**
+> **2026-09-26 (latest): WP-02 Mermaid diagrams complete.**
+> - Completed WP-02 from UI parity plan (`docs/handover/2026-09-26-claude-ui-parity-plan.md`, Gap 2).
+> - Added `mermaid` package with lazy-loading (`await import('mermaid')`), keeping it isolated in dynamic chunks without bloating the initial chat bundle.
+> - `MermaidBlock.tsx` renders SVG diagrams with `{ startOnLoad: false, securityLevel: 'strict', theme }` matching the light/dark theme.
+> - Streaming & debounce: shows source while block is unclosed during streaming; renders diagram once closed or message is complete (debounced by 300ms).
+> - Toolbar controls: "Diagram / Code" view toggle, copy source button (with 2s Copied feedback), and download `.svg` button.
+> - Robust error fallback: on render/syntax error, displays "Diagram could not be drawn" notice with source code fallback, never breaking the conversation.
+> - Runtime capability reflection: added "The chat renders Markdown, `$$…$$` math with KaTeX, and ```mermaid``` diagrams." to dynamic runtime context in `backend/src/services/systemPrompt.ts`.
+> - Browser acceptance verified with Chrome CDP: non-diagram chat does not load mermaid chunk; flowchart renders SVG in light/dark modes; broken diagram gracefully shows error note with source.
+>
+> Tests: backend 965, frontend 82. Branch: `feat/wp-02-mermaid`.
+>
+> **2026-09-26: WP-01 code block copy button and correct code language complete.**
 > - Completed WP-01 from UI parity plan (`docs/handover/2026-09-26-claude-ui-parity-plan.md`, Gaps 5, 6).
 > - Every code block in chat responses and generative UI renders with a language header and accessible Copy button (`navigator.clipboard.writeText`, 2s "Copied" feedback, `aria-label`).
 > - Shared markdown component map (`sharedMarkdownComponents`) unified in `markdownPlugins.ts` for both `Content.tsx` and `generative-ui/blocks/TextBlock.tsx`. Auto-detection configured (`rehype-highlight` `detect: true`).
@@ -21,7 +33,7 @@
 >
 > UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
 > packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
-> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-01 complete.
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-01 and WP-02 complete.
 >
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode

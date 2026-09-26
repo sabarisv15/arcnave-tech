@@ -1506,6 +1506,109 @@ textarea {
   padding: 14px 16px;
   overflow-x: auto;
 }
+.mermaid-wrapper {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--soft);
+}
+.mermaid-wrapper pre,
+.markdown .mermaid-wrapper pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 16px;
+  overflow-x: auto;
+}
+.mermaid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 14px;
+  background: color-mix(in srgb, var(--soft) 70%, var(--surface));
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+}
+.mermaid-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mermaid-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.mermaid-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mermaid-toggle-btn:hover {
+  color: var(--ink);
+}
+.mermaid-toggle-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.mermaid-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.mermaid-action-btn:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.mermaid-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.mermaid-container {
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-x: auto;
+  min-height: 80px;
+  background: var(--surface);
+}
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+.mermaid-error-note {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--soft) 85%, #ef4444 15%);
+  border-bottom: 1px solid var(--line);
+}
 .markdown img {
   display: block;
   max-width: 100%;

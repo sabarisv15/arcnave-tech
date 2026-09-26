@@ -200,6 +200,7 @@ export function buildDynamicRuntimeContext(
   const capabilityLines: string[] = [
     '<arcNave_capabilities>\n',
     'ArcNave provides a small set of powerful tools.\n',
+    'The chat renders Markdown, `$$…$$` math with KaTeX, and ```mermaid``` diagrams.\n',
     'Available core tool families include:\n',
   ];
 

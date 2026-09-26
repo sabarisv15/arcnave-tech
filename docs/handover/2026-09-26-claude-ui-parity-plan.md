@@ -36,7 +36,7 @@
 |---|---|---|---|---|---|
 | WP-00 | 7 | Ship the LaTeX fix and language-rule removal | 0 | no | [x] |
 | WP-01 | 5, 6 | Code block copy button; correct language in code artifacts | 1 | no | [x] |
-| WP-02 | 2 | Mermaid diagrams in chat and documents | 1 | no | [ ] |
+| WP-02 | 2 | Mermaid diagrams in chat and documents | 1 | no | [x] |
 | WP-03 | 17, 20 | More keyboard shortcuts; a readable (dyslexia-friendly) font | 1 | no | [ ] |
 | WP-04 | 19 | Effort control in the composer | 2 | no | [ ] |
 | WP-05 | 18 | Styles (presets + custom) | 2 | yes | [ ] |

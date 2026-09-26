@@ -841,6 +841,7 @@ function MessageView({
               <Markdown
                 text={seg.text}
                 sources={m.sources}
+                isStreaming={loading && last}
                 onCitation={(selected) =>
                   setPanel({ kind: "sources", chatId, messageId: m.id, selected })
                 }
@@ -859,6 +860,7 @@ function MessageView({
               <Markdown
                 text={m.text}
                 sources={m.sources}
+                isStreaming={loading}
                 onCitation={(selected) =>
                   setPanel({ kind: "sources", chatId, messageId: m.id, selected })
                 }

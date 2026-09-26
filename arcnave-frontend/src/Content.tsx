@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, createContext } from "react";
 import * as HoverCard from "@radix-ui/react-hover-card";
 import ReactMarkdown from "react-markdown";
 import { ExternalLink, Download, Image as ImageIcon, AlertCircle } from "lucide-react";
@@ -6,6 +6,16 @@ import type { Source } from "./types";
 import { url as resolveApiUrl } from "./api";
 import { downloadAuthenticated } from "./storage";
 import { remarkPlugins, rehypePlugins, sharedMarkdownComponents } from "./markdownPlugins";
+
+export interface MarkdownContextValue {
+  isStreaming: boolean;
+  rawText: string;
+}
+
+export const MarkdownContext = createContext<MarkdownContextValue>({
+  isStreaming: false,
+  rawText: "",
+});
 
 export function AuthenticatedImage({
   src,
@@ -168,84 +178,88 @@ export function Markdown({
   text,
   sources = [],
   onCitation,
+  isStreaming = false,
 }: {
   text: string;
   sources?: Source[];
   onCitation?: (id: number) => void;
+  isStreaming?: boolean;
 }) {
   return (
-    <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        components={{
-          ...sharedMarkdownComponents,
-          a: ({ href, children }) => {
-            const id = href?.match(/^#source-(\d+)$/)?.[1];
-            const source = sources.find((s) => s.id === Number(id));
-            if (source && onCitation) {
-              return (
-                <Citation
-                  source={source}
-                  onSelect={() => onCitation(source.id)}
-                />
-              );
-            }
-            if (href?.startsWith("#source-")) {
-              return <span className="missing-citation">[reference unavailable]</span>;
-            }
+    <MarkdownContext.Provider value={{ isStreaming, rawText: text }}>
+      <div className="markdown">
+        <ReactMarkdown
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins}
+          components={{
+            ...sharedMarkdownComponents,
+            a: ({ href, children }) => {
+              const id = href?.match(/^#source-(\d+)$/)?.[1];
+              const source = sources.find((s) => s.id === Number(id));
+              if (source && onCitation) {
+                return (
+                  <Citation
+                    source={source}
+                    onSelect={() => onCitation(source.id)}
+                  />
+                );
+              }
+              if (href?.startsWith("#source-")) {
+                return <span className="missing-citation">[reference unavailable]</span>;
+              }
 
-            const isDownload =
-              href &&
-              (href.includes("/files/") ||
-                href.includes("/download") ||
-                href.includes("/artifacts/") ||
-                /\.(xlsx|docx|pptx|pdf|png|jpe?g|webp)$/i.test(href));
+              const isDownload =
+                href &&
+                (href.includes("/files/") ||
+                  href.includes("/download") ||
+                  href.includes("/artifacts/") ||
+                  /\.(xlsx|docx|pptx|pdf|png|jpe?g|webp)$/i.test(href));
 
-            if (isDownload && href) {
-              const filename =
-                typeof children === "string" && children.trim().length > 0
-                  ? children.trim()
-                  : href.split("/").pop() || "download";
+              if (isDownload && href) {
+                const filename =
+                  typeof children === "string" && children.trim().length > 0
+                    ? children.trim()
+                    : href.split("/").pop() || "download";
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void downloadAuthenticated(href, filename);
+                    }}
+                    className="download-link"
+                  >
+                    {children}
+                    <Download size={11} />
+                  </a>
+                );
+              }
+
               return (
-                <a
-                  href={href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void downloadAuthenticated(href, filename);
-                  }}
-                  className="download-link"
-                >
+                <a href={href} target="_blank" rel="noopener noreferrer">
                   {children}
-                  <Download size={11} />
+                  <ExternalLink size={11} />
                 </a>
               );
-            }
-
-            return (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-                <ExternalLink size={11} />
-              </a>
-            );
-          },
-          table: ({ children }) => (
-            <div
-              className="table-scroll"
-              tabIndex={0}
-              role="region"
-              aria-label="Answer table"
-            >
-              <table>{children}</table>
-            </div>
-          ),
-          img: ({ src, alt }) => (
-            <AuthenticatedImage src={src} alt={alt || "Response image"} />
-          ),
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
+            },
+            table: ({ children }) => (
+              <div
+                className="table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Answer table"
+              >
+                <table>{children}</table>
+              </div>
+            ),
+            img: ({ src, alt }) => (
+              <AuthenticatedImage src={src} alt={alt || "Response image"} />
+            ),
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      </div>
+    </MarkdownContext.Provider>
   );
 }

@@ -47,6 +47,10 @@ export interface CodeBlockProps
  * - Provides a per-block Copy button that copies plain text to clipboard.
  * - Shows "Copied" feedback for 2 seconds.
  */
+const LazyMermaidBlock = React.lazy(() =>
+  import("./MermaidBlock").then((m) => ({ default: m.MermaidBlock })),
+);
+
 export function CodeBlock({
   children,
   node: _node,
@@ -56,6 +60,29 @@ export function CodeBlock({
   const [copied, setCopied] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
   const language = extractLanguageFromChildren(children);
+
+  if (language === "mermaid") {
+    const rawSource = extractTextFromChildren(children).replace(/\n$/, "");
+    return (
+      <React.Suspense
+        fallback={
+          <div className="code-block-wrapper">
+            <pre tabIndex={0} className={className} {...rest}>
+              {children}
+            </pre>
+          </div>
+        }
+      >
+        <LazyMermaidBlock
+          source={rawSource}
+          className={className}
+          {...rest}
+        >
+          {children}
+        </LazyMermaidBlock>
+      </React.Suspense>
+    );
+  }
 
   useEffect(() => {
     if (!copied) return;
