@@ -125,7 +125,7 @@ describe('G26: attachments reach the sandbox by fileId', () => {
     expect(prompt).toContain('already in run_python\'s working directory');
     const result = run.result();
     expect(result.ok).toBe(true);
-    expect(data(result).stdout).toBe('older-file\ncurrent-file\n');
+    expect(data(result).stdout.replace(/\r\n/g, '\n')).toBe('older-file\ncurrent-file\n');
   });
 
   it('chat path: this turn\'s attachment is materialised into input/', async () => {
