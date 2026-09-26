@@ -255,6 +255,14 @@ function ThoughtText({ text }: { text: string }) {
  */
 export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
+  // Claude's app shows "a 'Thinking' indicator with a timer" while it thinks (Help Center).
+  const [seconds, setSeconds] = useState(1);
+  useEffect(() => {
+    if (!live) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setSeconds(Math.max(1, Math.floor((Date.now() - startedAt) / 1000))), 500);
+    return () => window.clearInterval(timer);
+  }, [live]);
   if (!text.trim()) return null;
   const headline = thoughtHeadline(text) || "Thinking";
   return (
@@ -262,6 +270,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
       <button type="button" className="tool-activity-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <Brain size={14} aria-hidden="true" />
         <span className={live ? "shimmer-text" : ""}>{headline}</span>
+        {live && <time>{seconds}s</time>}
         <ChevronRight size={13} className={open ? "activity-chevron open" : "activity-chevron"} />
       </button>
       {open && <ThoughtText text={text} />}
