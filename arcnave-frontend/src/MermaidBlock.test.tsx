@@ -1,8 +1,11 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import React from "react";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MermaidBlock, isBlockClosed, getMermaidTheme, loadMermaid } from "./MermaidBlock";
 import { MarkdownContext } from "./Content";
+import * as clipboardModule from "./clipboard";
 
 describe("MermaidBlock logic & rendering", () => {
   it("correctly identifies closed vs unclosed fences with isBlockClosed", () => {
@@ -95,5 +98,94 @@ describe("MermaidBlock logic & rendering", () => {
 
     expect(caughtError).toBeInstanceOf(Error);
     renderSpy.mockRestore();
+  });
+
+  it("displays 'Copy failed' when copyTextToClipboard rejects in MermaidBlock", async () => {
+    // @ts-expect-error React act environment flag
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.spyOn(clipboardModule, "copyTextToClipboard").mockResolvedValueOnce(false);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MarkdownContext.Provider
+          value={{ isStreaming: false, rawText: "```mermaid\ngraph TD\nA --> B\n```" }}
+        >
+          <MermaidBlock source="graph TD\nA --> B" />
+        </MarkdownContext.Provider>,
+      );
+    });
+
+    const copyBtn = container.querySelector(".mermaid-action-btn") as HTMLButtonElement;
+    expect(copyBtn).not.toBeNull();
+
+    await act(async () => {
+      copyBtn.click();
+    });
+
+    expect(copyBtn.textContent).toContain("Copy failed");
+    expect(copyBtn.getAttribute("aria-label")).toBe("Copy failed");
+
+    act(() => root.unmount());
+    document.body.removeChild(container);
+    vi.restoreAllMocks();
+  });
+
+  it("re-renders diagram when document theme changes", async () => {
+    // @ts-expect-error React act environment flag
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const mermaid = await loadMermaid();
+    const initSpy = vi.spyOn(mermaid, "initialize").mockImplementation(() => {});
+    vi.spyOn(mermaid, "render").mockResolvedValue({
+      svg: '<svg id="theme-test"><text>Theme Test</text></svg>',
+      diagramType: "flowchart",
+    });
+
+    document.documentElement.dataset.theme = "light";
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MarkdownContext.Provider
+          value={{ isStreaming: false, rawText: "```mermaid\ngraph TD\nA --> B\n```" }}
+        >
+          <MermaidBlock source="graph TD\nA --> B" />
+        </MarkdownContext.Provider>,
+      );
+    });
+
+    // Wait for initial render debounce
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(initSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ theme: "default" }),
+    );
+
+    // Now change document theme to dark
+    await act(async () => {
+      document.documentElement.dataset.theme = "dark";
+    });
+
+    // Wait for theme update debounce
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(initSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ theme: "dark" }),
+    );
+
+    act(() => root.unmount());
+    document.body.removeChild(container);
+    initSpy.mockRestore();
+    vi.restoreAllMocks();
   });
 });

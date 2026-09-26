@@ -1609,6 +1609,19 @@ textarea {
   background: color-mix(in srgb, var(--soft) 85%, #ef4444 15%);
   border-bottom: 1px solid var(--line);
 }
+.markdown-error-fallback {
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
 .markdown img {
   display: block;
   max-width: 100%;

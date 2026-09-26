@@ -24,6 +24,7 @@ import type { ArtifactVersionDto } from "./api";
 import { useWorkspace } from "./workspace";
 import { EmptyState, IconButton } from "./ui";
 import { Markdown } from "./Content";
+import { rehypePluginsWithDetection } from "./markdownPlugins";
 import { languageFromFilename } from "./codeLanguage";
 import type { Attachment, Source } from "./types";
 import {
@@ -755,6 +756,11 @@ function ArtifactPanel({ id }: { id: string }) {
               "\n" +
               content +
               "\n```"
+            }
+            rehypePlugins={
+              !languageFromFilename(meta?.title)
+                ? rehypePluginsWithDetection
+                : undefined
             }
           />
         ) : (

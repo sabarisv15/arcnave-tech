@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import React from "react";
+import { PlainCodeBlock } from "./PlainCodeBlock";
+export { PlainCodeBlock } from "./PlainCodeBlock";
 
 /**
  * Extracts plain text recursively from React child nodes.
@@ -42,10 +43,9 @@ export interface CodeBlockProps
 }
 
 /**
- * CodeBlock renders markdown code blocks with an accessible header:
- * - Shows the detected or declared language name.
- * - Provides a per-block Copy button that copies plain text to clipboard.
- * - Shows "Copied" feedback for 2 seconds.
+ * CodeBlock is a thin, hook-free dispatcher for markdown `<pre>` elements.
+ * By keeping CodeBlock free of hooks, React never encounters mismatched hook counts
+ * when streaming code fences switch between standard languages and "mermaid".
  */
 const LazyMermaidBlock = React.lazy(() =>
   import("./MermaidBlock").then((m) => ({ default: m.MermaidBlock })),
@@ -57,8 +57,6 @@ export function CodeBlock({
   className,
   ...rest
 }: CodeBlockProps) {
-  const [copied, setCopied] = useState(false);
-  const preRef = useRef<HTMLPreElement>(null);
   const language = extractLanguageFromChildren(children);
 
   if (language === "mermaid") {
@@ -84,72 +82,9 @@ export function CodeBlock({
     );
   }
 
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const handleCopy = async () => {
-    const rawText = preRef.current?.textContent ?? extractTextFromChildren(children);
-    // Remove the single trailing newline react-markdown adds to code blocks
-    const cleanText = rawText.replace(/\n$/, "");
-
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(cleanText);
-      } else {
-        copyFallback(cleanText);
-      }
-      setCopied(true);
-    } catch {
-      copyFallback(cleanText);
-      setCopied(true);
-    }
-  };
-
-  const copyFallback = (text: string) => {
-    try {
-      if (typeof document === "undefined") return;
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-    } catch {
-      // Ignore if clipboard fallback fails
-    }
-  };
-
   return (
-    <div className="code-block-wrapper">
-      <div className="code-block-header">
-        <span className="code-block-language">{language}</span>
-        <button
-          type="button"
-          className="code-copy-button"
-          aria-label={copied ? "Copied" : "Copy code"}
-          onClick={handleCopy}
-        >
-          {copied ? (
-            <>
-              <Check size={13} aria-hidden="true" />
-              <span>Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy size={13} aria-hidden="true" />
-              <span>Copy</span>
-            </>
-          )}
-        </button>
-      </div>
-      <pre ref={preRef} tabIndex={0} className={className} {...rest}>
-        {children}
-      </pre>
-    </div>
+    <PlainCodeBlock language={language} className={className} {...rest}>
+      {children}
+    </PlainCodeBlock>
   );
 }

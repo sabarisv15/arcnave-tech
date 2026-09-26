@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import { Check, Copy, Download, Code as CodeIcon, Eye } from "lucide-react";
+import { Check, Copy, Download, Code as CodeIcon, Eye, X } from "lucide-react";
 import { MarkdownContext } from "./Content";
+import { copyTextToClipboard } from "./clipboard";
 
 interface MermaidBlockProps extends React.HTMLAttributes<HTMLPreElement> {
   source: string;
@@ -41,7 +42,9 @@ export function getMermaidTheme(): "dark" | "default" {
     const themeAttr = document.documentElement.dataset["theme"];
     if (themeAttr === "dark") return "dark";
     if (themeAttr === "light") return "default";
-    if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
   }
   return "default";
 }
@@ -56,7 +59,8 @@ export function MermaidBlock({
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"diagram" | "code">("diagram");
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [theme, setTheme] = useState<"dark" | "default">(getMermaidTheme);
   const containerRef = useRef<HTMLDivElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -64,10 +68,43 @@ export function MermaidBlock({
   const closed = !isStreaming || isBlockClosed(rawText, source);
 
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
+    if (copyStatus === "idle") return;
+    const timer = setTimeout(() => setCopyStatus("idle"), 2000);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [copyStatus]);
+
+  // Listen for workspace / document theme changes and trigger re-render
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateTheme = () => {
+      const next = getMermaidTheme();
+      setTheme((prev) => (prev !== next ? next : prev));
+    };
+
+    let observer: MutationObserver | null = null;
+    if (typeof MutationObserver !== "undefined") {
+      observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.attributeName === "data-theme") {
+            updateTheme();
+          }
+        }
+      });
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme"],
+      });
+    }
+
+    const mql = window.matchMedia?.("(prefers-color-scheme: dark)");
+    mql?.addEventListener?.("change", updateTheme);
+
+    return () => {
+      observer?.disconnect();
+      mql?.removeEventListener?.("change", updateTheme);
+    };
+  }, []);
 
   useEffect(() => {
     // If block has not closed and streaming is active, do not render diagram yet
@@ -81,7 +118,6 @@ export function MermaidBlock({
     const debounceTimer = setTimeout(async () => {
       try {
         const mermaid = await loadMermaid();
-        const theme = getMermaidTheme();
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
@@ -95,7 +131,7 @@ export function MermaidBlock({
           setSvg(renderedSvg);
           setError(null);
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError("Diagram could not be drawn");
           setSvg(null);
@@ -107,36 +143,11 @@ export function MermaidBlock({
       isMounted = false;
       clearTimeout(debounceTimer);
     };
-  }, [source, closed]);
+  }, [source, closed, theme]);
 
   const handleCopy = async () => {
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(source);
-      } else {
-        copyFallback(source);
-      }
-      setCopied(true);
-    } catch {
-      copyFallback(source);
-      setCopied(true);
-    }
-  };
-
-  const copyFallback = (text: string) => {
-    try {
-      if (typeof document === "undefined") return;
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-    } catch {
-      // Ignore fallback error
-    }
+    const success = await copyTextToClipboard(source);
+    setCopyStatus(success ? "copied" : "failed");
   };
 
   const handleDownloadSvg = () => {
@@ -163,13 +174,24 @@ export function MermaidBlock({
             <button
               type="button"
               className="code-copy-button"
-              aria-label={copied ? "Copied" : "Copy code"}
+              aria-label={
+                copyStatus === "copied"
+                  ? "Copied"
+                  : copyStatus === "failed"
+                    ? "Copy failed"
+                    : "Copy code"
+              }
               onClick={handleCopy}
             >
-              {copied ? (
+              {copyStatus === "copied" ? (
                 <>
                   <Check size={13} aria-hidden="true" />
                   <span>Copied</span>
+                </>
+              ) : copyStatus === "failed" ? (
+                <>
+                  <X size={13} aria-hidden="true" />
+                  <span>Copy failed</span>
                 </>
               ) : (
                 <>
@@ -219,13 +241,24 @@ export function MermaidBlock({
             <button
               type="button"
               className="mermaid-action-btn"
-              aria-label={copied ? "Copied" : "Copy code"}
+              aria-label={
+                copyStatus === "copied"
+                  ? "Copied"
+                  : copyStatus === "failed"
+                    ? "Copy failed"
+                    : "Copy code"
+              }
               onClick={handleCopy}
             >
-              {copied ? (
+              {copyStatus === "copied" ? (
                 <>
                   <Check size={12} aria-hidden="true" />
                   <span>Copied</span>
+                </>
+              ) : copyStatus === "failed" ? (
+                <>
+                  <X size={12} aria-hidden="true" />
+                  <span>Copy failed</span>
                 </>
               ) : (
                 <>
@@ -272,13 +305,24 @@ export function MermaidBlock({
           <button
             type="button"
             className="mermaid-action-btn"
-            aria-label={copied ? "Copied" : "Copy source"}
+            aria-label={
+              copyStatus === "copied"
+                ? "Copied"
+                : copyStatus === "failed"
+                  ? "Copy failed"
+                  : "Copy source"
+            }
             onClick={handleCopy}
           >
-            {copied ? (
+            {copyStatus === "copied" ? (
               <>
                 <Check size={12} aria-hidden="true" />
                 <span>Copied</span>
+              </>
+            ) : copyStatus === "failed" ? (
+              <>
+                <X size={12} aria-hidden="true" />
+                <span>Copy failed</span>
               </>
             ) : (
               <>

@@ -13,8 +13,14 @@ export const remarkPlugins: NonNullable<Options["remarkPlugins"]> = [remarkGfm, 
 
 // rehypeKatex runs before rehypeHighlight so formulas are typeset, not treated as code.
 // throwOnError false keeps a malformed formula visible as source instead of breaking the reply.
-// detect: true allows language-less code fences to be highlighted and identified automatically.
+// In chat markdown, detect: false ensures plain fences are not misdetected (e.g. bank statements as makefile).
 export const rehypePlugins: NonNullable<Options["rehypePlugins"]> = [
+  [rehypeKatex, { throwOnError: false }],
+  [rehypeHighlight, { detect: false }],
+];
+
+// rehypePluginsWithDetection is used specifically for code artifacts without a known extension.
+export const rehypePluginsWithDetection: NonNullable<Options["rehypePlugins"]> = [
   [rehypeKatex, { throwOnError: false }],
   [rehypeHighlight, { detect: true }],
 ];

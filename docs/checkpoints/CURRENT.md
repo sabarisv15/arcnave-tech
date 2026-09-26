@@ -1,6 +1,16 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): WP-02 Mermaid diagrams complete.**
+> **2026-09-26 (latest): WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
+> - Fixed blocker hook crash in `CodeBlock.tsx`: made `pre` a thin hookless dispatcher rendering either `<PlainCodeBlock>` or lazy `<MermaidBlock>`, eliminating "Rendered fewer hooks than expected" during streaming fence transitions (```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
+> - Added `MarkdownErrorBoundary` around every message's Markdown so any rendering error recovers to displaying raw source without blanking the application.
+> - Added `MarkdownStreaming.test.tsx` using `jsdom` (added to devDependencies), `createRoot`, and `act()` verifying sequential streaming fence transitions and error boundary fallback.
+> - Fixed language detection in `markdownPlugins.ts`: removed `detect: true` from shared `rehypePlugins` to ensure plain fences are never mislabeled (e.g. bank statements as makefile); exported `rehypePluginsWithDetection` for code artifacts in `Panels.tsx` without a known extension. Added test for plain fences showing empty language label.
+> - Added shared verified clipboard helper `copyTextToClipboard` in `clipboard.ts` with honest feedback ("Copied" on success, "Copy failed" on failure) wired into both `PlainCodeBlock` and `MermaidBlock`. Added failure path tests for both.
+> - Added theme re-render support in `MermaidBlock.tsx` listening to `document.documentElement` `data-theme` mutations and system color-scheme changes, re-rendering diagrams dynamically when theme changes. Added test for theme re-render.
+>
+> Tests: frontend 91/91 passing across 13 test files (`tsc -b && vite build` clean). Branch: `feat/wp-02-mermaid`.
+>
+> **2026-09-26: WP-02 Mermaid diagrams complete.**
 > - Completed WP-02 from UI parity plan (`docs/handover/2026-09-26-claude-ui-parity-plan.md`, Gap 2).
 > - Added `mermaid` package with lazy-loading (`await import('mermaid')`), keeping it isolated in dynamic chunks without bloating the initial chat bundle.
 > - `MermaidBlock.tsx` renders SVG diagrams with `{ startOnLoad: false, securityLevel: 'strict', theme }` matching the light/dark theme.
