@@ -13,13 +13,10 @@ const candidateSkills = [
   { name: 'xlsx', description: 'Spreadsheet architecture' },
 ];
 
-function withPdf(prompt: string, overrides: Partial<RouteTurnInput> = {}): RouteTurnInput {
+// The prompt is kept in these cases as documentation of the request; the router never sees it.
+function withPdf(_prompt: string, overrides: Partial<RouteTurnInput> = {}): RouteTurnInput {
   return {
-    prompt,
-    mode: 'chat',
     hasAttachments: true,
-    attachmentMimeTypes: ['application/pdf'],
-    attachmentNames: ['bank-statement.pdf'],
     candidateSkills,
     hasProject: false,
     runPythonEnabled: true,
@@ -72,9 +69,8 @@ describe('routeTurn — ADR-0006 locked architecture', () => {
     expect(bare.exposedTools).toEqual(core(bare, ['search_tools']));
   });
 
-  it('intent stays as telemetry: classification still happens but gates nothing', () => {
+  it('an explanatory prompt gets the same core and catalog as any other', () => {
     const decision = routeTurn(withPdf('explain Monte Carlo simulation'));
-    expect(decision.detectedIntent).toBe('EXPLANATION');
     expect(decision.exposedTools).toEqual(core(decision));
     expect(decision.allowedTools).toContain('run_python');
   });

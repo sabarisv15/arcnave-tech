@@ -11,7 +11,7 @@ flowchart TD
     G --> M["resolveModel + capability checks<br/>grounding / code-exec / vision<br/>→ ApiError capability_unavailable"]
     M --> R["routeTurn()<br/>services/routing/turnRouter.ts<br/>regex intent detection"]
 
-    R --> RD["TurnRoutingDecision<br/>• detectedIntent<br/>• allowedTools (policy catalog names)<br/>• exposedTools ([] or ['search_tools'])<br/>• pythonExposed (capabilityPolicy.ts)"]
+    R --> RD["TurnRoutingDecision<br/>• allowedTools (flags and infrastructure)<br/>• exposedTools (core)<br/>no prompt input (ADR-0032)"]
 
     subgraph SK["Skills (backend/skills/*/SKILL.md)"]
         SS["SkillService<br/>frontmatter: requires.tools,<br/>capabilities, autoload"]
@@ -76,7 +76,7 @@ list, then calls the real tool on a later round.
 | Memory | `search_memory`, `read_memory`, `update_memory`, `forget_memory` | `ENABLE_MEMORY` |
 | Image | `generate_image` | `ENABLE_IMAGE_GENERATION` |
 | Project | `search_project_files`, `read_project_file` | project attached |
-| Code | `run_python` | `ENABLE_RUN_PYTHON` + sandbox + `evaluateRunPythonPolicy` |
+| Code | `run_python` | `ENABLE_RUN_PYTHON` + sandbox (no wording check, ADR-0032) |
 | UI | `render_ui` | `ENABLE_GENERATIVE_UI` — see gaps |
 | Goals (AgentLoop only) | `get_goal`, `update_goal`, `get_context_remaining` | `ENABLE_AGENT_LOOP` + active goal |
 

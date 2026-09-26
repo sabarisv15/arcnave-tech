@@ -1,6 +1,18 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): model capability set up at ArcNave level (ADR-0031), on branch, not live.**
+> **2026-09-26 (latest): one loop, Claude-doc guidance (ADR-0032), on branch, not live.**
+> - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode
+>   only, and `capabilityPolicy.ts` is deleted.
+> - The prompt uses Claude's scope sample and effort line, without anti-laziness or
+>   `<verification>`.
+> - The pdf and xlsx skills follow the skill authoring guide.
+> - `REASONING_EFFORT` defaults to medium.
+> - New `backend/src/scripts/evalScope.ts` + `docs/evals/scope-cases.json`.
+>
+> Tests: backend 963, frontend 63. Live check after deploy: run evalScope before and after on
+> the same cases and compare time, tool calls and unrequested files.
+>
+> **2026-09-26: model capability set up at ArcNave level (ADR-0031), merged (PRs #22, #23).**
 > From the [intelligence and latency audit](../audits/2026-09-26-intelligence-latency-audit.md):
 > - reasoning effort (`REASONING_EFFORT`, default high → Gemini thinkingLevel HIGH, Claude
 >   `output_config.effort`);

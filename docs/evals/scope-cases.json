@@ -1,0 +1,12 @@
+[
+  { "id": "greeting", "prompt": "hi", "expect": { "file": false, "maxToolCalls": 0, "maxSeconds": 15 } },
+  { "id": "settled-fact", "prompt": "What is the boiling point of water at sea level in Celsius?", "expect": { "file": false, "maxToolCalls": 0, "maxSeconds": 20 } },
+  { "id": "tanglish-question", "prompt": "GST na enna? simple ah sollu", "expect": { "file": false, "maxToolCalls": 1, "maxSeconds": 30 } },
+  { "id": "short-draft", "prompt": "Write a two-line leave request message to my manager for tomorrow.", "expect": { "file": false, "maxToolCalls": 0, "maxSeconds": 20 } },
+  { "id": "asked-excel", "prompt": "Create an Excel sheet to track monthly household expenses with a total row.", "expect": { "file": true, "maxToolCalls": 4, "maxSeconds": 120 } },
+  { "id": "asked-word", "prompt": "Make a one-page Word document with a simple rental agreement template.", "expect": { "file": true, "maxToolCalls": 4, "maxSeconds": 120 } },
+  { "id": "pdf-summary", "file": "statement.pdf", "prompt": "Summarise this statement.", "expect": { "file": false, "maxToolCalls": 2, "maxSeconds": 90 } },
+  { "id": "pdf-consolidate", "file": "statement.pdf", "prompt": "statement elam consolidate paniru", "expect": { "file": false, "maxToolCalls": 6, "maxSeconds": 180 } },
+  { "id": "pdf-exact-count", "file": "statement.pdf", "prompt": "Count every transaction in this statement exactly and give the total debits and credits.", "expect": { "file": false, "maxToolCalls": 10, "maxSeconds": 420 } },
+  { "id": "pdf-to-excel", "file": "statement.pdf", "prompt": "Convert this statement to Excel.", "expect": { "file": true, "maxToolCalls": 12, "maxSeconds": 600 } }
+]

@@ -70,3 +70,17 @@ tools, model choice). Claude's behaviour is cited from Claude's docs and Help Ce
 | I7 | Fixed in PR #21. |
 | I8 | Fixed: a frontend state bug (the `start` updater read a reassigned id), found by a local Playwright repro; not the network. |
 | Added | Reasoning effort (`REASONING_EFFORT`, default high) and 64K output. |
+
+## Second pass: judgement (2026-09-26, ADR-0032)
+
+A consolidation request on a 25-page statement ran more than 10 minutes, hit the 16-round tool
+limit, and made an unrequested 7-sheet Excel file.
+
+| # | Cause | Reference | Fix |
+|---|---|---|---|
+| I9 | Keyword routing to the AgentLoop, and keyword gates on run_python and deliverables | Agent SDK: one loop; context engineering: brittle logic "creates fragility" | Removed; the router takes no prompt |
+| I10 | Anti-laziness paragraphs | Prompting best practices: "dial back that guidance" | Removed; Claude's scope sample instead |
+| I11 | Standing verification (section, completeness step, pdf skill for any total) | Opus 5 guide: remove verification instructions | Removed; the exact workflow is conditional, and checks run in the tool (`expected`) |
+| I12 | Thinking HIGH every round | Gemini: medium for most tasks; high delays the first token | Default medium |
+| I13 | Form not defaulted | Help Center: files when asked; app prompt: effort matched to the ask | The prompt defaults to chat |
+

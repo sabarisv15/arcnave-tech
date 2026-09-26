@@ -177,7 +177,7 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
       'analyze_table_rows',
     ]);
     expect(trace.every((t) => t.result.ok)).toBe(true);
-    expect(flat(trace[0]!.result)).toContain('Exact and Exhaustive Work');
+    expect(flat(trace[0]!.result)).toContain('Exact counts, totals and complete lists');
     const found = flat(trace[1]!.result);
     expect(found).toContain('extract_scanned_table_rows');
     // Python is not granted, so run_python is not a tool here (its name may still appear in a
