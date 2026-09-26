@@ -3,10 +3,12 @@
  *
  * "Compaction replaces the older turns of a conversation with a summary ... It keeps a long
  * conversation or agent task inside the context window" (platform.claude.com, Compaction
- * overview). Claude's threshold compaction runs "inside the request that reaches the threshold",
- * triggered by input tokens (default 150,000, minimum 50,000). Gemini has no server-side
- * compaction, so this is Claude's third option, "your own summarizer", with its keep-recent-turns
- * shape: the older turns become a summary, the last KEEP_TURNS turns stay word for word.
+ * overview). When: Claude's app summarizes "when your conversation approaches the context window
+ * limit" (Help Center), and Claude Code, by default, "compacts before the window fills, at about
+ * 967K tokens" on a 1M window (model-config). The API's 150,000 default belongs to its opt-in
+ * compaction beta and was wrongly used here until the 2026-09-26 audit (ADR-0027). Gemini has no
+ * server-side compaction, so this is Claude's third option, "your own summarizer", with its
+ * keep-recent-turns shape: the older turns become a summary, the last KEEP_TURNS stay word for word.
  *
  * The trigger is the previous turn's last provider request as the provider reported it: its whole
  * prompt plus its answer, the amount the next request resends (the docs' own loop counts the
@@ -32,24 +34,22 @@ export const SUMMARY_PROMPT =
   'this summary. Write down anything that would be helpful, including the state, next steps, learnings etc. ' +
   'You must wrap your summary in a <summary></summary> block.';
 
-/** Characters of each earlier tool call given to the summarizer. ArcNave's number: enough for a
- *  computed table or figure, not a whole extracted document. */
-const SUMMARY_TOOL_RESULT_CHARS = 2_000;
-
 /** Turns kept word for word after the summary, as the docs' keep-recent-turns example keeps two. */
 export const KEEP_TURNS = 2;
 
-/** Claude's threshold limits: default trigger and the lowest it accepts. */
-const CLAUDE_DEFAULT_TRIGGER = 150_000;
+/** Room left below the window when compaction runs: Claude Code's 1M window compacts at about
+ *  967K (model-config, "Default auto-compact thresholds"), leaving 33,000 tokens for the next
+ *  message and its answer. */
+export const COMPACTION_WINDOW_RESERVE = 33_000;
+/** The lowest trigger Claude's compaction accepts. */
 const CLAUDE_MIN_TRIGGER = 50_000;
 
 /**
- * Input tokens at which a chat on a model with this window compacts. Claude's default is 150,000
- * on a 200,000-token window; a smaller window compacts at the same three quarters of it.
+ * Tokens of the previous request at which a chat compacts: as the conversation approaches the
+ * model's window, not before. `fallback` applies only when the window is unknown.
  */
-export function compactionTrigger(configured: number, windowTokens: number | null): number {
-  const cap = windowTokens ? Math.floor(windowTokens * 0.75) : configured;
-  return Math.max(CLAUDE_MIN_TRIGGER, Math.min(configured, cap));
+export function compactionTrigger(fallback: number, windowTokens: number | null): number {
+  return Math.max(CLAUDE_MIN_TRIGGER, windowTokens ? windowTokens - COMPACTION_WINDOW_RESERVE : fallback);
 }
 
 export interface TextSummary {
@@ -172,8 +172,8 @@ export async function compact(
     filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ?? f.id} (fileId ${f.id})`]);
   }
 
-  // What the older turns ran and found goes into the summary too, as Claude compacts the whole
-  // transcript, tool results included. Each result is cut to SUMMARY_TOOL_RESULT_CHARS.
+  // What the older turns ran and found goes into the summary too, whole, as Claude compacts the
+  // whole transcript, tool results included. It fit in the last request, so it fits in this one.
   const callRows = await deps.db
     .select({ messageId: toolCalls.messageId, id: toolCalls.toolCallId, name: toolCalls.name, input: toolCalls.input, content: toolCalls.content, ok: toolCalls.ok })
     .from(toolCalls)
@@ -182,7 +182,7 @@ export async function compact(
   const callsOf = new Map<string, string[]>();
   for (const c of callRows) {
     const text = toolCallAsText({ id: c.id, name: c.name, input: c.input, result: { toolCallId: c.id, ok: c.ok, content: c.content as ToolContent[] } });
-    callsOf.set(c.messageId, [...(callsOf.get(c.messageId) ?? []), text.slice(0, SUMMARY_TOOL_RESULT_CHARS)]);
+    callsOf.set(c.messageId, [...(callsOf.get(c.messageId) ?? []), text]);
   }
 
   const previous = fromSeq === null ? null : await previousSummary(deps.db, chatId);

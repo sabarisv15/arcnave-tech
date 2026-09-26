@@ -2,6 +2,7 @@
  * Memory tool executor for Phase 5.2.
  *
  * Implements:
+ * - save_memory: create or replace a topic (Claude saves memory as topics while you chat)
  * - search_memory: full-text search with rank-based scoring
  * - read_memory: direct lookup by canonical memoryId
  * - update_memory: optimistic concurrency control via expectedVersion
@@ -11,11 +12,23 @@
  */
 import { z } from 'zod';
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
+import { searchChats } from '../services/memory/chatSearch.js';
 import { MemoryConcurrencyError, type MemoryService } from '../services/memory/memoryService.js';
 
 const searchMemoryInput = z.object({
   query: z.string().min(1),
   scope: z.enum(['global', 'project']).optional(),
+  limit: z.number().int().min(1).max(10).optional(),
+});
+
+const saveMemoryInput = z.object({
+  topic: z.string().trim().min(1).max(200),
+  content: z.string().trim().min(1),
+  scope: z.enum(['global', 'project']).optional(),
+});
+
+const searchChatsInput = z.object({
+  query: z.string().trim().min(1),
   limit: z.number().int().min(1).max(10).optional(),
 });
 
@@ -31,10 +44,13 @@ const updateMemoryInput = z.object({
   isStanding: z.boolean().optional(),
 });
 
-const forgetMemoryInput = z.object({
-  memoryId: z.string().uuid(),
-  expectedVersion: z.number().int().min(1).optional(),
-});
+const forgetMemoryInput = z
+  .object({
+    topic: z.string().trim().min(1).optional(),
+    memoryId: z.string().uuid().optional(),
+    expectedVersion: z.number().int().min(1).optional(),
+  })
+  .refine((v) => v.topic !== undefined || v.memoryId !== undefined, 'Give either topic or memoryId.');
 
 function textResult(toolCallId: string, ok: boolean, text: string): ToolResult {
   return { toolCallId, ok, content: [{ type: 'text', text }] };
@@ -49,6 +65,8 @@ export class MemoryToolExecutor implements ToolExecutor {
     private readonly memoryService: MemoryService,
     private readonly userId: string,
     private readonly projectId: string | null = null,
+    /** The chat this turn belongs to, left out of search_chats. */
+    private readonly chatId: string | null = null,
   ) {}
 
   async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
@@ -58,6 +76,10 @@ export class MemoryToolExecutor implements ToolExecutor {
 
     try {
       switch (call.name) {
+        case 'save_memory':
+          return await this.saveMemory(call);
+        case 'search_chats':
+          return await this.searchChats(call);
         case 'search_memory':
           return await this.searchMemory(call);
         case 'read_memory':
@@ -109,6 +131,48 @@ export class MemoryToolExecutor implements ToolExecutor {
         updatedAt: r.updatedAt,
       })),
     });
+  }
+
+  private async saveMemory(call: ToolCall): Promise<ToolResult> {
+    const parsed = saveMemoryInput.safeParse(call.input);
+    if (!parsed.success) {
+      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    }
+    const scope = parsed.data.scope ?? (this.projectId ? 'project' : 'global');
+    if (scope === 'project' && !this.projectId) {
+      return textResult(call.id, false, 'This chat is not in a project; save it with scope "global".');
+    }
+    // "Work" and "work" are one topic to the user: keep the stored spelling.
+    const existing = await this.memoryService.findByTopic(this.userId, parsed.data.topic, this.projectId);
+    const saved = await this.memoryService.createMemory({
+      userId: this.userId,
+      scope,
+      projectId: scope === 'project' ? this.projectId : null,
+      key: existing && existing.scope === scope ? existing.key : parsed.data.topic,
+      content: parsed.data.content,
+      sourceType: 'user_statement',
+    });
+    return jsonResult(call.id, {
+      saved: true,
+      memoryId: saved.id,
+      topic: saved.key,
+      scope: saved.scope,
+      version: saved.version,
+    });
+  }
+
+  private async searchChats(call: ToolCall): Promise<ToolResult> {
+    const parsed = searchChatsInput.safeParse(call.input);
+    if (!parsed.success) {
+      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    }
+    const hits = await searchChats(
+      this.userId,
+      parsed.data.query,
+      { projectId: this.projectId, excludeChatId: this.chatId },
+      parsed.data.limit ?? 5,
+    );
+    return jsonResult(call.id, hits.length > 0 ? { results: hits } : { results: [], message: 'No earlier conversation matched.' });
   }
 
   private async readMemory(call: ToolCall): Promise<ToolResult> {
@@ -179,23 +243,24 @@ export class MemoryToolExecutor implements ToolExecutor {
       return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
     }
 
-    const deleted = await this.memoryService.forgetMemory(
-      this.userId,
-      parsed.data.memoryId,
-      parsed.data.expectedVersion,
-    );
+    const memoryId =
+      parsed.data.memoryId ??
+      (await this.memoryService.findByTopic(this.userId, parsed.data.topic!, this.projectId))?.id;
+    const deleted = memoryId
+      ? await this.memoryService.forgetMemory(this.userId, memoryId, parsed.data.expectedVersion)
+      : false;
 
     if (!deleted) {
       return textResult(
         call.id,
         false,
-        `Could not forget memory with id "${parsed.data.memoryId}": item not found or version mismatch.`,
+        `Could not forget memory "${parsed.data.memoryId ?? parsed.data.topic}": item not found or version mismatch.`,
       );
     }
 
     return jsonResult(call.id, {
       forgotten: true,
-      memoryId: parsed.data.memoryId,
+      memoryId,
       message: 'Memory removed from active storage. Original chat messages remain intact.',
     });
   }

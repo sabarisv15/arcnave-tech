@@ -446,6 +446,7 @@ export interface MessageDto {
   finishReason: string | null;
   artifactId: string | null;
   searchEntryPoint: string | null;
+  thinking?: string | null;
   createdAt: string | null;
   completedAt: string | null;
   sources: SourceDto[];
@@ -925,6 +926,10 @@ export const api = {
   memory: {
     list: (params?: { projectId?: string; scope?: string; limit?: number; offset?: number }) =>
       get<MemoryListDto>("/memory", params),
+    create: (body: { key: string; content: string; projectId?: string | null }) =>
+      post<MemoryItemDto>("/memory", body),
+    update: (id: string, body: { expectedVersion: number; key?: string; content?: string }) =>
+      patch<MemoryItemDto>(`/memory/${id}`, body),
     delete: (id: string) => del(`/memory/${id}`),
     clearProject: (projectId: string) => del(`/memory/project/${projectId}`),
     clearAll: () => del("/memory/all"),

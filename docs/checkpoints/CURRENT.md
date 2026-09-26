@@ -1,6 +1,21 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): provider timeouts follow Claude's SDK**
+> **2026-09-26 (latest): Claude-parity fix pass, on the branch, not deployed.**
+> Nearly every finding of the [audit](../audits/2026-09-26-claude-parity-audit.md) is fixed;
+> its "Fix pass" table gives each one's status. ADR-0025 (memory by topic, saved as the user
+> chats, chat search), 0026 (every tool call of a response runs), 0027 (compaction as the window
+> fills; skills given back), 0028 (no probe before a turn), 0029 (project knowledge searched with
+> a tool), 0030 (thought summaries shown; Gemini thinking billed). The system prompt gives the
+> date and names only tools the turn allows; a test enforces it. Migration 0013 adds
+> `messages.thinking`. Backend 967 tests, frontend 58, both clean.
+> Production: B7 model-input bucket set up and verified 2026-09-26 (revision 00139-49j); B11
+> min instances already 1. B12 Drive save and incognito chats are future scope.
+> Next: deploy with approval, then live-check `turn timing` (probe gone), `includeThoughts`
+> accepted by Vertex, memory save/load, and a long chat's compaction.
+>
+> **2026-09-26: Claude-parity audit written down** ([audit](../audits/2026-09-26-claude-parity-audit.md)).
+>
+> **2026-09-26: provider timeouts follow Claude's SDK**
 > ([ADR-0024](../decisions/0024-provider-timeouts-follow-claudes-sdk.md)). The 12 s first-token
 > cutoff is gone: it aborted large PDF follow-ups that were still thinking. A provider request
 > now gets 10 minutes (`PROVIDER_TIMEOUT_MS`), and only failures are retried: timeouts,

@@ -53,7 +53,7 @@ describe('tool exposure with tool use on (ADR-0006)', () => {
 
   it('tells the model what is declared and that a direct answer is fine', async () => {
     const request = await sendTurn(ctx, user, 'hi');
-    expect(request.systemInstruction).toContain('Declared on every turn: search_tools, load_skill, and run_python');
+    expect(request.systemInstruction).toContain('Declared on this turn: search_tools, load_skill, generate_deliverable');
     expect(request.systemInstruction).toContain('When a direct answer is enough, answer directly without tools.');
   });
 });
@@ -63,7 +63,12 @@ describe('the prompt and tools a file turn starts with (ADR-0022)', () => {
   let user: TestUser;
 
   beforeAll(async () => {
-    ctx = await createTestApp({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process' });
+    ctx = await createTestApp({
+      ENABLE_TOOL_USE: 'true',
+      ENABLE_RUN_PYTHON: 'true',
+      SANDBOX_ENGINE: 'process',
+      ENABLE_MEMORY: 'false',
+    });
     user = await signUp(ctx);
   });
   afterAll(async () => {

@@ -2,7 +2,8 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
-import { memoryService } from '../services/memory/memoryService.js';
+import { MemoryConcurrencyError, memoryService } from '../services/memory/memoryService.js';
+import type { MemoryItem } from '../db/schema.js';
 import type { AppInstance } from '../types.js';
 
 const memoryItemDto = z.object({
@@ -20,6 +21,24 @@ const memoryItemDto = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+
+function toDto(item: MemoryItem) {
+  return {
+    id: item.id,
+    userId: item.userId,
+    scope: item.scope,
+    projectId: item.projectId,
+    kind: item.kind,
+    key: item.key,
+    content: item.content,
+    summary: item.summary,
+    isStanding: item.isStanding,
+    sourceType: item.sourceType,
+    version: item.version,
+    createdAt: item.createdAt.toISOString(),
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
 
 export async function memoryRoutes(app: AppInstance): Promise<void> {
   const typed = app.withTypeProvider<ZodTypeProvider>();
@@ -77,6 +96,76 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
         })),
         total: res.total,
       };
+    },
+  );
+
+  // Claude's memory topics can be read, edited and deleted in settings (ADR-0025).
+  typed.post(
+    '/memory',
+    {
+      schema: {
+        tags: ['memory'],
+        summary: 'Add or replace a memory topic',
+        body: z.object({
+          key: z.string().trim().min(1).max(200),
+          content: z.string().trim().min(1).max(20_000),
+          projectId: z.string().uuid().nullable().optional(),
+        }),
+        response: { 200: memoryItemDto },
+      },
+    },
+    async (request) => {
+      const user = currentUser(request);
+      const projectId = request.body.projectId ?? null;
+      try {
+        const item = await memoryService.createMemory({
+          userId: user.id,
+          scope: projectId ? 'project' : 'global',
+          projectId,
+          key: request.body.key,
+          content: request.body.content,
+          sourceType: 'user_statement',
+        });
+        return toDto(item);
+      } catch (err) {
+        throw new ApiError('validation_error', { detail: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
+
+  typed.patch(
+    '/memory/:id',
+    {
+      schema: {
+        tags: ['memory'],
+        summary: 'Edit a memory topic',
+        params: z.object({ id: z.string().uuid() }),
+        body: z.object({
+          expectedVersion: z.number().int().min(1),
+          key: z.string().trim().min(1).max(200).optional(),
+          content: z.string().trim().min(1).max(20_000).optional(),
+        }),
+        response: { 200: memoryItemDto },
+      },
+    },
+    async (request) => {
+      const user = currentUser(request);
+      try {
+        const item = await memoryService.updateMemory(user.id, request.params.id, request.body.expectedVersion, {
+          key: request.body.key,
+          content: request.body.content,
+          summary: request.body.content?.slice(0, 150),
+        });
+        return toDto(item);
+      } catch (err) {
+        if (err instanceof MemoryConcurrencyError) {
+          throw new ApiError('conflict', { detail: err.message });
+        }
+        if (err instanceof Error && err.message.startsWith('Memory item not found')) {
+          throw new ApiError('not_found', { detail: err.message });
+        }
+        throw new ApiError('validation_error', { detail: err instanceof Error ? err.message : String(err) });
+      }
     },
   );
 

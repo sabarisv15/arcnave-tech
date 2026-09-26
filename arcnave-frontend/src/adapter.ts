@@ -48,6 +48,7 @@ export type StreamEvent =
     }
   | { type: "research"; event: ResearchEvent }
   | { type: "delta"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "sources"; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: "code"; code?: string; language?: string; output?: string }
   | { type: "tool_use"; toolCallId: string; name: string; input: unknown }

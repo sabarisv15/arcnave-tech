@@ -103,6 +103,8 @@ const messageSchema = z.object({
   finishReason: z.string().nullable(),
   artifactId: z.string().nullable(),
   searchEntryPoint: z.string().nullable(),
+  /** The model's thought summary, when it gave one. */
+  thinking: z.string().nullable(),
   createdAt: z.string().nullable(),
   completedAt: z.string().nullable(),
   sources: z.array(sourceSchema),
@@ -821,6 +823,7 @@ async function loadMessages(
     finishReason: m.finishReason,
     artifactId: m.artifactId,
     searchEntryPoint: m.searchEntryPoint,
+    thinking: m.thinking,
     createdAt: iso(m.createdAt),
     completedAt: iso(m.completedAt),
     sources: (sourcesBy.get(m.id) ?? [])
@@ -986,6 +989,7 @@ async function resetForRetry(
       questions: [],
       finishReason: null,
       searchEntryPoint: null,
+      thinking: null,
       completedAt: null,
     })
     .where(eq(messages.id, messageId));

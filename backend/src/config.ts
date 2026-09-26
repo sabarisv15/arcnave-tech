@@ -117,14 +117,12 @@ const envSchema = z.object({
   // --- Generation limits --------------------------------------------------
   DEFAULT_MAX_OUTPUT_TOKENS: int(32_000),
   MAX_OUTPUT_TOKENS_CEILING: int(32_000),
-  /** Character budget for retrieved project context injected into a prompt. */
-  PROJECT_CONTEXT_MAX_CHARS: int(12_000),
   /** Project files go into the prompt whole while their text totals at most this many
-   *  characters; past it, only excerpts retrieved by relevance do (ADR-0020). Claude publishes
-   *  no number ("approaches the context window limit"). This one is ArcNave's: about a third of
-   *  the compaction trigger for English text, so a chat still has room before it compacts. */
+   *  characters; past it, the model searches them with search_project_files, as Claude's
+   *  project knowledge search tool does (ADR-0020). Claude publishes no number ("approaches the
+   *  context window limit"). This one is ArcNave's, small enough for the smallest configured
+   *  window (GPT-OSS, 128,000 tokens) to keep room for the conversation. */
   PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
-  PROJECT_CONTEXT_MAX_CHUNKS: int(8),
   /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
    *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
    *  of the current turn never does. Claude (verified request limit) and Gemini PDFs sent by
@@ -151,8 +149,9 @@ const envSchema = z.object({
    * from it without a project, and it changes both adapters' wire shape.
    */
   ENABLE_TOOL_USE: bool(false),
-  /** One round = one provider request + at most one tool execution. The loop answers with
-   *  `finishReason: 'tool_limit'` rather than looping forever once this is hit. 16, not 8:
+  /** One round = one provider request + every tool call it made (ADR-0026). The loop answers with
+   *  `finishReason: 'tool_limit'` rather than looping forever once this is hit, and the UI offers
+   *  Continue, as Claude's app does at its per-turn tool-use limit. 16, not 8:
    *  search, skill, extract, analyze, one repair and the answer must all fit, and on the real
    *  statement 8 ran out before analysis (G11). TURN_DEADLINE_MS bounds the time. */
   TOOL_MAX_ROUNDS: int(16),
@@ -226,8 +225,9 @@ const envSchema = z.object({
   MAX_STDERR_BYTES: int(64 * 1024),
   /** Same three-tier shape as READ_PROJECT_FILE_MAX_CHARS/TOOL_RESULT_PREVIEW_CHARS above: this
    *  bounds what the model receives and what is persisted; the SSE preview is bounded again by
-   *  TOOL_RESULT_PREVIEW_CHARS, unchanged. */
-  RUN_PYTHON_MAX_OUTPUT_CHARS: int(8000),
+   *  TOOL_RESULT_PREVIEW_CHARS, unchanged. 30,000 is Claude Code's read-back default
+   *  (BASH_MAX_OUTPUT_LENGTH); past it, the head and tail are kept. */
+  RUN_PYTHON_MAX_OUTPUT_CHARS: int(30_000),
   /** Global cap on concurrent run_python executions, across every backend instance — enforced in
    *  Postgres (tools/sandbox/semaphore.ts), not per-instance, since the service autoscales.
    *  Chosen well under the project's Cloud Run quotas (RunningExecutionsPerProject: 1000;
@@ -269,19 +269,19 @@ const envSchema = z.object({
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
   ENABLE_PROMPT_CACHE: bool(true),
 
-  /** Master gate for persistent memory (PostgreSQL durable memory_items). */
-  ENABLE_MEMORY: bool(false),
+  /** Persistent memory (memory_items). On by default, as Claude's memory is (ADR-0025). */
+  ENABLE_MEMORY: bool(true),
   /** Background conservative distillation of durable user-stated facts. */
   ENABLE_MEMORY_BACKGROUND_DISTILL: bool(false),
   /** Maximum total characters allocated to standing context memories. */
   MEMORY_STANDING_MAX_CHARS: int(2000),
-  /** Maximum relevant memory items injected per turn. */
-  MEMORY_RELEVANT_MAX_ITEMS: int(5),
+  /** Characters of memory topics a conversation starts with; the rest stay searchable. */
+  MEMORY_CONTEXT_MAX_CHARS: int(8000),
 
   /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
   ENABLE_CONTEXT_COMPACTION: bool(true),
-  /** Input tokens of the previous request at which a chat compacts: Claude's threshold default.
-   *  Capped at three quarters of the model's window, and never below Claude's 50,000 minimum. */
+  /** Tokens of the previous request at which a chat compacts, used only when the model's window
+   *  is unknown; otherwise compaction runs as the window fills (ADR-0027). */
   COMPACTION_TRIGGER_TOKENS: int(150_000),
   /** Headroom threshold in tokens below which compaction triggers. */
   COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),

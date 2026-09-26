@@ -243,7 +243,7 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(events.some((e) => e.type === 'tool_result' && !e.result.ok)).toBe(true);
   });
 
-  it('defers extra function calls in the same round rather than running them all', async () => {
+  it('runs every function call of a response and answers them in one turn (ADR-0026)', async () => {
     const client = new FakeGeminiClient();
     client.responses = [
       fakeStream([
@@ -266,11 +266,8 @@ describe('GeminiProvider tool-calling loop', () => {
     const provider = new GeminiProvider(cfg, client as never);
     await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
 
-    // Only the first call is actually executed...
-    expect(executor.calls).toHaveLength(1);
-    expect(executor.calls[0]!.id).toBe('c1');
-    // ...but the second request still carries a functionResponse for c2, so Gemini never sees an
-    // orphaned function call.
+    expect(executor.calls.map((c) => c.id)).toEqual(['c1', 'c2']);
+    // Both responses go back together, after the model turn that made both calls.
     const secondReq = client.calls[1] as { contents: { role: string; parts: unknown[] }[] };
     const responseParts = secondReq.contents.at(-1)!.parts as { functionResponse: { id: string } }[];
     expect(responseParts.map((p) => p.functionResponse.id)).toEqual(['c1', 'c2']);
@@ -387,5 +384,21 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     const controller = new AbortController();
     controller.abort();
     await expect(collect(provider.stream(baseRequest({ signal: controller.signal })))).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('asks for thought summaries and yields them as thinking, apart from the answer (audit B8)', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [
+      fakeStream([
+        { candidates: [{ content: { parts: [{ text: 'Plan: add them.', thought: true }] } }] },
+        { text: '5', candidates: [{ content: { parts: [{ text: '5' }] }, finishReason: 'STOP' }] },
+      ] as never),
+    ];
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({})));
+    expect(events.filter((e) => e.type === 'thinking')).toEqual([{ type: 'thinking', text: 'Plan: add them.' }]);
+    expect(events.filter((e) => e.type === 'delta')).toEqual([{ type: 'delta', text: '5' }]);
+    const req = client.calls[0] as { config: { thinkingConfig?: { includeThoughts?: boolean } } };
+    expect(req.config.thinkingConfig?.includeThoughts).toBe(true);
   });
 });

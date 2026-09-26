@@ -22,7 +22,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
-import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
@@ -130,6 +130,21 @@ function isSynthesisedId(call: HistoryToolCall): boolean {
   return new RegExp(`^${call.name}-\\d+-\\d+$`).test(call.id);
 }
 
+/**
+ * The model responses a turn's stored calls came from. Gemini signs only the first functionCall
+ * of a response that makes several (thought signatures, "parallel function calls"), so a signed
+ * call starts a response and the unsigned calls after it belong to it. `replayNatively` has
+ * already required the first call to be signed.
+ */
+export function responseGroups(calls: HistoryToolCall[]): HistoryToolCall[][] {
+  const groups: HistoryToolCall[][] = [];
+  for (const c of calls) {
+    if (c.thoughtSignature || groups.length === 0) groups.push([c]);
+    else groups.at(-1)!.push(c);
+  }
+  return groups;
+}
+
 export function buildGeminiContents(request: GenerationRequest): Content[] {
   const turns = request.history.filter(
     (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0 || (turn.toolCalls?.length ?? 0) > 0,
@@ -141,15 +156,15 @@ export function buildGeminiContents(request: GenerationRequest): Content[] {
     // Each earlier call goes back as the in-turn loop sent it: the model's signed functionCall,
     // then the functionResponse (ADR-0022). Unsigned or undeclared calls go as text instead.
     if (calls.length > 0 && replayNatively(calls, request, true)) {
-      const replay: Content[] = calls.flatMap((c): Content[] => [
+      const replay: Content[] = responseGroups(calls).flatMap((group): Content[] => [
         {
           role: 'model',
-          parts: [{
+          parts: group.map((c) => ({
             functionCall: { ...(isSynthesisedId(c) ? {} : { id: c.id }), name: c.name, args: (c.input ?? {}) as Record<string, unknown> },
-            thoughtSignature: c.thoughtSignature!,
-          }],
+            ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}),
+          })),
         },
-        { role: 'user', parts: [toGeminiFunctionResponsePart(c.name, c.id, c.result)] },
+        { role: 'user', parts: group.map((c) => toGeminiFunctionResponsePart(c.name, c.id, c.result)) },
       ]);
       if (turn.text.trim() !== '') parts.push({ text: turn.text });
       return parts.length > 0 ? [...replay, { role: 'model', parts }] : replay;
@@ -179,20 +194,28 @@ interface GeminiUsageMetadata {
   promptTokenCount?: number;
   candidatesTokenCount?: number;
   cachedContentTokenCount?: number;
+  thoughtsTokenCount?: number;
 }
 
-/** Read exact counts from `usageMetadata`. Absent metadata yields exact:false, not a guess. */
-function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage {
+/**
+ * Read exact counts from `usageMetadata`. Absent metadata yields exact:false, not a guess.
+ *
+ * Thinking is billed as output: Vertex prices "Text output (response and reasoning)" at one rate
+ * (Agent Platform pricing), and `candidatesTokenCount` leaves the thoughts out. So output is both.
+ * The request's context for compaction stays prompt plus answer: thoughts are not sent back.
+ */
+export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage {
   if (!meta) return EMPTY_USAGE;
-  const { promptTokenCount, candidatesTokenCount, cachedContentTokenCount } = meta;
+  const { promptTokenCount, candidatesTokenCount, cachedContentTokenCount, thoughtsTokenCount } = meta;
   if (promptTokenCount == null && candidatesTokenCount == null) return EMPTY_USAGE;
   return {
     inputTokens: promptTokenCount ?? 0,
-    outputTokens: candidatesTokenCount ?? 0,
+    outputTokens: (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0),
     cacheReadTokens: cachedContentTokenCount ?? 0,
     // Gemini reports cached-content reads but not a separate cache-write count.
     cacheWriteTokens: 0,
     exact: true,
+    lastRequest: { inputTokens: promptTokenCount ?? 0, outputTokens: candidatesTokenCount ?? 0 },
   };
 }
 
@@ -329,6 +352,9 @@ export class GeminiProvider implements Provider {
                 }
               : {}),
             ...(forceAnswer ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
+            // Thought summaries, shown to the user as Claude shows its thinking (audit B8). They
+            // arrive as parts marked `thought`, which `chunk.text` leaves out of the answer.
+            thinkingConfig: { includeThoughts: true },
             // The SDK aborts the underlying HTTP request on this signal, which is what makes
             // client cancellation actually stop provider work rather than just stop reading it.
             abortSignal: request.signal,
@@ -363,6 +389,9 @@ export class GeminiProvider implements Provider {
             break roundLoop;
           }
 
+          for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+            if (part.thought && part.text) yield { type: 'thinking', text: part.text };
+          }
           const text = chunk.text;
           if (text) {
             accumulated.push(text);
@@ -429,34 +458,24 @@ export class GeminiProvider implements Provider {
         }
         contents = [...contents, { role: 'model', parts: modelParts }];
 
-        // Phase 1 executes exactly one ArcNave tool per round, matching Anthropic's
-        // disable_parallel_tool_use semantics. If Gemini returns more than one functionCall in
-        // a single response, only the first is run; the rest get an explicit deferred failure
-        // so the conversation is never left with an orphaned call — the model can re-request an
-        // extra call on a later round instead.
-        const [primary, ...deferred] = roundCalls;
+        // Every call of the response is run, in order, and all their responses go back together
+        // in one turn, as Claude runs parallel tool calls (ADR-0026). Sequential, not
+        // concurrent: two run_python calls share one workspace.
         const responseParts: Part[] = [];
-
-        if (primary) {
-          const call = {
-            id: primary.id ?? `${primary.name}-${String(round)}-0`,
-            name: primary.name,
-            input: primary.args,
-          };
+        for (const [i, c] of roundCalls.entries()) {
+          // An abort stops the remaining calls; the next round's signal check ends the turn.
+          if (request.signal.aborted) break;
+          const call = { id: c.id ?? `${c.name}-${String(round)}-${String(i)}`, name: c.name, input: c.args };
           yield {
             type: 'tool_use',
             toolCallId: call.id,
             name: call.name,
             input: call.input,
-            ...(primary.thoughtSignature ? { thoughtSignature: primary.thoughtSignature } : {}),
+            ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}),
           };
           const result = await request.toolExecutor!.execute(call, request.signal);
           yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
           responseParts.push(toGeminiFunctionResponsePart(call.name, call.id, result));
-        }
-        for (const [i, extra] of deferred.entries()) {
-          const id = extra.id ?? `${extra.name}-${String(round)}-${String(i + 1)}`;
-          responseParts.push(toGeminiFunctionResponsePart(extra.name, id, deferredCallResult(id)));
         }
         contents = [...contents, { role: 'user', parts: responseParts }];
 

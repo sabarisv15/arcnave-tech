@@ -2,7 +2,7 @@
  * ADR-0016 through the route: Gemini is sent a PDF's page images as `gs://` URIs, never their
  * bytes; Claude, which takes base64 only on Vertex, is sent the bytes of the same pages.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
@@ -54,6 +54,27 @@ describe('page images by URI for Gemini', () => {
     expect(claude).toContain('"type":"base64"');
     expect(claude).toContain('"media_type":"image/jpeg"');
     expect(claude).not.toContain('gs://');
+  });
+});
+
+describe('a follow-up turn over an earlier PDF (audit B6)', () => {
+  it('reuses the rendered pages without downloading the file again', async () => {
+    const headers = { cookie: user.cookie };
+    const part = multipart('again.pdf', await pdfWithPages(2, ['Row 1', 'Row 2']), 'application/pdf');
+    const fileId = ((await ctx.app.inject({ method: 'POST', url: '/v1/files', headers: { ...part.headers, ...headers }, payload: part.payload })).json() as { id: string }).id;
+    const chatId = ((await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'p' } })).json() as { id: string }).id;
+    const send = (attachmentIds: string[]) =>
+      ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers, payload: { prompt: 'read', model: 'Gemini 3.8 Flash', attachmentIds } });
+    await send([fileId]);
+    const get = vi.spyOn(ctx.app.services.storage, 'get');
+    try {
+      const res = await send([]);
+      expect(parseSse(res.body).at(-1)!.event).toBe('done');
+      expect(JSON.stringify(buildGeminiContents(ctx.provider.seen.at(-1)!))).toContain('Row 2');
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+    }
   });
 });
 

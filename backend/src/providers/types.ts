@@ -140,7 +140,11 @@ export function toolCallAsText(call: HistoryToolCall): string {
  *  Gemini, signed). Otherwise the whole turn's calls go as text, so no turn is half of each. */
 export function replayNatively(calls: HistoryToolCall[], request: GenerationRequest, needsSignature: boolean): boolean {
   const declared = new Set((request.tools ?? []).map((t) => t.name));
-  return calls.every((c) => declared.has(c.name) && (!needsSignature || Boolean(c.thoughtSignature)));
+  // Gemini signs the first call of each response only (see responseGroups): the turn's first call
+  // must be signed; later unsigned ones are the rest of a parallel response.
+  return (
+    calls.every((c) => declared.has(c.name)) && (!needsSignature || Boolean(calls[0]?.thoughtSignature))
+  );
 }
 
 export function toolContentText(c: ToolContent): string {
@@ -196,6 +200,8 @@ export function toolResultPreview(result: ToolResult, maxChars: number): string 
 
 export type ProviderEvent =
   | { type: 'delta'; text: string }
+  /** A piece of the model's thought summary: shown to the user, never part of the answer. */
+  | { type: 'thinking'; text: string }
   | { type: 'sources'; sources: ProviderSource[]; searchEntryPoint?: string }
   | { type: 'progress'; stage: Stage; label: string; detail: string }
   | { type: 'code'; code?: string; language?: string; output?: string }

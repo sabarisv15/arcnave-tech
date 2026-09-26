@@ -180,4 +180,149 @@ describe('Phase 5.2 Memory Integration & Tools', () => {
     const checkGone = await memoryService.getMemoryById(user.id, targetMemoryId);
     expect(checkGone).toBeNull();
   });
+  it('saves a topic, replaces it on a second save, and forgets it by name (ADR-0025)', async () => {
+    const u = await signUp(ctx);
+    const exec = new MemoryToolExecutor(memoryService, u.id, null);
+    const signal = new AbortController().signal;
+    const first = await exec.execute(
+      { id: 'c1', name: 'save_memory', input: { topic: 'Work', content: 'Auditor at a bank.' } },
+      signal,
+    );
+    expect(first.ok).toBe(true);
+    const second = await exec.execute(
+      { id: 'c2', name: 'save_memory', input: { topic: 'work', content: 'Auditor at KVB; reconciles statements.' } },
+      signal,
+    );
+    expect(second.ok).toBe(true);
+    const context = await memoryService.getMemoryContext(u.id, null, 8000);
+    expect(context.text).toBe('- Work: Auditor at KVB; reconciles statements.');
+
+    const forgot = await exec.execute({ id: 'c3', name: 'forget_memory', input: { topic: 'WORK' } }, signal);
+    expect(forgot.ok).toBe(true);
+  });
+
+  it('refuses a project-scoped save outside a project', async () => {
+    const u = await signUp(ctx);
+    const exec = new MemoryToolExecutor(memoryService, u.id, null);
+    const res = await exec.execute(
+      { id: 'c1', name: 'save_memory', input: { topic: 'X', content: 'y', scope: 'project' } },
+      new AbortController().signal,
+    );
+    expect(res.ok).toBe(false);
+  });
+
+  it('finds a memory when any word of the query matches, not only all of them (C5)', async () => {
+    const u = await signUp(ctx);
+    await memoryService.createMemory({ userId: u.id, key: 'Banks', content: 'Statements come from KVB.' });
+    const hits = await memoryService.searchMemory(u.id, {
+      query: 'federal la evlo entries and kvb la evlo entries?',
+    });
+    expect(hits.map((h) => h.key)).toContain('Banks');
+    expect(await memoryService.searchMemory(u.id, { query: '?? !!' })).toEqual([]);
+  });
+
+  it('starts a conversation from every topic, within the cap, and says how many were left out', async () => {
+    const u = await signUp(ctx);
+    for (let i = 0; i < 5; i++) {
+      await memoryService.createMemory({ userId: u.id, key: `Topic ${String(i)}`, content: 'x'.repeat(50) });
+    }
+    const all = await memoryService.getMemoryContext(u.id, null, 10_000);
+    expect(all.included).toBe(5);
+    expect(all.omitted).toBe(0);
+    const capped = await memoryService.getMemoryContext(u.id, null, 150);
+    expect(capped.included).toBe(2);
+    expect(capped.omitted).toBe(3);
+  });
+
+  it('lets the user add and edit a topic, with a version check (ADR-0025)', async () => {
+    const created = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/memory',
+      headers: auth(),
+      payload: { key: 'Writing style', content: 'Short answers.' },
+    });
+    expect(created.statusCode).toBe(200);
+    const item = created.json() as { id: string; version: number };
+
+    const edited = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/v1/memory/${item.id}`,
+      headers: auth(),
+      payload: { expectedVersion: item.version, content: 'Short answers in Tanglish.' },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect((edited.json() as { content: string }).content).toBe('Short answers in Tanglish.');
+
+    const stale = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/v1/memory/${item.id}`,
+      headers: auth(),
+      payload: { expectedVersion: item.version, content: 'Long answers.' },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { error: { code: string } }).error.code).toBe('conflict');
+
+    const foreign = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/v1/memory/${item.id}`,
+      headers: auth(otherUser),
+      payload: { expectedVersion: 2, content: 'hijack' },
+    });
+    expect(foreign.statusCode).toBe(404);
+  });
+
+  it('puts every topic in the system prompt, the same text each turn', async () => {
+    const u = await signUp(ctx);
+    await memoryService.createMemory({ userId: u.id, key: 'Work', content: 'Auditor at KVB.' });
+    const chat = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/chats',
+      headers: auth(u),
+      payload: { title: 'New conversation' },
+    });
+    const chatId = (chat.json() as { id: string }).id;
+    const systems: string[] = [];
+    for (const prompt of ['hi', 'what is 2 + 2?']) {
+      await ctx.app.inject({
+        method: 'POST',
+        url: `/v1/chats/${chatId}/generate`,
+        headers: auth(u),
+        payload: { prompt },
+      });
+      systems.push(ctx.provider.seen.at(-1)!.systemInstruction ?? '');
+    }
+    const memoryBlock = (s: string) => s.slice(s.indexOf('<memory>'), s.indexOf('</memory>'));
+    expect(systems[0]).toContain('- Work: Auditor at KVB.');
+    expect(memoryBlock(systems[0]!)).toBe(memoryBlock(systems[1]!));
+    expect(systems[0]).toContain('<memory_policy>');
+  });
+  it('searches earlier chats: outside projects from outside, one project from inside, never this chat (C6)', async () => {
+    const u = await signUp(ctx);
+    const h = auth(u);
+    const project = (await ctx.app.inject({ method: 'POST', url: '/v1/projects', headers: h, payload: { title: 'p' } })).json() as { id: string };
+    const chatIn = async (title: string, projectId?: string) =>
+      ((await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers: h, payload: { title, ...(projectId ? { projectId } : {}) } })).json() as { id: string }).id;
+    const say = (chatId: string, prompt: string) =>
+      ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: h, payload: { prompt } });
+    const plain = await chatIn('Plain chat');
+    const inProject = await chatIn('Project chat', project.id);
+    const current = await chatIn('Current chat');
+    await say(plain, 'The KVB reconciliation had 244 debits');
+    await say(inProject, 'The KVB project totals were checked');
+    await say(current, 'KVB again here');
+
+    const run = async (projectId: string | null, chatId: string) => {
+      const exec = new MemoryToolExecutor(memoryService, u.id, projectId, chatId);
+      const res = await exec.execute({ id: 's', name: 'search_chats', input: { query: 'kvb debits' } }, new AbortController().signal);
+      expect(res.ok).toBe(true);
+      return ((res.content[0] as { data: { results: { chatId: string; excerpt: string }[] } }).data.results);
+    };
+    const outside = await run(null, current);
+    expect(outside.map((r) => r.chatId)).toEqual([plain]);
+    expect(outside[0]!.excerpt).toContain('KVB');
+    const inside = await run(project.id, inProject);
+    expect(inside).toEqual([]);
+    const fromOtherProjectChat = await run(project.id, current);
+    expect(fromOtherProjectChat.map((r) => r.chatId)).toEqual([inProject]);
+  });
 });

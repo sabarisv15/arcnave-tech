@@ -167,7 +167,7 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
 
     // The model starts with discovery and the every-turn file tools (ADR-0022); the table tools
     // are reachable through search, run_python is not allowed here.
-    expect(exposed).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable']);
+    expect(exposed).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable', 'save_memory', 'search_chats', 'forget_memory']);
     expect(trace.map((t) => t.name)).toEqual([
       'load_skill',
       'search_tools',

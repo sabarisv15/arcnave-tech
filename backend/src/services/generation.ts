@@ -25,7 +25,6 @@ import {
   messages,
   messageSources,
   preferences as preferencesTable,
-  projectFiles,
   projects,
   researchEvents,
   toolCalls,
@@ -64,7 +63,7 @@ import {
 import { AgentLoop } from './agentLoop.js';
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
-import { pdfForModel } from './attachments/pdfPages.js';
+import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
@@ -83,7 +82,7 @@ import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
-import { buildBaseSystemPrompt, buildDynamicRuntimeContext } from './systemPrompt.js';
+import { buildBaseSystemPrompt, buildDynamicRuntimeContext, currentDateLine } from './systemPrompt.js';
 import { assemblePrompt } from './promptCache/promptAssembly.js';
 import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
@@ -124,6 +123,7 @@ export type StreamEvent =
   | { type: 'start'; messageId: string; chatId: string; requestId: string; model: ModelInfo }
   | { type: 'research'; event: { stage: string; label: string; detail: string; at: string } }
   | { type: 'delta'; text: string }
+  | { type: 'thinking'; text: string }
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
@@ -222,8 +222,8 @@ async function referencePages(atts: AttachmentBlock[], store: ModelInputStore): 
  * A PDF as every provider is shown it (ADR-0013): up to 100 pages, each page's image and text;
  * beyond that, its text only. No provider is handed the PDF's own bytes.
  */
-async function asPdfForModel(att: AttachmentBlock, data: Buffer): Promise<AttachmentBlock> {
-  const pdf = await pdfForModel(data, att.storageKey);
+async function asPdfForModel(att: AttachmentBlock, data: Buffer | PdfForModel): Promise<AttachmentBlock> {
+  const pdf = Buffer.isBuffer(data) ? await pdfForModel(data, att.storageKey) : data;
   const { base64: _drop, ...rest } = att;
   if (pdf.kind === 'pages') return { ...rest, pages: pdf.pages };
   if (pdf.kind === 'text') return { ...rest, extractedText: pdf.text, textOnlyPageCount: pdf.pageCount };
@@ -267,6 +267,15 @@ export interface PreferencesRow {
 }
 
 /* -------------------------------------------------------------------------- service */
+
+/** Characters of a skill given again after a compaction. Claude Code caps each at 5,000 tokens;
+ *  ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
+const REINJECTED_SKILL_MAX_CHARS = 20_000;
+
+/** A turn without tools gets project excerpts instead of the search tool: how many, and their
+ *  character budget (the values the former PROJECT_CONTEXT_MAX_* settings had). */
+const PROJECT_EXCERPTS_WITHOUT_TOOLS = 8;
+const PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS = 12_000;
 
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
@@ -511,7 +520,11 @@ export class GenerationService {
     let skillsContext: string | undefined;
     const loadedSkills: SkillDetail[] = [];
     if (this.skills) {
-      const availableSkills = this.skills.listSkills();
+      // A skill that needs a tool this turn cannot use is not offered: its description would
+      // promise work the turn cannot do (Invariant 1).
+      const availableSkills = this.skills
+        .listSkills(routingDecision.allowedTools)
+        .filter((s) => s.missingTools.length === 0);
       const parts: string[] = [];
 
       if (availableSkills.length > 0) {
@@ -527,8 +540,14 @@ export class GenerationService {
         );
       }
 
+      // After a compaction, the skills loaded in the summarised turns come back in full: Claude
+      // Code "re-injects the body of each skill you invoked" after compacting (ADR-0027); the
+      // summary alone would leave a skill the model believes it has read.
+      const reinjected = latestCompaction
+        ? await this.skillsLoadedThrough(input.chatId, latestCompaction.throughSeq)
+        : [];
       // If skills were pre-selected by routing or autoloaded, include their full instructions
-      for (const skillName of routingDecision.selectedSkills) {
+      for (const skillName of [...reinjected, ...routingDecision.selectedSkills]) {
         const detail = this.skills.getSkill(skillName);
         if (detail && !loadedSkills.some((s) => s.name === detail.name)) {
           loadedSkills.push(detail);
@@ -536,7 +555,15 @@ export class GenerationService {
       }
       if (loadedSkills.length > 0) {
         parts.push(
-          loadedSkills.map((s) => `### Loaded Skill: ${s.name}\n\n${s.content}`).join('\n\n---\n\n'),
+          loadedSkills
+            .map((s) => {
+              const body =
+                s.content.length > REINJECTED_SKILL_MAX_CHARS
+                  ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: load_skill gives the whole skill.]`
+                  : s.content;
+              return `### Loaded Skill: ${s.name}\n\n${body}`;
+            })
+            .join('\n\n---\n\n'),
         );
       }
 
@@ -752,7 +779,7 @@ export class GenerationService {
       : undefined;
 
     const memoryToolExecutor = memoryEnabled
-      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null, input.chatId)
       : undefined;
 
     const pendingUiEvents: StreamEvent[] = [];
@@ -788,6 +815,8 @@ export class GenerationService {
       toolMap.set('web_fetch', webToolExecutor);
     }
     if (memoryToolExecutor) {
+      toolMap.set('save_memory', memoryToolExecutor);
+      toolMap.set('search_chats', memoryToolExecutor);
       toolMap.set('search_memory', memoryToolExecutor);
       toolMap.set('read_memory', memoryToolExecutor);
       toolMap.set('update_memory', memoryToolExecutor);
@@ -941,6 +970,7 @@ export class GenerationService {
     let status: 'complete' | 'cancelled' | 'error' = 'complete';
     let errorCode: string | null = null;
     const collectedText: string[] = [];
+    const collectedThinking: string[] = [];
     const collectedSources: ProviderSource[] = [];
     let searchEntryPoint: string | undefined;
     let eventOrdinal = contextEvents.length;
@@ -965,6 +995,11 @@ export class GenerationService {
           case 'delta':
             collectedText.push(event.text);
             yield { type: 'delta', text: event.text };
+            break;
+
+          case 'thinking':
+            collectedThinking.push(event.text);
+            yield { type: 'thinking', text: event.text };
             break;
 
           case 'sources': {
@@ -1044,10 +1079,14 @@ export class GenerationService {
           case 'completed':
             usage = event.usage;
             finishReason = event.finishReason;
+            this.registry.recordOutcome(entry.alias, { available: true });
             break;
         }
       }
     } catch (err) {
+      if (err instanceof ModelNotFoundError) {
+        this.registry.recordOutcome(entry.alias, { available: false, detail: err.message });
+      }
       const deadlineHit = isTurnDeadline(input.signal.reason);
       if (!deadlineHit && (isAbort(err) || input.signal.aborted)) {
         status = 'cancelled';
@@ -1058,6 +1097,7 @@ export class GenerationService {
         log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
         await this.finalise(input, {
           text: collectedText.join(''),
+          thinking: collectedThinking.join(''),
           sources: collectedSources,
           searchEntryPoint,
           status: 'error',
@@ -1141,6 +1181,7 @@ export class GenerationService {
 
     await this.finalise(input, {
       text,
+      thinking: collectedThinking.join(''),
       sources: collectedSources,
       searchEntryPoint,
       status: status === 'cancelled' ? 'stopped' : status === 'error' ? 'error' : 'complete',
@@ -1219,7 +1260,7 @@ export class GenerationService {
     contextChars: number,
   ): Promise<{ entry: ModelEntry; routing: RoutingDecision | null }> {
     if (input.modelAlias !== AUTO_ALIAS) {
-      const status = await this.registry.status(input.modelAlias);
+      const status = await this.registry.status(input.modelAlias, { probe: 'never' });
       if (status && status.available) {
         if (requiresVision && !status.entry.supportsVision) {
           throw new ApiError('capability_unavailable', {
@@ -1237,7 +1278,7 @@ export class GenerationService {
       );
     }
 
-    const available = await this.registry.availableEntries();
+    const available = await this.registry.availableEntries({ probe: 'never' });
     const decision = routeAuto(
       {
         mode: input.mode,
@@ -1652,6 +1693,10 @@ export class GenerationService {
     return Promise.all(
       attachments.map(async (att) => {
         if (sentAsBytes(att) && !att.base64 && !att.pages && att.storageKey) {
+          // Pages rendered on an earlier turn are reused before the file is fetched again: the
+          // stored bytes behind a key never change (audit B6).
+          const rendered = att.mimeType === 'application/pdf' ? cachedPdfForModel(att.storageKey) : undefined;
+          if (rendered) return asPdfForModel(att, rendered);
           try {
             const data = await this.storage.get(att.storageKey);
             if (att.mimeType === 'application/pdf') return await asPdfForModel(att, data);
@@ -1800,6 +1845,27 @@ export class GenerationService {
     );
   }
 
+  /** Skills a load_skill or read_skill call loaded in this chat's turns up to `throughSeq`. */
+  private async skillsLoadedThrough(chatId: string, throughSeq: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ input: toolCalls.input })
+      .from(toolCalls)
+      .innerJoin(messages, eq(messages.id, toolCalls.messageId))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          sql`${messages.seq} <= ${throughSeq}`,
+          inArray(toolCalls.name, ['load_skill', 'read_skill']),
+          eq(toolCalls.ok, true),
+        ),
+      )
+      .orderBy(messages.seq, toolCalls.ordinal);
+    const names = rows
+      .map((r) => (r.input as { name?: unknown } | null)?.name)
+      .filter((n): n is string => typeof n === 'string');
+    return [...new Set(names)];
+  }
+
   private async buildSystemInstruction(
     input: GenerateInput,
     prefs: PreferencesRow,
@@ -1816,26 +1882,24 @@ export class GenerationService {
   }> {
     const events: StreamEvent[] = [];
 
-    // 1. Standing preferences (User instructions + durable standing memories)
-    let standingMemories = '';
-    if (this.cfg.ENABLE_MEMORY) {
-      standingMemories = await memoryService.getStandingMemories(input.userId, project?.id ?? null);
-    }
-    const combinedStandingPrefs = [prefs.instructions.trim(), standingMemories.trim()]
-      .filter(Boolean)
-      .join('\n');
+    // 1. Standing preferences: the user's own instructions.
+    const combinedStandingPrefs = prefs.instructions.trim();
 
-    // 2. Relevant persistent memories
+    // 2. Memory. Claude's conversations start "from what it already knows about you": every topic,
+    // not a per-prompt search. That also keeps this text the same from turn to turn, so it does not
+    // break the prompt cache the way a prompt-matched selection did (ADR-0025).
     let relevantMemoryText = '';
-    if (this.cfg.ENABLE_MEMORY) {
-      const relevant = await memoryService.getRelevantMemories(
+    if (this.cfg.ENABLE_MEMORY && allowedToolNames?.includes('save_memory')) {
+      const memory = await memoryService.getMemoryContext(
         input.userId,
-        input.prompt,
         project?.id ?? null,
+        this.cfg.MEMORY_CONTEXT_MAX_CHARS,
       );
-      if (relevant.length > 0) {
-        relevantMemoryText = relevant.map((r) => `- [${r.key}]: ${r.content}`).join('\n');
-      }
+      relevantMemoryText =
+        memory.text +
+        (memory.omitted > 0
+          ? `\n(${String(memory.omitted)} more topic${memory.omitted === 1 ? '' : 's'} not shown; find them with search_memory.)`
+          : '');
     }
 
     // 3. Conversation compaction summary
@@ -1869,42 +1933,42 @@ export class GenerationService {
           at: new Date().toISOString(),
         },
       });
-    } else if (project) {
-      const chunks = await this.retriever.search(
-        this.db,
-        project.id,
-        input.prompt,
-        this.cfg.PROJECT_CONTEXT_MAX_CHUNKS,
-      );
-      const context = formatContext(chunks, this.cfg.PROJECT_CONTEXT_MAX_CHARS);
+    } else if (project && wholeFiles.length > 0 && allowedToolNames?.includes('search_project_files')) {
+      // Past the limit Claude "uses a project knowledge search tool to retrieve relevant
+      // information" (Help Center, RAG for projects): the model searches when it needs to. Chunks
+      // picked here by the prompt's words changed the system prompt every turn and broke its
+      // cache (audit B9, B10).
+      retrievedContextText =
+        `<project_knowledge>\nThis project's ${String(wholeFiles.length)} file${wholeFiles.length === 1 ? ' is' : 's are'} ` +
+        'too large to include here. Search them with search_project_files and read the parts you need with ' +
+        'read_project_file before answering from them.\nFiles: ' +
+        wholeFiles.map((f) => f.filename).join(', ') +
+        '\n</project_knowledge>';
+      events.push({
+        type: 'research',
+        event: {
+          stage: 'reading',
+          label: 'Project knowledge is searched as needed',
+          detail: `${String(wholeFiles.length)} project file${wholeFiles.length === 1 ? '' : 's'}, too large to include whole.`,
+          at: new Date().toISOString(),
+        },
+      });
+    } else if (project && wholeFiles.length > 0) {
+      // No tools on this turn, so no search tool: excerpts chosen by the question are the only
+      // way the model sees the files.
+      const chunks = await this.retriever.search(this.db, project.id, input.prompt, PROJECT_EXCERPTS_WITHOUT_TOOLS);
+      const context = formatContext(chunks, PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS);
       if (context) {
         retrievedContextText = context;
-        const files = new Set(chunks.map((c) => c.filename));
         events.push({
           type: 'research',
           event: {
             stage: 'reading',
-            label: `Retrieved ${chunks.length} excerpt${chunks.length === 1 ? '' : 's'} from project files`,
-            detail: `Matched by keyword relevance in: ${[...files].join(', ')}.`,
+            label: `Retrieved ${String(chunks.length)} excerpt${chunks.length === 1 ? '' : 's'} from project files`,
+            detail: `Matched by keyword relevance in: ${[...new Set(chunks.map((c) => c.filename))].join(', ')}.`,
             at: new Date().toISOString(),
           },
         });
-      } else {
-        const [counts] = await this.db
-          .select({ total: sql<number>`count(*)::int` })
-          .from(projectFiles)
-          .where(and(eq(projectFiles.projectId, project.id), eq(projectFiles.status, 'ready')));
-        if ((counts?.total ?? 0) > 0) {
-          events.push({
-            type: 'research',
-            event: {
-              stage: 'reading',
-              label: 'No project files matched this question',
-              detail: 'Project instructions are still applied.',
-              at: new Date().toISOString(),
-            },
-          });
-        }
       }
     }
 
@@ -1920,7 +1984,8 @@ export class GenerationService {
 
     // 6. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode),
+      currentDate: currentDateLine(new Date(), prefs.timezone),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       relevantMemory: relevantMemoryText || undefined,
@@ -2009,6 +2074,7 @@ export class GenerationService {
       entry: ModelEntry;
       mode: Mode;
       questions?: string[];
+      thinking?: string;
     },
   ): Promise<void> {
     const researchStage =
@@ -2026,6 +2092,7 @@ export class GenerationService {
       .update(messages)
       .set({
         text: result.text,
+        ...(result.thinking ? { thinking: result.thinking } : {}),
         status: result.status,
         errorCode: result.errorCode,
         researchStage,

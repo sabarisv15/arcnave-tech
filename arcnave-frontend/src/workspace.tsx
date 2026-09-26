@@ -458,6 +458,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               status: "generating",
             }));
           }
+          if (event.type === "thinking")
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              thinking: (m.thinking ?? "") + event.text,
+              status: "generating",
+            }));
           if (event.type === "sources")
             patchMessage(chatId, assistantId, (m) => ({
               ...m,

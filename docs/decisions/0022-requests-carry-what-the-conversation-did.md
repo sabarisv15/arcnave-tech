@@ -1,7 +1,9 @@
 # ADR-0022: The model sees what earlier turns did, starts with the tools file work needs, and settles the request first
 
 - Status: accepted; deployed. Decision 2 (context editing) superseded by
-  [ADR-0023](0023-tool-results-are-not-cleared.md).
+  [ADR-0023](0023-tool-results-are-not-cleared.md). The every-turn list grew: memory tools
+  ([ADR-0025](0025-memory-by-topic-as-claude.md)) and project search
+  ([ADR-0029](0029-project-knowledge-searched-past-the-limit.md)).
 - Date: 2026-09-25
 - Amends: [ADR-0006](0006-turn-router-policy-boundary.md) (decision 2: what is declared on every
   turn)

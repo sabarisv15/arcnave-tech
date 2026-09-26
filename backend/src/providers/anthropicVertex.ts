@@ -24,7 +24,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
-import { deferredCallResult, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
@@ -391,7 +391,7 @@ export class AnthropicVertexProvider implements Provider {
             messages,
             ...(systemParam !== undefined ? { system: systemParam } : {}),
             ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
-            ...(effectiveUseTools ? { tool_choice: { type: 'auto', disable_parallel_tool_use: true } } : {}),
+            ...(effectiveUseTools ? { tool_choice: { type: 'auto' } } : {}),
           },
           { signal: request.signal },
         );
@@ -445,13 +445,13 @@ export class AnthropicVertexProvider implements Provider {
 
         messages = [...messages, { role: 'assistant', content: final.content }];
 
-        // disable_parallel_tool_use should make this length 1, but the request is honest about
-        // what the SDK actually returned rather than assuming: only the first is executed,
-        // matching Gemini's Task 7 policy exactly.
-        const [primary, ...rest] = toolUseBlocks;
+        // "By default, Claude may call multiple tools in a single response" (Parallel tool use):
+        // every call runs, in order, and all results go back in one user message (ADR-0026).
         const resultBlocks: Anthropic.ToolResultBlockParam[] = [];
 
-        if (primary) {
+        for (const primary of toolUseBlocks) {
+          // An abort stops the remaining calls; the next round's signal check ends the turn.
+          if (request.signal.aborted) break;
           const call = { id: primary.id, name: primary.name, input: primary.input };
           const callFingerprint = `${call.name}:${JSON.stringify(call.input)}`;
           
@@ -479,9 +479,6 @@ export class AnthropicVertexProvider implements Provider {
             yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
             resultBlocks.push(toAnthropicToolResultBlock(call.id, result));
           }
-        }
-        for (const extra of rest) {
-          resultBlocks.push(toAnthropicToolResultBlock(extra.id, deferredCallResult(extra.id)));
         }
         messages = [...messages, { role: 'user', content: resultBlocks }];
 

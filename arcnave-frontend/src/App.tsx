@@ -50,7 +50,7 @@ import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage } from "./Content";
-import ToolActivity from "./ToolActivity";
+import ToolActivity, { ThinkingBlock } from "./ToolActivity";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -821,7 +821,8 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
+      {m.thinking && <ThinkingBlock text={m.thinking} working={loading} answering={!!m.text} />}
+      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
         <ResponseActivity message={m} />
       )}
       {m.toolCalls && m.toolCalls.length > 0 && (
@@ -1062,6 +1063,27 @@ function extractToolCardData(calls: ToolCall[]): {
             deliverables.push(data as DeliverableData);
           } else if (c.name === "generate_image" && data.downloadUrl) {
             images.push(data as ImageData);
+          } else {
+            // Files a tool wrote for the user (run_python's output/, a merged PDF, an edited
+            // workbook) get the same card, so the answer text need not repeat their links.
+            const files: unknown[] = [
+              ...(Array.isArray(data.persistedFiles) ? data.persistedFiles : []),
+              ...(Array.isArray(data.files) ? data.files : []),
+              ...(data.file ? [data.file] : []),
+            ];
+            for (const f of files) {
+              const file = f as Record<string, any>;
+              if (typeof file?.downloadUrl !== "string" || typeof file?.filename !== "string") continue;
+              const ext = file.filename.includes(".") ? file.filename.split(".").pop()! : "file";
+              deliverables.push({
+                attachmentId: String(file.attachmentId ?? file.id ?? file.downloadUrl),
+                filename: file.filename,
+                format: ext,
+                mimeType: String(file.mimeType ?? ""),
+                downloadUrl: file.downloadUrl,
+                sizeBytes: Number(file.sizeBytes ?? 0),
+              });
+            }
           }
         }
       }

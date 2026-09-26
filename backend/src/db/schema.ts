@@ -266,6 +266,9 @@ export const messages = pgTable(
     artifactId: uuid('artifact_id'),
     /** Google's terms require rendering this widget when Search grounding is used. */
     searchEntryPoint: text('search_entry_point'),
+    /** The model's thought summary for this answer, shown collapsed as Claude shows its thinking.
+     *  Null when the model gave none. Never sent back to a model. */
+    thinking: text('thinking'),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },

@@ -68,6 +68,15 @@ export function clearPdfPageCache(): void {
   cachedBytes = 0;
 }
 
+/** A rendered PDF already in memory, without its bytes: a follow-up turn skips the download. */
+export function cachedPdfForModel(cacheKey: string): PdfForModel | undefined {
+  const hit = cache.get(cacheKey);
+  if (!hit) return undefined;
+  cache.delete(cacheKey);
+  cache.set(cacheKey, hit);
+  return hit.value;
+}
+
 export async function pdfForModel(data: Buffer, cacheKey?: string): Promise<PdfForModel> {
   if (cacheKey) {
     const hit = cache.get(cacheKey);

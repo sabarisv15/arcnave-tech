@@ -584,6 +584,37 @@ export const SEARCH_MEMORY: ToolDefinition = {
   },
 };
 
+export const SAVE_MEMORY: ToolDefinition = {
+  name: 'save_memory',
+  description:
+    'Saves something about the user to memory under a short topic, so later conversations start from it. ' +
+    'Saving to a topic that already exists replaces that topic\'s content, so include what should be kept. ' +
+    'Use it when the user asks you to remember something, and on your own for durable facts that will help in ' +
+    'later conversations: their work, projects, preferences and standing instructions. Do not save passing ' +
+    'details of one task.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      topic: {
+        type: 'string',
+        description: 'Short topic name, e.g. "Work", "Writing style", "Bank statement project".',
+      },
+      content: {
+        type: 'string',
+        description: 'What to remember under this topic, written as plain statements.',
+      },
+      scope: {
+        type: 'string',
+        enum: ['global', 'project'],
+        description:
+          'Optional: "project" keeps it to the current project only; defaults to "project" inside a project and "global" elsewhere.',
+      },
+    },
+    required: ['topic', 'content'],
+    additionalProperties: false,
+  },
+};
+
 export const READ_MEMORY: ToolDefinition = {
   name: 'read_memory',
   description:
@@ -638,26 +669,48 @@ export const UPDATE_MEMORY: ToolDefinition = {
 export const FORGET_MEMORY: ToolDefinition = {
   name: 'forget_memory',
   description:
-    'Removes a memory item from active persistent storage by its canonical memoryId. ' +
-    'Deletes the item from active memory; original chat transcripts are preserved.',
+    'Removes a memory topic, by its topic name or its memoryId. ' +
+    'Deletes it from memory; original chat transcripts are preserved.',
   inputSchema: {
     type: 'object',
     properties: {
+      topic: {
+        type: 'string',
+        description: 'The topic name to remove, as shown in memory.',
+      },
       memoryId: {
         type: 'string',
-        description: 'The canonical UUID of the memory item to remove.',
+        description: 'The canonical UUID of the memory item to remove, as returned by search_memory.',
       },
       expectedVersion: {
         type: 'integer',
         description: 'Optional expected version for concurrency safety.',
       },
     },
-    required: ['memoryId'],
+    additionalProperties: false,
+  },
+};
+
+export const SEARCH_CHATS: ToolDefinition = {
+  name: 'search_chats',
+  description:
+    'Searches the user\'s earlier conversations (inside a project: that project\'s chats only) for words ' +
+    'they mention. Use it when the user refers to something discussed before that is not in this ' +
+    'conversation. Returns matching excerpts with the chat title and date; cite the chat title when you use one.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Words to look for, e.g. "KVB statement reconciliation".' },
+      limit: { type: 'integer', description: 'Maximum excerpts to return (1 to 10). Defaults to 5.' },
+    },
+    required: ['query'],
     additionalProperties: false,
   },
 };
 
 export const MEMORY_TOOL_DEFINITIONS: ToolDefinition[] = [
+  SAVE_MEMORY,
+  SEARCH_CHATS,
   SEARCH_MEMORY,
   READ_MEMORY,
   UPDATE_MEMORY,
@@ -717,7 +770,8 @@ export const GENERATE_DELIVERABLE: ToolDefinition = {
     'Generates, exports, and verifies an office document or spreadsheet deliverable (.xlsx, .docx, .pptx, or .pdf). ' +
     'Supports two modes:\n' +
     '1. Direct generation: Provide "format", "title", and Markdown "content" containing tables, headings, or slides.\n' +
-    '2. Source file conversion: Provide "sourceAttachmentId", "format", and conversion "instructions" to automatically transform uploaded PDFs, text, or data files into Excel spreadsheets or documents.\n' +
+    '2. Structured workbook: for "xlsx", provide typed sheets, columns and rows as "workbook" (preferred for data read from a PDF, image or file).\n' +
+    '3. Text copy: "sourceAttachmentId" of an uploaded text, CSV or TSV file copies its text as it is. It does not read PDFs, images or Office files: read those first and pass what you extracted.\n' +
     'Always call this tool when the user asks for a downloadable Excel file, Word doc, PowerPoint deck, or PDF. Returns a downloadable file card.',
   inputSchema: {
     type: 'object',
@@ -737,11 +791,11 @@ export const GENERATE_DELIVERABLE: ToolDefinition = {
       },
       sourceAttachmentId: {
         type: 'string',
-        description: 'Optional UUID of an uploaded file/attachment to convert (e.g. converting an uploaded PDF statement to Excel).',
+        description: 'Optional id of an uploaded text, CSV or TSV file whose text is copied as it is. Not for PDFs, images or Office files.',
       },
       instructions: {
         type: 'string',
-        description: 'Optional transformation instructions when converting from a source attachment (e.g. "Extract all statement transactions into columns: Date, Description, Amount, Balance").',
+        description: 'Not applied to the data: shown as a note in the file. Apply the user\'s instructions yourself to the rows or content you pass.',
       },
       workbook: {
         type: 'object',

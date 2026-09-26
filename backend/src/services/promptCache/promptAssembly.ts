@@ -30,7 +30,7 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedTool
   const allowed = new Set(allowedToolNames ?? authorizedTools.map((t) => t.name));
   const systemText = [
     STATIC_BASE_SYSTEM_PROMPT_V1,
-    ...(allowed.has('search_memory') ? [STATIC_MEMORY_POLICY_V1] : []),
+    ...(allowed.has('save_memory') ? [STATIC_MEMORY_POLICY_V1] : []),
     STATIC_COMPACTION_POLICY_V1,
     ...(allowed.has('render_ui') ? [GENERATIVE_UI_POLICY_V1] : []),
     ...(allowed.has('run_python') ? [ANALYTICS_POLICY_V1] : []),
@@ -63,6 +63,10 @@ export function assemblePrompt(
 
   const dynamicParts: string[] = [];
 
+  if (dynamicSuffix.currentDate?.trim()) {
+    dynamicParts.push(dynamicSuffix.currentDate.trim());
+  }
+
   if (dynamicSuffix.runtimeCapabilities?.trim()) {
     dynamicParts.push(dynamicSuffix.runtimeCapabilities.trim());
   }
@@ -81,7 +85,7 @@ export function assemblePrompt(
 
   if (dynamicSuffix.relevantMemory?.trim()) {
     dynamicParts.push(
-      `<memory_context>\nThe following stored information may be relevant to the current task. Use only what materially improves the answer.\n${dynamicSuffix.relevantMemory.trim()}\n</memory_context>`,
+      `<memory>\nWhat you remember about this user from earlier conversations, by topic. Use it where it helps; do not recite it.\n${dynamicSuffix.relevantMemory.trim()}\n</memory>`,
     );
   }
 

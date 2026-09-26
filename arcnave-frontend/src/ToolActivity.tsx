@@ -61,6 +61,8 @@ const VERBS: Record<string, Verb> = {
   generate_image: verb(ImageIcon, "Generating image", "Generated image", "generated", "an image", "images"),
   extract_scanned_table_rows: verb(Table2, "Extracting table", "Extracted table", "extracted", "a table", "tables"),
   analyze_table_rows: verb(Table2, "Analysing table", "Analysed table", "analysed", "a table", "tables"),
+  save_memory: verb(Brain, "Saving to memory", "Saved to memory", "saved", "a memory", "memories"),
+  search_chats: verb(Search, "Searching past chats", "Searched past chats", "searched", "past chats", "past chats"),
   read_memory: verb(Brain, "Checking memory", "Checked memory", "checked", "memory", "memory"),
   search_memory: verb(Brain, "Searching memory", "Searched memory", "searched", "memory", "memory"),
   update_memory: verb(Brain, "Updating memory", "Updated memory", "updated", "memory", "memory"),
@@ -216,6 +218,27 @@ export default function ToolActivity({
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+/**
+ * The model's thought summary, as Claude shows its thinking: open while the model is still
+ * thinking, folded into "Thought process" once the answer starts, and expandable afterwards.
+ */
+export function ThinkingBlock({ text, working, answering }: { text: string; working: boolean; answering: boolean }) {
+  const live = working && !answering;
+  const [open, setOpen] = useState(live);
+  useEffect(() => setOpen(live), [live]);
+  if (!text.trim()) return null;
+  return (
+    <div className={`tool-activity thinking-block ${live ? "is-live" : ""}`}>
+      <button type="button" className="tool-activity-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Brain size={14} aria-hidden="true" />
+        <span className={live ? "shimmer-text" : ""}>{live ? "Thinking" : "Thought process"}</span>
+        <ChevronRight size={13} className={open ? "activity-chevron open" : "activity-chevron"} />
+      </button>
+      {open && <div className="thinking-text">{text}</div>}
     </div>
   );
 }
