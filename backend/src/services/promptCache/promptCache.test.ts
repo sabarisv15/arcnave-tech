@@ -124,7 +124,9 @@ describe('Prompt Caching Subsystem', () => {
       expect(none).not.toContain('<memory_policy>');
       expect(none).not.toContain('GENERATIVE UI POLICY');
       expect(none).not.toContain('DATA ANALYTICS POLICY');
-      const all = buildStablePrefix([], ['save_memory', 'render_ui', 'run_python']).systemText;
+      const all = buildStablePrefix([{ name: 'render_ui', description: '', inputSchema: {} } as never], ['save_memory', 'render_ui', 'run_python']).systemText;
+      // Allowed but only discoverable: its "You have access" policy stays out.
+      expect(buildStablePrefix([], ['render_ui']).systemText).not.toContain('GENERATIVE UI POLICY');
       expect(all).toContain('<memory_policy>');
       expect(all).toContain('GENERATIVE UI POLICY');
       expect(all).toContain('DATA ANALYTICS POLICY');

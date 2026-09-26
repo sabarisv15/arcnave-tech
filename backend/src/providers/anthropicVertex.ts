@@ -317,7 +317,10 @@ export class AnthropicVertexProvider implements Provider {
     const toolDefs = request.tools ?? [];
     const useTools = toolDefs.length > 0 && Boolean(request.toolExecutor);
 
-    if (grounded) {
+    // In Chat the search tool is only offered (the model decides), so progress is reported for
+    // searches that happened, not for the tool being there.
+    const searchMode = request.mode !== 'chat';
+    if (grounded && searchMode) {
       yield {
         type: 'progress',
         stage: 'searching',
@@ -392,6 +395,8 @@ export class AnthropicVertexProvider implements Provider {
             // display defaults to "omitted" (empty text). Summarized, as Claude's app shows it.
             // The blocks go back unchanged in the tool loop below (final.content).
             thinking: { type: 'adaptive', display: 'summarized' },
+            // Effort is Claude 5's control for how hard it thinks (default medium).
+            ...(request.reasoningEffort ? { output_config: { effort: request.reasoningEffort } } : {}),
             messages,
             ...(systemParam !== undefined ? { system: systemParam } : {}),
             ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
@@ -521,7 +526,7 @@ export class AnthropicVertexProvider implements Provider {
           label: `Cited ${sources.length} source${sources.length === 1 ? '' : 's'}`,
           detail: 'URLs come directly from the web search tool results.',
         };
-      } else {
+      } else if (searchMode) {
         yield {
           type: 'progress',
           stage: 'partial',

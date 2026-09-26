@@ -45,6 +45,10 @@ any rule whose target alias is unavailable falls through to the next.
 | 3 | prompt length over the long-prompt threshold | balanced tier |
 | 4 | otherwise | economy tier |
 
+**Amended by [ADR-0031](0031-model-capability-at-arcnave-level.md):** these rules pick the model
+for a chat's first turn. Later turns keep the model that answered the chat, while it is available
+and can do what the turn needs.
+
 Tiers are resolved from the user's routing preference (`quality` / `balanced` / `economy`),
 which biases which alias each tier maps to. If every candidate is unavailable, the request
 fails with a typed `no_model_available` error rather than a guess.

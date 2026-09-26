@@ -634,8 +634,10 @@ failure mode of this pattern, not a sign it is working.
 - **Rule:** **An output limit on a thinking model is a thinking-plus-answer budget; size it for
   both.** A finish reason of `MAX_TOKENS`/`max_tokens`/`tool_limit` is a cut-off answer and must
   be shown as one. Long row lists go in a file, not in chat.
-- **Verify:** migration `0008` moves 4096 rows to 32000. `usage.integration.test.ts` checks the
-  new default. `types.test.ts` `cutOffReason` checks the UI's cut-off detection.
+- **Verify:** migration `0008` moves 4096 rows to 32000, and `0015` moves 32000 rows to 64000
+  (Claude's docs: 64,000 for agentic work), capped at the model's own maximum
+  (`capabilitiesTable` `maxOutputTokens`). `usage.integration.test.ts` checks the default.
+  `types.test.ts` `cutOffReason` checks the UI's cut-off detection.
 
 ### 2026-09-25 — Stop did nothing when it landed before the provider call began
 
@@ -1106,3 +1108,11 @@ practice, not canon.
   to stay at 40 (a one-off typing workaround, recorded in the code it concerns).
 - **2026-09-26** — Extended the Gemini usage entry with the cached-token double charge (also in
   gpt-oss) instead of adding a 41st.
+- **2026-09-26** — No new heading (at the cap). Two slips while fixing the audit (ADR-0031):
+  - A `cat > file <<EOF` scratch write replaced an existing test file (`turnTiming.test.ts`),
+    caught only because `ls` had printed it. Rule: before writing a file from the shell, check
+    it does not exist, or use the Write tool, which refuses an unread existing file. Verify:
+    `git diff --stat` shows only intended files.
+  - A skill description containing ": " broke its YAML frontmatter, and the loader dropped
+    pdf, docx, pptx and xlsx. `skills.test.ts` ("none is dropped by its own frontmatter")
+    caught it. Rule: quote a frontmatter description that has a colon in it.

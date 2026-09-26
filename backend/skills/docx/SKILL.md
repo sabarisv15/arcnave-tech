@@ -1,7 +1,7 @@
 ---
 name: docx
 version: 2.1.0
-description: Use whenever a Word document is involved — reading, summarizing or extracting from an uploaded .docx/.doc, editing it, or producing a Word file. Load it before working on an uploaded Word document's contents.
+description: "Use when a task needs Word procedure beyond reading a document already in the conversation: exact extraction from an uploaded .docx/.doc, editing it, or producing a Word file."
 category: artifact
 scope: builtin
 requires:

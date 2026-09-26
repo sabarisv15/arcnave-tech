@@ -35,7 +35,7 @@ import type { ModelEntry, ModelRegistry } from '../providers/registry.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { RoutingDecision } from '../providers/routing.js';
 import { routeAuto } from '../providers/routing.js';
-import { getModelCapability } from '../providers/capabilitiesTable.js';
+import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
 import type {
   AttachmentBlock,
   AttachmentRef,
@@ -89,7 +89,7 @@ import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
-import { compact, shouldCompact } from './compaction/autoCompact.js';
+import { compact, shouldCompact, lastContextTokens } from './compaction/autoCompact.js';
 import { StreamTimeSplit, TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
@@ -435,7 +435,11 @@ export class GenerationService {
       });
     }
 
-    const grounded = requiresGrounding && entry.supportsGrounding && provider.supportsGrounding();
+    // Claude "searches the web when it helps" in every chat (Help Center, web search): the search
+    // tool is offered on every turn the web is on, and the model decides whether to use it.
+    // Search and Research modes still require it.
+    const searchAvailable = entry.supportsGrounding && provider.supportsGrounding();
+    const grounded = searchAvailable && (requiresGrounding || this.cfg.ENABLE_WEB);
     if (requiresGrounding && !grounded) {
       // Search and research promise cited answers. Rather than quietly degrade to an
       // uncited chat reply, say the capability is off and let the user choose.
@@ -479,9 +483,11 @@ export class GenerationService {
     };
 
     // --- compact a long conversation (ADR-0019) ------------------------------
+    let compactedNow = false;
     if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
       timing.mark('before_compaction');
       const compacted = yield* this.compactIfNeeded(input, prefs, entry, provider);
+      compactedNow = compacted;
       timing.mark('compaction');
       timing.note('compacted', compacted);
       if (compacted) {
@@ -646,6 +652,7 @@ export class GenerationService {
       skillsContext,
       isAgentMode,
       policyCatalog.map((t) => t.name),
+      grounded,
     );
     for (const event of contextEvents) {
       yield event;
@@ -653,10 +660,14 @@ export class GenerationService {
     }
 
     timing.mark('system_prompt');
+    const modelSpec = getModelCapability(entry.alias);
     const maxOutputTokens = Math.min(
       prefs.maxOutputTokens || this.cfg.DEFAULT_MAX_OUTPUT_TOKENS,
       this.cfg.MAX_OUTPUT_TOKENS_CEILING,
+      modelSpec.maxOutputTokens ?? Number.POSITIVE_INFINITY,
     );
+    const reasoningEffort = effortFor(modelSpec, this.cfg.REASONING_EFFORT);
+    timing.note('effort', reasoningEffort ?? null);
 
     // --- reserve budget ---------------------------------------------------
     // The reservation is the worst case for this request; it is released as soon as the real
@@ -723,6 +734,7 @@ export class GenerationService {
           entry,
           provider,
           maxOutputTokens,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
           prefs,
           project: project ? { id: project.id, instructions: project.instructions } : null,
           history: wireHistory,
@@ -950,6 +962,9 @@ export class GenerationService {
     promptParts.push(input.prompt);
     const effectivePrompt = promptParts.join('\n\n');
 
+    // Decides whether old tool results are cleared from the first request (contextEditing.ts).
+    // After a compaction the earlier size no longer describes what is sent.
+    const previousContextTokens = compactedNow ? null : await this.previousContextTokens(input);
     const request: GenerationRequest = {
       prompt: effectivePrompt,
       history: wireHistory,
@@ -958,6 +973,8 @@ export class GenerationService {
       promptAssembly,
       mode: input.mode,
       maxOutputTokens,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(previousContextTokens !== null ? { previousContextTokens } : {}),
       providerModelId: entry.providerModelId!,
       grounded,
       codeExecution: Boolean(input.codeExecution),
@@ -1276,6 +1293,35 @@ export class GenerationService {
 
   /* ------------------------------------------------------------------ model resolution */
 
+  /** Exact prompt-plus-answer size of the chat's previous request, or null when not known. */
+  private async previousContextTokens(input: GenerateInput): Promise<number | null> {
+    const [self] = await this.db
+      .select({ seq: messages.seq })
+      .from(messages)
+      .where(eq(messages.id, input.messageId))
+      .limit(1);
+    return self ? lastContextTokens(this.db, input.chatId, self.seq) : null;
+  }
+
+  /** The model that answered this chat's latest completed turn, if any. */
+  private async chatModelAlias(chatId: string, currentMessageId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ alias: messages.modelAlias })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(messages.role, 'assistant'),
+          eq(messages.status, 'complete'),
+          sql`${messages.id} <> ${currentMessageId}`,
+          sql`${messages.modelAlias} is not null`,
+        ),
+      )
+      .orderBy(desc(messages.seq))
+      .limit(1);
+    return row?.alias ?? null;
+  }
+
   private async resolveModel(
     input: GenerateInput,
     prefs: PreferencesRow,
@@ -1303,6 +1349,19 @@ export class GenerationService {
     }
 
     const available = await this.registry.availableEntries({ probe: 'never' });
+    // Claude keeps one model for a conversation. Auto picks once, then the chat stays on that
+    // model while it is available and can do what the turn needs: a follow-up about a file is
+    // not handed to a weaker model, and thinking tied to the model is not lost mid-task.
+    const earlier = await this.chatModelAlias(input.chatId, input.messageId);
+    const kept = available.find(
+      (e) =>
+        e.alias === earlier &&
+        (!requiresVision || e.supportsVision) &&
+        (!requiresGrounding || e.supportsGrounding),
+    );
+    if (kept) {
+      return { entry: kept, routing: { alias: kept.alias, entry: kept, rule: 'same_model_as_chat', considered: [kept.alias] } };
+    }
     const decision = routeAuto(
       {
         mode: input.mode,
@@ -1899,6 +1958,8 @@ export class GenerationService {
     isAgentMode: boolean = false,
     /** Every tool allowed this turn, declared or discoverable; tool policies key on these. */
     allowedToolNames?: string[],
+    /** The model's own web search is on this turn (Gemini grounding, Claude's web_search). */
+    builtInWebSearch = false,
   ): Promise<{
     systemInstruction: string;
     contextEvents: StreamEvent[];
@@ -2009,7 +2070,7 @@ export class GenerationService {
     // 6. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
       currentDate: currentDateLine(new Date(), prefs.timezone),
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       relevantMemory: relevantMemoryText || undefined,

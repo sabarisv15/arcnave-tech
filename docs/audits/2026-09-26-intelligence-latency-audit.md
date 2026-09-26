@@ -56,3 +56,17 @@ tools, model choice). Claude's behaviour is cited from Claude's docs and Help Ce
    "declared or discoverable and described as such".
 6. **I6: prompt diet.** Remove duplicates and capitals; keep the rules that change behaviour. Target
    about half the size, and measure it with the existing budget test.
+
+## Fix status (2026-09-26, ADR-0031)
+
+| # | Status |
+|---|---|
+| I1 | Fixed: search declared on Chat turns when the web is on; the model decides. |
+| I2 | Fixed: Auto keeps the chat's model. |
+| I3 | Fixed for Gemini (adapter clears past 100k, keeps 3, batches of 5). Claude: use its server-side context editing when Claude is turned on. |
+| I4 | Fixed: skills load for procedure; descriptions updated. |
+| I5 | Fixed: "You have access" policies only for declared tools; guard test extended. |
+| I6 | Done: prompt rewritten calm and without duplicates (30,500 → 23,500 characters). |
+| I7 | Fixed in PR #21. |
+| I8 | Open: waiting on the DevTools timing check. |
+| Added | Reasoning effort (`REASONING_EFFORT`, default high) and 64K output. |

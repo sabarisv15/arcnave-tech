@@ -1,7 +1,7 @@
 ---
 name: pptx
 version: 2.1.0
-description: Use whenever a presentation is involved — reading or extracting from an uploaded .pptx/.ppt, editing slides, or producing a PowerPoint deck. Load it before working on an uploaded presentation's contents.
+description: "Use when a task needs presentation procedure beyond reading slides already in the conversation: exact extraction from an uploaded .pptx/.ppt, editing slides, or producing a PowerPoint deck."
 category: artifact
 scope: builtin
 requires:

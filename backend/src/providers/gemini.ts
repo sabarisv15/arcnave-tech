@@ -4,7 +4,7 @@
  * Deliberately not the legacy Vertex generative modules: those were removed on 2026-06-24.
  * See docs/backend-research.md section 1.
  */
-import { FunctionCallingConfigMode, GoogleGenAI } from '@google/genai';
+import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Content, FunctionDeclaration, Part, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
@@ -12,6 +12,7 @@ import { logger } from '../logger.js';
 import type { GeminiGroundingMetadata } from './grounding.js';
 import { sourcesFromGeminiMetadata } from './grounding.js';
 import type {
+  ReasoningEffort,
   AttachmentBlock,
   GenerationRequest,
   HistoryToolCall,
@@ -24,6 +25,7 @@ import type {
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
 import { isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
+import { CLEARED_TOOL_RESULT, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -97,6 +99,29 @@ export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclar
  * through as a string in the same slot — Gemini does not require the response value to be an
  * object shape beyond `Record<string, unknown>`'s outer wrapper.
  */
+/**
+ * `contents` with the oldest function results cleared (providers/contextEditing.ts). The call
+ * parts and their thought signatures are untouched; only the result is replaced.
+ */
+export function clearOldFunctionResponses(contents: Content[], policy: ContextEditingPolicy): Content[] {
+  const clearable = (p: Part) => Boolean(p.functionResponse) && !policy.excludeTools.includes(p.functionResponse!.name ?? '');
+  const total = contents.reduce((n, c) => n + (c.parts ?? []).filter(clearable).length, 0);
+  let remaining = resultsToClear(total, policy);
+  if (remaining === 0) return contents;
+  return contents.map((c) => {
+    if (remaining === 0 || !(c.parts ?? []).some(clearable)) return c;
+    return {
+      ...c,
+      parts: (c.parts ?? []).map((p) => {
+        if (remaining === 0 || !clearable(p)) return p;
+        remaining -= 1;
+        const { id, name } = p.functionResponse!;
+        return { functionResponse: { ...(id ? { id } : {}), name, response: { output: CLEARED_TOOL_RESULT } } };
+      }),
+    };
+  });
+}
+
 export function toGeminiFunctionResponsePart(name: string, id: string, result: ToolResult): Part {
   const block = primaryToolContent(result);
   const value = block === undefined ? '' : block.type === 'json' ? block.data : block.text;
@@ -204,6 +229,13 @@ interface GeminiUsageMetadata {
  * (Agent Platform pricing), and `candidatesTokenCount` leaves the thoughts out. So output is both.
  * The request's context for compaction stays prompt plus answer: thoughts are not sent back.
  */
+/** Claude's effort ladder on Gemini's thinkingLevel: levels above HIGH run at HIGH. */
+export function geminiThinkingLevel(effort: ReasoningEffort): ThinkingLevel {
+  if (effort === 'low') return ThinkingLevel.LOW;
+  if (effort === 'medium') return ThinkingLevel.MEDIUM;
+  return ThinkingLevel.HIGH;
+}
+
 export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage {
   if (!meta) return EMPTY_USAGE;
   const { promptTokenCount, candidatesTokenCount, cachedContentTokenCount, thoughtsTokenCount } = meta;
@@ -305,7 +337,10 @@ export class GeminiProvider implements Provider {
     const toolDefs = request.tools ?? [];
     const useTools = toolDefs.length > 0 && Boolean(request.toolExecutor);
 
-    if (grounded) {
+    // In Chat the search tool is only offered (the model decides), so progress is reported for
+    // searches that happened, not for the tool being there.
+    const searchMode = request.mode !== 'chat';
+    if (grounded && searchMode) {
       yield {
         type: 'progress',
         stage: 'searching',
@@ -320,6 +355,14 @@ export class GeminiProvider implements Provider {
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
     let contents = buildGeminiContents(request);
+    const editing: ContextEditingPolicy = {
+      triggerTokens: this.cfg.CONTEXT_EDIT_TRIGGER_TOKENS,
+      keep: this.cfg.CONTEXT_EDIT_KEEP_TOOL_RESULTS,
+      batch: this.cfg.CONTEXT_EDIT_CLEAR_BATCH,
+      excludeTools: ['load_skill'],
+    };
+    // The exact prompt size of the latest request, which decides whether the next is edited.
+    let lastPromptTokens = request.previousContextTokens ?? 0;
     const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
 
     try {
@@ -338,6 +381,7 @@ export class GeminiProvider implements Provider {
         const systemInstruction = finalToolRound
           ? `${request.systemInstruction ? `${request.systemInstruction}\n\n` : ''}${FINAL_ROUND_NOTE}`
           : request.systemInstruction;
+        if (lastPromptTokens >= editing.triggerTokens) contents = clearOldFunctionResponses(contents, editing);
         const open = (forceAnswer: boolean) => this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
@@ -358,7 +402,10 @@ export class GeminiProvider implements Provider {
             ...(forceAnswer ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
             // Thought summaries, shown to the user as Claude shows its thinking (audit B8). They
             // arrive as parts marked `thought`, which `chunk.text` leaves out of the answer.
-            thinkingConfig: { includeThoughts: true },
+            thinkingConfig: {
+              includeThoughts: true,
+              ...(request.reasoningEffort ? { thinkingLevel: geminiThinkingLevel(request.reasoningEffort) } : {}),
+            },
             // The SDK aborts the underlying HTTP request on this signal, which is what makes
             // client cancellation actually stop provider work rather than just stop reading it.
             abortSignal: request.signal,
@@ -444,6 +491,7 @@ export class GeminiProvider implements Provider {
           }
         }
         usage = addRequestUsage(usage, roundUsage);
+        if (roundUsage.lastRequest) lastPromptTokens = roundUsage.lastRequest.inputTokens;
 
         if (!useTools || roundCalls.length === 0) break;
         // A call on the final round is not run: there is no round left to answer after it.
@@ -533,7 +581,7 @@ export class GeminiProvider implements Provider {
             ? `${unresolved} source URL(s) could not be resolved past the Vertex redirect.`
             : 'All source URLs resolved to their original pages.',
         };
-      } else {
+      } else if (searchMode) {
         yield {
           type: 'progress',
           stage: 'partial',

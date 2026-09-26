@@ -22,7 +22,7 @@ interface Trace {
   allowedTools: string[];
 }
 
-async function turn(ctx: TestContext, prompt: string): Promise<{ system: string; allowed: Set<string> }> {
+async function turn(ctx: TestContext, prompt: string): Promise<{ system: string; allowed: Set<string>; grounded: boolean; declared: Set<string> }> {
   const user = await signUp(ctx);
   const chat = await ctx.app.inject({
     method: 'POST',
@@ -43,7 +43,13 @@ async function turn(ctx: TestContext, prompt: string): Promise<{ system: string;
     .find((l) => l.startsWith('data:') && l.includes('"type":"debug"'));
   expect(traceLine, 'the turn emits its debug trace').toBeDefined();
   const trace = (JSON.parse(traceLine!.slice(5)) as { trace: Trace }).trace;
-  return { system: ctx.provider.seen.at(-1)!.systemInstruction ?? '', allowed: new Set(trace.allowedTools) };
+  const seen = ctx.provider.seen.at(-1)!;
+  return {
+    system: seen.systemInstruction ?? '',
+    allowed: new Set(trace.allowedTools),
+    grounded: seen.grounded,
+    declared: new Set((seen.tools ?? []).map((t) => t.name)),
+  };
 }
 
 function namedTools(system: string): string[] {
@@ -71,9 +77,13 @@ describe('the system prompt names only tools the turn allows', () => {
   for (const [label, env] of Object.entries(CONFIGS)) {
     it(label, async () => {
       ctx = await createTestApp(env);
-      const { system, allowed } = await turn(ctx, 'hi');
+      const { system, allowed, declared } = await turn(ctx, 'hi');
       const unavailable = namedTools(system).filter((name) => !allowed.has(name));
       expect(unavailable).toEqual([]);
+      // "You have access to the X tool" is a promise the model acts on at once, without
+      // search_tools; it holds only for a declared tool (a model calls only what is declared).
+      const promised = [...system.matchAll(/access to the `?(\w+)`? tool/g)].map((m) => m[1]!);
+      expect(promised.filter((name) => !declared.has(name))).toEqual([]);
     });
   }
 
@@ -95,5 +105,19 @@ describe('the system prompt names only tools the turn allows', () => {
     ctx = await createTestApp(CONFIGS['tools and skills only']!);
     const { system } = await turn(ctx, 'hi');
     expect(system).toMatch(/The current date is \w+day, \w+ \d{1,2}, \d{4} \(time zone UTC\)\./);
+  });
+
+  it('offers the model its web search in Chat when the web is on, and says so without a discovery step', async () => {
+    ctx = await createTestApp(CONFIGS['with web']!);
+    const { system, grounded } = await turn(ctx, 'hi');
+    expect(grounded).toBe(true);
+    expect(system).toContain('web search (built in: search whenever it helps');
+    expect(system).toContain('Search the web when information is');
+  });
+
+  it('does not offer web search in Chat while the web is off', async () => {
+    ctx = await createTestApp(CONFIGS['tools and skills only']!);
+    const { grounded } = await turn(ctx, 'hi');
+    expect(grounded).toBe(false);
   });
 });

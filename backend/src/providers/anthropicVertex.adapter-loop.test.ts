@@ -210,6 +210,8 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
 
     const first = client.calls[0] as { thinking?: unknown };
     expect(first.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    // No effort on the request: Claude's own default applies.
+    expect((first as { output_config?: unknown }).output_config).toBeUndefined();
     expect(events.filter((e) => e.type === 'thinking')).toEqual([{ type: 'thinking', text: 'Look it up.' }]);
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text)).toEqual(['Found.']);
     const second = client.calls[1] as { messages: { role: string; content: unknown }[] };
@@ -371,5 +373,18 @@ describe('AnthropicVertexProvider timeouts (ADR-0024)', () => {
       const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
       await expect(collect(provider.stream(baseRequest()))).rejects.toMatchObject({ code, retryable: true });
     }
+  });
+
+  it('sends the requested effort as output_config.effort', async () => {
+    const client = new FakeAnthropicClient();
+    client.responses = [
+      fakeMessageStream(
+        [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'ok' } }],
+        { content: [{ type: 'text' }], usage: { input_tokens: 3, output_tokens: 1 }, stop_reason: 'end_turn' },
+      ),
+    ];
+    const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    await collect(provider.stream(baseRequest({ reasoningEffort: 'xhigh' })));
+    expect((client.calls[0] as { output_config?: unknown }).output_config).toEqual({ effort: 'xhigh' });
   });
 });

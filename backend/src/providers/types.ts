@@ -279,6 +279,14 @@ export interface Turn {
   attachments?: AttachmentBlock[];
 }
 
+/**
+ * How hard the model thinks, on Claude's effort ladder. Each adapter maps it to its model's own
+ * control (Claude `output_config.effort`, Gemini `thinkingLevel`); the service clamps it to the
+ * levels the model supports first.
+ */
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
 export interface GenerationRequest {
   prompt: string;
   history: Turn[];
@@ -288,6 +296,13 @@ export interface GenerationRequest {
   systemInstruction: string;
   mode: Mode;
   maxOutputTokens: number;
+  /**
+   * Exact prompt tokens of this chat's previous request, when known. It decides whether old tool
+   * results are cleared from the first request of the turn (providers/contextEditing.ts).
+   */
+  previousContextTokens?: number;
+  /** Absent when the model has no effort control; the adapter then sends nothing. */
+  reasoningEffort?: ReasoningEffort;
   /** Set by the service from the resolved registry entry. Never inferred by an adapter. */
   providerModelId: string;
   grounded: boolean;
