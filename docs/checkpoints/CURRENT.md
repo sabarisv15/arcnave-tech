@@ -1,5 +1,26 @@
 # ArcNave — current checkpoint
 
+> **2026-09-26 (latest): WP-10 sandboxed visuals (ADR-0035), on branch `feat/wp-10-visual-sandbox`, not live.**
+> - `render_ui` has a `visual` block: model-written HTML with scripts, at most 200,000 bytes and
+>   2 per response. Over the limit, the tool fails with `visual_too_large` or `visual_limit`.
+>   The model's tool result carries `htmlBytes`, not the HTML; the client restores it from the
+>   call input on reload.
+> - `SandboxFrame.tsx` is the only place model HTML runs: `sandbox="allow-scripts"`, never
+>   same-origin, with ArcNave's CSP first. It accepts only resize and prompt messages from its own
+>   frame, and resets on self-navigation. A visual's prompt goes to the composer; it is not sent.
+> - Webpage artifacts now run scripts in the same frame. New artifact kind `svg` (migration
+>   0016, hand-stamped `when` 1791000000000).
+> - Verified in real Chromium against the local stack:
+>   - the slider works;
+>   - `fetch` and images are blocked by the CSP; cookie, storage, popup and top navigation are
+>     blocked by the sandbox;
+>   - the prompt reaches the composer;
+>   - a link click is reset with "Navigation blocked";
+>   - the SVG and webpage artifacts render.
+> - Tests: backend 976, frontend 101.
+> - Migration clash: WP-04 and WP-05 also add a migration 0016. Whichever merges second deletes
+>   its own and re-runs `npm run db:generate`, then re-stamps `when` above the latest.
+>
 > **2026-09-26 (latest): WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
 > - Fixed blocker hook crash in `CodeBlock.tsx`: made `pre` a thin hookless dispatcher rendering either `<PlainCodeBlock>` or lazy `<MermaidBlock>`, eliminating "Rendered fewer hooks than expected" during streaming fence transitions (```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
 > - Added `MarkdownErrorBoundary` around every message's Markdown so any rendering error recovers to displaying raw source without blanking the application.

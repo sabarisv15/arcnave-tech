@@ -1140,4 +1140,10 @@ practice, not canon.
   Rules of Hooks during fence streaming, resolved by making `pre` a hookless dispatcher and adding
   `MarkdownErrorBoundary`). Retired the 2026-09-17 `.dockerignore` entry (Docker builds have been
   stable and verified by CI). **40 entries.**
-
+- **2026-09-26** — No new heading (at the cap). Two near-misses while building WP-10:
+  - `npm run db:generate` stamped migration 0016 at the machine clock (1790445…), which is
+    before the hand-stamped 0015 (1790900000000), so it would have been skipped. This repeats
+    the 2026-09-25 entry. Re-stamped by hand; `journal.test.ts` passes.
+  - Running `vite` locally without `VITE_API_BASE` sends every request to the production Cloud
+    Run URL (the default in `api.ts`). A local browser check then logs in against production.
+    Rule: start local dev with `VITE_API_BASE=/v1` so the Vite proxy reaches the local backend.

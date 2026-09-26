@@ -411,3 +411,32 @@ describe('deletion and isolation', () => {
     }
   });
 });
+
+describe('svg artifacts (ADR-0035)', () => {
+  it('creates and lists an svg artifact', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
+    const created = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/artifacts',
+      headers: auth(),
+      payload: { title: 'Square', kind: 'svg', content: svg },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = (created.json() as { id: string }).id;
+    const read = await ctx.app.inject({ url: `/v1/artifacts/${id}`, headers: auth() });
+    expect(read.json()).toMatchObject({ kind: 'svg', content: svg });
+    const byKind = await ctx.app.inject({ url: '/v1/artifacts?kind=svg', headers: auth() });
+    expect((byKind.json() as { items: Array<{ id: string }> }).items.map((a) => a.id)).toContain(id);
+  });
+
+  it('still rejects an unknown kind', async () => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/artifacts',
+      headers: auth(),
+      payload: { title: 'x', kind: 'flash', content: 'x' },
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });
+  });
+});

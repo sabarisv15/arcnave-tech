@@ -874,7 +874,7 @@ function MessageView({
         </>
       )}
       {m.uiBlocks && m.uiBlocks.length > 0 && (
-        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />
+        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} chatId={chatId} />
       )}
       {(() => {
         if (!m.toolCalls?.length) return null;

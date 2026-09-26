@@ -226,7 +226,7 @@ export interface SavedSource {
 export interface Artifact {
   id: string;
   title: string;
-  kind: "document" | "code" | "webpage";
+  kind: "document" | "code" | "webpage" | "svg";
   projectId: string | null;
   chatId: string | null;
   /** Which version the artifact currently points at. */
@@ -356,7 +356,7 @@ export function toMessage(dto: MessageDto): Message {
     if (jsonContent && typeof jsonContent.data === "object" && jsonContent.data !== null) {
       const dataObj = jsonContent.data as { blocks?: UIBlock[] };
       if (Array.isArray(dataObj.blocks)) {
-        uiBlocks = dataObj.blocks;
+        uiBlocks = withVisualHtml(dataObj.blocks, renderCall.input);
       }
     } else if (
       typeof renderCall.input === "object" &&
@@ -439,9 +439,9 @@ export function toArtifact(dto: ArtifactDto): Artifact {
   return {
     id: dto.id,
     title: dto.title,
-    kind: (dto.kind === "code" || dto.kind === "webpage"
+    kind: (dto.kind === "code" || dto.kind === "webpage" || dto.kind === "svg"
       ? dto.kind
-      : "document") as "document" | "code" | "webpage",
+      : "document") as Artifact["kind"],
     projectId: dto.projectId,
     chatId: dto.chatId,
     currentVersion: dto.currentVersion,
@@ -481,4 +481,20 @@ export function adoptServerId(
 ): (messages: Message[]) => Message[] {
   return (messages) =>
     messages.map((m) => (m.id === placeholderId ? { ...m, ...patch, id: realId } : m));
+}
+
+/**
+ * The stored render_ui result carries a visual's size, not its HTML (ADR-0035): the HTML is in
+ * the call's input, at the block's position (`sequence` is 1-based over the input's blocks).
+ */
+export function withVisualHtml(blocks: UIBlock[], input: unknown): UIBlock[] {
+  const inputBlocks =
+    input && typeof input === "object" && Array.isArray((input as { blocks?: unknown }).blocks)
+      ? ((input as { blocks: unknown[] }).blocks)
+      : [];
+  return blocks.map((b) => {
+    if (b.type !== "visual" || typeof b.html === "string") return b;
+    const source = inputBlocks[b.sequence - 1] as { type?: unknown; html?: unknown } | undefined;
+    return source?.type === "visual" && typeof source.html === "string" ? { ...b, html: source.html } : b;
+  });
 }

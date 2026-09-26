@@ -36,7 +36,7 @@ import {
 
 const MAX_CONTENT_CHARS = 400_000;
 
-const kindSchema = z.enum(['document', 'code', 'webpage']);
+const kindSchema = z.enum(['document', 'code', 'webpage', 'svg']);
 const formatSchema = z.enum(['xlsx', 'docx', 'pptx']);
 
 const artifactSchema = z.object({

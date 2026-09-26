@@ -110,6 +110,8 @@ interface Context {
   branch: (chatId: string, throughMessageId?: string) => void;
   exportChat: (chat: Chat) => void;
   saveResponseAsArtifact: (chatId: string, messageId: string) => void;
+  /** Keeps a visual from a reply as an artifact (ADR-0035): `svg` for an SVG root, else `webpage`. */
+  saveVisualAsArtifact: (visual: { title: string; html: string; kind: "svg" | "webpage"; chatId?: string }) => void;
   updatePreferences: (patch: Partial<Preferences>) => void;
   /**
    * Re-read preferences.
@@ -985,6 +987,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [messages, chats, patchMessage, toast, report],
   );
 
+  const saveVisualAsArtifact: Context["saveVisualAsArtifact"] = useCallback(
+    ({ title, html, kind, chatId }) => {
+      void api.artifacts
+        .create({ title: title.slice(0, 80) || "Visual", kind, content: html, chatId: chatId ?? null })
+        .then((created) => {
+          setArtifacts((list) => [toArtifact(created), ...list]);
+          setPanel({ kind: "artifact", id: created.id });
+          toast("Saved as an artifact");
+        })
+        .catch((error) => report(error, "The artifact could not be created."));
+    },
+    [toast, report],
+  );
+
   /* ------------------------------------------------------------------ preferences */
 
   const updatePreferences: Context["updatePreferences"] = useCallback(
@@ -1033,6 +1049,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       branch,
       exportChat,
       saveResponseAsArtifact,
+      saveVisualAsArtifact,
       updatePreferences,
       refreshPreferences,
       refreshChats,
@@ -1068,6 +1085,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       branch,
       exportChat,
       saveResponseAsArtifact,
+      saveVisualAsArtifact,
       updatePreferences,
       refreshPreferences,
       refreshChats,

@@ -13,7 +13,8 @@ You have access to the \`render_ui\` tool to render structured, interactive pres
 - NEVER invent citations or fake URLs. Sources in \`sources\` blocks must refer to actual retrieved sources or project files.
 - Comparisons must remain objective: list attributes and matrix values fairly. NEVER declare political or electoral winners.
 - Generative UI is ephemeral conversational presentation. If the user asks to download or keep it as a file, produce the file with the tool listed for that format under "Files for the user"; if they ask for an artifact, use \`create_artifact\`.
-- All code in \`steps\` or markdown must be escaped, inert text. Never include executable scripts, HTML event handlers, or raw JavaScript URLs.
+- All code in \`steps\` or markdown must be escaped, inert text. Never include executable scripts, HTML event handlers, or raw JavaScript URLs outside a \`visual\` block.
+- A \`visual\` block is the one place for your own HTML and JavaScript. Use it when a diagram, chart or small interactive explanation shows the point better than text and the other blocks. Keep it self-contained: it runs in a sandbox with no network, and anything it fetches or loads from other hosts fails.
 `.trim();
 
 export const ANALYTICS_POLICY_V1 = `
