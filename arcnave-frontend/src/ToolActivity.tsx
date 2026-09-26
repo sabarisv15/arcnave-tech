@@ -61,6 +61,8 @@ const VERBS: Record<string, Verb> = {
   generate_image: verb(ImageIcon, "Generating image", "Generated image", "generated", "an image", "images"),
   extract_scanned_table_rows: verb(Table2, "Extracting table", "Extracted table", "extracted", "a table", "tables"),
   analyze_table_rows: verb(Table2, "Analysing table", "Analysed table", "analysed", "a table", "tables"),
+  save_memory: verb(Brain, "Saving to memory", "Saved to memory", "saved", "a memory", "memories"),
+  search_chats: verb(Search, "Searching past chats", "Searched past chats", "searched", "past chats", "past chats"),
   read_memory: verb(Brain, "Checking memory", "Checked memory", "checked", "memory", "memory"),
   search_memory: verb(Brain, "Searching memory", "Searched memory", "searched", "memory", "memory"),
   update_memory: verb(Brain, "Updating memory", "Updated memory", "updated", "memory", "memory"),

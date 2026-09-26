@@ -88,6 +88,7 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
 
   if (input.memoryEnabled) {
     allowed.add('save_memory');
+    allowed.add('search_chats');
     allowed.add('search_memory');
     allowed.add('read_memory');
     allowed.add('update_memory');

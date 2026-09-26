@@ -779,7 +779,7 @@ export class GenerationService {
       : undefined;
 
     const memoryToolExecutor = memoryEnabled
-      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null, input.chatId)
       : undefined;
 
     const pendingUiEvents: StreamEvent[] = [];
@@ -816,6 +816,7 @@ export class GenerationService {
     }
     if (memoryToolExecutor) {
       toolMap.set('save_memory', memoryToolExecutor);
+      toolMap.set('search_chats', memoryToolExecutor);
       toolMap.set('search_memory', memoryToolExecutor);
       toolMap.set('read_memory', memoryToolExecutor);
       toolMap.set('update_memory', memoryToolExecutor);

@@ -47,6 +47,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'generate_deliverable',
         // Memory is saved as the user chats (ADR-0025), so its tools are in hand.
         'save_memory',
+        'search_chats',
         'forget_memory',
         'run_python',
       ]);
@@ -85,6 +86,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'read_uploaded_file',
         'generate_deliverable',
         'save_memory',
+        'search_chats',
         'forget_memory',
         'run_python',
       ]);
@@ -238,6 +240,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'read_uploaded_file',
         'generate_deliverable',
         'save_memory',
+        'search_chats',
         'forget_memory',
         'run_python',
       ]);

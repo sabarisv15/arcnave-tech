@@ -111,6 +111,7 @@ const KNOWN_BUNDLES: { name: ToolBundleName; toolNames: Set<string> }[] = [
       'update_goal',
       'get_context_remaining',
       'save_memory',
+      'search_chats',
       'search_memory',
       'read_memory',
       'update_memory',

@@ -480,8 +480,9 @@ export class AgentLoop {
         }
 
         if (memoryEnabled) {
-          const memoryToolExecutor = new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null);
+          const memoryToolExecutor = new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null, input.chatId);
           baseMap.set('save_memory', memoryToolExecutor);
+          baseMap.set('search_chats', memoryToolExecutor);
           baseMap.set('search_memory', memoryToolExecutor);
           baseMap.set('read_memory', memoryToolExecutor);
           baseMap.set('update_memory', memoryToolExecutor);

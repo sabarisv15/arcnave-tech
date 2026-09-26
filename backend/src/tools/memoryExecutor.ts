@@ -12,6 +12,7 @@
  */
 import { z } from 'zod';
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
+import { searchChats } from '../services/memory/chatSearch.js';
 import { MemoryConcurrencyError, type MemoryService } from '../services/memory/memoryService.js';
 
 const searchMemoryInput = z.object({
@@ -24,6 +25,11 @@ const saveMemoryInput = z.object({
   topic: z.string().trim().min(1).max(200),
   content: z.string().trim().min(1),
   scope: z.enum(['global', 'project']).optional(),
+});
+
+const searchChatsInput = z.object({
+  query: z.string().trim().min(1),
+  limit: z.number().int().min(1).max(10).optional(),
 });
 
 const readMemoryInput = z.object({
@@ -59,6 +65,8 @@ export class MemoryToolExecutor implements ToolExecutor {
     private readonly memoryService: MemoryService,
     private readonly userId: string,
     private readonly projectId: string | null = null,
+    /** The chat this turn belongs to, left out of search_chats. */
+    private readonly chatId: string | null = null,
   ) {}
 
   async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
@@ -70,6 +78,8 @@ export class MemoryToolExecutor implements ToolExecutor {
       switch (call.name) {
         case 'save_memory':
           return await this.saveMemory(call);
+        case 'search_chats':
+          return await this.searchChats(call);
         case 'search_memory':
           return await this.searchMemory(call);
         case 'read_memory':
@@ -149,6 +159,20 @@ export class MemoryToolExecutor implements ToolExecutor {
       scope: saved.scope,
       version: saved.version,
     });
+  }
+
+  private async searchChats(call: ToolCall): Promise<ToolResult> {
+    const parsed = searchChatsInput.safeParse(call.input);
+    if (!parsed.success) {
+      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    }
+    const hits = await searchChats(
+      this.userId,
+      parsed.data.query,
+      { projectId: this.projectId, excludeChatId: this.chatId },
+      parsed.data.limit ?? 5,
+    );
+    return jsonResult(call.id, hits.length > 0 ? { results: hits } : { results: [], message: 'No earlier conversation matched.' });
   }
 
   private async readMemory(call: ToolCall): Promise<ToolResult> {

@@ -691,8 +691,26 @@ export const FORGET_MEMORY: ToolDefinition = {
   },
 };
 
+export const SEARCH_CHATS: ToolDefinition = {
+  name: 'search_chats',
+  description:
+    'Searches the user\'s earlier conversations (inside a project: that project\'s chats only) for words ' +
+    'they mention. Use it when the user refers to something discussed before that is not in this ' +
+    'conversation. Returns matching excerpts with the chat title and date; cite the chat title when you use one.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Words to look for, e.g. "KVB statement reconciliation".' },
+      limit: { type: 'integer', description: 'Maximum excerpts to return (1 to 10). Defaults to 5.' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+};
+
 export const MEMORY_TOOL_DEFINITIONS: ToolDefinition[] = [
   SAVE_MEMORY,
+  SEARCH_CHATS,
   SEARCH_MEMORY,
   READ_MEMORY,
   UPDATE_MEMORY,

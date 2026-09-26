@@ -296,4 +296,33 @@ describe('Phase 5.2 Memory Integration & Tools', () => {
     expect(memoryBlock(systems[0]!)).toBe(memoryBlock(systems[1]!));
     expect(systems[0]).toContain('<memory_policy>');
   });
+  it('searches earlier chats: outside projects from outside, one project from inside, never this chat (C6)', async () => {
+    const u = await signUp(ctx);
+    const h = auth(u);
+    const project = (await ctx.app.inject({ method: 'POST', url: '/v1/projects', headers: h, payload: { title: 'p' } })).json() as { id: string };
+    const chatIn = async (title: string, projectId?: string) =>
+      ((await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers: h, payload: { title, ...(projectId ? { projectId } : {}) } })).json() as { id: string }).id;
+    const say = (chatId: string, prompt: string) =>
+      ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: h, payload: { prompt } });
+    const plain = await chatIn('Plain chat');
+    const inProject = await chatIn('Project chat', project.id);
+    const current = await chatIn('Current chat');
+    await say(plain, 'The KVB reconciliation had 244 debits');
+    await say(inProject, 'The KVB project totals were checked');
+    await say(current, 'KVB again here');
+
+    const run = async (projectId: string | null, chatId: string) => {
+      const exec = new MemoryToolExecutor(memoryService, u.id, projectId, chatId);
+      const res = await exec.execute({ id: 's', name: 'search_chats', input: { query: 'kvb debits' } }, new AbortController().signal);
+      expect(res.ok).toBe(true);
+      return ((res.content[0] as { data: { results: { chatId: string; excerpt: string }[] } }).data.results);
+    };
+    const outside = await run(null, current);
+    expect(outside.map((r) => r.chatId)).toEqual([plain]);
+    expect(outside[0]!.excerpt).toContain('KVB');
+    const inside = await run(project.id, inProject);
+    expect(inside).toEqual([]);
+    const fromOtherProjectChat = await run(project.id, current);
+    expect(fromOtherProjectChat.map((r) => r.chatId)).toEqual([inProject]);
+  });
 });

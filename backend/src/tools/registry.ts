@@ -38,6 +38,8 @@ export const DECLARED_EVERY_TURN: readonly string[] = [
   // Claude saves memory as you chat, without being asked (ADR-0025): the tool must be in hand.
   'save_memory',
   'forget_memory',
+  // Claude searches past chats when the user refers to one, shown as a tool call.
+  'search_chats',
   // A project past the whole-file limit is read through search, as Claude's project knowledge
   // search tool is (ADR-0020): the tools must be in hand, not discovered first.
   'search_project_files',
