@@ -75,19 +75,14 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     expect(geminiParts[0]?.inlineData?.mimeType).toBe('application/pdf');
     expect(geminiParts[1]?.text).toContain('Please provide a comprehensive summary');
 
-    // 3. Routing decision: explanatory intent is telemetry; only the core is exposed, nothing forced
+    // 3. Routing decision: only the core is exposed, nothing forced
     const routing = routeTurn({
-      prompt: request.prompt,
-      mode: 'chat',
       hasAttachments: true,
-      attachmentMimeTypes: ['application/pdf'],
       candidateSkills: skillService.listSkills(),
       hasProject: false,
     });
-    expect(routing.detectedIntent).toBe('EXPLANATION');
     // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
     expect(routing.exposedTools).toEqual(core(routing));
-    expect(routing.pythonExposed).toBe(false);
   });
 
   // Scenario 2: Bank Statement PDF to Excel
@@ -245,36 +240,24 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
   // Scenario 5: Explain XLSX Trends
   it('Scenario 5: Explain XLSX Trends — qualitative explanation, zero Python executed', () => {
     const decision = routeTurn({
-      prompt: 'Explain the revenue and EBITDA trends shown in this spreadsheet',
-      mode: 'chat',
       hasAttachments: true,
-      attachmentMimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
       candidateSkills: skillService.listSkills(),
       hasProject: false,
       runPythonEnabled: true,
     });
-
-    expect(decision.detectedIntent).toBe('EXPLANATION');
     // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
     expect(decision.exposedTools).toEqual(core(decision));
-    expect(decision.pythonExposed).toBe(false);
   });
 
   // Scenario 6: XLSX Regression & Chart
-  it('Scenario 6: XLSX Regression & Chart — computation intent correctly enables run_python in catalog', () => {
+  it('Scenario 6: XLSX Regression & Chart — run_python is in the catalog because the sandbox is enabled', () => {
     const decision = routeTurn({
-      prompt: 'Run a linear regression on this spreadsheet data and plot a scatter chart with line of best fit',
-      mode: 'chat',
       hasAttachments: true,
-      attachmentMimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
       candidateSkills: skillService.listSkills(),
       hasProject: false,
       runPythonEnabled: true,
     });
-
-    expect(decision.detectedIntent).toBe('COMPUTATION');
     expect(decision.allowedTools).toContain('run_python');
-    expect(decision.pythonExposed).toBe(true);
   });
 
   // Scenario 7: Describe Image
@@ -308,30 +291,22 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     expect(blocks[1]?.text).toContain('Describe what is depicted');
 
     const routing = routeTurn({
-      prompt: request.prompt,
-      mode: 'chat',
       hasAttachments: true,
-      attachmentMimeTypes: ['image/png'],
       candidateSkills: skillService.listSkills(),
       hasProject: false,
     });
-    expect(routing.detectedIntent).toBe('EXPLANATION');
     // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
     expect(routing.exposedTools).toEqual(core(routing));
   });
 
   // Scenario 8: Generate Image
-  it('Scenario 8: Generate Image — routeTurn detects IMAGE_GENERATION and allows generate_image', () => {
+  it('Scenario 8: Generate Image — generate_image is allowed because image generation is enabled', () => {
     const decision = routeTurn({
-      prompt: 'Generate an illustration of a vintage grandfather clock on a mantelpiece',
-      mode: 'chat',
       hasAttachments: false,
       candidateSkills: skillService.listSkills(),
       hasProject: false,
       imageEnabled: true,
     });
-
-    expect(decision.detectedIntent).toBe('IMAGE_GENERATION');
     expect(decision.allowedTools).toContain('generate_image');
     expect(decision.exposedTools).toContain('search_tools');
   });

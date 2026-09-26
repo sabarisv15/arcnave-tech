@@ -30,7 +30,6 @@ export interface ModelInfo {
 }
 
 export interface RuntimeDebugTrace {
-  detectedIntent: string;
   candidateSkills: string[];
   selectedSkills: string[];
   loadedSkills: string[];

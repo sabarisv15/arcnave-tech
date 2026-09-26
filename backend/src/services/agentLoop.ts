@@ -41,7 +41,6 @@ import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
-import { shouldExposeRunPython, shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
 import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
 import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
 import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
@@ -241,17 +240,9 @@ export class AgentLoop {
       tableExtractionEnabled,
       usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
     );
-    const allowPython =
-      runPythonEnabled &&
-      shouldExposeRunPython({
-        prompt: input.prompt,
-        mode: input.mode,
-        hasAttachments: input.hasAttachments,
-      });
-    const allowDeliverable = shouldExposeGenerateDeliverable({
-      prompt: input.prompt,
-      hasAttachments: input.hasAttachments,
-    });
+    // Permission alone decides, as in the chat path (ADR-0006, ADR-0032): no keyword gate.
+    const allowPython = runPythonEnabled;
+    const allowDeliverable = true;
 
     const activeHistory: Turn[] = [...history];
     const loadedSkillNames = new Set<string>();

@@ -123,8 +123,11 @@ const envSchema = z.object({
   CONTEXT_EDIT_TRIGGER_TOKENS: int(100_000),
   CONTEXT_EDIT_KEEP_TOOL_RESULTS: int(3),
   CONTEXT_EDIT_CLEAR_BATCH: int(5),
-  /** How hard models think (ReasoningEffort). Clamped per model to the levels it supports. */
-  REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
+  /** How hard models think (ReasoningEffort). Clamped per model to the levels it supports.
+   *  Medium is the default of both Gemini 3.8 Flash (thinkingLevel MEDIUM) and Claude Opus 5.5.
+   *  High made every round of every turn think at the maximum, including a plain summary
+   *  (ADR-0032). Raise it per deployment only after an eval shows quality needs it. */
+  REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   /** Project files go into the prompt whole while their text totals at most this many
    *  characters; past it, the model searches them with search_project_files, as Claude's
    *  project knowledge search tool does (ADR-0020). Claude publishes no number ("approaches the

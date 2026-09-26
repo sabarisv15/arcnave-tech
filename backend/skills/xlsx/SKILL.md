@@ -1,6 +1,6 @@
 ---
 name: xlsx
-version: 2.1.0
+version: 3.0.0
 description: "Use when a task works on spreadsheet data: analysing or computing over an uploaded .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file. Not needed to answer a question from a sheet's text already in the conversation."
 category: artifact
 scope: builtin
@@ -14,133 +14,88 @@ metadata:
   source: arcnave
 ---
 
-# Spreadsheet (XLSX) Architecture & Financial Modeling
+# Spreadsheets (XLSX)
 
-Procedural knowledge for authoring, editing, inspecting, and consolidating Excel spreadsheets (.xlsx). Teaches typed `StructuredWorkbook` modeling, formula conventions, targeted cell updates, multi-sheet consolidation, and provenance-based deduplication.
+## Reading an uploaded workbook
 
----
+An uploaded workbook reaches you as extracted text and tables. Answer questions about what is
+shown directly from that.
 
-## 1. When to Use This Skill
+For exact structure, call `inspectSpreadsheet` with the `fileId`. It returns `sheetNames`,
+`totalRows` and `cellTypes` (address → `number`, `string`, `formula`, `date`, `boolean`).
 
-- Creating new financial models, operating budgets, ledgers, or data sheets.
-- Modifying specific cells or formulas in an existing `.xlsx` workbook (`editSpreadsheetCells`).
-- Combining multiple workbooks into a unified multi-sheet workbook (`combineWorkbooks`).
-- Inspecting sheets, row counts, and cell types in an existing spreadsheet (`inspectSpreadsheet`).
-- Formatting tabular data extracted from PDFs or documents into format-native spreadsheets.
+For analysis beyond the tools, `run_python` has pandas, openpyxl, xlrd and xlsxwriter; the file
+is in `input/`.
 
----
+## Creating a workbook
 
-## 2. When NOT to Use This Skill
+Pass a typed `workbook` to `generate_deliverable` with `format: 'xlsx'`:
 
-- Non-tabular prose reports, legal agreements, or narrative memos (use `docx` or `pdf`).
-- Slide presentations or pitch materials (use `pptx`).
-- General conversational Q&A where no tabular spreadsheet output is desired.
+```json
+{
+  "sheets": [{
+    "name": "Summary",
+    "columns": [
+      { "key": "date", "label": "Date", "type": "date", "format": "DD-MM-YYYY" },
+      { "key": "amount", "label": "Amount", "type": "number", "format": "#,##0.00" }
+    ],
+    "rows": [
+      { "cells": { "date": { "value": { "type": "date", "value": "2026-03-31" } },
+                   "amount": { "value": { "type": "number", "value": 12500 } } } },
+      { "cells": { "amount": { "value": { "type": "formula", "value": "=SUM(B2:B2)" } } } }
+    ]
+  }]
+}
+```
 
----
+- Each cell is `{ "value": { "type", "value", "format"? }, "source"? }`. Types: `number`,
+  `integer`, `date`, `datetime`, `formula`, `boolean`, `string`, `null`. Keep numbers and
+  dates typed, not as text.
+- Values the user reads as results (totals, rates, differences) are formulas such as
+  `=SUM(B2:B10)` or `=B2*C2`, so any cell can be inspected. Write function names in uppercase.
+- A cell or row can carry `source` (`attachmentId`, `page`, `row`, ...) when its value came from
+  a file.
 
-## 3. Understand & Inspect Existing Files
+For a simple sheet, Markdown also works: a `# SheetName` heading followed by a GFM table, passed
+as `content` with a `title`.
 
-### A. Provider File Adapter & Extracted Representation
-Uploaded spreadsheets (.xlsx) are ingested via ArcNave's Provider File Adapter as extracted text/tabular document representation. When extracted sheet data is present in context, answer factual questions ("What was the total operating expense in 2025?") directly from this extracted representation without unnecessary tool calls. Do not imply or expect that providers consume raw binary OpenXML spreadsheet files natively.
+## Changing an existing workbook
 
-### B. Deterministic Structural Inspection
-When programmatic workflows require exact sheet names, row counts, or cell type profiles:
-- Call the `inspectSpreadsheet` tool with the file's `fileId` to obtain:
-  - `sheetNames`: Array of active worksheet names.
-  - `totalRows`: Total row count across sheets.
-  - `cellTypes`: Dictionary mapping cell addresses (`Sheet!A1`) to value types (`number`, `string`, `formula`, `date`, `boolean`).
+Call `editSpreadsheetCells` with the `fileId` and a list of `edits`:
 
----
+```json
+[{ "sheet": "Q1", "cell": "B8", "value": 15000, "type": "number", "format": "#,##0" },
+ { "sheet": "Q1", "cell": "B9", "value": "=B8*1.1", "type": "formula" }]
+```
 
-## 4. Create New File
+Untouched sheets, formulas and styles are kept. Do not rebuild an existing workbook from
+Markdown to change a few cells.
 
-### Approach A: Format-Native `StructuredWorkbook` (Recommended)
-For structured data, accounting sheets, and financial models, construct a `StructuredWorkbook` object passed to `generate_deliverable(format: 'xlsx', workbook: ...)`:
-- `sheets`: Array of worksheet objects, each containing:
-  - `name`: Clean sheet name (e.g. `'Summary'`, `'Transactions'`).
-  - `columns`: Array of `{ key: string, label: string, type: string, format?: string, width?: number }`.
-  - `rows`: Array of `{ cells: { [colKey]: { value: TypedValue, source?: SourceReference } } }`.
-- **Explicit Typed Values**:
-  - `number`: `{ type: 'number', value: 12500, format: '$#,##0.00' }`
-  - `date`: `{ type: 'date', value: '2026-03-31', format: 'YYYY-MM-DD' }`
-  - `formula`: `{ type: 'formula', value: '=SUM(C2:C10)' }`
-  - `integer`, `boolean`, `string`, `null`.
-  - **NEVER** stringify numbers or dates into dead text.
+## Combining workbooks
 
-### Approach B: Markdown Tables with `# SheetName` Headings
-For simple spreadsheets:
-- Use `# SheetName` headings in Markdown, followed by GFM tables.
-- Call `generate_deliverable(format: 'xlsx', title, content)`.
+`combineWorkbooks` with `fileIds` merges the sheets into one workbook and renames clashing
+sheet names (`Data`, `Data_2`).
 
-### Formula Conventions (Mandatory)
-- **Formulas First**: Calculations producing an outcome the user sees in the sheet must be explicit UPPERCASE formulas (e.g. `=SUM(B2:B10)`, `=AVERAGE(C2:C20)`, `=B2*C2`, `=IF(D2>0, D2*0.1, 0)`), NEVER hardcoded dead numbers.
-- Users must be able to click any cell and inspect its mathematical derivation.
-- Formula names must be strictly UPPERCASE.
+When you merge rows from several chunks or pages, identical rows can be real (two ₹50 deposits
+on the same day). Remove a duplicate only when it has the same source provenance
+(`attachmentId:page:sheet:table:row`), never because its values match.
 
----
+## From a PDF or document
 
-## 5. Edit Existing File & Format-Preserving Operations
+Read the source first (for every row of a PDF table, see the pdf skill's exact workflow). Then
+build the typed workbook above. `sourceAttachmentId` copies a text or CSV file only; it does not
+parse a PDF.
 
-### Targeted Cell Editing (`editSpreadsheetCells`)
-When modifying an existing workbook (e.g. updating an assumption, changing a cell value, inserting a formula):
-- Call the `editSpreadsheetCells` tool with `fileId` and `edits`:
-  - `edits`: Array of `{ sheet: string, cell: string, value: unknown, type?: string, format?: string }`.
-  - Example: `[{ sheet: 'Q1', cell: 'B8', value: 15000, type: 'number', format: '$#,##0' }, { sheet: 'Q1', cell: 'B9', value: '=B8*1.1', type: 'formula' }]`.
-- **Preservation Principle**: Preserves all untouched sheets, formulas, cell styles, fonts, and grid dimensions intact. **Do NOT convert an existing workbook to Markdown and rebuild it from scratch.**
+## Charts
 
----
+`generate_deliverable` does not draw charts. For a chart inside the file, build the workbook in
+`run_python` with `openpyxl.chart` and save it to `output/`. For a chart shown in chat, use
+`render_ui` when it is available.
 
-## 6. Multi-File Operations & Deduplication
+## When a tool reports a problem
 
-### Combining Workbooks (`combineWorkbooks`)
-- Call the `combineWorkbooks` tool with `fileIds` to merge sheets from multiple workbooks into a single consolidated workbook.
-- Name collisions are automatically disambiguated (e.g. `Data` and `Data_2`).
+`generate_deliverable` verifies the workbook it builds: the package opens, formulas parse, and
+dates and numbers are typed. If a result has `status: 'warning'` with `repairable: true`, fix
+what it names and call it again.
 
-### Chunk Deduplication Rule
-- **Preserve Legitimate Duplicates**: Legitimate identical data rows (e.g. multiple distinct $50 deposits on the same day) must **ALWAYS** be preserved.
-- **Provenance Deduplication Only**: Deduplicate rows **ONLY** when proven by identical source provenance (`attachmentId:page:sheet:table:row`) across chunk boundaries. Never deduplicate solely by matching cell values.
-
----
-
-## 7. Cross-Skill Transformations
-
-No single skill owns an entire cross-format workflow. The source skill extracts; the target skill structures and renders.
-
-### PDF / Document $\to$ XLSX
-1. **Source Phase (`pdf` / `docx`)**: Understand the source document and extract table headers, row values, and dates.
-2. **Target Phase (`xlsx`)**: Map extracted data into a `StructuredWorkbook` with typed numbers, dates, and uppercase formulas.
-3. **Render Phase**: Call `generate_deliverable(format: 'xlsx', workbook: ...)`.
-4. **NEVER** pass raw PDF `sourceAttachmentId` directly into `generate_deliverable` expecting automatic binary conversion without structured parsing.
-
----
-
-## 8. Execution Strategy
-
-- **MODEL decides WHAT**: Selects rows, columns, and financial calculations.
-- **SKILL teaches HOW**: Enforces typed values, uppercase formulas, and targeted edits.
-- **ExecutionRuntime performs deterministic work**: Executes native Excel operations and format renderers.
-- **Chat is the Cover Note**: In chat, summarize key metrics, sheet names, and formula totals in 1–2 concise paragraphs. Direct the user to the generated spreadsheet; do NOT dump raw cell grids into chat.
-
----
-
-## 9. Validation & Repair Loop
-
-- Generated workbooks undergo post-generation verification (valid OpenXML zip package, worksheets load cleanly in ExcelJS, formulas parse without syntax errors, date types are native Date instances, numbers are numeric).
-- **Repair Loop**: If a tool reports a schema or column warning (`status: 'warning'`, `repairable: true`), evaluate the missing column or type mismatch and make a corrective tool call with the updated schema.
-
----
-
-## 10. Warnings & Limitations
-
-- **No Magic Binary Conversion**: `generate_deliverable` requires structured markdown or `StructuredWorkbook` upstream; it does not transcode binary source files directly.
-- **Charts**: `generate_deliverable` does not make Excel charts. For a native chart in the file, build
-  it in `run_python` with `openpyxl` (`openpyxl.chart`) and save the workbook to `output/`. For a
-  chart shown in the chat, use `render_ui`.
-- **No External Links**: Formulas referencing external workbooks (`='[other.xlsx]Sheet1'!A1`) are unsupported.
-
----
-
-## 11. Available Resources & Scripts
-
-- This skill has no scripts or templates. For analysis beyond the tools, `run_python` has
-  pandas, openpyxl, xlrd and xlsxwriter; the file is in `input/`.
+Formulas that link to other workbooks (`='[other.xlsx]Sheet1'!A1`) are not supported.

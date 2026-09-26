@@ -6,31 +6,15 @@
  * decides what it needs: every turn gets the same core (`search_tools`, plus `load_skill` when
  * skills exist) and discovers the rest from `allowedTools`.
  *
- * Intent detection below is telemetry only. `detectedIntent` and `pythonExposed` feed the debug
- * trace; neither adds or removes a tool. `turnRouter.locked.test.ts` fails if that changes.
+ * There is no intent detection: the prompt's wording is never read here. Claude's harness has no
+ * keyword router either; the model reads the request (ADR-0032).
  */
 
-import type { Mode } from '../../providers/types.js';
-import { evaluateRunPythonPolicy } from '../../tools/capabilityPolicy.js';
 import { DECLARED_EVERY_TURN } from '../../tools/registry.js';
 
-export type DetectedIntent =
-  | 'IMAGE_GENERATION'
-  | 'FILE_CONVERSION'
-  | 'FILE_OPERATION'
-  | 'OFFICE_DELIVERABLE_CREATION'
-  | 'EXPLANATION'
-  | 'COMPUTATION'
-  | 'RESEARCH'
-  | 'PROJECT_QUERY'
-  | 'ORDINARY_CHAT';
-
+/** Flags and infrastructure only. The prompt is deliberately not an input: wording decides nothing. */
 export interface RouteTurnInput {
-  prompt: string;
-  mode: Mode;
   hasAttachments: boolean;
-  attachmentMimeTypes?: string[];
-  attachmentNames?: string[];
   candidateSkills: Array<{ name: string; description: string }>;
   hasProject: boolean;
   imageEnabled?: boolean;
@@ -43,25 +27,19 @@ export interface RouteTurnInput {
 }
 
 export interface TurnRoutingDecision {
-  detectedIntent: DetectedIntent;
   candidateSkills: string[];
   selectedSkills: string[];
   allowedTools: string[];
   exposedTools: string[];
-  /** Telemetry only: the prompt reads as computational. Does not gate `run_python`. */
-  pythonExposed: boolean;
-  reason: string;
 }
 
 export interface RuntimeDebugTrace {
-  detectedIntent: string;
   candidateSkills: string[];
   selectedSkills: string[];
   loadedSkills: string[];
   allowedTools: string[];
   exposedTools: string[];
   toolsCalled: string[];
-  pythonExposed: boolean;
 }
 
 /**
@@ -152,177 +130,11 @@ function coreTools(input: RouteTurnInput, allowed: string[]): string[] {
 }
 
 export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
-  const prompt = input.prompt.toLowerCase().trim();
-  const candidateSkillNames = input.candidateSkills.map((s) => s.name);
-
-  // Evaluate Python capability policy
-  const pythonDecision = evaluateRunPythonPolicy({
-    prompt: input.prompt,
-    mode: input.mode,
-    hasAttachments: input.hasAttachments,
-    attachmentMimeTypes: input.attachmentMimeTypes,
-  });
-  const pythonAllowed = Boolean(input.runPythonEnabled && pythonDecision.allowed);
-
   const allowedTools = computeAllowedTools(input);
-  const exposedTools = coreTools(input, allowedTools);
-
-  // 1. Image Generation Intent
-  const isImageRequest =
-    /\b(?:generate|create|draw|render|paint|make)\s+(?:an?\s+)?(?:[\w-]+\s+)*(?:image|picture|photo|illustration|drawing|visual|graphic|artwork)\b/i.test(
-      prompt,
-    ) ||
-    /\b(?:generate|draw|create)\s+an?\s+(?:image|picture|photo)\b/i.test(prompt) ||
-    /\b(?:clock\s+image|image\s+generation)\b/i.test(prompt);
-
-  const hasOfficeTargetKeyword = /\b(?:excel|xlsx|spreadsheet|word|docx|document|powerpoint|pptx|slides?|deck|presentation|pdf)\b/i.test(
-    prompt,
-  );
-
-  if (isImageRequest && !hasOfficeTargetKeyword) {
-    return {
-      detectedIntent: 'IMAGE_GENERATION',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'User requested image creation or generation. Allowed catalog includes generate_image.',
-    };
-  }
-
-  // 2. Purely Explanatory / Conceptual / Summary Query (e.g. "explain Monte Carlo", "summarize this PDF", "what does this PDF say")
-  const isExplanatory =
-    /\b(?:explain|what is|what are|what does|how does|define|history of|overview of|theory behind|describe|summarize|summary)\b/i.test(
-      prompt,
-    ) &&
-    !/\b(?:run|execute|calculate|compute|plot|graph|chart|regress|verify with code|debug|implement|write code|code this|change|modify|edit|update|replace|merge|split|reorder|combine)\b/i.test(
-      prompt,
-    );
-
-  if (isExplanatory) {
-    return {
-      detectedIntent: 'EXPLANATION',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'Explanatory or conceptual query (telemetry). Model decides whether to use tools.',
-    };
-  }
-
-  // 3. File Conversion Intent (Source file / PDF -> Excel, Word, PPTX, PDF)
-  const hasConversionVerb = /\b(?:convert|turn|export|transform|extract|make)\b/i.test(prompt);
-  const mentionsPdf =
-    /\bpdf\b/i.test(prompt) ||
-    (input.hasAttachments &&
-      ((input.attachmentMimeTypes && input.attachmentMimeTypes.includes('application/pdf')) ||
-        (input.attachmentNames && input.attachmentNames.some((n) => n.toLowerCase().endsWith('.pdf')))));
-
-  const isExcelTarget = /\b(?:excel|xlsx|spreadsheet|sheet|workbook)\b/i.test(prompt);
-  const isWordTarget = /\b(?:word|docx|doc|document)\b/i.test(prompt);
-  const isPptxTarget = /\b(?:powerpoint|pptx|presentation|slides?|deck)\b/i.test(prompt);
-
-  if (
-    (hasConversionVerb && mentionsPdf && (isExcelTarget || isWordTarget || isPptxTarget)) ||
-    (input.hasAttachments && hasConversionVerb && (isExcelTarget || isWordTarget || isPptxTarget)) ||
-    (/\b(?:make|create|generate)\s+(?:an?\s+)?(?:powerpoint|pptx|presentation|slides?|deck)\s+(?:from|into|out of)\s+(?:this\s+)?(?:pdf|file|attachment)\b/i.test(
-      prompt,
-    ))
-  ) {
-    return {
-      detectedIntent: 'FILE_CONVERSION',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [], // Model progressively loads skills via load_skill
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'File conversion intent detected. Tools placed in policy catalog; model evaluates task first.',
-    };
-  }
-
-  // 4. Computation / Code Execution (Statistics, Regression, Transformations, Simulations, Explicit Python)
-  if (pythonAllowed) {
-    return {
-      detectedIntent: 'COMPUTATION',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: true,
-      reason: `Computation requested (telemetry): ${pythonDecision.reason}.`,
-    };
-  }
-
-  // 4b. File Operations (Inspection & Manipulation for PDF, XLSX, DOCX, PPTX)
-  const isFileOpVerb = /\b(?:merge|combine|split|extract pages|reorder|inspect|examine|update cells?|edit cells?|replace text|append section|change|modify|edit)\b/i.test(prompt);
-  if (
-    (hasOfficeTargetKeyword && isFileOpVerb) ||
-    (input.hasAttachments && isFileOpVerb)
-  ) {
-    return {
-      detectedIntent: 'FILE_OPERATION',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'File operation intent detected. Tools placed in policy catalog; model evaluates task first.',
-    };
-  }
-
-  // 5. Office Deliverable Creation from scratch (e.g. "create an Excel sheet for my budget")
-  if (
-    /\b(?:create|draft|generate|make|build)\s+(?:an?\s+)?(?:excel|spreadsheet|xlsx|workbook|word document|docx|powerpoint|presentation|deck|pdf report)\b/i.test(
-      prompt,
-    )
-  ) {
-    return {
-      detectedIntent: 'OFFICE_DELIVERABLE_CREATION',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'Deliverable creation intent detected. Tools placed in catalog; model evaluates task first.',
-    };
-  }
-
-  // 6. Research / Search Mode
-  if (input.mode === 'research' || input.mode === 'search') {
-    return {
-      detectedIntent: 'RESEARCH',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'Research or search mode active. Exposing web search tools in catalog discovery.',
-    };
-  }
-
-  // 7. Project File Query
-  if (input.hasProject && /\b(?:project|document|files?|search files|in this repo)\b/i.test(prompt)) {
-    return {
-      detectedIntent: 'PROJECT_QUERY',
-      candidateSkills: candidateSkillNames,
-      selectedSkills: [],
-      allowedTools,
-      exposedTools,
-      pythonExposed: false,
-      reason: 'Project knowledge search requested. Exposing project search tools in catalog.',
-    };
-  }
-
-  // 8. Ordinary Conversational Chat (Default)
   return {
-    detectedIntent: 'ORDINARY_CHAT',
-    candidateSkills: candidateSkillNames,
+    candidateSkills: input.candidateSkills.map((s) => s.name),
     selectedSkills: [],
     allowedTools,
-    exposedTools,
-    pythonExposed: false,
-    reason: 'Ordinary chat or general inquiry (telemetry). Model decides whether to use tools.',
+    exposedTools: coreTools(input, allowedTools),
   };
 }

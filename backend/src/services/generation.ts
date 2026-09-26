@@ -74,7 +74,6 @@ import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
-import { shouldExposeGenerateDeliverable } from '../tools/capabilityPolicy.js';
 import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
 import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
@@ -106,7 +105,6 @@ import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext, formatWholeFiles, projectFileTexts } from './retrieval.js';
 import type { UsageService } from './usage.js';
-import { shouldExposeRunPython } from '../tools/capabilityPolicy.js';
 import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
 
 const log = logger.child({ module: 'generation' });
@@ -499,18 +497,11 @@ export class GenerationService {
     // --- Skill-First -> Tool-Second Routing --------------------------------
     // G6: a file attached on an earlier turn is still available on this one.
     const historyAttachments = history.flatMap((t) => t.attachments ?? []);
-    const attachmentNames: string[] = [...input.attachments, ...historyAttachments]
-      .map((a) => a.filename)
-      .filter((name): name is string => Boolean(name));
 
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
     const routingDecision = routeTurn({
-      prompt: input.prompt,
-      mode: input.mode,
       hasAttachments: input.hasAttachments || historyAttachments.length > 0,
-      attachmentMimeTypes: [...input.attachments, ...historyAttachments].map((a) => a.mimeType),
-      attachmentNames,
       candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
       imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
@@ -597,7 +588,7 @@ export class GenerationService {
       this.tableExtractionEnabled(),
       usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
     );
-    // ADR-0006: permission alone decides. `pythonExposed` is telemetry and gates nothing.
+    // ADR-0006: permission alone decides.
     const allowPython = routingDecision.allowedTools.includes('run_python');
     const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
     const toolContext = {
@@ -627,20 +618,8 @@ export class GenerationService {
       skillsContext = undefined;
     }
 
-    const isAgentMode =
-      Boolean(this.cfg.ENABLE_AGENT_LOOP) &&
-      (input.mode === 'research' ||
-        Boolean(routingDecision.pythonExposed && input.codeExecution && input.attachments.length > 0) ||
-        Boolean(
-          (input.prompt.toLowerCase().includes('compare') ||
-            input.prompt.toLowerCase().includes('synthesize') ||
-            input.prompt.toLowerCase().includes('investigate') ||
-            input.prompt.toLowerCase().includes('deep dive')) &&
-            (input.prompt.toLowerCase().includes('across') ||
-              input.prompt.toLowerCase().includes('sources') ||
-              input.prompt.toLowerCase().includes('evidence') ||
-              input.prompt.toLowerCase().includes('documents')),
-        ));
+    // The AgentLoop is chosen by the user's mode, never by the prompt's wording (ADR-0032).
+    const isAgentMode = Boolean(this.cfg.ENABLE_AGENT_LOOP) && input.mode === 'research';
 
     // --- assemble context -------------------------------------------------
     timing.mark('skills_tools');
@@ -682,23 +661,8 @@ export class GenerationService {
       });
     };
 
-    // --- AgentLoop Routing Policy ------------------------------------------
-    // AgentLoop is reserved for multi-step autonomous tasks (research mode, active goal,
-    // or iterative multi-tool tasks) — simple conversational turns stay in GenerationService
-    // to preserve low latency and avoid redundant tool loops.
-    const shouldRouteToAgentLoop = (inp: GenerateInput): boolean => {
-      if (inp.mode === 'research') return true;
-      // If client requests code execution with attachments requiring iterative execution
-      if (routingDecision.pythonExposed && inp.codeExecution && inp.attachments.length > 0) return true;
-      // Structured heuristic: multi-turn research/synthesis tasks with explicit query shape
-      const p = inp.prompt.toLowerCase();
-      const hasSynthesisIntent =
-        (p.includes('compare') || p.includes('synthesize') || p.includes('investigate') || p.includes('deep dive')) &&
-        (p.includes('across') || p.includes('sources') || p.includes('evidence') || p.includes('documents'));
-      return hasSynthesisIntent;
-    };
-
-    if (this.cfg.ENABLE_AGENT_LOOP && shouldRouteToAgentLoop(input)) {
+    // --- AgentLoop: Research mode only ------------------------------------
+    if (isAgentMode) {
       const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
         entry.alias,
         await this.hydrateAttachmentBytes(input.attachments),
@@ -1265,14 +1229,12 @@ export class GenerationService {
     // emitting "done" would claim a completion that did not happen.
     if (status === 'complete') {
       const debugTrace: RuntimeDebugTrace = {
-        detectedIntent: routingDecision.detectedIntent,
         candidateSkills: routingDecision.candidateSkills,
         selectedSkills: routingDecision.selectedSkills,
         loadedSkills: loadedSkills.map((s) => s.name),
         allowedTools: routingDecision.allowedTools,
         exposedTools: availableTools.map((t) => t.name),
         toolsCalled,
-        pythonExposed: routingDecision.pythonExposed,
       };
       log.info({ debugTrace }, 'Runtime debug trace');
       yield { type: 'debug', trace: debugTrace };

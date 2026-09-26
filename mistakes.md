@@ -54,16 +54,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-16 — A `preHandler` guard cannot see state set in `onRequest`
-
-- **Symptom:** Every authenticated route returned 401, including with a valid session cookie.
-- **Cause:** `requireAuth` ran as an `onRequest` hook, but the session was resolved in
-  `preHandler`. Fastify runs *all* `onRequest` hooks before *any* `preHandler`, so the guard
-  always saw `request.user === null`.
-- **Rule:** **Always resolve request context in the same phase as, or an earlier phase than,
-  whatever reads it.** When adding a hook, name the phase out loud and check the ordering.
-- **Verify:** `GET /v1/auth/me` with a fresh cookie returns 200.
-
 ### 2026-09-16 — A failure *before* the stream opened left a row spinning forever
 
 - **Symptom:** With no model configured, the assistant message stayed `generating` after a page
@@ -779,6 +769,29 @@ failure mode of this pattern, not a sign it is working.
   `docs/checkpoints/CURRENT.md`; 7 of 7 messages start within 0.8 s, where 2 of 3 had stuck
   before the fix.
 
+### 2026-09-26 — Scaffolding built for a weaker model made a strong one over-work
+
+- **Symptom:** "statement elam consolidate paniru" on a 25-page statement ran more than 10
+  minutes and hit the 16-round tool limit (the Continue button appeared). It built a 7-sheet
+  Excel file nobody asked for. The model (Gemini 3.8 Flash) is within 0.3 points of Claude
+  Opus 5 on DeepSWE.
+- **Cause:** Layers added over earlier fixes, each reasonable alone:
+  - keyword routing to a second pipeline, and keyword tool gates;
+  - anti-laziness paragraphs;
+  - a standing verification section;
+  - a skill that required transcribing every record for any total;
+  - thinking at HIGH on every round.
+
+  Current models follow instructions precisely, so the layers stacked. Claude's guides say to
+  remove exactly these. I also first "fixed" it by adding more rules from the user's test chats
+  (reverted): that was fitting to test data, not following the reference.
+- **Rule:** **Before adding a rule, check the reference for whether to remove one.** Take
+  behaviour guidance from the vendor's published prompting guides and system prompts, cite the
+  line, and measure with `evalScope` before and after. Do not write new rules from a handful
+  of test chats.
+- **Verify:** `behaviorEvaluation.test.ts` Eval 11b; `turnRouter.test.ts` (router takes no
+  prompt); `evalScope.ts` against the deployed service. ADR-0032.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1115,3 +1128,5 @@ practice, not canon.
 - **2026-09-26** — Added the React updater entry (the "Sending request" hang). Retired the
   sign-out round-trip entry: the fix clears local state before the request, and nothing has
   touched that path since 2026-09-17. **40 entries.**
+- **2026-09-26** — Added the scaffolding entry (ADR-0032). Retired the `preHandler`/`onRequest`
+  entry: a Fastify lifecycle fact, fixed on 2026-09-16 and untouched since. **40 entries.**

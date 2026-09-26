@@ -60,7 +60,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
         'source_transformation',
         'research',
         'agent_behavior',
-        'verification',
+        'mistakes',
         'permissions_and_actions',
         'final_response',
       ];
@@ -150,6 +150,25 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('When a tool fails:');
       expect(masterPrompt).toContain('switch approaches when the same failure repeats');
       expect(masterPrompt).toContain('Do not endlessly repeat the same failing operation');
+    });
+
+    it('Eval 11b: Scope and effort follow Claude\'s published guidance, without anti-laziness or standing verification', () => {
+      // Claude Opus 5 prompting guide, "Task scope and over-verification" (sample, verbatim).
+      expect(masterPrompt).toContain('Deliver what was asked, at the scope intended.');
+      expect(masterPrompt).toContain('stop short of actions that are clearly beyond what was asked');
+      // Claude app system prompt: "Claude matches its effort to the ask."
+      expect(masterPrompt).toContain('Match your effort to the ask. A simple question gets a direct answer');
+      // Help Center: files are created when asked for.
+      expect(masterPrompt).toContain('Create a file when the user asks for one');
+      // Opus 5 guide, progress updates sample.
+      expect(masterPrompt).toContain('Before your first tool call, say in one sentence');
+      // Removed: anti-laziness and standing verification (they over-trigger current models).
+      expect(masterPrompt).not.toContain('time spent do not by themselves mean the task is done');
+      expect(masterPrompt).not.toContain('Difficulty or slowness is not a blocked state');
+      expect(masterPrompt).not.toContain('<verification>');
+      expect(masterPrompt).not.toContain('check completeness, for example by comparing counts');
+      // Claude app system prompt, responding to mistakes.
+      expect(masterPrompt).toContain('own them and work to fix them');
     });
 
     it('Eval 12: Disabled capability -> Strictly hides unconfigured tools and prevents hallucinations', () => {

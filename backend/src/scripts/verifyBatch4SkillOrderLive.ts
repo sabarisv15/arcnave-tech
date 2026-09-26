@@ -126,10 +126,7 @@ async function main() {
   // Verify TurnRouter role architecturally first
   console.log('>>> [Audit] TurnRouter Role Inspection:');
   const dummyRouting = routeTurn({
-    prompt: 'Change B8 in the Summary sheet of this spreadsheet to 450000',
-    mode: 'chat',
     hasAttachments: true,
-    attachmentMimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     candidateSkills: [
       { name: 'docx', description: 'Word' },
       { name: 'xlsx', description: 'Excel' },
@@ -141,15 +138,12 @@ async function main() {
   });
 
   console.log('   DEBUG dummyRouting:', {
-    detectedIntent: dummyRouting.detectedIntent,
     selectedSkills: dummyRouting.selectedSkills,
     exposedTools: dummyRouting.exposedTools,
     allowedToolsCount: dummyRouting.allowedTools.length,
-    reason: dummyRouting.reason,
   });
 
   const turnRouterPolicyOnly =
-    dummyRouting.detectedIntent === 'FILE_OPERATION' &&
     dummyRouting.selectedSkills.length === 0 &&
     dummyRouting.exposedTools.length === 1 &&
     dummyRouting.exposedTools[0] === 'search_tools' &&
