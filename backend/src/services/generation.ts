@@ -89,7 +89,7 @@ import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
-import { compact, shouldCompact } from './compaction/autoCompact.js';
+import { compact, lastContextTokens, shouldCompact } from './compaction/autoCompact.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -266,6 +266,28 @@ export interface PreferencesRow {
 }
 
 /* -------------------------------------------------------------------------- service */
+
+/**
+ * How long a request may go without its first provider event. Search and research add time;
+ * media (files sent as bytes or as rendered PDF pages, current or in the history) triples it;
+ * and each 10,000 tokens of the chat's last request adds PROVIDER_TTFT_MS_PER_10K_CONTEXT, since
+ * a thinking model sends nothing until it has read the whole request. History PDFs travel as
+ * `pages`, which the media check used to miss: a follow-up on two statements got 12 s and failed
+ * three times live (ADR-0024).
+ */
+export function firstTokenBudgetMs(
+  cfg: { PROVIDER_TTFT_BUDGET_MS: number; PROVIDER_TTFT_MS_PER_10K_CONTEXT: number },
+  request: Pick<GenerationRequest, 'mode' | 'attachments' | 'history'>,
+  priorContextTokens: number | null,
+): number {
+  const base = cfg.PROVIDER_TTFT_BUDGET_MS;
+  const modeBudget = request.mode === 'research' ? base + 8_000 : request.mode === 'search' ? base + 3_000 : base;
+  const media = (a: { base64?: string; pages?: unknown[] }) => Boolean(a.base64 || a.pages?.length);
+  const carriesMedia =
+    (request.attachments ?? []).some(media) || request.history.some((t) => t.attachments?.some(media));
+  const contextAllowance = Math.ceil((priorContextTokens ?? 0) / 10_000) * cfg.PROVIDER_TTFT_MS_PER_10K_CONTEXT;
+  return (carriesMedia ? modeBudget * 3 : modeBudget) + contextAllowance;
+}
 
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
@@ -935,7 +957,8 @@ export class GenerationService {
     const toolsCalled: string[] = [];
 
     try {
-      const stream = this.streamWithRetry(provider.stream.bind(provider), request);
+      const priorContext = await this.priorContextTokens(input.chatId, input.messageId);
+      const stream = this.streamWithRetry(provider.stream.bind(provider), request, priorContext);
 
       for await (const event of stream) {
         switch (event.type) {
@@ -1251,21 +1274,16 @@ export class GenerationService {
   private async *streamWithRetry(
     open: (req: GenerationRequest) => AsyncGenerator<ProviderEvent>,
     request: GenerationRequest,
+    priorContextTokens: number | null = null,
   ): AsyncGenerator<ProviderEvent> {
     let attempt = 0;
     let overflowRetried = false;
     let currentRequest = request;
-    const ttftBase = this.cfg.PROVIDER_TTFT_BUDGET_MS;
-    const modeBudget = request.mode === 'research' ? ttftBase + 8_000 : request.mode === 'search' ? ttftBase + 3_000 : ttftBase;
-    // A multi-page scanned PDF or large image is read before the first token; a 12-page
-    // statement measured 6.7 s bare, so the text-only budget is too tight for it.
-    const carriesMedia =
-      (request.attachments?.length ?? 0) > 0 || request.history.some((t) => t.attachments?.some((a) => Boolean(a.base64)));
-    const ttftBudgetMs = carriesMedia ? modeBudget * 3 : modeBudget;
-
+    const ttftBudgetMs = firstTokenBudgetMs(this.cfg, request, priorContextTokens);
     for (;;) {
       let firstEventReceived = false;
       let userVisibleOutputEmitted = false;
+      const attemptStartedAt = Date.now();
       const ttftController = new AbortController();
       const onParentAbort = () => ttftController.abort();
       // A listener added after the abort never fires: a Stop that landed before this attempt
@@ -1293,6 +1311,11 @@ export class GenerationService {
           if (!firstEventReceived) {
             firstEventReceived = true;
             clearTimeout(ttftTimer);
+            // Measured so the per-context allowance can be set from data, not a guess.
+            log.info(
+              { ttftMs: Date.now() - attemptStartedAt, ttftBudgetMs, priorContextTokens, attempt },
+              'provider first event',
+            );
           }
           if (
             (event.type === 'delta' && event.text.length > 0) ||
@@ -1364,6 +1387,12 @@ export class GenerationService {
         currentRequest.signal.removeEventListener('abort', onParentAbort);
       }
     }
+  }
+
+  /** The exact size of this chat's last request, which the first-token budget scales with. */
+  private async priorContextTokens(chatId: string, messageId: string): Promise<number | null> {
+    const [self] = await this.db.select({ seq: messages.seq }).from(messages).where(eq(messages.id, messageId)).limit(1);
+    return self ? lastContextTokens(this.db, chatId, self.seq - 1) : null;
   }
 
   private reduceHistoryForOverflow(history: Turn[]): Turn[] {

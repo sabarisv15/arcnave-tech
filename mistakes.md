@@ -361,23 +361,6 @@ failure mode of this pattern, not a sign it is working.
   `files.integration.test.ts` case uploading a real `.xlsx` buffer as `octet-stream` through
   `POST /files` end to end.
 
-### 2026-09-18 — `z.coerce.boolean()` on a query string is not what it looks like
-
-- **Symptom:** `GET /models?probe=false` — the frontend's own cached-status request — took
-  30.59s in production, hitting the probe abort timeout exactly. The composer was paying for a
-  live provider call to every alias on every login, not just when Settings' "Refresh" was
-  clicked.
-- **Cause:** `probe: z.coerce.boolean().default(true)` in [`models.ts`](backend/src/routes/models.ts).
-  `z.coerce.boolean()` runs `Boolean(value)`, and `Boolean("false")` is `true` — any non-empty
-  query string coerces to `true`, so `probe=false` was silently indistinguishable from
-  `probe=true` or no param at all.
-- **Rule:** **Never use `z.coerce.boolean()` on a query string.** Use an explicit
-  `z.enum(['true', 'false']).transform(v => v === 'true')`, or any coercion that actually
-  branches on the string's content instead of its truthiness.
-- **Verify:** `node -e "require('zod').z.coerce.boolean().parse('false')"` must never print
-  `true`. `src/routes/models.ts`'s querystring schema is the only place this pattern could
-  recur — grepped clean as of this fix.
-
 ### 2026-09-18 — `postgres.js` does not understand `pg`'s `?host=` Unix-socket convention
 
 - **Symptom:** Two consecutive production deploys (revisions `00045`, `00046`) never became
@@ -802,6 +785,17 @@ failure mode of this pattern, not a sign it is working.
   does.
 - **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts` (every result past
   100,000 tokens is replayed in full).
+
+### 2026-09-26 — A follow-up on a PDF chat got the text-only first-token budget
+
+- **Symptom:** Live: the 3rd to 5th reply in a two-PDF chat failed with "The model took too
+  long". The logs showed `First token wait exceeded 12000ms` on each attempt.
+- **Cause:** The media check read `a.base64`, but history PDFs travel as `pages`, so a
+  follow-up got 12 s instead of 36 s. The budget also ignored the request's size, which grows
+  every turn.
+- **Rule:** **When a check asks "does this request carry X", enumerate every form X travels
+  in (bytes, pages, URI) and test the form a follow-up uses, not just the first turn.**
+- **Verify:** `npx vitest run src/services/firstTokenBudget.test.ts`.
 
 ## Convention and sources
 

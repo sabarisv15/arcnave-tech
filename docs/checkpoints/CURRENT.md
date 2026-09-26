@@ -1,5 +1,11 @@
 # ArcNave — current checkpoint
 
+> **2026-09-26 (latest): follow-ups in PDF chats no longer time out waiting for the first token**
+> ([ADR-0024](../decisions/0024-first-token-budget-scales-with-the-request.md)). History PDFs
+> (sent as `pages`) now count as media (36 s, not 12 s), and the budget adds 1 s per 10,000
+> tokens of the chat's last request. `provider first event` logs `ttftMs` to calibrate that
+> starting value. Branch only, not deployed.
+>
 > **2026-09-25 (latest): tool results are no longer cleared** ([ADR-0023](../decisions/0023-tool-results-are-not-cleared.md)).
 > ADR-0022's 100,000-token context editing is removed: it is an opt-in API feature, and the Claude
 > app only summarizes near the window. Live, it dropped a two-PDF turn's counts and the follow-up

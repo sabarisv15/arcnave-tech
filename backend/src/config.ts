@@ -113,6 +113,9 @@ const envSchema = z.object({
   TURN_DEADLINE_MS: int(3_540_000),
   /** Chat-mode wait for a provider's first event; search, research and attachments scale it. */
   PROVIDER_TTFT_BUDGET_MS: int(12_000),
+  /** Added to the first-token budget per 10,000 tokens of the chat's last request (ADR-0024).
+   *  A starting value, not a measurement: `provider first event` logs ttftMs to calibrate it. */
+  PROVIDER_TTFT_MS_PER_10K_CONTEXT: int(1_000),
 
   // --- Generation limits --------------------------------------------------
   DEFAULT_MAX_OUTPUT_TOKENS: int(32_000),
