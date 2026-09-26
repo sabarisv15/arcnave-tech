@@ -216,6 +216,30 @@ describe('thinking (audit B8)', () => {
     expect(message.text).toBe('The notes say 4200.');
     expect(message.thinking).toBe('Reading the notes first.');
   });
+
+  it('keeps thinking, text and tool steps in the order they happened', async () => {
+    ctx.provider.script = [
+      { type: 'thinking', text: 'Plan. ' },
+      { type: 'delta', text: 'Checking. ' },
+      { type: 'tool_use', toolCallId: 't1', name: 'search_tools', input: { query: 'x' } },
+      { type: 'tool_result', toolCallId: 't1', name: 'search_tools', result: { toolCallId: 't1', ok: true, content: [{ type: 'text', text: 'none' }] } },
+      { type: 'tool_use', toolCallId: 't2', name: 'search_tools', input: { query: 'y' } },
+      { type: 'tool_result', toolCallId: 't2', name: 'search_tools', result: { toolCallId: 't2', ok: true, content: [{ type: 'text', text: 'none' }] } },
+      { type: 'thinking', text: 'Now answer.' },
+      { type: 'delta', text: 'Done.' },
+      { type: 'completed', usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+    ];
+    const chatId = await newChat();
+    await generate(chatId);
+    const message = (await transcript(chatId)).messages.find((m) => m.role === 'assistant')! as { segments?: unknown };
+    expect(message.segments).toEqual([
+      { type: 'thinking', text: 'Plan. ' },
+      { type: 'text', text: 'Checking. ' },
+      { type: 'tools', toolCallIds: ['t1', 't2'] },
+      { type: 'thinking', text: 'Now answer.' },
+      { type: 'text', text: 'Done.' },
+    ]);
+  });
 });
 
 describe('model availability (ADR-0028)', () => {

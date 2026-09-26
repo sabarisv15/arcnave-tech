@@ -238,6 +238,12 @@ export const chats = pgTable(
   ],
 );
 
+/** One stretch of an answer: thinking, text, or a run of consecutive tool calls. */
+export type MessageSegment =
+  | { type: 'thinking'; text: string }
+  | { type: 'text'; text: string }
+  | { type: 'tools'; toolCallIds: string[] };
+
 export const messages = pgTable(
   'messages',
   {
@@ -269,6 +275,9 @@ export const messages = pgTable(
     /** The model's thought summary for this answer, shown collapsed as Claude shows its thinking.
      *  Null when the model gave none. Never sent back to a model. */
     thinking: text('thinking'),
+    /** The answer's thinking, text and tool steps in the order they happened. Null for answers
+     *  stored before it existed; the client then shows them grouped. */
+    segments: jsonb('segments').$type<MessageSegment[]>(),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },

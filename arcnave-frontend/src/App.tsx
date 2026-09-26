@@ -821,23 +821,50 @@ function MessageView({
           </button>
         </div>
       )}
-      {m.thinking && <ThinkingBlock text={m.thinking} working={loading} answering={!!m.text} />}
       {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
         <ResponseActivity message={m} />
       )}
-      {m.toolCalls && m.toolCalls.length > 0 && (
-        <ToolActivity calls={m.toolCalls} working={loading} answering={!!m.text} />
-      )}
-      {m.text && (
-        <Suspense fallback={<p className="markdown">{m.text}</p>}>
-          <Markdown
-            text={m.text}
-            sources={m.sources}
-            onCitation={(selected) =>
-              setPanel({ kind: "sources", chatId, messageId: m.id, selected })
-            }
-          />
-        </Suspense>
+      {m.segments && m.segments.length > 0 ? (
+        // Claude's order: each stretch of thinking, text and tool steps where it happened.
+        m.segments.map((seg, i) => {
+          const last = i === m.segments!.length - 1;
+          if (seg.type === "thinking")
+            return <ThinkingBlock key={i} text={seg.text} live={loading && last} />;
+          if (seg.type === "tools") {
+            const ids = new Set(seg.toolCallIds);
+            const calls = (m.toolCalls ?? []).filter((c) => ids.has(c.toolCallId));
+            return <ToolActivity key={i} calls={calls} working={loading && last} answering={false} />;
+          }
+          return (
+            <Suspense key={i} fallback={<p className="markdown">{seg.text}</p>}>
+              <Markdown
+                text={seg.text}
+                sources={m.sources}
+                onCitation={(selected) =>
+                  setPanel({ kind: "sources", chatId, messageId: m.id, selected })
+                }
+              />
+            </Suspense>
+          );
+        })
+      ) : (
+        <>
+          {m.thinking && <ThinkingBlock text={m.thinking} live={loading && !m.text} />}
+          {m.toolCalls && m.toolCalls.length > 0 && (
+            <ToolActivity calls={m.toolCalls} working={loading} answering={!!m.text} />
+          )}
+          {m.text && (
+            <Suspense fallback={<p className="markdown">{m.text}</p>}>
+              <Markdown
+                text={m.text}
+                sources={m.sources}
+                onCitation={(selected) =>
+                  setPanel({ kind: "sources", chatId, messageId: m.id, selected })
+                }
+              />
+            </Suspense>
+          )}
+        </>
       )}
       {m.uiBlocks && m.uiBlocks.length > 0 && (
         <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />

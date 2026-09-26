@@ -105,6 +105,16 @@ const messageSchema = z.object({
   searchEntryPoint: z.string().nullable(),
   /** The model's thought summary, when it gave one. */
   thinking: z.string().nullable(),
+  /** The answer in order: thinking, text and tool steps. Null for older answers. */
+  segments: z
+    .array(
+      z.union([
+        z.object({ type: z.literal('thinking'), text: z.string() }),
+        z.object({ type: z.literal('text'), text: z.string() }),
+        z.object({ type: z.literal('tools'), toolCallIds: z.array(z.string()) }),
+      ]),
+    )
+    .nullable(),
   createdAt: z.string().nullable(),
   completedAt: z.string().nullable(),
   sources: z.array(sourceSchema),
@@ -824,6 +834,7 @@ async function loadMessages(
     artifactId: m.artifactId,
     searchEntryPoint: m.searchEntryPoint,
     thinking: m.thinking,
+    segments: m.segments ?? null,
     createdAt: iso(m.createdAt),
     completedAt: iso(m.completedAt),
     sources: (sourcesBy.get(m.id) ?? [])
@@ -990,6 +1001,7 @@ async function resetForRetry(
       finishReason: null,
       searchEntryPoint: null,
       thinking: null,
+      segments: null,
       completedAt: null,
     })
     .where(eq(messages.id, messageId));
