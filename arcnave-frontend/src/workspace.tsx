@@ -49,6 +49,7 @@ import {
   toUsage,
 } from "./types";
 import type { Panel } from "./types";
+import { appendSegment } from "./types";
 
 type TranscriptState = "loading" | "ready" | "missing" | "failed";
 
@@ -455,6 +456,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
               text: m.text + event.text,
+              segments: appendSegment(m.segments, { type: "text", text: event.text }),
               status: "generating",
             }));
           }
@@ -462,6 +464,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
               thinking: (m.thinking ?? "") + event.text,
+              segments: appendSegment(m.segments, { type: "thinking", text: event.text }),
               status: "generating",
             }));
           if (event.type === "sources")
@@ -483,6 +486,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
               status: "generating",
+              segments: appendSegment(m.segments, { type: "tool", toolCallId: event.toolCallId }),
               toolCalls: [
                 ...(m.toolCalls ?? []),
                 {

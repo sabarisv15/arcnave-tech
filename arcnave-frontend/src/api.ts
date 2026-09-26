@@ -447,6 +447,7 @@ export interface MessageDto {
   artifactId: string | null;
   searchEntryPoint: string | null;
   thinking?: string | null;
+  segments?: import("./types").MessageSegment[] | null;
   createdAt: string | null;
   completedAt: string | null;
   sources: SourceDto[];

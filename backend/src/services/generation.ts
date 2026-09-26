@@ -82,6 +82,7 @@ import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
+import type { MessageSegment } from '../db/schema.js';
 import { buildBaseSystemPrompt, buildDynamicRuntimeContext, currentDateLine } from './systemPrompt.js';
 import { assemblePrompt } from './promptCache/promptAssembly.js';
 import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
@@ -971,6 +972,14 @@ export class GenerationService {
     let errorCode: string | null = null;
     const collectedText: string[] = [];
     const collectedThinking: string[] = [];
+    // The answer in the order it happened, as Claude shows it: thinking, text and tool steps
+    // interleaved. Kept on the message so a reload shows the same timeline.
+    const segments: MessageSegment[] = [];
+    const addSegment = (type: 'thinking' | 'text', text: string) => {
+      const last = segments.at(-1);
+      if (last && last.type === type) last.text += text;
+      else segments.push({ type, text });
+    };
     const collectedSources: ProviderSource[] = [];
     let searchEntryPoint: string | undefined;
     let eventOrdinal = contextEvents.length;
@@ -994,11 +1003,13 @@ export class GenerationService {
         switch (event.type) {
           case 'delta':
             collectedText.push(event.text);
+            addSegment('text', event.text);
             yield { type: 'delta', text: event.text };
             break;
 
           case 'thinking':
             collectedThinking.push(event.text);
+            addSegment('thinking', event.text);
             yield { type: 'thinking', text: event.text };
             break;
 
@@ -1025,6 +1036,11 @@ export class GenerationService {
 
           case 'tool_use': {
             toolsCalled.push(event.name);
+            {
+              const last = segments.at(-1);
+              if (last?.type === 'tools') last.toolCallIds.push(event.toolCallId);
+              else segments.push({ type: 'tools', toolCallIds: [event.toolCallId] });
+            }
             pendingToolInputs.set(event.toolCallId, event.input);
               if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
             yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
@@ -1098,6 +1114,7 @@ export class GenerationService {
         await this.finalise(input, {
           text: collectedText.join(''),
           thinking: collectedThinking.join(''),
+          segments,
           sources: collectedSources,
           searchEntryPoint,
           status: 'error',
@@ -1151,6 +1168,7 @@ export class GenerationService {
         for await (const event of synthesisStream) {
           if (event.type === 'delta' && event.text) {
             collectedText.push(event.text);
+            addSegment('text', event.text);
             yield { type: 'delta', text: event.text };
           } else if (event.type === 'completed') {
             // A second request of the same turn: billed on top of the first.
@@ -1182,6 +1200,7 @@ export class GenerationService {
     await this.finalise(input, {
       text,
       thinking: collectedThinking.join(''),
+      segments,
       sources: collectedSources,
       searchEntryPoint,
       status: status === 'cancelled' ? 'stopped' : status === 'error' ? 'error' : 'complete',
@@ -2075,6 +2094,7 @@ export class GenerationService {
       mode: Mode;
       questions?: string[];
       thinking?: string;
+      segments?: MessageSegment[];
     },
   ): Promise<void> {
     const researchStage =
@@ -2093,6 +2113,7 @@ export class GenerationService {
       .set({
         text: result.text,
         ...(result.thinking ? { thinking: result.thinking } : {}),
+        ...(result.segments && result.segments.length > 0 ? { segments: result.segments } : {}),
         status: result.status,
         errorCode: result.errorCode,
         researchStage,

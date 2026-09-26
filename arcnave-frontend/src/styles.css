@@ -5510,3 +5510,7 @@ select:focus-visible {
   max-height: 320px;
   overflow-y: auto;
 }
+
+.thinking-text p { margin: 0 0 8px; }
+.thinking-text strong { display: block; margin: 6px 0 4px; color: var(--ink); font-weight: 600; }
+.thinking-block .tool-activity-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

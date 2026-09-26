@@ -115,6 +115,31 @@ export interface MessageUsage {
   costUsd: number | null;
 }
 
+/** One stretch of an answer, in the order it happened (as Claude shows it). */
+export type MessageSegment =
+  | { type: "thinking"; text: string }
+  | { type: "text"; text: string }
+  | { type: "tools"; toolCallIds: string[] };
+
+/** Adds a streamed piece to the answer's timeline: text and thinking extend a run of their own
+ *  kind, a tool call extends a run of calls. Returns a new array. */
+export function appendSegment(
+  segments: MessageSegment[] | undefined,
+  piece: { type: "thinking" | "text"; text: string } | { type: "tool"; toolCallId: string },
+): MessageSegment[] {
+  const out = [...(segments ?? [])];
+  const last = out.at(-1);
+  if (piece.type === "tool") {
+    if (last?.type === "tools") out[out.length - 1] = { type: "tools", toolCallIds: [...last.toolCallIds, piece.toolCallId] };
+    else out.push({ type: "tools", toolCallIds: [piece.toolCallId] });
+  } else if (last && last.type === piece.type) {
+    out[out.length - 1] = { type: piece.type, text: last.text + piece.text };
+  } else {
+    out.push({ type: piece.type, text: piece.text });
+  }
+  return out;
+}
+
 export interface Message {
   id: string;
   seq: number;
@@ -141,6 +166,8 @@ export interface Message {
   providerModelId?: string;
   /** The model's thought summary, shown collapsed above the answer. */
   thinking?: string;
+  /** Thinking, text and tool steps in order. Absent on answers stored before it existed. */
+  segments?: MessageSegment[];
   createdAt?: string | null;
   usage?: MessageUsage;
   /** The provider's stop reason as stored, e.g. "MAX_TOKENS" when the answer hit its limit. */
@@ -364,6 +391,7 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.modelAlias ? { modelAlias: dto.modelAlias } : {}),
     ...(dto.providerModelId ? { providerModelId: dto.providerModelId } : {}),
     ...(dto.thinking ? { thinking: dto.thinking } : {}),
+    ...(dto.segments && dto.segments.length > 0 ? { segments: dto.segments } : {}),
     ...(dto.createdAt ? { createdAt: dto.createdAt } : {}),
     ...(dto.usage ? { usage: toUsage(dto.usage) } : {}),
     ...(dto.finishReason ? { finishReason: dto.finishReason } : {}),

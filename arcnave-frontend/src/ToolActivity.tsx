@@ -201,7 +201,7 @@ export default function ToolActivity({
 
   if (visible.length === 0) return null;
   const current = [...visible].reverse().find((c) => c.ok === undefined);
-  const headline = live ? (current ? toolStepLabel(current) : "Thinking") : summariseToolCalls(visible);
+  const headline = live && current ? toolStepLabel(current) : summariseToolCalls(visible);
 
   return (
     <div className={`tool-activity ${live ? "is-live" : ""}`}>
@@ -223,22 +223,57 @@ export default function ToolActivity({
 }
 
 /**
- * The model's thought summary, as Claude shows its thinking: open while the model is still
- * thinking, folded into "Thought process" once the answer starts, and expandable afterwards.
+ * The line a thought summary shows when folded, as Claude shows one line per stretch of
+ * thinking: its latest "**Heading**", else its first sentence.
  */
-export function ThinkingBlock({ text, working, answering }: { text: string; working: boolean; answering: boolean }) {
-  const live = working && !answering;
-  const [open, setOpen] = useState(live);
-  useEffect(() => setOpen(live), [live]);
+export function thoughtHeadline(text: string): string {
+  const headings = [...text.matchAll(/\*\*([^*\n]+)\*\*/g)].map((m) => m[1]!.trim());
+  if (headings.length > 0) return headings.at(-1)!;
+  const first = text.trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  return first.length > 90 ? `${first.slice(0, 87)}…` : first;
+}
+
+/** A thought summary's text with its "**Heading**" lines shown as headings. */
+function ThoughtText({ text }: { text: string }) {
+  return (
+    <div className="thinking-text">
+      {text
+        .split(/\n{2,}/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p, i) => {
+          const heading = /^\*\*([^*]+)\*\*$/.exec(p);
+          return heading ? <strong key={i}>{heading[1]}</strong> : <p key={i}>{p.replaceAll("**", "")}</p>;
+        })}
+    </div>
+  );
+}
+
+/**
+ * One stretch of the model's thinking, as Claude shows it: a single line naming what it is
+ * thinking about (live while it thinks), which opens to the full summary.
+ */
+export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  // Claude's app shows "a 'Thinking' indicator with a timer" while it thinks (Help Center).
+  const [seconds, setSeconds] = useState(1);
+  useEffect(() => {
+    if (!live) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setSeconds(Math.max(1, Math.floor((Date.now() - startedAt) / 1000))), 500);
+    return () => window.clearInterval(timer);
+  }, [live]);
   if (!text.trim()) return null;
+  const headline = thoughtHeadline(text) || "Thinking";
   return (
     <div className={`tool-activity thinking-block ${live ? "is-live" : ""}`}>
       <button type="button" className="tool-activity-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <Brain size={14} aria-hidden="true" />
-        <span className={live ? "shimmer-text" : ""}>{live ? "Thinking" : "Thought process"}</span>
+        <span className={live ? "shimmer-text" : ""}>{headline}</span>
+        {live && <time>{seconds}s</time>}
         <ChevronRight size={13} className={open ? "activity-chevron open" : "activity-chevron"} />
       </button>
-      {open && <div className="thinking-text">{text}</div>}
+      {open && <ThoughtText text={text} />}
     </div>
   );
 }
