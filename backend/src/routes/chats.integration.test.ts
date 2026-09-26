@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { toolCalls } from '../db/schema.js';
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
+import { ModelNotFoundError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { png } from '../test/fixtures/files.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp, sleep, sseText } from '../test/harness.js';
@@ -199,6 +200,27 @@ describe('streaming generation', () => {
 });
 
 /* -------------------------------------------------------------------------- code execution */
+
+describe('model availability (ADR-0028)', () => {
+  it('sends the turn without a probe call first, as Claude\'s SDK sends the request itself', async () => {
+    ctx.app.services.registry.invalidate();
+    const probesBefore = ctx.provider.probes;
+    const res = await generate(await newChat(), { model: 'Gemini 3.8 Flash' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('"type":"done"');
+    expect(ctx.provider.probes).toBe(probesBefore);
+  });
+
+  it('marks a model unavailable when its request says it does not exist', async () => {
+    ctx.app.services.registry.invalidate();
+    ctx.provider.streamError = new ModelNotFoundError('gemini-missing', 'global');
+    const res = await generate(await newChat(), { model: 'Gemini 3.8 Flash' });
+    expect(res.body).toContain('model_unavailable');
+    const status = await ctx.app.services.registry.status('Gemini 3.8 Flash', { probe: 'never' });
+    expect(status?.available).toBe(false);
+    ctx.app.services.registry.invalidate();
+  });
+});
 
 describe('code execution', () => {
   it('refuses when the resolved provider has no code-execution tool, rather than silently skipping it', async () => {

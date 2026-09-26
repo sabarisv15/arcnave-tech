@@ -87,3 +87,17 @@ describe('Phase 5.3 Conversation Compaction', () => {
     expect(formatted).toContain('</conversation_compaction>');
   });
 });
+
+describe('compactionTrigger (ADR-0027)', () => {
+  it('compacts as the window fills, at 967,000 on a 1M window as Claude Code does', async () => {
+    const { compactionTrigger } = await import('./autoCompact.js');
+    expect(compactionTrigger(150_000, 1_000_000)).toBe(967_000);
+    expect(compactionTrigger(150_000, 200_000)).toBe(167_000);
+  });
+
+  it('uses the configured value only when the window is unknown, and never goes below 50,000', async () => {
+    const { compactionTrigger } = await import('./autoCompact.js');
+    expect(compactionTrigger(150_000, null)).toBe(150_000);
+    expect(compactionTrigger(150_000, 60_000)).toBe(50_000);
+  });
+});

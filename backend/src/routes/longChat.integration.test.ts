@@ -116,7 +116,7 @@ describe('long chats (ADR-0019)', () => {
     await send('Turn 1 with notes', [fileId]);
     await send('Turn 2');
     await send('Turn 3');
-    // The window of the test models is 1M: the trigger is Claude's default, 150,000.
+    // The window of the test models is 1M: the trigger is 1M less the reserve, as Claude Code's 967K.
     answerWith(compactionTrigger(ctx.cfg.COMPACTION_TRIGGER_TOKENS, 1_000_000));
     await send('Turn 4');
 
@@ -173,17 +173,17 @@ describe('long chats (ADR-0019)', () => {
     const trigger = compactionTrigger(ctx.cfg.COMPACTION_TRIGGER_TOKENS, 1_000_000);
     answerWith(1000);
     for (const p of ['a', 'b', 'c']) await send(p);
-    // 14 requests of 20,000 each: billed 280,000, but the conversation is 20,000 long.
-    answerWith(14 * 20_000, true, { inputTokens: 20_000, outputTokens: 40 });
-    expect(14 * 20_000).toBeGreaterThan(trigger);
+    // 14 requests of 70,000 each: billed 980,000, but the conversation is 70,000 long.
+    answerWith(14 * 70_000, true, { inputTokens: 70_000, outputTokens: 40 });
+    expect(14 * 70_000).toBeGreaterThan(trigger);
     await send('d');
     const before = ctx.provider.seen.length;
     await send('e');
     expect(ctx.provider.seen.slice(before).some((r) => r.prompt === SUMMARY_PROMPT)).toBe(false);
 
     // Billing keeps the whole total.
-    const [row] = await ctx.db.select().from(usageRecords).where(eq(usageRecords.inputTokens, 14 * 20_000));
-    expect(row).toMatchObject({ contextTokens: 20_040, tokensExact: true });
+    const [row] = await ctx.db.select().from(usageRecords).where(eq(usageRecords.inputTokens, 14 * 70_000));
+    expect(row).toMatchObject({ contextTokens: 70_040, tokensExact: true });
   });
 
   it('keeps the history whole when no summary comes back', async () => {

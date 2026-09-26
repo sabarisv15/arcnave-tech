@@ -125,7 +125,11 @@ export class FakeProvider implements Provider {
     }
   }
 
+  /** Probe calls made, so a test can prove a turn made none. */
+  probes = 0;
+
   async probe(): Promise<void> {
+    this.probes += 1;
     if (this.probeError) throw this.probeError;
   }
 }

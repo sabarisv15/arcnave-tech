@@ -167,4 +167,37 @@ describe('tool calls in the history (ADR-0022)', () => {
     expect(text).toContain('[Tool call] run_python');
     expect(text).toContain('244 debits');
   });
+  it('gives a skill loaded before a compaction back in full after it (ADR-0027)', async () => {
+    const { send } = await newChat();
+    ctx.provider.script = [
+      { type: 'tool_use', toolCallId: 'ls1', name: 'load_skill', input: { name: 'pdf' }, thoughtSignature: 'sig-ls1' },
+      { type: 'tool_result', toolCallId: 'ls1', name: 'load_skill', result: { toolCallId: 'ls1', ok: true, content: [{ type: 'text', text: 'pdf skill' }] } },
+      { type: 'delta', text: 'read it' },
+      { type: 'completed', usage: { inputTokens: 1000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+    ] satisfies ProviderEvent[];
+    await send('turn 1');
+    plainAnswer();
+    const beforeCompaction = await send('turn 2');
+    expect(beforeCompaction.systemInstruction).not.toContain('### Loaded Skill: pdf');
+    await send('turn 3');
+    ctx.provider.script = [
+      { type: 'delta', text: 'ok' },
+      {
+        type: 'completed',
+        usage: { inputTokens: compactionTrigger(ctx.cfg.COMPACTION_TRIGGER_TOKENS, 1_000_000), outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true },
+        finishReason: 'stop',
+      },
+    ];
+    await send('turn 4');
+    ctx.provider.onRequest = async (request) => {
+      ctx.provider.script = [
+        { type: 'delta', text: request.prompt === SUMMARY_PROMPT ? '<summary>s</summary>' : 'ok' },
+        { type: 'completed', usage: { inputTokens: 5, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+      ];
+    };
+    const after = await send('turn 5');
+    ctx.provider.onRequest = null;
+    expect(after.history.some((t) => t.toolCalls?.some((c) => c.name === 'load_skill'))).toBe(false);
+    expect(after.systemInstruction).toContain('### Loaded Skill: pdf');
+  });
 });

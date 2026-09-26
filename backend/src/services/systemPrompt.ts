@@ -618,7 +618,7 @@ export function buildDynamicRuntimeContext(
         `5. use ArcNave's actual tools to perform the work.\n\n` +
         `Choosing a skill:\n` +
         `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Match the request against those descriptions, and load every skill whose description fits before doing the work (for example, before working on an uploaded PDF, Word, Excel or PowerPoint file, or producing one).\n\n` +
-        `A skill loaded earlier in this conversation is still in context while its load_skill result is in the history: do not load it again. After the conversation has been compacted, the summary does not carry a skill's instructions; load it again when you need them.\n\n` +
+        `A skill loaded earlier in this conversation is still in context while its load_skill result is in the history: do not load it again. After the conversation has been compacted, the skills loaded before it are given again under \"Loaded Skill\" in <skills_guidance>.\n\n` +
         `Use only the smallest useful set of skills.\n\n` +
         `Several skills may be used together when the task genuinely requires them.\n\n` +
         `The user's explicit instruction takes priority over skill guidance.\n\n` +

@@ -280,8 +280,8 @@ const envSchema = z.object({
 
   /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
   ENABLE_CONTEXT_COMPACTION: bool(true),
-  /** Input tokens of the previous request at which a chat compacts: Claude's threshold default.
-   *  Capped at three quarters of the model's window, and never below Claude's 50,000 minimum. */
+  /** Tokens of the previous request at which a chat compacts, used only when the model's window
+   *  is unknown; otherwise compaction runs as the window fills (ADR-0027). */
   COMPACTION_TRIGGER_TOKENS: int(150_000),
   /** Headroom threshold in tokens below which compaction triggers. */
   COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),

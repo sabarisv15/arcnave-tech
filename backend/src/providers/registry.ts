@@ -189,7 +189,7 @@ export class ModelRegistry {
    * a stale-but-present result is still preferred over a fresh probe when the caller asked not
    * to force one.
    */
-  async status(alias: string, options: { probe?: boolean } = {}): Promise<ModelStatus | undefined> {
+  async status(alias: string, options: { probe?: boolean | 'never' } = {}): Promise<ModelStatus | undefined> {
     const entry = this.entries.get(alias);
     if (!entry) return undefined;
 
@@ -199,6 +199,13 @@ export class ModelRegistry {
     const ttlMs = this.cfg.MODEL_PROBE_TTL_SECONDS * 1000;
     const cached = this.statuses.get(alias);
     if (cached?.checkedAt != null && Date.now() - cached.checkedAt < ttlMs) return cached;
+
+    // A turn never waits on a probe (ADR-0028): Claude's SDK sends the request itself, and the
+    // request's own error says when a model is missing (recordOutcome keeps that). A configured
+    // model not known to have failed recently is tried.
+    if (options.probe === 'never') {
+      return { entry, available: true, reason: 'ok', detail: 'Not checked; the request itself will tell.', checkedAt: null };
+    }
 
     if (options.probe === false && cached) return cached;
 
@@ -233,12 +240,28 @@ export class ModelRegistry {
     return status;
   }
 
-  async allStatuses(options: { probe?: boolean } = {}): Promise<ModelStatus[]> {
+  /**
+   * What a real request just showed about a model: a model-not-found makes it unavailable until
+   * the probe TTL passes; any answer makes it available. Settings shows the same status a turn used.
+   */
+  recordOutcome(alias: string, outcome: { available: true } | { available: false; detail: string }): void {
+    const entry = this.entries.get(alias);
+    if (!entry || this.staticStatus(entry)) return;
+    this.statuses.set(alias, {
+      entry,
+      available: outcome.available,
+      reason: outcome.available ? 'ok' : 'probe_failed',
+      detail: outcome.available ? '' : outcome.detail,
+      checkedAt: Date.now(),
+    });
+  }
+
+  async allStatuses(options: { probe?: boolean | 'never' } = {}): Promise<ModelStatus[]> {
     const results = await Promise.all(this.aliases.map((a) => this.status(a, options)));
     return results.filter((r): r is ModelStatus => r !== undefined);
   }
 
-  async availableEntries(options: { probe?: boolean } = {}): Promise<ModelEntry[]> {
+  async availableEntries(options: { probe?: boolean | 'never' } = {}): Promise<ModelEntry[]> {
     return (await this.allStatuses(options)).filter((s) => s.available).map((s) => s.entry);
   }
 

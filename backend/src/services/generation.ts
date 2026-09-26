@@ -268,6 +268,10 @@ export interface PreferencesRow {
 
 /* -------------------------------------------------------------------------- service */
 
+/** Characters of a skill given again after a compaction. Claude Code caps each at 5,000 tokens;
+ *  ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
+const REINJECTED_SKILL_MAX_CHARS = 20_000;
+
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
   private readonly capabilities: CapabilityRegistry;
@@ -531,8 +535,14 @@ export class GenerationService {
         );
       }
 
+      // After a compaction, the skills loaded in the summarised turns come back in full: Claude
+      // Code "re-injects the body of each skill you invoked" after compacting (ADR-0027); the
+      // summary alone would leave a skill the model believes it has read.
+      const reinjected = latestCompaction
+        ? await this.skillsLoadedThrough(input.chatId, latestCompaction.throughSeq)
+        : [];
       // If skills were pre-selected by routing or autoloaded, include their full instructions
-      for (const skillName of routingDecision.selectedSkills) {
+      for (const skillName of [...reinjected, ...routingDecision.selectedSkills]) {
         const detail = this.skills.getSkill(skillName);
         if (detail && !loadedSkills.some((s) => s.name === detail.name)) {
           loadedSkills.push(detail);
@@ -540,7 +550,15 @@ export class GenerationService {
       }
       if (loadedSkills.length > 0) {
         parts.push(
-          loadedSkills.map((s) => `### Loaded Skill: ${s.name}\n\n${s.content}`).join('\n\n---\n\n'),
+          loadedSkills
+            .map((s) => {
+              const body =
+                s.content.length > REINJECTED_SKILL_MAX_CHARS
+                  ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: load_skill gives the whole skill.]`
+                  : s.content;
+              return `### Loaded Skill: ${s.name}\n\n${body}`;
+            })
+            .join('\n\n---\n\n'),
         );
       }
 
@@ -1049,10 +1067,14 @@ export class GenerationService {
           case 'completed':
             usage = event.usage;
             finishReason = event.finishReason;
+            this.registry.recordOutcome(entry.alias, { available: true });
             break;
         }
       }
     } catch (err) {
+      if (err instanceof ModelNotFoundError) {
+        this.registry.recordOutcome(entry.alias, { available: false, detail: err.message });
+      }
       const deadlineHit = isTurnDeadline(input.signal.reason);
       if (!deadlineHit && (isAbort(err) || input.signal.aborted)) {
         status = 'cancelled';
@@ -1224,7 +1246,7 @@ export class GenerationService {
     contextChars: number,
   ): Promise<{ entry: ModelEntry; routing: RoutingDecision | null }> {
     if (input.modelAlias !== AUTO_ALIAS) {
-      const status = await this.registry.status(input.modelAlias);
+      const status = await this.registry.status(input.modelAlias, { probe: 'never' });
       if (status && status.available) {
         if (requiresVision && !status.entry.supportsVision) {
           throw new ApiError('capability_unavailable', {
@@ -1242,7 +1264,7 @@ export class GenerationService {
       );
     }
 
-    const available = await this.registry.availableEntries();
+    const available = await this.registry.availableEntries({ probe: 'never' });
     const decision = routeAuto(
       {
         mode: input.mode,
@@ -1803,6 +1825,27 @@ export class GenerationService {
         return { ...turn, attachments: hydrated };
       }),
     );
+  }
+
+  /** Skills a load_skill or read_skill call loaded in this chat's turns up to `throughSeq`. */
+  private async skillsLoadedThrough(chatId: string, throughSeq: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ input: toolCalls.input })
+      .from(toolCalls)
+      .innerJoin(messages, eq(messages.id, toolCalls.messageId))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          sql`${messages.seq} <= ${throughSeq}`,
+          inArray(toolCalls.name, ['load_skill', 'read_skill']),
+          eq(toolCalls.ok, true),
+        ),
+      )
+      .orderBy(messages.seq, toolCalls.ordinal);
+    const names = rows
+      .map((r) => (r.input as { name?: unknown } | null)?.name)
+      .filter((n): n is string => typeof n === 'string');
+    return [...new Set(names)];
   }
 
   private async buildSystemInstruction(
