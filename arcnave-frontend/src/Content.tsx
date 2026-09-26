@@ -5,7 +5,7 @@ import { ExternalLink, Download, Image as ImageIcon, AlertCircle } from "lucide-
 import type { Source } from "./types";
 import { url as resolveApiUrl } from "./api";
 import { downloadAuthenticated } from "./storage";
-import { remarkPlugins, rehypePlugins } from "./markdownPlugins";
+import { remarkPlugins, rehypePlugins, sharedMarkdownComponents } from "./markdownPlugins";
 
 export function AuthenticatedImage({
   src,
@@ -179,6 +179,7 @@ export function Markdown({
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={{
+          ...sharedMarkdownComponents,
           a: ({ href, children }) => {
             const id = href?.match(/^#source-(\d+)$/)?.[1];
             const source = sources.find((s) => s.id === Number(id));
@@ -238,7 +239,6 @@ export function Markdown({
               <table>{children}</table>
             </div>
           ),
-          pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
           img: ({ src, alt }) => (
             <AuthenticatedImage src={src} alt={alt || "Response image"} />
           ),

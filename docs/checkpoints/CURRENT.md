@@ -1,6 +1,15 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
+> **2026-09-26 (latest): WP-01 code block copy button and correct code language complete.**
+> - Completed WP-01 from UI parity plan (`docs/handover/2026-09-26-claude-ui-parity-plan.md`, Gaps 5, 6).
+> - Every code block in chat responses and generative UI renders with a language header and accessible Copy button (`navigator.clipboard.writeText`, 2s "Copied" feedback, `aria-label`).
+> - Shared markdown component map (`sharedMarkdownComponents`) unified in `markdownPlugins.ts` for both `Content.tsx` and `generative-ui/blocks/TextBlock.tsx`. Auto-detection configured (`rehype-highlight` `detect: true`).
+> - Code artifacts in `Panels.tsx` derive language from filename extension via `languageFromFilename` (`codeLanguage.ts`), falling back to automatic detection.
+> - Acceptance verified in browser against local stack (Python and SQL snippets copy test, `x.py` code artifact syntax highlighting).
+>
+> Tests: backend 964, frontend 75. Branch: `feat/wp-01-code-blocks`.
+>
+> **2026-09-26: reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
 >   ran 3 commands, made no unrequested file, and every figure matched the PDF.
 > - The reply-language rule is removed, as in Claude's app prompt: the model chooses the
@@ -12,7 +21,7 @@
 >
 > UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
 > packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
-> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). None started.
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-01 complete.
 >
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode

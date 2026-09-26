@@ -1451,6 +1451,61 @@ textarea {
   padding: 0;
   background: none;
 }
+.code-block-wrapper {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--soft);
+}
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 14px;
+  background: color-mix(in srgb, var(--soft) 70%, var(--surface));
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+}
+.code-block-language {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+.code-copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.code-copy-button:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.code-copy-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.code-block-wrapper pre,
+.markdown .code-block-wrapper pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 16px;
+  overflow-x: auto;
+}
 .markdown img {
   display: block;
   max-width: 100%;
