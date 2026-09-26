@@ -242,6 +242,11 @@ export class ModelRegistry {
     return (await this.allStatuses(options)).filter((s) => s.available).map((s) => s.entry);
   }
 
+  /** When the alias was last probed, without probing. Null if never. */
+  lastProbedAt(alias: string): number | null {
+    return this.statuses.get(alias)?.checkedAt ?? null;
+  }
+
   invalidate(alias?: string): void {
     if (alias) this.statuses.delete(alias);
     else this.statuses.clear();

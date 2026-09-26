@@ -5,8 +5,13 @@
 > cutoff is gone: it aborted large PDF follow-ups that were still thinking. A provider request
 > now gets 10 minutes (`PROVIDER_TIMEOUT_MS`), and only failures are retried: timeouts,
 > connection errors and 408/409/429/5xx. `provider first event` logs `ttftMs`. Streaming
-> Gemini's thoughts is left open, since Google's docs could not be read from here. Branch only,
-> not deployed.
+> Gemini's thoughts is left open, since Google's docs could not be read from here.
+> Each turn also logs one `turn timing` line: ms per phase (workspace, history, model_resolve,
+> compaction, skills_tools, system_prompt, tools_setup, attachments, provider_first_event,
+> stream_and_persist), plus `probed`, `compacted`, `toolCalls` and the model. It is there to find
+> where the 5 s "Sending request" and the 12 s+ wait go before anything is changed. Open audit
+> findings to check against these logs: compaction at 150k on a 1M window, the blocking model
+> probe, one tool per round, and PDFs re-downloaded every turn.
 >
 > **2026-09-25 (latest): tool results are no longer cleared** ([ADR-0023](../decisions/0023-tool-results-are-not-cleared.md)).
 > ADR-0022's 100,000-token context editing is removed: it is an opt-in API feature, and the Claude

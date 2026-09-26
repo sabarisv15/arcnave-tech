@@ -90,6 +90,7 @@ import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compact, shouldCompact } from './compaction/autoCompact.js';
+import { TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -371,8 +372,10 @@ export class GenerationService {
 
   private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
     const startedAt = new Date();
+    const timing = new TurnTiming();
     const runId = `${input.chatId}_${input.messageId}`;
     const workspace = await this.executionRuntime.createWorkspace(runId);
+    timing.mark('workspace');
 
     try {
       // Attachments are not copied into the workspace up front. A tool that needs one names its
@@ -393,6 +396,7 @@ export class GenerationService {
       latestCompaction?.throughSeq,
       input.modelAlias,
     );
+    timing.mark('history');
     let history = loaded.turns;
     const currentUserAttachments = loaded.currentUserAttachments;
     if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
@@ -410,6 +414,10 @@ export class GenerationService {
       requiresVision,
       project?.instructions.length ?? 0,
     );
+    timing.mark('model_resolve');
+    // A probe ran inside resolution when the alias's status was checked during this turn.
+    timing.note('probed', (this.registry.lastProbedAt(entry.alias) ?? 0) >= timing.since);
+    timing.note('model', entry.alias);
     const provider = this.registry.providerFor(entry);
     if (!provider) {
       throw new ApiError('model_unavailable', {
@@ -462,7 +470,10 @@ export class GenerationService {
 
     // --- compact a long conversation (ADR-0019) ------------------------------
     if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
+      timing.mark('before_compaction');
       const compacted = yield* this.compactIfNeeded(input, prefs, entry, provider);
+      timing.mark('compaction');
+      timing.note('compacted', compacted);
       if (compacted) {
         latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
         ({ turns: history } = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq, input.modelAlias));
@@ -598,6 +609,7 @@ export class GenerationService {
         ));
 
     // --- assemble context -------------------------------------------------
+    timing.mark('skills_tools');
     const { systemInstruction, contextEvents, promptAssembly } = await this.buildSystemInstruction(
       input,
       prefs,
@@ -612,6 +624,7 @@ export class GenerationService {
       await this.persistEvent(input.messageId, event);
     }
 
+    timing.mark('system_prompt');
     const maxOutputTokens = Math.min(
       prefs.maxOutputTokens || this.cfg.DEFAULT_MAX_OUTPUT_TOKENS,
       this.cfg.MAX_OUTPUT_TOKENS_CEILING,
@@ -873,6 +886,7 @@ export class GenerationService {
     }
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
+    timing.mark('tools_setup');
 
     const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
       entry.alias,
@@ -880,6 +894,7 @@ export class GenerationService {
       await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
       releaseReservation,
     );
+    timing.mark('attachments');
 
     const allAttachmentsMap = new Map<string, AttachmentBlock>();
     for (const h of wireHistory) {
@@ -936,8 +951,16 @@ export class GenerationService {
 
     try {
       const stream = this.streamWithRetry(provider.stream.bind(provider), request);
+      timing.mark('before_provider');
+      let firstProviderEvent = true;
+      let toolCallCount = 0;
 
       for await (const event of stream) {
+        if (firstProviderEvent) {
+          firstProviderEvent = false;
+          timing.mark('provider_first_event');
+        }
+        if (event.type === 'tool_use') timing.note('toolCalls', (toolCallCount += 1));
         switch (event.type) {
           case 'delta':
             collectedText.push(event.text);
@@ -1180,6 +1203,8 @@ export class GenerationService {
       };
     }
     } finally {
+      timing.mark('stream_and_persist');
+      log.info({ chatId: input.chatId, messageId: input.messageId, ...timing.summary() }, 'turn timing');
       await this.executionRuntime.cleanupWorkspace(workspace);
     }
   }
