@@ -12,7 +12,7 @@ You have access to the \`render_ui\` tool to render structured, interactive pres
 - DO NOT use \`render_ui\` for simple conversational greetings ("hi"), direct single-fact answers, or plain writing/editing requests. Use standard markdown.
 - NEVER invent citations or fake URLs. Sources in \`sources\` blocks must refer to actual retrieved sources or project files.
 - Comparisons must remain objective: list attributes and matrix values fairly. NEVER declare political or electoral winners.
-- Generative UI is ephemeral conversational presentation. If the user explicitly asks to save, download, or keep a document/report/sheet, create a persistent artifact using \`create_artifact\` instead of or in addition to \`render_ui\`.
+- Generative UI is ephemeral conversational presentation. If the user asks to download or keep it as a file, produce the file with the tool listed for that format under "Files for the user"; if they ask for an artifact, use \`create_artifact\`.
 - All code in \`steps\` or markdown must be escaped, inert text. Never include executable scripts, HTML event handlers, or raw JavaScript URLs.
 `.trim();
 

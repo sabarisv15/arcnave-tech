@@ -83,7 +83,7 @@ import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
-import { buildBaseSystemPrompt, buildDynamicRuntimeContext } from './systemPrompt.js';
+import { buildBaseSystemPrompt, buildDynamicRuntimeContext, currentDateLine } from './systemPrompt.js';
 import { assemblePrompt } from './promptCache/promptAssembly.js';
 import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
@@ -511,7 +511,11 @@ export class GenerationService {
     let skillsContext: string | undefined;
     const loadedSkills: SkillDetail[] = [];
     if (this.skills) {
-      const availableSkills = this.skills.listSkills();
+      // A skill that needs a tool this turn cannot use is not offered: its description would
+      // promise work the turn cannot do (Invariant 1).
+      const availableSkills = this.skills
+        .listSkills(routingDecision.allowedTools)
+        .filter((s) => s.missingTools.length === 0);
       const parts: string[] = [];
 
       if (availableSkills.length > 0) {
@@ -788,6 +792,7 @@ export class GenerationService {
       toolMap.set('web_fetch', webToolExecutor);
     }
     if (memoryToolExecutor) {
+      toolMap.set('save_memory', memoryToolExecutor);
       toolMap.set('search_memory', memoryToolExecutor);
       toolMap.set('read_memory', memoryToolExecutor);
       toolMap.set('update_memory', memoryToolExecutor);
@@ -1816,26 +1821,24 @@ export class GenerationService {
   }> {
     const events: StreamEvent[] = [];
 
-    // 1. Standing preferences (User instructions + durable standing memories)
-    let standingMemories = '';
-    if (this.cfg.ENABLE_MEMORY) {
-      standingMemories = await memoryService.getStandingMemories(input.userId, project?.id ?? null);
-    }
-    const combinedStandingPrefs = [prefs.instructions.trim(), standingMemories.trim()]
-      .filter(Boolean)
-      .join('\n');
+    // 1. Standing preferences: the user's own instructions.
+    const combinedStandingPrefs = prefs.instructions.trim();
 
-    // 2. Relevant persistent memories
+    // 2. Memory. Claude's conversations start "from what it already knows about you": every topic,
+    // not a per-prompt search. That also keeps this text the same from turn to turn, so it does not
+    // break the prompt cache the way a prompt-matched selection did (ADR-0025).
     let relevantMemoryText = '';
-    if (this.cfg.ENABLE_MEMORY) {
-      const relevant = await memoryService.getRelevantMemories(
+    if (this.cfg.ENABLE_MEMORY && allowedToolNames?.includes('save_memory')) {
+      const memory = await memoryService.getMemoryContext(
         input.userId,
-        input.prompt,
         project?.id ?? null,
+        this.cfg.MEMORY_CONTEXT_MAX_CHARS,
       );
-      if (relevant.length > 0) {
-        relevantMemoryText = relevant.map((r) => `- [${r.key}]: ${r.content}`).join('\n');
-      }
+      relevantMemoryText =
+        memory.text +
+        (memory.omitted > 0
+          ? `\n(${String(memory.omitted)} more topic${memory.omitted === 1 ? '' : 's'} not shown; find them with search_memory.)`
+          : '');
     }
 
     // 3. Conversation compaction summary
@@ -1920,7 +1923,8 @@ export class GenerationService {
 
     // 6. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode),
+      currentDate: currentDateLine(new Date(), prefs.timezone),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       relevantMemory: relevantMemoryText || undefined,

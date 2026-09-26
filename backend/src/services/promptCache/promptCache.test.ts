@@ -124,7 +124,7 @@ describe('Prompt Caching Subsystem', () => {
       expect(none).not.toContain('<memory_policy>');
       expect(none).not.toContain('GENERATIVE UI POLICY');
       expect(none).not.toContain('DATA ANALYTICS POLICY');
-      const all = buildStablePrefix([], ['search_memory', 'render_ui', 'run_python']).systemText;
+      const all = buildStablePrefix([], ['save_memory', 'render_ui', 'run_python']).systemText;
       expect(all).toContain('<memory_policy>');
       expect(all).toContain('GENERATIVE UI POLICY');
       expect(all).toContain('DATA ANALYTICS POLICY');

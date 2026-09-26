@@ -10,6 +10,12 @@ import type {
   UpdateMemoryInput,
 } from './types.js';
 
+/** Letters and digits of a query, lower-cased and de-duplicated: safe to join into a tsquery. */
+export function searchWords(query: string): string[] {
+  const words = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return [...new Set(words.filter((w) => w.length > 1 || /\p{N}/u.test(w)))].slice(0, 32);
+}
+
 export class MemoryConcurrencyError extends Error {
   constructor(public readonly expectedVersion: number, public readonly actualVersion: number) {
     super(`Memory concurrency conflict: expected version ${expectedVersion}, but current version is ${actualVersion}`);
@@ -21,7 +27,7 @@ export class MemoryService {
   /**
    * Creates or updates a memory item with privacy validation and upsert logic.
    */
-  async createMemory(input: CreateMemoryInput): Promise<MemoryItem> {
+  async createMemory(input: CreateMemoryInput, retried = false): Promise<MemoryItem> {
     const contentCheck = checkPrivacy(input.content);
     if (contentCheck.hasSecret) {
       throw new Error(`Cannot store memory containing sensitive secrets or credentials: ${contentCheck.violations.join(', ')}`);
@@ -72,6 +78,8 @@ export class MemoryService {
       throw new Error('Failed to update memory item');
     }
 
+    // Two saves of one new topic can both miss the SELECT above; the unique index turns the
+    // second insert into an error, and one retry takes the update path instead.
     const inserted = await db
       .insert(memoryItems)
       .values({
@@ -88,7 +96,12 @@ export class MemoryService {
         sourceMessageId: input.sourceMessageId ?? null,
         version: 1,
       })
-      .returning();
+      .returning()
+      .catch(async (err: unknown) => {
+        const code = (err as { code?: string; cause?: { code?: string } }).code ?? (err as { cause?: { code?: string } }).cause?.code;
+        if (code === '23505' && !retried) return [await this.createMemory(input, true)];
+        throw err;
+      });
 
     if (inserted[0]) return inserted[0];
     throw new Error('Failed to insert memory item');
@@ -189,14 +202,17 @@ export class MemoryService {
   }
 
   /**
-   * Performs full-text search with rank-based scoring using PostgreSQL websearch_to_tsquery and GIN index.
-   * Falls back to ILIKE if websearch returns no hits.
+   * Full-text search over key, summary and content, any word matching, ranked by ts_rank_cd.
+   * Falls back to ILIKE on each word when full-text search finds nothing.
    */
   async searchMemory(userId: string, filter: SearchMemoryFilter): Promise<MemorySearchResult[]> {
     const db = getDb();
     const limit = filter.limit ?? 10;
-    const cleanQuery = filter.query.trim();
-    if (!cleanQuery) return [];
+    const words = searchWords(filter.query);
+    if (words.length === 0) return [];
+    // Any word may match, ranked by how many do: websearch_to_tsquery would AND every word, so
+    // a memory about "KVB" never matched "how many entries in kvb and federal".
+    const cleanQuery = words.join(' | ');
 
     // Scope conditions
     const scopeConditions = [eq(memoryItems.userId, userId)];
@@ -234,11 +250,11 @@ export class MemoryService {
              ${memoryItems.updatedAt} as "updatedAt",
              ts_rank_cd(
                to_tsvector('simple', coalesce(${memoryItems.key}, '') || ' ' || coalesce(${memoryItems.summary}, '') || ' ' || coalesce(${memoryItems.content}, '')),
-               websearch_to_tsquery('simple', ${cleanQuery})
+               to_tsquery('simple', ${cleanQuery})
              ) as score
       FROM ${memoryItems}
       WHERE ${and(...scopeConditions)}
-        AND to_tsvector('simple', coalesce(${memoryItems.key}, '') || ' ' || coalesce(${memoryItems.summary}, '') || ' ' || coalesce(${memoryItems.content}, '')) @@ websearch_to_tsquery('simple', ${cleanQuery})
+        AND to_tsvector('simple', coalesce(${memoryItems.key}, '') || ' ' || coalesce(${memoryItems.summary}, '') || ' ' || coalesce(${memoryItems.content}, '')) @@ to_tsquery('simple', ${cleanQuery})
       ORDER BY score DESC, ${memoryItems.updatedAt} DESC
       LIMIT ${limit}
     `;
@@ -268,8 +284,8 @@ export class MemoryService {
       // If FTS expression parsing errors on edge-case syntax, gracefully fallback to ILIKE
     }
 
-    // 2. Fallback to ILIKE match
-    const likePattern = `%${cleanQuery}%`;
+    // 2. Fallback to ILIKE match on any word, for text the tokenizer splits differently.
+    const likePatterns = words.map((w) => `%${w}%`);
     const fallbackQuery = sql`
       SELECT ${memoryItems.id} as id,
              ${memoryItems.key} as key,
@@ -283,11 +299,13 @@ export class MemoryService {
              0.5 as score
       FROM ${memoryItems}
       WHERE ${and(...scopeConditions)}
-        AND (
-          ${memoryItems.key} ILIKE ${likePattern}
-          OR ${memoryItems.summary} ILIKE ${likePattern}
-          OR ${memoryItems.content} ILIKE ${likePattern}
-        )
+        AND (${sql.join(
+          likePatterns.map(
+            (p) =>
+              sql`${memoryItems.key} ILIKE ${p} OR ${memoryItems.summary} ILIKE ${p} OR ${memoryItems.content} ILIKE ${p}`,
+          ),
+          sql` OR `,
+        )})
       ORDER BY ${memoryItems.updatedAt} DESC
       LIMIT ${limit}
     `;
@@ -310,6 +328,61 @@ export class MemoryService {
       updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : r.updatedAt.toISOString(),
       score: Number(r.score) || 0.5,
     }));
+  }
+
+  /**
+   * The topic a user means by name, case-insensitively: the current project's first, then global.
+   */
+  async findByTopic(userId: string, topic: string, projectId: string | null): Promise<MemoryItem | null> {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(memoryItems)
+      .where(
+        and(
+          eq(memoryItems.userId, userId),
+          sql`lower(${memoryItems.key}) = lower(${topic.trim()})`,
+          projectId
+            ? or(eq(memoryItems.scope, 'global'), and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, projectId)))!
+            : eq(memoryItems.scope, 'global'),
+        ),
+      );
+    return rows.find((r) => r.scope === 'project') ?? rows[0] ?? null;
+  }
+
+  /**
+   * Everything remembered for this user, as the conversation starts from it: global topics, and
+   * the project's own inside a project (Claude keeps a separate memory per project). Standing
+   * items first, then most recently updated, within `maxChars`. What does not fit stays
+   * reachable through search_memory; `omitted` says how many.
+   */
+  async getMemoryContext(
+    userId: string,
+    projectId: string | null,
+    maxChars: number,
+  ): Promise<{ text: string; included: number; omitted: number }> {
+    const db = getDb();
+    const items = await db
+      .select()
+      .from(memoryItems)
+      .where(
+        and(
+          eq(memoryItems.userId, userId),
+          projectId
+            ? or(eq(memoryItems.scope, 'global'), and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, projectId)))!
+            : eq(memoryItems.scope, 'global'),
+        ),
+      )
+      .orderBy(desc(memoryItems.isStanding), desc(memoryItems.updatedAt));
+    const lines: string[] = [];
+    let used = 0;
+    for (const item of items) {
+      const line = `- ${item.key}${item.scope === 'project' ? ' (this project)' : ''}: ${item.content}`;
+      if (used + line.length + 1 > maxChars) break;
+      lines.push(line);
+      used += line.length + 1;
+    }
+    return { text: lines.join('\n'), included: lines.length, omitted: items.length - lines.length };
   }
 
   /**
@@ -358,26 +431,6 @@ export class MemoryService {
     }
 
     return lines.join('\n');
-  }
-
-  /**
-   * Retrieves relevant non-standing memories for a user query.
-   */
-  async getRelevantMemories(
-    userId: string,
-    query: string,
-    projectId?: string | null,
-    limit?: number,
-  ): Promise<MemorySearchResult[]> {
-    const cfg = config();
-    const maxItems = limit ?? cfg.MEMORY_RELEVANT_MAX_ITEMS ?? 5;
-    const results = await this.searchMemory(userId, {
-      query,
-      projectId,
-      limit: maxItems * 2, // fetch slightly more to filter non-standing
-    });
-
-    return results.filter((r) => !r.isStanding).slice(0, maxItems);
   }
 
   /**

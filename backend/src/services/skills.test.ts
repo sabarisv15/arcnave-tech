@@ -28,8 +28,9 @@ describe('SkillService', () => {
     expect(names).toContain('research-deep-dive');
     expect(names).toContain('skill-creator');
 
-    // Internal skill should NOT be in regular list
-    expect(names).not.toContain('python-sandbox-patterns');
+    // Listed like any other skill since the 2026-09-26 audit (D10): in chat, only the listing
+    // tells the model it exists.
+    expect(names).toContain('python-sandbox-patterns');
   });
 
   it('includes internal skills when requested', () => {

@@ -31,7 +31,14 @@ import type { ToolDefinition } from '../providers/types.js';
  * tools non-deferred so Claude can call them without searching first." These are the ones file
  * work needs on nearly every turn; the rest stay discoverable (ADR-0006, amended by ADR-0022).
  */
-export const DECLARED_EVERY_TURN: readonly string[] = ['run_python', 'read_uploaded_file', 'generate_deliverable'];
+export const DECLARED_EVERY_TURN: readonly string[] = [
+  'run_python',
+  'read_uploaded_file',
+  'generate_deliverable',
+  // Claude saves memory as you chat, without being asked (ADR-0025): the tool must be in hand.
+  'save_memory',
+  'forget_memory',
+];
 
 export interface ToolContext {
   userId?: string;

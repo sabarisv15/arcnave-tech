@@ -269,14 +269,14 @@ const envSchema = z.object({
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
   ENABLE_PROMPT_CACHE: bool(true),
 
-  /** Master gate for persistent memory (PostgreSQL durable memory_items). */
-  ENABLE_MEMORY: bool(false),
+  /** Persistent memory (memory_items). On by default, as Claude's memory is (ADR-0025). */
+  ENABLE_MEMORY: bool(true),
   /** Background conservative distillation of durable user-stated facts. */
   ENABLE_MEMORY_BACKGROUND_DISTILL: bool(false),
   /** Maximum total characters allocated to standing context memories. */
   MEMORY_STANDING_MAX_CHARS: int(2000),
-  /** Maximum relevant memory items injected per turn. */
-  MEMORY_RELEVANT_MAX_ITEMS: int(5),
+  /** Characters of memory topics a conversation starts with; the rest stay searchable. */
+  MEMORY_CONTEXT_MAX_CHARS: int(8000),
 
   /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
   ENABLE_CONTEXT_COMPACTION: bool(true),

@@ -481,6 +481,7 @@ export class AgentLoop {
 
         if (memoryEnabled) {
           const memoryToolExecutor = new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null);
+          baseMap.set('save_memory', memoryToolExecutor);
           baseMap.set('search_memory', memoryToolExecutor);
           baseMap.set('read_memory', memoryToolExecutor);
           baseMap.set('update_memory', memoryToolExecutor);

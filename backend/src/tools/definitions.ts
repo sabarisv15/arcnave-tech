@@ -584,6 +584,37 @@ export const SEARCH_MEMORY: ToolDefinition = {
   },
 };
 
+export const SAVE_MEMORY: ToolDefinition = {
+  name: 'save_memory',
+  description:
+    'Saves something about the user to memory under a short topic, so later conversations start from it. ' +
+    'Saving to a topic that already exists replaces that topic\'s content, so include what should be kept. ' +
+    'Use it when the user asks you to remember something, and on your own for durable facts that will help in ' +
+    'later conversations: their work, projects, preferences and standing instructions. Do not save passing ' +
+    'details of one task.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      topic: {
+        type: 'string',
+        description: 'Short topic name, e.g. "Work", "Writing style", "Bank statement project".',
+      },
+      content: {
+        type: 'string',
+        description: 'What to remember under this topic, written as plain statements.',
+      },
+      scope: {
+        type: 'string',
+        enum: ['global', 'project'],
+        description:
+          'Optional: "project" keeps it to the current project only; defaults to "project" inside a project and "global" elsewhere.',
+      },
+    },
+    required: ['topic', 'content'],
+    additionalProperties: false,
+  },
+};
+
 export const READ_MEMORY: ToolDefinition = {
   name: 'read_memory',
   description:
@@ -638,26 +669,30 @@ export const UPDATE_MEMORY: ToolDefinition = {
 export const FORGET_MEMORY: ToolDefinition = {
   name: 'forget_memory',
   description:
-    'Removes a memory item from active persistent storage by its canonical memoryId. ' +
-    'Deletes the item from active memory; original chat transcripts are preserved.',
+    'Removes a memory topic, by its topic name or its memoryId. ' +
+    'Deletes it from memory; original chat transcripts are preserved.',
   inputSchema: {
     type: 'object',
     properties: {
+      topic: {
+        type: 'string',
+        description: 'The topic name to remove, as shown in memory.',
+      },
       memoryId: {
         type: 'string',
-        description: 'The canonical UUID of the memory item to remove.',
+        description: 'The canonical UUID of the memory item to remove, as returned by search_memory.',
       },
       expectedVersion: {
         type: 'integer',
         description: 'Optional expected version for concurrency safety.',
       },
     },
-    required: ['memoryId'],
     additionalProperties: false,
   },
 };
 
 export const MEMORY_TOOL_DEFINITIONS: ToolDefinition[] = [
+  SAVE_MEMORY,
   SEARCH_MEMORY,
   READ_MEMORY,
   UPDATE_MEMORY,

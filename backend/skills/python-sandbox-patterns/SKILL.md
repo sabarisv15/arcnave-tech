@@ -1,8 +1,8 @@
 ---
 name: python-sandbox-patterns
 version: 2.0.0
-description: How ArcNave's run_python sandbox behaves (files, outputs, limits) and how to write code for it. Applied automatically whenever run_python is available.
-category: internal
+description: How ArcNave's run_python sandbox behaves (files, outputs, limits) and how to write code for it. Use when writing run_python code that opens uploaded files, produces files for the user, or runs for long.
+category: general
 requires:
   tools:
     - run_python
@@ -13,7 +13,7 @@ metadata:
 
 # Python Sandbox Patterns
 
-Applied automatically when `run_python` is available. The `run_python` tool description is
+The `run_python` tool description is
 authoritative for this chat; where it differs from this skill, follow it.
 
 ## Where things are

@@ -81,6 +81,8 @@ export interface SkillSummary {
   autoload: boolean;
   mode: SkillMode;
   missingCapabilities: string[];
+  /** Required tools not allowed on this turn; a skill with any is not offered to the model. */
+  missingTools: string[];
 }
 
 export interface SkillDetail extends SkillSummary {
@@ -228,7 +230,7 @@ export class SkillService {
   private evaluateMode(
     skill: SkillFrontmatter,
     availableTools: Set<string>,
-  ): { mode: SkillMode; missingCapabilities: string[] } {
+  ): { mode: SkillMode; missingCapabilities: string[]; missingTools: string[] } {
     const requiredTools = skill.requires.tools;
     const requiredCaps = skill.requires.capabilities;
 
@@ -243,11 +245,11 @@ export class SkillService {
     const allMissing = [...missingTools, ...missingCaps];
 
     if (allMissing.length === 0) {
-      return { mode: 'full', missingCapabilities: [] };
+      return { mode: 'full', missingCapabilities: [], missingTools: [] };
     }
 
     // When required capabilities or tools are missing, degrade gracefully to guidance_only
-    return { mode: 'guidance_only', missingCapabilities: allMissing };
+    return { mode: 'guidance_only', missingCapabilities: allMissing, missingTools };
   }
 
   private toSet(availableTools?: string[] | Set<string>): Set<string> {
@@ -266,7 +268,7 @@ export class SkillService {
       if (entry.frontmatter.category === 'internal' && !includeInternal) {
         continue;
       }
-      const { mode, missingCapabilities } = this.evaluateMode(entry.frontmatter, toolSet);
+      const { mode, missingCapabilities, missingTools } = this.evaluateMode(entry.frontmatter, toolSet);
       results.push({
         name: entry.frontmatter.name,
         version: entry.frontmatter.version,
@@ -276,6 +278,7 @@ export class SkillService {
         autoload: entry.frontmatter.autoload,
         mode,
         missingCapabilities,
+        missingTools,
       });
     }
 
@@ -318,7 +321,7 @@ export class SkillService {
       }
 
       if (score > 0) {
-        const { mode, missingCapabilities } = this.evaluateMode(entry.frontmatter, toolSet);
+        const { mode, missingCapabilities, missingTools } = this.evaluateMode(entry.frontmatter, toolSet);
         scored.push({
           score,
           skill: {
@@ -330,6 +333,7 @@ export class SkillService {
             autoload: entry.frontmatter.autoload,
             mode,
             missingCapabilities,
+            missingTools,
           },
         });
       }
@@ -349,7 +353,7 @@ export class SkillService {
     if (!entry) return null;
 
     const toolSet = this.toSet(availableTools);
-    const { mode, missingCapabilities } = this.evaluateMode(entry.frontmatter, toolSet);
+    const { mode, missingCapabilities, missingTools } = this.evaluateMode(entry.frontmatter, toolSet);
 
     return {
       name: entry.frontmatter.name,
@@ -360,6 +364,7 @@ export class SkillService {
       autoload: entry.frontmatter.autoload,
       mode,
       missingCapabilities,
+      missingTools,
       content: entry.content,
     };
   }
@@ -373,7 +378,7 @@ export class SkillService {
 
     for (const entry of this.skills.values()) {
       if (entry.frontmatter.autoload) {
-        const { mode, missingCapabilities } = this.evaluateMode(entry.frontmatter, toolSet);
+        const { mode, missingCapabilities, missingTools } = this.evaluateMode(entry.frontmatter, toolSet);
         autoloads.push({
           name: entry.frontmatter.name,
           version: entry.frontmatter.version,
@@ -383,6 +388,7 @@ export class SkillService {
           autoload: true,
           mode,
           missingCapabilities,
+          missingTools,
           content: entry.content,
         });
       }

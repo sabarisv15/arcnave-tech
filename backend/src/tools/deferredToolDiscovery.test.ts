@@ -40,7 +40,16 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       const initialNames = initialTools.map((t) => t.name);
 
       // Claude docs, Tool search: "Keep your 3–5 most frequently used tools non-deferred".
-      expect(initialNames).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable', 'run_python']);
+      expect(initialNames).toEqual([
+        'search_tools',
+        'load_skill',
+        'read_uploaded_file',
+        'generate_deliverable',
+        // Memory is saved as the user chats (ADR-0025), so its tools are in hand.
+        'save_memory',
+        'forget_memory',
+        'run_python',
+      ]);
 
       // Everything else stays discoverable
       expect(initialNames).not.toContain('web_search');
@@ -75,6 +84,8 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'get_context_remaining',
         'read_uploaded_file',
         'generate_deliverable',
+        'save_memory',
+        'forget_memory',
         'run_python',
       ]);
 
@@ -221,7 +232,15 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       const availableTools: ToolDefinition[] = [...fullRegistry.getInitialTools(context)];
 
       // Initial state: only Round 0 core tools
-      expect(availableTools.map((t) => t.name)).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable', 'run_python']);
+      expect(availableTools.map((t) => t.name)).toEqual([
+        'search_tools',
+        'load_skill',
+        'read_uploaded_file',
+        'generate_deliverable',
+        'save_memory',
+        'forget_memory',
+        'run_python',
+      ]);
 
       const executor = new SearchToolsExecutor(policyCatalog, (discovered) => {
         if (!availableTools.some((t) => t.name === discovered.name)) {
