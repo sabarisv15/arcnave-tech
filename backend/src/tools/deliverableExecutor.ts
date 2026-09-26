@@ -187,26 +187,30 @@ export class DeliverableToolExecutor implements ToolExecutor {
           };
         }
 
+        // Only a text file's text is copied. A PDF's, an image's or an Office file's extracted
+        // text has lost its layout: split on spaces and commas it made a sheet that looked like a
+        // conversion and was not one (audit D1). The model reads those files and passes rows.
+        const textLike =
+          sourceRow.mimeType.startsWith('text/') ||
+          sourceRow.mimeType === 'application/csv' ||
+          sourceRow.mimeType === 'application/json';
+        if (!textLike) {
+          return {
+            toolCallId: call.id,
+            ok: false,
+            content: [
+              {
+                type: 'text',
+                text:
+                  `"${sourceRow.filename}" is not a text file, so it cannot be copied as it is. Read it (its pages, ` +
+                  'read_uploaded_file, or run_python), apply the user\'s instructions, and pass what you extracted: ' +
+                  `${format === 'xlsx' ? 'typed rows as "workbook"' : 'the content as "content"'}.`,
+              },
+            ],
+          };
+        }
         let sourceText = sourceRow.extractedText || '';
         if (!sourceText) {
-          const isBinaryMime =
-            sourceRow.mimeType === 'application/pdf' ||
-            sourceRow.mimeType.startsWith('image/') ||
-            sourceRow.mimeType.includes('officedocument') ||
-            sourceRow.mimeType.includes('octet-stream');
-
-          if (isBinaryMime) {
-            return {
-              toolCallId: call.id,
-              ok: false,
-              content: [
-                {
-                  type: 'text',
-                  text: `Source attachment "${sourceRow.filename}" requires structured parsing upstream. Please provide structured tabular markdown or document text directly to generate_deliverable.`,
-                },
-              ],
-            };
-          }
 
           try {
             const rawBytes = await this.storage.get(sourceRow.storageKey);

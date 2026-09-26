@@ -752,7 +752,8 @@ export const GENERATE_DELIVERABLE: ToolDefinition = {
     'Generates, exports, and verifies an office document or spreadsheet deliverable (.xlsx, .docx, .pptx, or .pdf). ' +
     'Supports two modes:\n' +
     '1. Direct generation: Provide "format", "title", and Markdown "content" containing tables, headings, or slides.\n' +
-    '2. Source file conversion: Provide "sourceAttachmentId", "format", and conversion "instructions" to automatically transform uploaded PDFs, text, or data files into Excel spreadsheets or documents.\n' +
+    '2. Structured workbook: for "xlsx", provide typed sheets, columns and rows as "workbook" (preferred for data read from a PDF, image or file).\n' +
+    '3. Text copy: "sourceAttachmentId" of an uploaded text, CSV or TSV file copies its text as it is. It does not read PDFs, images or Office files: read those first and pass what you extracted.\n' +
     'Always call this tool when the user asks for a downloadable Excel file, Word doc, PowerPoint deck, or PDF. Returns a downloadable file card.',
   inputSchema: {
     type: 'object',
@@ -772,11 +773,11 @@ export const GENERATE_DELIVERABLE: ToolDefinition = {
       },
       sourceAttachmentId: {
         type: 'string',
-        description: 'Optional UUID of an uploaded file/attachment to convert (e.g. converting an uploaded PDF statement to Excel).',
+        description: 'Optional id of an uploaded text, CSV or TSV file whose text is copied as it is. Not for PDFs, images or Office files.',
       },
       instructions: {
         type: 'string',
-        description: 'Optional transformation instructions when converting from a source attachment (e.g. "Extract all statement transactions into columns: Date, Description, Amount, Balance").',
+        description: 'Not applied to the data: shown as a note in the file. Apply the user\'s instructions yourself to the rows or content you pass.',
       },
       workbook: {
         type: 'object',

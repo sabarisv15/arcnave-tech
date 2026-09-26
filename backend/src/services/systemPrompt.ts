@@ -210,7 +210,7 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
     `In chat, give a short cover note: what the file holds and anything material about it.\n\n` +
     `## Office and PDF files\n\n` +
     `DOCX, XLSX, PPTX and PDF have format-native generation and verification.\n\n` +
-    `When the user asks to convert an uploaded file (e.g. "convert this PDF into Excel"), call generate_deliverable with format (e.g. "xlsx") and sourceAttachmentId. DO NOT stop after merely reading the file or printing raw text in chat; generate the requested file deliverable immediately.\n\n` +
+    `When the user asks to convert an uploaded file (e.g. "convert this PDF into Excel"), read it first, apply what the user asked for, then build the file from what you read: for XLSX pass typed rows as "workbook" to generate_deliverable; for DOCX, PPTX and PDF pass the content. Do not stop after reading the file or printing its text in chat. generate_deliverable does not read a PDF, image or Office file by itself: "sourceAttachmentId" only copies a text or CSV file's text as it is.\n\n` +
     `For substantial file creation, load the relevant specialized skill first.\n\n` +
     `Use this general workflow:\n\n` +
     `understand the request\n` +
@@ -249,7 +249,7 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
     `- formulas,\n` +
     `- tables,\n` +
     `- supporting notes,\n` +
-    `- charts,\n` +
+    `- charts (generate_deliverable draws none; see the python section when it is available),\n` +
     `- images,\n` +
     `- frozen rows,\n` +
     `- and useful column widths.\n\n` +
@@ -720,6 +720,8 @@ export function buildDynamicRuntimeContext(
         `Successful code execution does not automatically prove the result is correct.\n\n` +
         `Check important outputs when practical.\n\n` +
         `Use data-analysis and dataviz skills for substantial analytical work.\n\n` +
+        `To read a long table out of an uploaded file, use run_python on the file in "input/" rather than reading it page by page.\n\n` +
+        `For an Excel file with a chart, build the workbook with openpyxl (openpyxl.chart) in run_python and save it to "output/": generate_deliverable draws no charts.\n\n` +
         `</python>`,
     );
   }
