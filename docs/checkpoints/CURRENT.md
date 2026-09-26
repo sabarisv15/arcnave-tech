@@ -1,6 +1,20 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): one loop, Claude-doc guidance (ADR-0032), on branch, not live.**
+> **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
+> - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
+>   ran 3 commands, made no unrequested file, and every figure matched the PDF.
+> - The reply-language rule is removed, as in Claude's app prompt: the model chooses the
+>   language and script. Eval 11c checks it stays out.
+> - The chat now typesets `$$…$$` with KaTeX (`remark-math` + `rehype-katex`,
+>   `arcnave-frontend/src/markdownPlugins.ts`), as Claude's app does. A single `$` stays text.
+>
+> Tests: backend 964, frontend 66.
+>
+> UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
+> packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). None started.
+>
+> **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode
 >   only, and `capabilityPolicy.ts` is deleted.
 > - The prompt uses Claude's scope sample and effort line, without anti-laziness or

@@ -1,6 +1,8 @@
 # ADR-0032: One loop; the model reads the request; guidance as Claude's docs give it
 
-- Status: accepted. Tested locally; not live.
+- Status: accepted. Merged (79817d2) and deployed.
+- Amended 2026-09-26: the reply-language rule is removed. Claude's app prompt has none; the
+  model chooses the language and script from the conversation.
 - Date: 2026-09-26
 - Supersedes: ADR-0006 decision 3 (intent detection as telemetry).
 - Amends:

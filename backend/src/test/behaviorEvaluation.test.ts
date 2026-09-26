@@ -171,6 +171,10 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('own them and work to fix them');
     });
 
+    it('Eval 11c: No reply-language rule; the model chooses, as Claude\'s app prompt leaves it', () => {
+      expect(masterPrompt).not.toContain('Reply in the language and script the user writes in');
+    });
+
     it('Eval 12: Disabled capability -> Strictly hides unconfigured tools and prevents hallucinations', () => {
       const disabledWebCfg = loadConfig({
         ENABLE_TOOL_USE: 'true',

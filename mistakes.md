@@ -1130,3 +1130,12 @@ practice, not canon.
   touched that path since 2026-09-17. **40 entries.**
 - **2026-09-26** — Added the scaffolding entry (ADR-0032). Retired the `preHandler`/`onRequest`
   entry: a Fastify lifecycle fact, fixed on 2026-09-16 and untouched since. **40 entries.**
+- **2026-09-26** — No new heading (at the cap). The reply-language rule sat in the middle of the
+  prompt, and Gemini answered a Latin-script Tanglish message in Tamil script. It was placed
+  without reading the model's own guidance on where constraints go (Gemini 3: behavioural
+  constraints at the top of the system instruction). Rule: when a model ignores a rule that is
+  in the prompt, check its vendor's placement guidance before rewording or repeating it.
+  Verify: Eval 11c, then a live Tanglish turn.
+- **2026-09-26** — The language-rule placement note above is superseded: the user chose to
+  remove the rule, as Claude's app prompt has none. The rule stays: read the vendor's own
+  guidance before rewording a rule a model ignores.

@@ -87,7 +87,7 @@ describe('the prompt and tools a file turn starts with (ADR-0022)', () => {
     expect(systemInstruction).toContain('## Understand the request first');
     expect(systemInstruction).toContain('not with its contents pasted into chat');
     expect(systemInstruction).toContain('any other format (JSON, CSV, XML, TXT, Markdown, HTML, ZIP, images): run_python, writing the file to "output/"');
-    expect(systemInstruction).toContain('Reply in the language and script the user writes in');
+    expect(systemInstruction).not.toContain('Reply in the language and script the user writes in');
     expect(systemInstruction).toContain('A skill loaded earlier in this conversation is still in context');
   });
 

@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
 import * as HoverCard from "@radix-ui/react-hover-card";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import { ExternalLink, Download, Image as ImageIcon, AlertCircle } from "lucide-react";
 import type { Source } from "./types";
 import { url as resolveApiUrl } from "./api";
 import { downloadAuthenticated } from "./storage";
+import { remarkPlugins, rehypePlugins } from "./markdownPlugins";
 
 export function AuthenticatedImage({
   src,
@@ -177,8 +176,8 @@ export function Markdown({
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={{
           a: ({ href, children }) => {
             const id = href?.match(/^#source-(\d+)$/)?.[1];
