@@ -43,7 +43,13 @@
 >    read that request's logs); files saved twice in a turn showed twice (now one card per
 >    filename, latest version); the prompt now asks for one short line before each tool call.
 >    The 2,240,480-in turn was real for a ~10-round tool loop: each round resends the chat.
-> 8. Tests at handoff: backend 970, frontend 62, typecheck and build clean. Migrations 0013
+>    Logs (revision 00141, PR #20 build): the "Sending request 229 s" turn sent `start` within
+>    ~130 ms and got the model's first event at 10.4 s, yet the browser showed nothing, so the
+>    frames were held between Cloud Run and the browser (request logged as HTTP/1.1; check
+>    DevTools → Network → Protocol / EventStream). Turns themselves are slow: 472 s with 2
+>    tool calls, 729 s with 15 (first event 74 s). `turn timing` now carries `streamMs`
+>    {model, tools, longestModelWait, modelRequests} to say which one.
+> 8. Tests at handoff: backend 971, frontend 62, typecheck and build clean. Migrations 0013
 >    (`messages.thinking`) and 0014 (`messages.segments`) are stamped after 0012.
 >
 > **2026-09-26: Claude-parity audit written down** ([audit](../audits/2026-09-26-claude-parity-audit.md)).

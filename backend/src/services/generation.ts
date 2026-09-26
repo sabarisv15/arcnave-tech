@@ -90,7 +90,7 @@ import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
 import { compact, shouldCompact } from './compaction/autoCompact.js';
-import { TurnTiming } from './turnTiming.js';
+import { StreamTimeSplit, TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -993,12 +993,17 @@ export class GenerationService {
       timing.mark('before_provider');
       let firstProviderEvent = true;
       let toolCallCount = 0;
+      // Splits the stream's time between waiting on the model and waiting on tools, so a slow
+      // turn's log says which one it was (a 462 s turn with 2 tool calls said neither).
+      const split = new StreamTimeSplit();
 
       for await (const event of stream) {
         if (firstProviderEvent) {
           firstProviderEvent = false;
           timing.mark('provider_first_event');
         }
+        split.observe(event.type);
+        timing.note('streamMs', split.summary());
         if (event.type === 'tool_use') timing.note('toolCalls', (toolCallCount += 1));
         switch (event.type) {
           case 'delta':
