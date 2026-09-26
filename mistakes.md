@@ -672,10 +672,9 @@ failure mode of this pattern, not a sign it is working.
   retry loop rethrew every `isAbort(err)` as a cancel before it checked `signal.reason`.
 - **Rule:** **Never classify an abort by the error's shape. Check who aborted.** Only the
   caller's own signal is a user cancel. An abort from an internal timer is a typed, retryable
-  failure. A time budget must also scale with the payload: media turns get 3× the base budget.
-- **Verify:** `backend/src/routes/ttftTimeout.integration.test.ts` checks that the provider was
-  tried twice, `provider_timeout` was streamed and the row was saved as `error`. Remove the
-  `signal.reason` check and the test fails.
+  failure. (The first-token budget itself was removed by ADR-0024; the rule stands.)
+- **Verify:** `backend/src/routes/providerTimeout.integration.test.ts`: an abort the caller did
+  not request streams `provider_timeout` and saves the row as `error`.
 
 ### 2026-09-24 — A phase passed locally on a warm process sandbox and failed on cold Cloud Run Jobs
 
@@ -692,7 +691,7 @@ failure mode of this pattern, not a sign it is working.
   and compare the total with the platform timeout before shipping. Trusted work now runs in the
   backend (ADR-0008), and every turn has its own deadline (`TURN_DEADLINE_MS`).
 - **Verify:** `executionRuntime.trusted.test.ts` routes poppler and skill scripts to the trusted
-  executor and `run_python` to the sandbox. `ttftTimeout.integration.test.ts` checks that a turn
+  executor and `run_python` to the sandbox. `providerTimeout.integration.test.ts` checks that a turn
   over its deadline ends as `turn_deadline_exceeded`. Live: the same prompt on the real PDF
   finishes well inside the deadline.
 
@@ -786,16 +785,19 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts` (every result past
   100,000 tokens is replayed in full).
 
-### 2026-09-26 — A follow-up on a PDF chat got the text-only first-token budget
+### 2026-09-26 — Our own first-token cutoff aborted large follow-ups that were still working
 
 - **Symptom:** Live: the 3rd to 5th reply in a two-PDF chat failed with "The model took too
-  long". The logs showed `First token wait exceeded 12000ms` on each attempt.
-- **Cause:** The media check read `a.base64`, but history PDFs travel as `pages`, so a
-  follow-up got 12 s instead of 36 s. The budget also ignored the request's size, which grows
-  every turn.
-- **Rule:** **When a check asks "does this request carry X", enumerate every form X travels
-  in (bytes, pages, URI) and test the form a follow-up uses, not just the first turn.**
-- **Verify:** `npx vitest run src/services/firstTokenBudget.test.ts`.
+  long". Every attempt logged `First token wait exceeded 12000ms`.
+- **Cause:** ArcNave cut off a request that had sent nothing for 12 s, then retried the same
+  slow request. History PDFs travel as `pages`, which the media check missed. And Gemini sends
+  nothing while it thinks, so a large request looked hung. Claude's SDK has no such cutoff: a
+  request gets 10 minutes, and only failures are retried.
+- **Rule:** **Do not treat "slow" as "failed".** Bound a request by a total timeout and retry
+  only real failures (connection error, timeout, 408/409/429/5xx). A first draft scaled the
+  cutoff by a guessed ms-per-token; a number with no measurement behind it is not a fix.
+- **Verify:** `npx vitest run src/routes/providerTimeout.integration.test.ts` (a slow first
+  event completes with one request).
 
 ## Convention and sources
 

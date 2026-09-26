@@ -105,17 +105,14 @@ const envSchema = z.object({
   AUTO_ROUTE_LONG_PROMPT_CHARS: int(2000),
   AUTO_ROUTE_LONG_CONTEXT_CHARS: int(8000),
   MODEL_PROBE_TTL_SECONDS: int(300),
-  PROVIDER_TIMEOUT_MS: int(120_000),
+  /** One provider request, stream included. Claude's SDK default ("By default requests time out
+   *  after 10 minutes"); there is no separate first-token cutoff (ADR-0024). */
+  PROVIDER_TIMEOUT_MS: int(600_000),
   PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
   PROVIDER_MAX_RETRIES: int(2),
   /** Whole-turn deadline. Keep it under the platform request timeout (Cloud Run: set to
    *  3600 s) so a slow turn ends with a typed error, not a severed connection. */
   TURN_DEADLINE_MS: int(3_540_000),
-  /** Chat-mode wait for a provider's first event; search, research and attachments scale it. */
-  PROVIDER_TTFT_BUDGET_MS: int(12_000),
-  /** Added to the first-token budget per 10,000 tokens of the chat's last request (ADR-0024).
-   *  A starting value, not a measurement: `provider first event` logs ttftMs to calibrate it. */
-  PROVIDER_TTFT_MS_PER_10K_CONTEXT: int(1_000),
 
   // --- Generation limits --------------------------------------------------
   DEFAULT_MAX_OUTPUT_TOKENS: int(32_000),

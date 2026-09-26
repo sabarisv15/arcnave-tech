@@ -294,3 +294,20 @@ describe('refusal (G13)', () => {
     expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'refusal' });
   });
 });
+
+describe('AnthropicVertexProvider timeouts (ADR-0024)', () => {
+  it("retries the SDK's connection failures, as Claude's SDK does, and types a timeout", async () => {
+    const { APIConnectionError, APIConnectionTimeoutError } = await import('@anthropic-ai/sdk');
+    for (const [err, code] of [
+      [new APIConnectionTimeoutError(), 'provider_timeout'],
+      [new APIConnectionError({ message: 'socket hang up' }), 'provider_error'],
+    ] as const) {
+      const client = new FakeAnthropicClient();
+      client.messages.stream.mockImplementationOnce(() => {
+        throw err;
+      });
+      const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+      await expect(collect(provider.stream(baseRequest()))).rejects.toMatchObject({ code, retryable: true });
+    }
+  });
+});

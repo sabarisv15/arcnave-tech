@@ -9,6 +9,7 @@
  * See docs/backend-research.md section 2.
  */
 import type Anthropic from '@anthropic-ai/sdk';
+import { APIConnectionError, APIConnectionTimeoutError } from '@anthropic-ai/sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 
 import type { Config } from '../config.js';
@@ -487,7 +488,16 @@ export class AnthropicVertexProvider implements Provider {
         if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
-      if (isAbort(err) || request.signal.aborted) throw err;
+      if (request.signal.aborted) throw err;
+      // Not the caller's abort: the SDK's timeout or a dropped connection, both of which Claude's
+      // SDK retries by default ("Connection errors ... are all retried").
+      if (isAbort(err) || err instanceof APIConnectionError) {
+        const timedOut = isAbort(err) || err instanceof APIConnectionTimeoutError;
+        throw new ProviderError(`Claude request ${timedOut ? 'timed out' : 'lost its connection'}: ${String(err)}`, {
+          retryable: true,
+          ...(timedOut ? { code: 'provider_timeout' as const } : {}),
+        });
+      }
       const status = statusOf(err);
       if (status === 404) {
         throw new ModelNotFoundError(request.providerModelId, this.cfg.VERTEX_LOCATION);

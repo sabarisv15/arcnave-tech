@@ -89,7 +89,7 @@ import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
 import { distillUserStatement } from './memory/distiller.js';
-import { compact, lastContextTokens, shouldCompact } from './compaction/autoCompact.js';
+import { compact, shouldCompact } from './compaction/autoCompact.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
@@ -266,28 +266,6 @@ export interface PreferencesRow {
 }
 
 /* -------------------------------------------------------------------------- service */
-
-/**
- * How long a request may go without its first provider event. Search and research add time;
- * media (files sent as bytes or as rendered PDF pages, current or in the history) triples it;
- * and each 10,000 tokens of the chat's last request adds PROVIDER_TTFT_MS_PER_10K_CONTEXT, since
- * a thinking model sends nothing until it has read the whole request. History PDFs travel as
- * `pages`, which the media check used to miss: a follow-up on two statements got 12 s and failed
- * three times live (ADR-0024).
- */
-export function firstTokenBudgetMs(
-  cfg: { PROVIDER_TTFT_BUDGET_MS: number; PROVIDER_TTFT_MS_PER_10K_CONTEXT: number },
-  request: Pick<GenerationRequest, 'mode' | 'attachments' | 'history'>,
-  priorContextTokens: number | null,
-): number {
-  const base = cfg.PROVIDER_TTFT_BUDGET_MS;
-  const modeBudget = request.mode === 'research' ? base + 8_000 : request.mode === 'search' ? base + 3_000 : base;
-  const media = (a: { base64?: string; pages?: unknown[] }) => Boolean(a.base64 || a.pages?.length);
-  const carriesMedia =
-    (request.attachments ?? []).some(media) || request.history.some((t) => t.attachments?.some(media));
-  const contextAllowance = Math.ceil((priorContextTokens ?? 0) / 10_000) * cfg.PROVIDER_TTFT_MS_PER_10K_CONTEXT;
-  return (carriesMedia ? modeBudget * 3 : modeBudget) + contextAllowance;
-}
 
 export class GenerationService {
   private readonly agentLoop: AgentLoop;
@@ -957,8 +935,7 @@ export class GenerationService {
     const toolsCalled: string[] = [];
 
     try {
-      const priorContext = await this.priorContextTokens(input.chatId, input.messageId);
-      const stream = this.streamWithRetry(provider.stream.bind(provider), request, priorContext);
+      const stream = this.streamWithRetry(provider.stream.bind(provider), request);
 
       for await (const event of stream) {
         switch (event.type) {
@@ -1270,52 +1247,32 @@ export class GenerationService {
    *
    * Only retries before the first event is yielded downstream. Once the client has seen a
    * token, a restart would duplicate text, so the failure propagates instead.
+   *
+   * There is no first-token cutoff, as Claude's SDK has none: a request is bounded by the
+   * adapter's PROVIDER_TIMEOUT_MS (10 minutes, the SDK's default) and retried only when it fails
+   * (connection error, timeout, 408/409/429/5xx), never for being slow. A 12 s cutoff aborted
+   * large follow-ups that were still reading, and each retry repeated the same slow request
+   * (ADR-0024).
    */
   private async *streamWithRetry(
     open: (req: GenerationRequest) => AsyncGenerator<ProviderEvent>,
     request: GenerationRequest,
-    priorContextTokens: number | null = null,
   ): AsyncGenerator<ProviderEvent> {
     let attempt = 0;
     let overflowRetried = false;
     let currentRequest = request;
-    const ttftBudgetMs = firstTokenBudgetMs(this.cfg, request, priorContextTokens);
     for (;;) {
       let firstEventReceived = false;
       let userVisibleOutputEmitted = false;
       const attemptStartedAt = Date.now();
-      const ttftController = new AbortController();
-      const onParentAbort = () => ttftController.abort();
-      // A listener added after the abort never fires: a Stop that landed before this attempt
-      // began (while history or files were still loading) ran the whole turn anyway.
-      if (currentRequest.signal.aborted) onParentAbort();
-      else currentRequest.signal.addEventListener('abort', onParentAbort, { once: true });
-
-      const ttftTimer = setTimeout(() => {
-        if (!firstEventReceived && !ttftController.signal.aborted) {
-          ttftController.abort(
-            new ProviderError(`First token wait exceeded ${ttftBudgetMs}ms`, {
-              code: 'provider_timeout',
-              retryable: true,
-            }),
-          );
-        }
-      }, ttftBudgetMs);
-
       try {
-        const attemptRequest: GenerationRequest = {
-          ...currentRequest,
-          signal: ttftController.signal,
-        };
-        for await (const event of open(attemptRequest)) {
+        // A Stop that landed before this attempt began (while history or files were still
+        // loading) must not run the turn anyway.
+        if (currentRequest.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        for await (const event of open(currentRequest)) {
           if (!firstEventReceived) {
             firstEventReceived = true;
-            clearTimeout(ttftTimer);
-            // Measured so the per-context allowance can be set from data, not a guess.
-            log.info(
-              { ttftMs: Date.now() - attemptStartedAt, ttftBudgetMs, priorContextTokens, attempt },
-              'provider first event',
-            );
+            log.info({ ttftMs: Date.now() - attemptStartedAt, attempt }, 'provider first event');
           }
           if (
             (event.type === 'delta' && event.text.length > 0) ||
@@ -1327,14 +1284,15 @@ export class GenerationService {
         }
         return;
       } catch (err) {
-        clearTimeout(ttftTimer);
         if (currentRequest.signal.aborted) throw err;
-        // Our own first-token timer aborted the attempt: that is a retryable provider timeout,
-        // not a user cancel. Rethrowing the AbortError stored the turn as `stopped` with no
-        // error event and left the client waiting.
-        const timeout = ttftController.signal.reason;
-        if (timeout instanceof ProviderError && timeout.code === 'provider_timeout') err = timeout;
-        else if (isAbort(err)) throw err;
+        // Check who aborted, not the error's shape: the caller did not, so an abort here is a
+        // provider-side timeout, typed and retryable, never stored as the user pressing Stop.
+        if (isAbort(err)) {
+          err = new ProviderError(`Provider request aborted without a cancel: ${String(err)}`, {
+            code: 'provider_timeout',
+            retryable: true,
+          });
+        }
 
         // Context Overflow Recovery with Streaming Safety Rule:
         // Retry is allowed strictly if no user-visible assistant output has been committed/emitted (userVisibleOutputEmitted === false).
@@ -1382,17 +1340,8 @@ export class GenerationService {
         const delay = base + Math.random() * base * 0.5;
         log.warn({ attempt, delay, err: String(err) }, 'retrying provider call');
         await sleep(delay, currentRequest.signal);
-      } finally {
-        clearTimeout(ttftTimer);
-        currentRequest.signal.removeEventListener('abort', onParentAbort);
       }
     }
-  }
-
-  /** The exact size of this chat's last request, which the first-token budget scales with. */
-  private async priorContextTokens(chatId: string, messageId: string): Promise<number | null> {
-    const [self] = await this.db.select({ seq: messages.seq }).from(messages).where(eq(messages.id, messageId)).limit(1);
-    return self ? lastContextTokens(this.db, chatId, self.seq - 1) : null;
   }
 
   private reduceHistoryForOverflow(history: Turn[]): Turn[] {

@@ -462,7 +462,15 @@ export class GeminiProvider implements Provider {
 
       }
     } catch (err) {
-      if (isAbort(err) || request.signal.aborted) throw err;
+      if (request.signal.aborted) throw err;
+      // The caller did not abort, so this is the SDK's own per-request timeout firing: a typed,
+      // retryable timeout, as Claude's SDK treats one (APIConnectionTimeoutError, retried).
+      if (isAbort(err)) {
+        throw new ProviderError(`Gemini request timed out after ${this.cfg.PROVIDER_TIMEOUT_MS}ms`, {
+          retryable: true,
+          code: 'provider_timeout',
+        });
+      }
       if (isNotFound(err)) {
         throw new ModelNotFoundError(request.providerModelId, this.cfg.geminiLocation);
       }

@@ -199,7 +199,7 @@ export class AgentLoop {
     }, this.cfg.AGENT_LOOP_TIMEOUT_MS);
 
     const onAbort = () => timeoutController.abort(input.signal.reason);
-    // Added after an abort, the listener would never fire (see GenerationService's TTFT loop).
+    // Added after an abort, the listener would never fire (see GenerationService.streamWithRetry).
     if (input.signal.aborted) onAbort();
     else input.signal.addEventListener('abort', onAbort, { once: true });
 

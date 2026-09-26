@@ -1,10 +1,12 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): follow-ups in PDF chats no longer time out waiting for the first token**
-> ([ADR-0024](../decisions/0024-first-token-budget-scales-with-the-request.md)). History PDFs
-> (sent as `pages`) now count as media (36 s, not 12 s), and the budget adds 1 s per 10,000
-> tokens of the chat's last request. `provider first event` logs `ttftMs` to calibrate that
-> starting value. Branch only, not deployed.
+> **2026-09-26 (latest): provider timeouts follow Claude's SDK**
+> ([ADR-0024](../decisions/0024-provider-timeouts-follow-claudes-sdk.md)). The 12 s first-token
+> cutoff is gone: it aborted large PDF follow-ups that were still thinking. A provider request
+> now gets 10 minutes (`PROVIDER_TIMEOUT_MS`), and only failures are retried: timeouts,
+> connection errors and 408/409/429/5xx. `provider first event` logs `ttftMs`. Streaming
+> Gemini's thoughts is left open, since Google's docs could not be read from here. Branch only,
+> not deployed.
 >
 > **2026-09-25 (latest): tool results are no longer cleared** ([ADR-0023](../decisions/0023-tool-results-are-not-cleared.md)).
 > ADR-0022's 100,000-token context editing is removed: it is an opt-in API feature, and the Claude
@@ -279,7 +281,7 @@ changes must be discarded, not merged.
 One of its findings was real on this branch too, and is fixed here. When the first-token budget
 expired, the AbortError was rethrown as a user cancel: the stream ended after `start`, the row
 was `stopped`, and nothing was retried. It is now a retryable `provider_timeout`.
-`PROVIDER_TTFT_BUDGET_MS` (default 12000) is the base budget; search adds 3 s, research adds
+(Superseded by ADR-0024: no first-token budget.) `PROVIDER_TTFT_BUDGET_MS` (default 12000) was the base budget; search adds 3 s, research adds
 8 s, and turns carrying media get 3× (see `mistakes.md`). Also from that session, still open:
 failed turns replay to the model as `[Response stopped]`; the `artifact-design` and
 `dashboard-design` skill frontmatter was reported failing validation on boot, which is unverified
