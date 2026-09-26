@@ -8,7 +8,8 @@
 > a tool), 0030 (thought summaries shown; Gemini thinking billed). The system prompt gives the
 > date and names only tools the turn allows; a test enforces it. Migration 0013 adds
 > `messages.thinking`. Backend 967 tests, frontend 58, both clean.
-> Open: B7 bucket and B11 min instances (production settings), B12 Drive save, incognito chats.
+> Production: B7 model-input bucket set up and verified 2026-09-26 (revision 00139-49j); B11
+> min instances already 1. Open: B12 Drive save, incognito chats.
 > Next: deploy with approval, then live-check `turn timing` (probe gone), `includeThoughts`
 > accepted by Vertex, memory save/load, and a long chat's compaction.
 >

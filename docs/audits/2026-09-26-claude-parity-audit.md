@@ -24,11 +24,11 @@ Each finding below, with what was done. "Local" means tested here (backend 967 t
 | B4 16 rounds | Kept: Claude's app also stops at a per-turn tool-use limit and offers Continue, as ArcNave does | config comment |
 | B5 8,000-char output | Fixed: 30,000 (Claude Code's read-back), head and tail; stderr within 10,000 | `codeExecutionExecutor.ts` |
 | B6 PDF re-download | Fixed: rendered pages reused before download | `generation.ts` |
-| B7 `MODEL_INPUT_BUCKET` | Open: production setting, needs a look at the service | — |
+| B7 `MODEL_INPUT_BUCKET` | Done on production 2026-09-26: bucket `arcnave-model-inputs` (7-day lifecycle), Vertex read verified with a probe image, env var set (revision 00139-49j) | `docs/deploy/model-inputs.md` |
 | B8 thinking invisible | Fixed for Gemini: thought summaries shown and stored | ADR-0030 |
 | B9 cache prefix | Fixed: memory text stable; project excerpts no longer per prompt | ADR-0025, ADR-0029 |
 | B10 project RAG | Fixed: search tool past the limit | ADR-0029 |
-| B11 cold start | Open: production setting (`minScale`) | — |
+| B11 cold start | Already set: `minScale` 1 on production | — |
 | B12 Drive save | Open: needs a Drive connector decision | — |
 | C1 memory off | Fixed: on by default | ADR-0025 |
 | C2 no create | Fixed: `save_memory`, `POST /memory`, `PATCH /memory/:id` | ADR-0025 |
