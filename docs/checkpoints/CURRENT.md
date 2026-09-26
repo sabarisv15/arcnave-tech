@@ -32,7 +32,14 @@
 >    user turn ran 309 s: look at that chat's timing); Gemini and Claude replies show thinking
 >    lines; memory saves in one chat and loads in the next; a PDF follow-up has no
 >    "took too long"; a long chat compacts near 967K.
-> 7. Tests at handoff: backend 969, frontend 61, typecheck and build clean. Migrations 0013
+> 7. **After PR #20 (user's live report):** the screenshots were still the PR #19 UI
+>    (raw `**Heading**`, two "Thinking" rows), so confirm the PR #20 build is live first. Cost
+>    fix: Gemini `promptTokenCount` and gpt-oss `prompt_tokens` include cached tokens, which
+>    were priced twice; `inputTokens` is now the uncached part (mistakes.md). Still open: a
+>    simple follow-up waited 53 s with no thinking shown — read that turn's `turn timing`
+>    (`provider_first_event`) before changing anything; a follow-up counting question ran
+>    `run_python`, which is expected for an exact count.
+> 8. Tests at handoff: backend 970, frontend 61, typecheck and build clean. Migrations 0013
 >    (`messages.thinking`) and 0014 (`messages.segments`) are stamped after 0012.
 >
 > **2026-09-26: Claude-parity audit written down** ([audit](../audits/2026-09-26-claude-parity-audit.md)).

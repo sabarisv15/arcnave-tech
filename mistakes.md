@@ -754,13 +754,20 @@ failure mode of this pattern, not a sign it is working.
   that looks like one.
 - **Verify:** `npx vitest run src/tools/deliverableExecutor.test.ts`.
 
-### 2026-09-26 — Gemini's thinking was left out of output tokens
+### 2026-09-26 — Gemini's usage was mapped to Claude's fields without reading their meaning
 
-- **Symptom:** A Gemini turn's cost counted only the answer's tokens.
-- **Cause:** `usageFrom` read `candidatesTokenCount`, which excludes `thoughtsTokenCount`; Vertex
-  prices "Text output (response and reasoning)" at one rate.
-- **Rule:** **Read what the provider bills, not only what it shows.** Output is candidates plus
-  thoughts; the context the next request resends is prompt plus answer.
+- **Symptom:** A Gemini turn's cost counted only the answer's tokens. After that was fixed, the
+  user saw costs that were still wrong: cached prompt tokens were charged twice.
+- **Cause:** Two fields mean different things than the Claude ones they were copied into:
+  - `candidatesTokenCount` excludes `thoughtsTokenCount`; Vertex prices "Text output
+    (response and reasoning)" at one rate.
+  - `promptTokenCount` "also includes the number of tokens in the cached content" (SDK
+    `UsageMetadata`), while Claude's `input_tokens` excludes cache reads. Cached tokens were
+    priced at the input rate and again at the cache-read rate. gpt-oss's `prompt_tokens`
+    includes `cached_tokens` the same way.
+- **Rule:** **Read what the provider bills, not only what it shows, and read each usage field's
+  definition before mapping it.** `inputTokens` is the uncached part; output is candidates plus
+  thoughts; the context the next request resends is the whole prompt plus the answer.
 - **Verify:** `npx vitest run src/providers/gemini.test.ts` (usageFrom).
 
 ### 2026-09-26 — Claude models' thinking was assumed off, when only its display was
@@ -1097,3 +1104,5 @@ practice, not canon.
   surfaces (fixed and covered by tests).
 - **2026-09-26** — Added the Claude-thinking-display entry; retired the third-party `.d.ts` entry
   to stay at 40 (a one-off typing workaround, recorded in the code it concerns).
+- **2026-09-26** — Extended the Gemini usage entry with the cached-token double charge (also in
+  gpt-oss) instead of adding a 41st.

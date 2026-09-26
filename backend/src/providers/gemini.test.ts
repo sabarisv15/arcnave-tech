@@ -231,4 +231,12 @@ describe('usageFrom', () => {
     expect(usage.lastRequest).toEqual({ inputTokens: 1000, outputTokens: 200 });
     expect(usage.exact).toBe(true);
   });
+
+  it('counts cached prompt tokens once, as cache reads, since promptTokenCount includes them', () => {
+    const usage = usageFrom({ promptTokenCount: 10_000, cachedContentTokenCount: 8_000, candidatesTokenCount: 100 });
+    expect(usage.inputTokens).toBe(2_000);
+    expect(usage.cacheReadTokens).toBe(8_000);
+    // The next request still resends the whole prompt, cached part included.
+    expect(usage.lastRequest).toEqual({ inputTokens: 10_000, outputTokens: 100 });
+  });
 });

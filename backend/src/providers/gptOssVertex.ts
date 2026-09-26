@@ -175,12 +175,18 @@ export class GptOssVertexProvider implements Provider {
           }
 
           if (frame.usage) {
+            // prompt_tokens includes the cached ones (prompt_tokens_details.cached_tokens is a
+            // breakdown of it), so inputTokens keeps only the uncached part and each token is
+            // priced once.
+            const cached = frame.usage.prompt_tokens_details?.cached_tokens ?? 0;
+            const prompt = frame.usage.prompt_tokens ?? 0;
             usage = {
-              inputTokens: frame.usage.prompt_tokens ?? 0,
+              inputTokens: Math.max(0, prompt - cached),
               outputTokens: frame.usage.completion_tokens ?? 0,
-              cacheReadTokens: frame.usage.prompt_tokens_details?.cached_tokens ?? 0,
+              cacheReadTokens: cached,
               cacheWriteTokens: 0,
               exact: true,
+              lastRequest: { inputTokens: prompt, outputTokens: frame.usage.completion_tokens ?? 0 },
             };
           }
         }

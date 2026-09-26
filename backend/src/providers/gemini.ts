@@ -208,10 +208,14 @@ export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage 
   if (!meta) return EMPTY_USAGE;
   const { promptTokenCount, candidatesTokenCount, cachedContentTokenCount, thoughtsTokenCount } = meta;
   if (promptTokenCount == null && candidatesTokenCount == null) return EMPTY_USAGE;
+  const cached = cachedContentTokenCount ?? 0;
   return {
-    inputTokens: promptTokenCount ?? 0,
+    // promptTokenCount "also includes the number of tokens in the cached content" (SDK
+    // UsageMetadata). inputTokens is the uncached part, as Claude's input_tokens is, so the
+    // cached tokens are priced once, at the cache-read rate, and not again at the input rate.
+    inputTokens: Math.max(0, (promptTokenCount ?? 0) - cached),
     outputTokens: (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0),
-    cacheReadTokens: cachedContentTokenCount ?? 0,
+    cacheReadTokens: cached,
     // Gemini reports cached-content reads but not a separate cache-write count.
     cacheWriteTokens: 0,
     exact: true,
