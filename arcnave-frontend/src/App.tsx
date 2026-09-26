@@ -1,3 +1,4 @@
+import { activityCopy, responseParts } from "./activity";
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
@@ -29,7 +30,6 @@ import {
   RotateCcw,
   Share2,
   Telescope,
-  Terminal,
   ThumbsDown,
   ThumbsUp,
   TriangleAlert,
@@ -50,7 +50,7 @@ import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage } from "./Content";
-import ToolActivity from "./ToolActivity";
+
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -821,22 +821,16 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
-        <ResponseActivity message={m} />
-      )}
-      {m.toolCalls && m.toolCalls.length > 0 && (
-        <ToolActivity calls={m.toolCalls} working={loading} answering={!!m.text} />
-      )}
-      {m.text && (
-        <Suspense fallback={<p className="markdown">{m.text}</p>}>
-          <Markdown
-            text={m.text}
-            sources={m.sources}
-            onCitation={(selected) =>
-              setPanel({ kind: "sources", chatId, messageId: m.id, selected })
-            }
-          />
-        </Suspense>
+      {loading && !m.text && !m.toolCalls?.length && <ResponseActivity message={m} />}
+      {responseParts(m.text, m.toolCalls).map((part, index) =>
+        part.kind === "activity" ? (
+          <ToolCallList key={index} calls={part.calls} settled={!loading} />
+        ) : (
+          <Suspense key={index} fallback={<p className="markdown">{part.text}</p>}>
+            <Markdown text={part.text} sources={m.sources}
+              onCitation={(selected) => setPanel({ kind: "sources", chatId, messageId: m.id, selected })} />
+          </Suspense>
+        ),
       )}
       {m.uiBlocks && m.uiBlocks.length > 0 && (
         <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />
@@ -1131,6 +1125,33 @@ function ImageCard({ item }: { item: ImageData }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The `tool_use`/`tool_result` frames the backend streams for item 9's tool-calling loop.
+ */
+function ToolCallList({ calls, settled }: { calls: ToolCall[]; settled: boolean }) {
+  const active = calls.find(c => c.ok === undefined);
+  const failed = calls.find(c => c.ok === false);
+  const lead = active ?? failed ?? calls[0];
+  const title = activityCopy(lead, settled).title;
+  return (
+    <details className="activity-group">
+      <summary>
+        {active && !settled && <Loader2 size={13} className="spin" />}
+        <span>{title}{calls.length > 1 ? ", and " + (calls.length - 1) + " more " + (calls.length === 2 ? "step" : "steps") : ""}</span>
+        <ChevronRight size={14} className="activity-chevron" />
+      </summary>
+      <div className="activity-details">
+        {calls.map((call, index) => {
+          const copy = activityCopy(call, settled);
+          return <div key={call.toolCallId + "-" + index} className={call.ok === false ? "activity-failed" : ""}>
+            <p>{copy.title}</p><small>{copy.detail}</small>
+          </div>;
+        })}
+      </div>
+    </details>
   );
 }
 

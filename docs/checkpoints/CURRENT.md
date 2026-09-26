@@ -1714,3 +1714,10 @@ verification command for each is in `mistakes.md`; summary:
     - Fallback mechanism in `resolveModel` transparently redirects disabled model requests to `Gemini 3.8 Flash`.
     - Model selector in frontend workspace and preferences endpoint defaults to `"Auto"`.
 
+
+
+## Chat activity presentation (2026-09-26, local only)
+
+- Assistant paragraphs now interleave with compact expandable tool activity groups. Live tool-start text offsets persist across transcript reloads; legacy rows keep their previous ordering.
+- Python action descriptions and confirmed saved-file metadata provide task-specific labels and concise expanded details. Shared prompting requests brief user-facing progress updates without private reasoning.
+- Added nullable tool_calls.text_offset migration and regenerated OpenAPI. No deployment performed. See [implementation and validation notes](../chat-activity-2026-09-26.md).

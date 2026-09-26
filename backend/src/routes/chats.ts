@@ -10,6 +10,8 @@
  *   message to show, not a gap; the row is created first and filled in as events arrive.
  * - **One run per chat.** A second generate on a busy chat is refused rather than interleaved.
  */
+import { activityOutputFiles } from '../services/toolActivity.js';
+import type { ToolResult } from '../providers/types.js';
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -71,6 +73,8 @@ const toolContentSchema = z.union([
 
 const toolCallSchema = z.object({
   toolCallId: z.string(),
+  textOffset: z.number().int().nonnegative().nullable().optional(),
+  outputFiles: z.array(z.string()).optional(),
   name: z.string(),
   input: z.unknown(),
   ok: z.boolean(),
@@ -843,6 +847,8 @@ async function loadMessages(
       .sort((a, b) => a.ordinal - b.ordinal)
       .map((c) => ({
         toolCallId: c.toolCallId,
+        textOffset: c.textOffset,
+        outputFiles: activityOutputFiles({ toolCallId: c.toolCallId, ok: c.ok, content: c.content as ToolResult['content'] }),
         name: c.name,
         input: c.input,
         ok: c.ok,

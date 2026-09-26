@@ -76,7 +76,7 @@ describe('ProcessSandboxClient with inheritEnv: false', () => {
   it('does not pass the backend environment to the child', async () => {
     process.env.ARCNAVE_TRUSTED_TEST_SECRET = 'leak';
     try {
-      const client = new ProcessSandboxClient({ pythonPath: 'python3', inheritEnv: false });
+      const client = new ProcessSandboxClient({ pythonPath: process.platform === 'win32' ? 'python' : 'python3', inheritEnv: false });
       const res = await client.runPython(
         'import os\nprint(os.environ.get("ARCNAVE_TRUSTED_TEST_SECRET", "absent"))',
         new AbortController().signal,

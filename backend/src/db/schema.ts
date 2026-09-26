@@ -339,6 +339,7 @@ export const toolCalls = pgTable(
     /** The provider's own id for this call (Anthropic's `tool_use.id`, Gemini's `FunctionCall.id`
      *  when present, or a synthesised id when the provider did not supply one). */
     toolCallId: varchar('tool_call_id', { length: 128 }).notNull(),
+    textOffset: integer('text_offset'),
     name: varchar('name', { length: 64 }).notNull(),
     input: jsonb('input').notNull(),
     /** The full bounded `ToolResult.content` the model actually received — not a further-

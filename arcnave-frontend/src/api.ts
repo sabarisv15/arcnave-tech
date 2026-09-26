@@ -403,6 +403,8 @@ export type ToolContentDto =
 
 export interface ToolCallDto {
   toolCallId: string;
+  textOffset?: number | null;
+  outputFiles?: string[];
   name: string;
   input: unknown;
   ok: boolean;

@@ -707,6 +707,7 @@ describe('tool use', () => {
 
     const longText = 'x'.repeat(500);
     ctx.provider.script = [
+      { type: 'delta', text: 'Reading the file.\n\n' },
       {
         type: 'tool_use',
         toolCallId: 'call-1',
@@ -733,6 +734,7 @@ describe('tool use', () => {
 
     const toolUse = frames.find((f) => f.event === 'tool_use');
     const toolResult = frames.find((f) => f.event === 'tool_result');
+    expect(toolUse?.data['textOffset']).toBe('Reading the file.\n\n'.length);
     expect(toolUse?.data['name']).toBe('search_project_files');
     // The wire preview is short — never the full 500-char result.
     expect((toolResult?.data['preview'] as string).length).toBeLessThanOrEqual(301);
@@ -758,6 +760,8 @@ describe('tool use', () => {
         input: { query: 'x' },
         ok: true,
         content: [{ type: 'text', text: longText }],
+        textOffset: 'Reading the file.\n\n'.length,
+        outputFiles: [],
         at: expect.any(String),
       },
     ]);

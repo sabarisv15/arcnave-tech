@@ -50,13 +50,14 @@ export type StreamEvent =
   | { type: "delta"; text: string }
   | { type: "sources"; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: "code"; code?: string; language?: string; output?: string }
-  | { type: "tool_use"; toolCallId: string; name: string; input: unknown }
+  | { type: "tool_use"; toolCallId: string; name: string; input: unknown; textOffset?: number }
   | {
       type: "tool_result";
       toolCallId: string;
       name: string;
       ok: boolean;
       preview: string;
+      outputFiles?: string[];
     }
   | {
       type: "artifact_created";

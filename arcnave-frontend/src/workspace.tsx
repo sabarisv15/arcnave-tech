@@ -481,6 +481,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 ...(m.toolCalls ?? []),
                 {
                   toolCallId: event.toolCallId,
+                  textOffset: event.textOffset ?? m.text.length,
                   name: event.name,
                   input: event.input,
                 },
@@ -491,7 +492,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ...m,
               toolCalls: (m.toolCalls ?? []).map((t) =>
                 t.toolCallId === event.toolCallId
-                  ? { ...t, ok: event.ok, preview: event.preview }
+                  ? { ...t, ok: event.ok, preview: event.preview, outputFiles: event.outputFiles }
                   : t,
               ),
             }));
