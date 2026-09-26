@@ -467,3 +467,18 @@ export function toPreferences(dto: PreferencesDto): Preferences {
     version: dto.version,
   };
 }
+
+/**
+ * A state updater that gives the placeholder row its server id. The ids are fixed when the
+ * updater is made: React may run it later, after the caller has moved on to the real id, and an
+ * updater that read a changing variable then matched nothing and left the row on "Sending
+ * request" for the whole turn.
+ */
+export function adoptServerId(
+  placeholderId: string,
+  realId: string,
+  patch: Partial<Message>,
+): (messages: Message[]) => Message[] {
+  return (messages) =>
+    messages.map((m) => (m.id === placeholderId ? { ...m, ...patch, id: realId } : m));
+}

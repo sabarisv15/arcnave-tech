@@ -257,28 +257,6 @@ failure mode of this pattern, not a sign it is working.
   allowed origin" and its negative counterpart for a non-allow-listed origin. Both fail if the
   header logic in `chats.ts`'s generate handler regresses.
 
-### 2026-09-17 — Sign out looked broken because the UI waited for a cross-region round trip
-
-- **Symptom:** Reported live as "sign out not working." Reproduced in a real session: clicking
-  "Sign out" closed the menu and then visibly did nothing — same signed-in screen — until an
-  unrelated later interaction finally showed the sign-in form. No error, no console output, no
-  network request even visible to the debugging tooling used (cross-origin `fetch` calls don't
-  show up there), which made it look like the click handler never fired at all.
-- **Cause:** `session.tsx`'s `signOut` awaited `api.auth.logout()` *before* clearing local state
-  (`setUser(null)`, etc.). The call is a real cross-region request (frontend on Cloudflare,
-  API on Cloud Run `asia-south1`, see the `SameSite=None` entry above), so the UI sat frozen on
-  the signed-in screen for however long that round trip took, with zero loading indicator on the
-  menu item to show anything was happening — indistinguishable from the click doing nothing.
-- **Rule:** **Never make a client-side state change wait on a server call whose failure is
-  already handled as a no-op.** The code's own comment already said a failed logout shouldn't
-  block ending the local session — the same reasoning means a *slow* one shouldn't either. Clear
-  local state synchronously in the handler, then fire the server call and swallow its failure.
-- **Verify:** Manual — click Sign out and confirm the sign-in screen appears on the same paint as
-  the click, not after a visible delay. No automated coverage: the frontend suite has no
-  component-rendering harness (`vitest` only, no `@testing-library/react`), so this is
-  reasoned from the diff, not asserted by a test — adding one means introducing that dependency,
-  which is a bigger decision than this fix.
-
 ### 2026-09-17 — `docker start arcnave-pg` fails in this Claude Code web/cloud sandbox
 
 - **Symptom:** `global-setup.ts`'s own error message ("Is Postgres running? `docker start
@@ -783,6 +761,24 @@ failure mode of this pattern, not a sign it is working.
   means `thinking: {type: "adaptive", display: "summarized"}` on Claude 5 models.
 - **Verify:** `npx vitest run src/providers/anthropicVertex.adapter-loop.test.ts`.
 
+### 2026-09-26 — A React updater read a variable the loop had already changed
+
+- **Symptom:** In production, some replies stayed on "Sending request" for the whole turn (up to
+  700 s) while the tools ran and the answer was saved. I blamed the network (the request was
+  logged as HTTP/1.1) and asked the user for DevTools screenshots.
+- **Cause:** A local repro was set up: backend and frontend on different origins, a slow fake
+  model, and Playwright. It showed every frame reaching the browser on time; the state was the
+  fault. The `start` handler wrote
+  `setMessages((all) => … m.id === assistantId …)` and then `assistantId = realId`. React runs an
+  updater later when the fiber already has work queued, so it compared against the real id,
+  renamed nothing, and every later patch addressed a row that did not exist.
+- **Rule:** **An updater passed to setState must not read a variable the caller reassigns
+  afterwards; copy the value into a const first.** Before blaming the network, reproduce locally
+  in a real browser: it takes minutes, and it separates transport from state.
+- **Verify:** `types.test.ts` (`adoptServerId`). The Playwright repro recipe is in
+  `docs/checkpoints/CURRENT.md`; 7 of 7 messages start within 0.8 s, where 2 of 3 had stuck
+  before the fix.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1116,3 +1112,6 @@ practice, not canon.
   - A skill description containing ": " broke its YAML frontmatter, and the loader dropped
     pdf, docx, pptx and xlsx. `skills.test.ts` ("none is dropped by its own frontmatter")
     caught it. Rule: quote a frontmatter description that has a colon in it.
+- **2026-09-26** — Added the React updater entry (the "Sending request" hang). Retired the
+  sign-out round-trip entry: the fix clears local state before the request, and nothing has
+  touched that path since 2026-09-17. **40 entries.**

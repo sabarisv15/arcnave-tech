@@ -17,7 +17,15 @@
 > - `turn timing` shows `effort: "high"`;
 > - a Chat question needing current facts shows sources;
 > - a long tool turn's later requests are smaller.
-> Still open: I8 streaming hold (DevTools timing check).
+> **I8 fixed (not live yet):** "Sending request" for a whole turn was a React state bug, not the
+> network. The `start` handler's updater read `assistantId` after it had moved to the real id
+> (`adoptServerId` in `types.ts`, mistakes.md).
+> Repro recipe, now the way to check any UI hang:
+> 1. Serve the app from a scratch script with `createTestApp` and a slow FakeProvider
+>    (`gapMs`) on :8080, with `CORS_ORIGINS=http://127.0.0.1:5173`.
+> 2. Run `VITE_API_BASE=http://127.0.0.1:8080/v1 npx vite --port 5173`.
+> 3. Drive it with playwright-core, using `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+> 4. Register through `fetch`, send several messages, and time when "Sending request" goes away.
 >
 > **2026-09-26: Claude-parity work merged and deployed (PR #19, PR #20).**
 >

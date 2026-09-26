@@ -49,7 +49,7 @@ import {
   toUsage,
 } from "./types";
 import type { Panel } from "./types";
-import { appendSegment } from "./types";
+import { adoptServerId, appendSegment } from "./types";
 
 type TranscriptState = "loading" | "ready" | "missing" | "failed";
 
@@ -435,20 +435,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             // The server owns the message id. Adopt it now so feedback and retry address the
             // real row rather than a placeholder that only exists in this tab.
             const realId = event.messageId;
-            setMessages((all) => ({
-              ...all,
-              [chatId]: (all[chatId] ?? []).map((m) =>
-                m.id === assistantId
-                  ? {
-                      ...m,
-                      id: realId,
-                      status: "generating",
-                      modelAlias: event.model.resolved,
-                      providerModelId: event.model.providerModelId,
-                    }
-                  : m,
-              ),
-            }));
+            // adoptServerId fixes both ids now; the updater may run after assistantId moves on.
+            const adopt = adoptServerId(assistantId, realId, {
+              status: "generating",
+              modelAlias: event.model.resolved,
+              providerModelId: event.model.providerModelId,
+            });
+            setMessages((all) => ({ ...all, [chatId]: adopt(all[chatId] ?? []) }));
             assistantId = realId;
           }
           if (event.type === "delta") {
