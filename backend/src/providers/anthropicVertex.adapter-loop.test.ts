@@ -187,6 +187,36 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     expect(results.content.map((b) => b.tool_use_id)).toEqual(['t1', 't2']);
   });
 
+  it('asks for summarized adaptive thinking, streams it apart from text, and keeps thinking blocks in the loop', async () => {
+    const client = new FakeAnthropicClient();
+    const thinkingBlock = { type: 'thinking', thinking: 'Look it up.', signature: 'sig' };
+    client.responses = [
+      fakeMessageStream(
+        [{ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'Look it up.' } as never }],
+        {
+          content: [thinkingBlock, { type: 'tool_use', id: 't1', name: 'search_project_files', input: { query: 'x' } }],
+          usage: { input_tokens: 20, output_tokens: 5 },
+          stop_reason: 'tool_use',
+        },
+      ),
+      fakeMessageStream(
+        [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Found.' } }],
+        { content: [{ type: 'text' }], usage: { input_tokens: 30, output_tokens: 5 }, stop_reason: 'end_turn' },
+      ),
+    ];
+    const executor = new ScriptedExecutor();
+    const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+
+    const first = client.calls[0] as { thinking?: unknown };
+    expect(first.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    expect(events.filter((e) => e.type === 'thinking')).toEqual([{ type: 'thinking', text: 'Look it up.' }]);
+    expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text)).toEqual(['Found.']);
+    const second = client.calls[1] as { messages: { role: string; content: unknown }[] };
+    const assistant = second.messages.find((m) => m.role === 'assistant')!;
+    expect((assistant.content as { type: string }[])[0]).toEqual(thinkingBlock);
+  });
+
   it('bills every round of the loop, and keeps the last request apart for compaction', async () => {
     const client = new FakeAnthropicClient();
     const toolRound = (id: string, usage: Record<string, number>) =>

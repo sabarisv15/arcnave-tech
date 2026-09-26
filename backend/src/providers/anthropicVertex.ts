@@ -388,6 +388,10 @@ export class AnthropicVertexProvider implements Provider {
           {
             model: request.providerModelId,
             max_tokens: request.maxOutputTokens,
+            // Claude 5 models think adaptively whether or not this is sent, but their summary
+            // display defaults to "omitted" (empty text). Summarized, as Claude's app shows it.
+            // The blocks go back unchanged in the tool loop below (final.content).
+            thinking: { type: 'adaptive', display: 'summarized' },
             messages,
             ...(systemParam !== undefined ? { system: systemParam } : {}),
             ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
@@ -407,6 +411,8 @@ export class AnthropicVertexProvider implements Provider {
               const delta = event.delta;
               if (delta.type === 'text_delta' && delta.text) {
                 yield { type: 'delta', text: delta.text };
+              } else if (delta.type === 'thinking_delta' && delta.thinking) {
+                yield { type: 'thinking', text: delta.thinking };
               }
               break;
             }

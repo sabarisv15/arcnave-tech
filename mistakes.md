@@ -426,27 +426,6 @@ failure mode of this pattern, not a sign it is working.
   provider configured rejects with the OCR-unavailable message — see
   `retrieval.test.ts`'s "fails with a typed reason rather than silently skipping OCR".
 
-### 2026-09-18 — Two third-party `.d.ts` files lied about their own exports under this tsconfig
-
-- **Symptom:** `new ExcelJS.Workbook()` compiled fine, but `workbook.xlsx.load(buffer)` refused
-  a real `Buffer` — "Buffer is not assignable to Buffer". Separately, `new PptxGenJS()` refused
-  to compile at all: "has no construct signatures" — on both a value import and a type-only one.
-- **Cause:** `exceljs`'s `index.d.ts` shadows the global `Buffer` with its own
-  `interface Buffer extends ArrayBuffer {}` (a pre-`@types/node`-generics-era workaround), so
-  `Buffer` inside that file's own signatures means something structurally different from ours.
-  `pptxgenjs` is CommonJS with an ESM-authored `.d.ts`; under this project's
-  `NodeNext` + `verbatimModuleSyntax`, its `export default` does not narrow past the whole
-  module namespace on import — confirmed on both a value and a type-only import, so it is the
-  declaration file's interaction with our tsconfig, not our import style.
-- **Rule:** **When a `.d.ts` and its own package disagree with reality, don't fight the types
-  into submission with guesses.** Confirm the actual runtime shape first (a quick
-  `node -e` script bypassing TS entirely), then either a narrow, commented `as any` at the one
-  call site (exceljs) or pull the *value* via `createRequire`/`require` typed against a small
-  local interface covering only what's actually called (pptxgenjs) — never loosen the type
-  everywhere just to make one broken declaration compile.
-- **Verify:** `npx tsc --noEmit` clean; `retrieval.ts`'s `extractXlsx` and
-  `projects.integration.test.ts`'s pptx-deck test both pass against real generated files.
-
 ### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
 
 - **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
@@ -784,6 +763,17 @@ failure mode of this pattern, not a sign it is working.
   thoughts; the context the next request resends is prompt plus answer.
 - **Verify:** `npx vitest run src/providers/gemini.test.ts` (usageFrom).
 
+### 2026-09-26 — Claude models' thinking was assumed off, when only its display was
+
+- **Symptom:** ADR-0030 left the Claude adapter without a `thinking` setting, saying thinking was
+  the user's choice in Claude's app. Claude answers in ArcNave showed no thought process.
+- **Cause:** Claude 5 models think adaptively when `thinking` is omitted; what defaults off is the
+  display (`"omitted"` returns empty thinking text). The app's own Help Center says thinking
+  cannot be turned off on Opus 5 and later.
+- **Rule:** **Check a model's defaults per model before deciding a feature is off.** Here that
+  means `thinking: {type: "adaptive", display: "summarized"}` on Claude 5 models.
+- **Verify:** `npx vitest run src/providers/anthropicVertex.adapter-loop.test.ts`.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1105,3 +1095,5 @@ practice, not canon.
   at 40: the first-token timer recorded as Stop (the timer is gone, ADR-0024), Cloud Run Jobs'
   missing concurrency field (a platform fact, recorded in its ADR), and the `compact` composer
   surfaces (fixed and covered by tests).
+- **2026-09-26** — Added the Claude-thinking-display entry; retired the third-party `.d.ts` entry
+  to stay at 40 (a one-off typing workaround, recorded in the code it concerns).

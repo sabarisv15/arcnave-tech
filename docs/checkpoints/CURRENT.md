@@ -1,17 +1,39 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): Claude-parity fix pass, on the branch, not deployed.**
-> Nearly every finding of the [audit](../audits/2026-09-26-claude-parity-audit.md) is fixed;
-> its "Fix pass" table gives each one's status. ADR-0025 (memory by topic, saved as the user
-> chats, chat search), 0026 (every tool call of a response runs), 0027 (compaction as the window
-> fills; skills given back), 0028 (no probe before a turn), 0029 (project knowledge searched with
-> a tool), 0030 (thought summaries shown; Gemini thinking billed). The system prompt gives the
-> date and names only tools the turn allows; a test enforces it. Migration 0013 adds
-> `messages.thinking`. Backend 967 tests, frontend 58, both clean.
-> Production: B7 model-input bucket set up and verified 2026-09-26 (revision 00139-49j); B11
-> min instances already 1. B12 Drive save and incognito chats are future scope.
-> Next: deploy with approval, then live-check `turn timing` (probe gone), `includeThoughts`
-> accepted by Vertex, memory save/load, and a long chat's compaction.
+> **2026-09-26 (latest): Claude-parity work merged and deployed (PR #19, PR #20). Start here.**
+>
+> **Session handoff (read this first next session).**
+> Goal throughout: ArcNave (Gemini on Vertex, provider-agnostic) behaves like Claude. Claude
+> behaviour is checked in Claude's docs / Help Center / the user's Claude screenshots, never
+> assumed. Replies to the user are in Tanglish. Live deploys only with the user's approval.
+>
+> 1. **Audit** — [docs/audits/2026-09-26-claude-parity-audit.md](../audits/2026-09-26-claude-parity-audit.md);
+>    its "Fix pass" table gives every finding's status.
+> 2. **Fixed in PR #19** (merged `3dffef3`, deployed by the main-branch Cloud Build trigger):
+>    - Prompt: date, only usable tools named (guard test `promptToolParity`), one file rule,
+>      research/goal/python/project guidance gated on allowed tools; PDF→Excel from rows the
+>      model read (`sourceAttachmentId` copies text files only).
+>    - Memory by topic (ADR-0025): `save_memory`, forget by topic, all topics loaded each turn,
+>      any-word search, settings add/edit, `search_chats`, on by default.
+>    - Parallel tool calls (ADR-0026); compaction at window − 33k with skills given back
+>      (ADR-0027); no probe before a turn (ADR-0028); project knowledge via search tool past the
+>      limit (ADR-0029); Gemini thought summaries shown and thinking billed (ADR-0030);
+>      run_python output 30,000 chars head+tail; rendered PDFs reused.
+> 3. **Fixed after the first live look (PR #20):** the answer renders as a timeline in the
+>    order it happened — thinking line (latest heading, timer while live) → text → tool steps →
+>    text, as Claude does; stored as `messages.segments` (migration 0014). Claude models now send
+>    `thinking: {type: "adaptive", display: "summarized"}` (Claude 5 thinks by default; only the
+>    display was off).
+> 4. **Production settings done:** B7 bucket `gs://arcnave-model-inputs` (7-day lifecycle,
+>    Vertex read verified, env var on revision 00139-49j); B11 min instances already 1.
+> 5. **Future scope (user decided):** B12 Drive save, incognito chats.
+> 6. **Next, live checks after the PR #20 build:** `gcloud builds list --limit=3` shows SUCCESS;
+>    Cloud Logging `jsonPayload.msg="turn timing"` shows `probed` false and where time goes (a
+>    user turn ran 309 s: look at that chat's timing); Gemini and Claude replies show thinking
+>    lines; memory saves in one chat and loads in the next; a PDF follow-up has no
+>    "took too long"; a long chat compacts near 967K.
+> 7. Tests at handoff: backend 969, frontend 61, typecheck and build clean. Migrations 0013
+>    (`messages.thinking`) and 0014 (`messages.segments`) are stamped after 0012.
 >
 > **2026-09-26: Claude-parity audit written down** ([audit](../audits/2026-09-26-claude-parity-audit.md)).
 >

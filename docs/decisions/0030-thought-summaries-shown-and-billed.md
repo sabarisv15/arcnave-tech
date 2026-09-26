@@ -24,8 +24,13 @@ over as E).
    back.
 2. Output tokens are `candidatesTokenCount + thoughtsTokenCount`. The context compaction reads
    stays prompt plus answer, since thoughts are not resent.
-3. Claude models are unchanged: extended thinking is a user choice in Claude's app, and ArcNave
-   has no such switch yet.
+3. ~~Claude models are unchanged.~~ Superseded the same day: Claude 5 models think adaptively
+   whether or not `thinking` is sent, but their summary display defaults to `"omitted"` (empty
+   text), so the user saw nothing. The Claude adapter now sends
+   `thinking: {type: "adaptive", display: "summarized"}` and streams `thinking_delta` as the same
+   `thinking` event. Thinking blocks go back unchanged within the turn's tool loop
+   (`final.content`). Claude's app: "Thinking cannot be turned off ... Opus 5.5, Fable 5.1, or
+   Opus 5" (Help Center, thinking settings).
 
 ## Amendment (2026-09-26, after the first live look)
 
