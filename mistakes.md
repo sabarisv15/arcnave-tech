@@ -593,43 +593,6 @@ failure mode of this pattern, not a sign it is working.
   when the signal fires during tool execution, for both `gemini.ts` and `anthropic.ts`'s tool
   loops — not just that the call under test eventually rejects.
 
-### 2026-09-19 — `compact` did not mean the same thing on every composer surface
-
-- **Symptom:** The chat reply composer still occupied a large empty block even though its caller
-  passed `compact`; shrinking the shared rule would also have cramped project and artifact work.
-- **Cause:** `compact` covered placement for three different surfaces, but the shared textarea
-  effect imposed a 46px minimum everywhere. A live reply has different intent from a project or
-  artifact prompt, so one generic minimum encoded the wrong product decision.
-- **Rule:** **Scope visual compaction to the interaction intent, not a reused boolean prop.** A
-  conversation reply may begin at one line and auto-grow within a bounded portion of the
-  viewport; project and artifact prompts retain their writing space.
-- **Verify:** A blank chat reply is 34px and grows to at most 42% of the viewport; project and
-  artifact composers retain their existing minimum heights. The chat reply wrapper stays
-  centered at a 760px maximum width so it does not consume nearly the full conversation pane.
-
-### 2026-09-20 — Cloud Run Jobs has no field for "max concurrent executions"
-
-- **Symptom:** Went looking for a way to cap how many `run_python` sandbox executions
-  (`arcnave-python-sandbox`) could run at once across all users, expecting a job-level setting
-  like a queue's concurrency limit. `gcloud run jobs update --help` only offers `--parallelism`
-  and `--tasks`, which looked like the right knobs at a glance.
-- **Cause:** `--parallelism`/`--tasks` bound concurrency **within one `jobs:run` execution**
-  (how many tasks of *that* execution run together) — not across separate `jobs:run` calls.
-  Since `CloudRunSandboxClient.runPython` issues one `jobs:run` per tool call, that flag never
-  applied here. Cloud Run Jobs, as a GCP resource, simply has no field that limits how many
-  *separate* executions run concurrently; the only ceiling is the project-wide
-  `RunningExecutionsPerProject` quota (1000 in this project) and `JobRunPerMinutePerProjectRegion`
-  (180/min — the one actually reachable by real traffic), both shared with everything else in the
-  region.
-- **Rule:** **Do not look to the job/service resource for a concurrency cap that has to span
-  separate invocations — it has to be enforced in application code**, and since the backend
-  autoscales (`maxScale: 8`), an in-process counter only caps per-instance. Use a shared source of
-  truth (here, a Postgres-backed semaphore, `pg_advisory_xact_lock` plus a leased claim row so a
-  crashed instance's claim self-expires instead of leaking capacity) — see
-  `tools/sandbox/semaphore.ts`.
-- **Verify:** `src/tools/sandbox/semaphore.test.ts` — real Postgres, ten concurrent `claim()`
-  calls against a cap of 3 grant exactly 3; an expired lease is reaped and its slot reused.
-
 ### 2026-09-20 — Injected turn-specific context had no carry-forward story
 
 - **Symptom:** A file attached to a chat message (text, code, docx, xlsx) was unreadable by the
@@ -661,20 +624,6 @@ failure mode of this pattern, not a sign it is working.
   saved transcript content.
 - **Verify:** `arcnave-frontend/src/types.test.ts` covers a legacy message with every optional
   collection absent; `npm test` and `npm run build` pass.
-
-### 2026-09-24 — Our own first-token timer was recorded as the user pressing Stop
-
-- **Symptom:** A 12-page scanned PDF sent to Gemini: the SSE stream sent `start`, then closed
-  after about 12 s with no `delta`, `done` or `error`. The row was saved as `stopped` /
-  `cancelled` and the UI spinner never ended. There were no retries.
-- **Cause:** The TTFT budget aborts the attempt's `AbortController` with a `provider_timeout`
-  `ProviderError` as its reason. The adapter surfaces that abort as an `AbortError`, and the
-  retry loop rethrew every `isAbort(err)` as a cancel before it checked `signal.reason`.
-- **Rule:** **Never classify an abort by the error's shape. Check who aborted.** Only the
-  caller's own signal is a user cancel. An abort from an internal timer is a typed, retryable
-  failure. (The first-token budget itself was removed by ADR-0024; the rule stands.)
-- **Verify:** `backend/src/routes/providerTimeout.integration.test.ts`: an abort the caller did
-  not request streams `provider_timeout` and saves the row as `error`.
 
 ### 2026-09-24 — A phase passed locally on a warm process sandbox and failed on cold Cloud Run Jobs
 
@@ -782,6 +731,8 @@ failure mode of this pattern, not a sign it is working.
 - **Rule:** **"Claude does X" needs the source that says Claude's app does it, not an API
   option's default.** A default is what happens after someone opts in, and is no evidence anyone
   does.
+  The same mistake set compaction at 150,000 on a 1M window (the compaction beta's default);
+  Claude Code compacts at about 967K (ADR-0027).
 - **Verify:** `npx vitest run src/routes/toolHistory.integration.test.ts` (every result past
   100,000 tokens is replayed in full).
 
@@ -798,6 +749,40 @@ failure mode of this pattern, not a sign it is working.
   cutoff by a guessed ms-per-token; a number with no measurement behind it is not a fix.
 - **Verify:** `npx vitest run src/routes/providerTimeout.integration.test.ts` (a slow first
   event completes with one request).
+
+### 2026-09-26 — The system prompt named tools the turn could not use
+
+- **Symptom:** The audit found the prompt telling the model to call `get_goal`, to use the
+  `research-deep-dive` skill with web search off, to search project files outside a project, and
+  to "store" memories with no tool that stores one. While fixing it, two new lines named
+  `run_python` in static text and were only caught by the test below.
+- **Cause:** Guidance was written once, in static text, while the tools come and go per turn.
+  Nothing compared the two.
+- **Rule:** **Guidance that names a tool goes in only when the turn allows that tool.** Put it in
+  the dynamic runtime context, gated on the turn's allowed tools, and list a skill only when its
+  `requires.tools` are allowed.
+- **Verify:** `npx vitest run src/routes/promptToolParity.integration.test.ts`.
+
+### 2026-09-26 — A PDF was "converted" to Excel by splitting its extracted text
+
+- **Symptom:** "Convert this PDF into Excel" produced a sheet cut on spaces and commas; the
+  user's instructions were printed as a note, and a scanned PDF failed.
+- **Cause:** The prompt told the model to pass only `sourceAttachmentId`, and the executor turned
+  the PDF's text layer into rows with a delimiter heuristic. The pdf and xlsx skills already
+  said not to do this; the prompt said the opposite.
+- **Rule:** **A file conversion is built from what the model read, never from a heuristic on
+  extracted text.** A tool that cannot do the conversion says so; it does not return something
+  that looks like one.
+- **Verify:** `npx vitest run src/tools/deliverableExecutor.test.ts`.
+
+### 2026-09-26 — Gemini's thinking was left out of output tokens
+
+- **Symptom:** A Gemini turn's cost counted only the answer's tokens.
+- **Cause:** `usageFrom` read `candidatesTokenCount`, which excludes `thoughtsTokenCount`; Vertex
+  prices "Text output (response and reasoning)" at one rate.
+- **Rule:** **Read what the provider bills, not only what it shows.** Output is candidates plus
+  thoughts; the context the next request resends is prompt plus answer.
+- **Verify:** `npx vitest run src/providers/gemini.test.ts` (usageFrom).
 
 ## Convention and sources
 
@@ -1114,3 +1099,9 @@ practice, not canon.
   was asked for, not what runs. Rule: a Cloud Run change is live only when `status.traffic` names
   the new revision; check that, then a behaviour probe. Verify: runbook step 7's verification
   starts with `status.traffic`.
+- **2026-09-26** — Added three entries from the Claude-parity fix pass (prompt naming unusable
+  tools, PDF "conversion" by splitting text, Gemini thinking left out of output tokens) and
+  extended the opt-in-default entry with the 150,000 compaction trigger. Retired three to stay
+  at 40: the first-token timer recorded as Stop (the timer is gone, ADR-0024), Cloud Run Jobs'
+  missing concurrency field (a platform fact, recorded in its ADR), and the `compact` composer
+  surfaces (fixed and covered by tests).

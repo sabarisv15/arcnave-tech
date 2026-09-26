@@ -1,6 +1,6 @@
 # ADR-0020: Project files go into the prompt whole while they fit, as Claude keeps project knowledge in context
 
-- Status: accepted. Tested locally; not live.
+- Status: accepted. Excerpt branch amended by [ADR-0029](0029-project-knowledge-searched-past-the-limit.md): past the limit the model searches with a tool.
 - Date: 2026-09-25
 - See also: [ADR-0019](0019-long-chats-follow-claude.md) (compaction),
   CLAUDE.md invariant 4 (retrieval is lexical)

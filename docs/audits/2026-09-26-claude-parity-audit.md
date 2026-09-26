@@ -11,6 +11,52 @@ finding says how far it is verified:
 Google's docs (ai.google.dev) are blocked from the session that wrote this, so anything about
 Gemini's own behaviour is marked unverified.
 
+## Fix pass, 2026-09-26 (branch `claude/tools-skills-architecture-jyxa61`, not deployed)
+
+Each finding below, with what was done. "Local" means tested here (backend 967 tests, frontend
+58, typecheck and build clean); none of it is live yet.
+
+| # | Status | Where |
+|---|---|---|
+| B1 compaction at 150k | Fixed: compacts as the window fills (1M − 33k, Claude Code's 967K); tool results whole; skills given back after | ADR-0027 |
+| B2 model probe | Fixed: no probe on a turn; the request's outcome is recorded | ADR-0028 |
+| B3 one tool per round | Fixed: every call runs; results in one message; Gemini replay grouped | ADR-0026 |
+| B4 16 rounds | Kept: Claude's app also stops at a per-turn tool-use limit and offers Continue, as ArcNave does | config comment |
+| B5 8,000-char output | Fixed: 30,000 (Claude Code's read-back), head and tail; stderr within 10,000 | `codeExecutionExecutor.ts` |
+| B6 PDF re-download | Fixed: rendered pages reused before download | `generation.ts` |
+| B7 `MODEL_INPUT_BUCKET` | Open: production setting, needs a look at the service | — |
+| B8 thinking invisible | Fixed for Gemini: thought summaries shown and stored | ADR-0030 |
+| B9 cache prefix | Fixed: memory text stable; project excerpts no longer per prompt | ADR-0025, ADR-0029 |
+| B10 project RAG | Fixed: search tool past the limit | ADR-0029 |
+| B11 cold start | Open: production setting (`minScale`) | — |
+| B12 Drive save | Open: needs a Drive connector decision | — |
+| C1 memory off | Fixed: on by default | ADR-0025 |
+| C2 no create | Fixed: `save_memory`, `POST /memory`, `PATCH /memory/:id` | ADR-0025 |
+| C3 false policy | Fixed: policy rewritten to the tools that exist | ADR-0025 |
+| C4 regex distiller | Left off: the model saves as the user chats, as Claude does | ADR-0025 |
+| C5 AND query | Fixed: any word matches | ADR-0025 |
+| C6 Claude features | Partly: topics editable, per-project memory, chat search; incognito not done | ADR-0025 |
+| D1 PDF→Excel heuristic | Fixed: model reads and passes rows; `sourceAttachmentId` copies text files only | `deliverableExecutor.ts` |
+| D2 goal tools | Fixed: named only in agent mode with a goal | `systemPrompt.ts` |
+| D3 parallel contradiction | Fixed by B3 | ADR-0026 |
+| D4 no date | Fixed: current date in the user's time zone | `systemPrompt.ts` |
+| D5 three file rules | Fixed: one rule ("Files for the user"); artifacts are in-app documents | `systemPrompt.ts`, `ui/policy.ts` |
+| D6 XLSX charts | Fixed: prompt says charts go through openpyxl in run_python | `systemPrompt.ts` |
+| D7 verify with no tool | Fixed: prompt says to read generate_deliverable's own report | `systemPrompt.ts` |
+| D8 duplicate links | Fixed: every tool-made file gets a card; prompt says not to repeat links | `App.tsx` |
+| D9 research without web | Fixed: research guidance and skill only with web tools | `systemPrompt.ts`, `generation.ts` |
+| D10 python skill hidden | Fixed: listed like any skill, description true | skill frontmatter |
+| D11 `output/` claim | Fixed: text follows the sandbox engine | `systemPrompt.ts` |
+| D12 skill after compaction | Fixed by ADR-0027 (skills given back) | ADR-0027 |
+| D13 AgentLoop | Fixed: removed | `systemPrompt.ts` |
+| E Gemini thinking billing | Fixed: output includes `thoughtsTokenCount` (Vertex prices "response and reasoning" alike) | ADR-0030 |
+
+A guard test now fails if the system prompt names a tool the turn cannot use
+(`routes/promptToolParity.integration.test.ts`). It caught two of this pass's own lines.
+
+Still to confirm live: the deploy, `turn timing` (probe gone, TTFT), Vertex accepting
+`includeThoughts`, compaction on a real long chat, and the new memory flow.
+
 ## A. Fixed and merged (deploy of `18e7606` not yet confirmed)
 
 | # | Finding | Fix |
@@ -20,7 +66,7 @@ Gemini's own behaviour is marked unverified.
 | A3 | Tool calls shown as per-call cards. | Claude-style activity timeline (`ToolActivity.tsx`), PR #16 |
 | A4 | No way to see where a turn's time goes. | One `turn timing` log line per turn, PR #18 |
 
-## B. Latency and lifecycle (open)
+## B. Latency and lifecycle (as found; status above)
 
 | # | Finding | Evidence |
 |---|---|---|
@@ -37,7 +83,7 @@ Gemini's own behaviour is marked unverified.
 | B11 | Cloud Run cold starts / min-instances unknown. | Check `autoscaling.knative.dev/minScale`. |
 | B12 | No "save to Google Drive" for created files. | Docs: Help Center, "Create and edit files". Minor. |
 
-## C. Memory (open)
+## C. Memory (as found; status above)
 
 | # | Finding | Evidence |
 |---|---|---|
@@ -48,7 +94,7 @@ Gemini's own behaviour is marked unverified.
 | C5 | Relevant-memory search passes the whole prompt to `websearch_to_tsquery`, which ANDs every word; the ILIKE fallback matches the whole prompt as one string. A memory about "KVB and Federal" does not match "federal la evlo entries and kvb la evlo entries?". | Code + Postgres test |
 | C6 | Claude has: a synthesis of past chats updated every 24 hours, "remember/forget" by asking, topics viewable and editable in Settings, separate memory per project, incognito, and chat search as a tool. ArcNave has none of these. | Docs: Help Center, "chat search and memory" |
 
-## D. System prompt vs code (open)
+## D. System prompt vs code (as found; status above)
 
 The full system prompt (27,812 chars for a plain chat turn with tools, python and memory on) was
 captured from the test harness and each claim checked.
