@@ -18,7 +18,7 @@
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
-import { attachments, chats, messages, sandboxWorkspaces } from '../db/schema.js';
+import { attachments, chats, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
 import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
 import type { ObjectStorage } from './storage.js';
 
@@ -114,6 +114,16 @@ export async function sweepRetention(
       if (!(await deleteCheckpoint(storage, w.manifestKey, log))) continue;
       await tx.delete(sandboxWorkspaces).where(eq(sandboxWorkspaces.workspaceId, w.ws));
       checkpointsPurged++;
+    }
+
+    // A data export's link lasts 24 hours (ADR-0040); its zip goes when the link does.
+    const expired = await tx
+      .select({ id: accountExports.id, storageKey: accountExports.storageKey })
+      .from(accountExports)
+      .where(lt(accountExports.expiresAt, now))
+      .limit(CHATS_PER_SWEEP);
+    for (const e of expired) {
+      if (await deleteObjects(storage, [e.storageKey], log)) await tx.delete(accountExports).where(eq(accountExports.id, e.id));
     }
 
     return { chatsPurged, uploadsPurged: removable.length, checkpointsPurged, skipped: false };

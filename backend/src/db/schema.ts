@@ -484,6 +484,25 @@ export const shareLinks = pgTable(
   ],
 );
 
+/**
+ * A data export the owner asked for (ADR-0040). The zip is stored under the owner's keys, so
+ * account deletion removes it with everything else; retention removes it once it expires.
+ */
+export const accountExports = pgTable(
+  'account_exports',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    storageKey: varchar('storage_key', { length: 300 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('ix_account_exports_user').on(t.userId), index('ix_account_exports_expires').on(t.expiresAt)],
+);
+
 /* -------------------------------------------------------------------------- artifacts */
 
 export const artifacts = pgTable(

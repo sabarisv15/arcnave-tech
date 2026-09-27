@@ -19,10 +19,13 @@ import {
   Trash2,
   Plus,
   Pencil,
+  Copy,
+  Upload,
 } from "lucide-react";
 import { ApiError, api } from "./api";
-import type { LimitsDto, MemoryItemDto, ShareLinkDto, UsageSummaryDto } from "./api";
+import type { LimitsDto, MemoryExportDto, MemoryItemDto, ShareLinkDto, UsageSummaryDto } from "./api";
 import { useSession } from "./session";
+import { downloadAuthenticated } from "./storage";
 import { useWorkspace } from "./workspace";
 import { Modal } from "./ui";
 import type { Preferences } from "./types";
@@ -310,6 +313,21 @@ function MemoryTopics() {
     setBusyId(null);
   };
 
+  const [importing, setImporting] = useState(false);
+  const exportMemory = async () => {
+    try {
+      const data = await api.memory.export();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "arcnave-memory.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("Could not export memory.");
+    }
+  };
+
   const clearAll = async () => {
     if (!window.confirm("Delete everything ArcNave remembers about you?")) return;
     setLoading(true);
@@ -359,6 +377,14 @@ function MemoryTopics() {
           <button className="button" style={{ fontSize: "12px" }} onClick={() => setEditing({ id: null, key: "", content: "" })}>
             <Plus size={12} /> Add
           </button>
+          <button className="button" style={{ fontSize: "12px" }} onClick={() => setImporting(true)}>
+            <Upload size={12} /> Import
+          </button>
+          {memories.length > 0 && (
+            <button className="button" style={{ fontSize: "12px" }} onClick={() => void exportMemory()}>
+              <Download size={12} /> Export
+            </button>
+          )}
           {memories.length > 0 && (
             <button className="button" style={{ fontSize: "12px", color: "var(--danger, #ff6b6b)" }} onClick={clearAll} disabled={loading}>
               Clear all
@@ -367,6 +393,7 @@ function MemoryTopics() {
         </div>
       </div>
       {error && <p className="field-help" style={{ color: "var(--danger, #ff6b6b)" }}>{error}</p>}
+      <MemoryImport open={importing} onClose={() => setImporting(false)} onDone={load} />
       {editing && (
         <div className="memory-editor" style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
           <input
@@ -456,6 +483,100 @@ function MemoryTopics() {
  * that is not configured stays visible and selectable-looking is avoided — it is disabled with
  * the server's reason attached, so "where did that model go" never has to be asked.
  */
+/** The request to paste into another assistant, so it lists what it remembers one per line. */
+const IMPORT_REQUEST =
+  "List everything you have stored about me in your memory, exactly as it is stored. " +
+  "Put each item on its own line in the form: [date, if known] - the memory. Do not summarise or leave anything out.";
+
+/**
+ * Brings memory in (ADR-0040): text another assistant listed, one memory per line, or an
+ * ArcNave memory export. What is already remembered is skipped.
+ */
+function MemoryImport({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const { toast } = useWorkspace();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (body: { text: string } | { data: MemoryExportDto }) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.memory.import(body);
+      toast(`${r.added} added to memory${r.skipped ? `, ${r.skipped} already known or not stored` : ""}`);
+      setText("");
+      onDone();
+      onClose();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Those memories could not be added.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Import memory" description="Bring what another assistant remembers about you, or an ArcNave memory export.">
+      <ol className="import-steps">
+        <li>
+          Ask the other assistant this, and copy its answer.
+          <div className="import-request">
+            <p>{IMPORT_REQUEST}</p>
+            <button
+              className="button"
+              onClick={() =>
+                void navigator.clipboard.writeText(IMPORT_REQUEST).then(
+                  () => toast("Request copied"),
+                  () => toast("Clipboard unavailable. Select the text and copy it."),
+                )
+              }
+            >
+              <Copy size={13} /> Copy
+            </button>
+          </div>
+        </li>
+        <li>
+          Paste the answer here. Each line becomes one memory.
+          <textarea
+            rows={8}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={"[2026-01-04] - Prefers answers in Tamil\n- Works as a CA in Chennai"}
+            aria-label="Memories to import"
+          />
+        </li>
+      </ol>
+      {error && <p className="source-warning">{error}</p>}
+      <div className="dialog-actions">
+        <label className="button">
+          <Upload size={14} /> Import a file
+          <input
+            type="file"
+            accept="application/json,.json,text/plain,.txt"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              const content = await file.text();
+              try {
+                const parsed = JSON.parse(content) as MemoryExportDto;
+                if (parsed && parsed.version === 1 && Array.isArray(parsed.items)) return void submit({ data: parsed });
+              } catch {
+                // Not JSON: read it as lines of text.
+              }
+              void submit({ text: content });
+            }}
+          />
+        </label>
+        <button className="button primary" disabled={busy || !text.trim()} onClick={() => void submit({ text })}>
+          {busy && <Loader2 size={14} className="spin" />}
+          Add to memory
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function Models() {
   const { preferences, updatePreferences } = useWorkspace();
   const { models, refreshModels } = useSession();
@@ -881,6 +1002,7 @@ function Account() {
           Sign out
         </button>
       </div>
+      <DeleteAccount />
       <h3 className="project-section-title">Change password</h3>
       <p className="field-help">
         Changing your password ends every session, including this one. You will
@@ -949,6 +1071,70 @@ function Account() {
   );
 }
 
+const DELETE_PHRASE = "delete my account";
+
+/**
+ * Deletes the account and everything in it (ADR-0040). It cannot be undone, so it needs the
+ * password and the phrase typed out.
+ */
+function DeleteAccount() {
+  const { signOut } = useSession();
+  const [open, setOpen] = useState(false);
+  const [phrase, setPhrase] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="setting-row">
+      <div>
+        <strong>Delete account</strong>
+        <p>Removes your conversations, projects, artifacts, files, memory and settings. This cannot be undone.</p>
+      </div>
+      <button className="button danger" onClick={() => setOpen(true)}>
+        <Trash2 size={15} /> Delete account
+      </button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Delete your account?"
+        description="Everything in it is deleted and cannot be recovered. Export your data first if you want a copy."
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError(null);
+            void api.account
+              .delete(password)
+              .then(() => signOut())
+              .catch((e) => setError(e instanceof ApiError ? e.detail : "The account could not be deleted."))
+              .finally(() => setBusy(false));
+          }}
+        >
+          <label className="field-label">
+            Type <strong>{DELETE_PHRASE}</strong> to confirm
+            <input value={phrase} onChange={(e) => setPhrase(e.target.value)} autoComplete="off" />
+          </label>
+          <label className="field-label">
+            Password
+            <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          {error && <p className="source-warning">{error}</p>}
+          <div className="dialog-actions">
+            <button type="button" className="button" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+            <button className="button danger" disabled={busy || phrase.trim().toLowerCase() !== DELETE_PHRASE || !password}>
+              {busy && <Loader2 size={14} className="spin" />}
+              Delete account
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
 function Privacy() {
   const { toast } = useWorkspace();
   const [busy, setBusy] = useState(false);
@@ -964,6 +1150,7 @@ function Privacy() {
           width, and any unsaved artifact draft.
         </p>
       </div>
+      <ExportData />
       <div className="setting-row">
         <div>
           <strong>Export usage records</strong>
@@ -1010,6 +1197,39 @@ function Privacy() {
       </div>
       <SharedLinks />
     </>
+  );
+}
+
+/** Everything the account holds, as a zip whose link lasts 24 hours (ADR-0040). */
+function ExportData() {
+  const { toast } = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="setting-row">
+      <div>
+        <strong>Export data</strong>
+        <p>
+          A zip of your conversations, artifacts, memory, projects and settings. Files you
+          attached to chats are listed by name. The download link works for 24 hours.
+        </p>
+      </div>
+      <button
+        className="button"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void api.account
+            .export()
+            .then((r) => downloadAuthenticated(r.downloadPath, `arcnave-export-${new Date().toISOString().slice(0, 10)}.zip`))
+            .then(() => toast("Export downloaded"))
+            .catch((e) => toast(e instanceof ApiError ? e.detail : "The export could not be made."))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+        Export data
+      </button>
+    </div>
   );
 }
 

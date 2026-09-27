@@ -131,6 +131,16 @@ export const ERROR_CATALOG = {
     detail: 'Its content has none of the structure that format needs.',
   },
 
+  password_incorrect: {
+    status: 403,
+    title: 'That password is not right',
+    detail: 'Enter the password you sign in with to confirm.',
+  },
+  export_expired: {
+    status: 410,
+    title: 'This export has expired',
+    detail: 'Export links last 24 hours. Ask for a new export in Settings.',
+  },
   share_not_found: {
     status: 404,
     title: 'This link is not available',

@@ -1,5 +1,18 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-13 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Data controls ([ADR-0040](../decisions/0040-data-export-and-account-deletion.md)):
+> - Memory import: paste what another assistant lists, one per line, or an ArcNave export.
+>   Memory export is JSON.
+> - Data export: a zip with a 24-hour download link.
+> - Account deletion: password plus a typed phrase. It removes every stored object under the
+>   user's keys (`ObjectStorage.deleteOwned`), then every row by cascade.
+> - Migration 0020 `account_exports` (`when` 1791400000000). New codes: `password_incorrect`,
+>   `export_expired`. `fflate` is now a declared backend dependency.
+> - Checked in Chromium: import, export download, delete; the next login gets 401.
+> - **Deploy note:** `deleteOwned` on GCS lists the owner's shard prefix. The runtime service
+>   account needs `storage.objects.list` on the bucket; check before relying on deletion live.
+>
 > **2026-09-27 (latest): WP-12 done on `claude/tools-skills-architecture-jyxa61`, not live.**
 > Public share links for chats and artifacts ([ADR-0039](../decisions/0039-public-share-links.md)):
 > - The Share dialog creates, copies, updates ("Update to now") and stops a link. The artifact

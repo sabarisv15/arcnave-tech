@@ -47,7 +47,7 @@
 | WP-10 | 1, 8, 9 | Custom visuals in chat; interactive and SVG artifacts (sandbox) | 3 | yes | [x] |
 | WP-11 | 13 | Word, Excel and PowerPoint previews | 4 | no | [x] |
 | WP-12 | 11, 16 | Public share links for chats and artifacts | 4 | yes | [x] |
-| WP-13 | 21, 22 | Memory import/export; full data export; account deletion | 4 | yes | [ ] |
+| WP-13 | 21, 22 | Memory import/export; full data export; account deletion | 4 | yes | [x] |
 | WP-14 | 25 | Connectors (remote MCP) | 5 | yes | future |
 | WP-15 | 26 | Skills settings: browse, turn off, add custom skills | 5 | yes | future |
 | WP-16 | 10 | Docs, Slides and Design artifact types | 5 | yes | [ ] |

@@ -5,6 +5,14 @@ import { currentUser, requireAuth } from '../plugins/context.js';
 import { MemoryConcurrencyError, memoryService } from '../services/memory/memoryService.js';
 import type { MemoryItem } from '../db/schema.js';
 import type { AppInstance } from '../types.js';
+import { and, asc, eq, isNull } from 'drizzle-orm';
+import { memoryItems, projects } from '../db/schema.js';
+import {
+  MAX_IMPORT_ITEMS,
+  MEMORY_EXPORT_VERSION,
+  normalise,
+  parseImportText,
+} from '../services/memory/memoryTransfer.js';
 
 const memoryItemDto = z.object({
   id: z.string().uuid(),
@@ -235,6 +243,131 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
       const user = currentUser(request);
       const count = await memoryService.clearAllMemories(user.id);
       return { deleted: count };
+    },
+  );
+
+  /* ---------------------------------------------------------------- transfer (ADR-0040) */
+
+  const transferItem = z.object({
+    key: z.string().trim().min(1).max(200),
+    content: z.string().trim().min(1).max(20_000),
+    kind: z.enum(['preference', 'workflow', 'fact', 'constraint']).optional(),
+    isStanding: z.boolean().optional(),
+    projectId: z.string().uuid().nullable().optional(),
+  });
+
+  typed.get(
+    '/memory/export',
+    {
+      schema: {
+        tags: ['memory'],
+        summary: 'Every memory, as JSON that import reads back',
+        response: {
+          200: z.object({
+            version: z.literal(MEMORY_EXPORT_VERSION),
+            exportedAt: z.string(),
+            items: z.array(transferItem.extend({ projectId: z.string().uuid().nullable() })),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = currentUser(request);
+      const rows = await request.services.db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.userId, user.id))
+        .orderBy(asc(memoryItems.createdAt));
+      void reply.header('Content-Disposition', 'attachment; filename="arcnave-memory.json"');
+      return {
+        version: MEMORY_EXPORT_VERSION as typeof MEMORY_EXPORT_VERSION,
+        exportedAt: new Date().toISOString(),
+        items: rows.map((r) => ({
+          key: r.key,
+          content: r.content,
+          kind: r.kind as 'preference' | 'workflow' | 'fact' | 'constraint',
+          isStanding: r.isStanding,
+          projectId: r.projectId,
+        })),
+      };
+    },
+  );
+
+  typed.post(
+    '/memory/import',
+    {
+      schema: {
+        tags: ['memory'],
+        summary: 'Add memories from an export, or from text with one memory per line',
+        description:
+          'Give `text` (for example what another assistant lists when asked what it remembers) or `data` ' +
+          '(an ArcNave memory export). A memory already held, by topic or by wording, is skipped, never replaced.',
+        body: z.union([
+          z.object({ text: z.string().min(1).max(200_000) }),
+          z.object({ data: z.object({ version: z.literal(MEMORY_EXPORT_VERSION), items: z.array(transferItem) }) }),
+        ]),
+        response: { 200: z.object({ added: z.number(), skipped: z.number() }) },
+      },
+    },
+    async (request) => {
+      const user = currentUser(request);
+      const { db } = request.services;
+      const incoming = 'text' in request.body ? parseImportText(request.body.text) : request.body.data.items;
+      if (incoming.length === 0) {
+        throw new ApiError('validation_error', { detail: 'No memories were found in what was given.' });
+      }
+      if (incoming.length > MAX_IMPORT_ITEMS) {
+        throw new ApiError('validation_error', {
+          detail: `At most ${MAX_IMPORT_ITEMS} memories can be imported at once; this has ${incoming.length}.`,
+        });
+      }
+
+      const existing = await db
+        .select({ key: memoryItems.key, content: memoryItems.content, projectId: memoryItems.projectId })
+        .from(memoryItems)
+        .where(eq(memoryItems.userId, user.id));
+      const ownedProjects = new Set(
+        (
+          await db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(eq(projects.userId, user.id), isNull(projects.deletedAt)))
+        ).map((p) => p.id),
+      );
+      const seenKeys = new Set(existing.map((e) => `${e.projectId ?? ''}:${e.key}`));
+      const seenContent = new Set(existing.map((e) => normalise(e.content)));
+
+      let added = 0;
+      let skipped = 0;
+      for (const item of incoming) {
+        // A project that is not this account's is not a place to put a memory.
+        const projectId = item.projectId && ownedProjects.has(item.projectId) ? item.projectId : null;
+        const keyId = `${projectId ?? ''}:${item.key}`;
+        const content = normalise(item.content);
+        if (seenKeys.has(keyId) || seenContent.has(content)) {
+          skipped++;
+          continue;
+        }
+        try {
+          await memoryService.createMemory({
+            userId: user.id,
+            scope: projectId ? 'project' : 'global',
+            projectId,
+            key: item.key,
+            content: item.content,
+            ...(item.kind ? { kind: item.kind } : {}),
+            ...(item.isStanding !== undefined ? { isStanding: item.isStanding } : {}),
+            sourceType: 'user_statement',
+          });
+          seenKeys.add(keyId);
+          seenContent.add(content);
+          added++;
+        } catch {
+          // Refused by the privacy check (a credential in the text): not stored, counted.
+          skipped++;
+        }
+      }
+      return { added, skipped };
     },
   );
 }

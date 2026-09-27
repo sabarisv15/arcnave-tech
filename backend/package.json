@@ -38,6 +38,7 @@
     "exceljs": "^4.4.0",
     "fastify": "^5.12.5",
     "fastify-type-provider-zod": "^7.0.0",
+    "fflate": "^0.8.3",
     "google-auth-library": "^11.1.0",
     "image-size": "^1.2.1",
     "officeparser": "^8.0.0",

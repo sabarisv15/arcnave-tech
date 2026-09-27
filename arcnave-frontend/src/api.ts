@@ -176,6 +176,14 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "This version cannot be exported to that format",
     detail: "Its content has none of the structure that format needs.",
   },
+  password_incorrect: {
+    title: "That password is not right",
+    detail: "Enter the password you sign in with to confirm.",
+  },
+  export_expired: {
+    title: "This export has expired",
+    detail: "Export links last 24 hours. Ask for a new export in Settings.",
+  },
   share_not_found: {
     title: "This link is not available",
     detail: "It may have been turned off by the person who shared it, or it was never valid.",
@@ -798,6 +806,12 @@ export interface StylesListDto {
 
 /* -------------------------------------------------------------------------- endpoints */
 
+export interface MemoryExportDto {
+  version: 1;
+  exportedAt?: string;
+  items: { key: string; content: string; kind?: string; isStanding?: boolean; projectId?: string | null }[];
+}
+
 export interface ShareLinkDto {
   id: string;
   token: string;
@@ -1060,6 +1074,15 @@ export const api = {
     delete: (id: string) => del(`/memory/${id}`),
     clearProject: (projectId: string) => del(`/memory/project/${projectId}`),
     clearAll: () => del("/memory/all"),
+    /** ArcNave's own JSON, which `import` reads back (ADR-0040). */
+    export: () => get<MemoryExportDto>("/memory/export"),
+    import: (body: { text: string } | { data: MemoryExportDto }) =>
+      post<{ added: number; skipped: number }>("/memory/import", body),
+  },
+  account: {
+    export: () =>
+      post<{ id: string; downloadPath: string; sizeBytes: number; expiresAt: string | null }>("/account/export"),
+    delete: (password: string) => request<void>("DELETE", "/account", { body: { password } }),
   },
 
   styles: {
