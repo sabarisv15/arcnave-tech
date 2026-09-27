@@ -8,23 +8,26 @@
  * does not say which of the two was wrong — that is the server's choice, and repeating its
  * wording here keeps it that way.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowUpRight, Eye, EyeOff, Loader2, TriangleAlert } from "lucide-react";
 import { ApiError } from "./api";
 import { useSession } from "./session";
 import { BrandMark } from "./ui";
 
-export default function Auth() {
+export default function Auth({ initialMode = "in" }: { initialMode?: "in" | "up" }) {
   const { signIn, signUp, expired } = useSession();
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
-  const [mode, setMode] = useState<"in" | "up">("in"),
+  const [mode, setMode] = useState<"in" | "up">(initialMode),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [name, setName] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState<{ title: string; detail: string } | null>(
+    [error, setError] = useState<{ title: string; detail: string; code?: string } | null>(
       null,
     );
+  useEffect(() => { setMode(initialMode); setError(null); setShowPassword(false); }, [initialMode]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -37,7 +40,7 @@ export default function Auth() {
     } catch (failure) {
       setError(
         failure instanceof ApiError
-          ? { title: failure.title, detail: failure.detail }
+          ? { title: failure.title, detail: failure.detail, code: failure.code }
           : {
               title: "Could not reach ArcNave",
               detail: "Check your connection and try again.",
@@ -50,7 +53,7 @@ export default function Auth() {
 
   return (
     <div className={`auth-screen auth-landing ${mode === "up" ? "auth-signup" : ""}`}>
-      <header className="auth-brand"><BrandMark /><span>ArcNave<span className="auth-brand-dot">.</span></span></header>
+      <header className="auth-brand"><Link to="/" className="auth-brand-link" aria-label="Back to ArcNave website"><BrandMark /><span>ArcNave<span className="auth-brand-dot">.</span></span></Link></header>
       <main className="auth-layout">
       <section className="auth-welcome" aria-labelledby="auth-title">
         <div className="auth-headline" key={mode}>
@@ -76,6 +79,7 @@ export default function Auth() {
             <div>
               <strong>{error.title}</strong>
               <p>{error.detail}</p>
+              {error.code === "registration_closed" && <p><a href="mailto:admin@arcnave.tech">Contact admin@arcnave.tech about early access.</a></p>}
             </div>
           </div>
         )}
@@ -142,7 +146,7 @@ export default function Auth() {
             type="button"
             disabled={busy}
             onClick={() => {
-              setMode(mode === "in" ? "up" : "in");
+              navigate(mode === "in" ? "/signup" : "/login");
               setError(null);
               setShowPassword(false);
             }}
@@ -153,15 +157,15 @@ export default function Auth() {
       </div>
       <p className="auth-understated">Think deeply. Connect the dots. Create something new.</p>
       </section>
-      <aside className="auth-art auth-study" aria-label="A student workspace with a laptop, study notes, and books">
-        <div className="auth-art-top"><span>YOUR CAMPUS COMPANION</span><span>↗</span></div>
+      <aside className="auth-art auth-study" aria-label="An illustrative workspace with a laptop and project notes">
+        <div className="auth-art-top"><span>YOUR WORK, CONNECTED</span><span>↗</span></div>
         <div className="study-scene" aria-hidden="true">
-          <div className="study-note"><span>THIS SEMESTER</span><p>Stay curious.<br />Ask better questions.<br />Make it your own.</p><span className="study-note-star">✳</span></div>
+          <div className="study-note"><span>THE NEXT STEP</span><p>Bring the context.<br />Work through the idea.<br />Make something useful.</p><span className="study-note-star">✳</span></div>
           <div className="study-laptop"><div className="study-screen"><div className="study-screen-brand">ArcNave<span>✦</span></div><span className="study-screen-label">LET’S FIGURE IT OUT</span><h3>One question.<br />A new perspective.</h3><div className="study-answer"><i /><i /><i /></div><div className="study-input">Explain this concept…<span>↑</span></div></div><div className="study-keyboard" /></div>
           <div className="study-books"><div>IDEAS & EXPLORATIONS</div><div>THE EVERYDAY NOTEBOOK</div></div>
           <div className="study-pencil" />
         </div>
-        <div className="auth-art-copy"><span>FROM THE FIRST LECTURE TO THE FINAL DRAFT</span><h2>Big ideas.<br />Better study days.</h2><p>A little help connecting the dots.<br />A lot more room to grow.</p></div>
+        <div className="auth-art-copy"><span>FROM THE FIRST QUESTION TO A USEFUL DRAFT</span><h2>Your work.<br />Room to move.</h2><p>Questions, documents, and ideas.<br />One workspace to keep going.</p></div>
         <div className="auth-art-bottom"><span>ArcNave</span><span>THINK · EXPLORE · CREATE</span></div>
       </aside>
       </main>

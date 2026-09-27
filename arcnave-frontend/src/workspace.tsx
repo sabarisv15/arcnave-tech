@@ -960,7 +960,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             return next;
           });
           setPanel({ kind: "closed" });
-          navigate("/");
+          navigate("/app");
           toast("Conversation deleted");
         })
         .catch((error) =>

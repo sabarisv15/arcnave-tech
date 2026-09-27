@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState
 import type { ReactNode, RefObject } from "react";
 import {
   Link,
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -126,6 +127,7 @@ export default function App() {
 /** Nothing below this point renders without a session, so nothing below it has to check. */
 function Gate() {
   const { user, loading } = useSession();
+  const { pathname } = useLocation();
   if (loading)
     return (
       <div className="boot-screen">
@@ -136,7 +138,8 @@ function Gate() {
         </p>
       </div>
     );
-  if (!user) return <Auth />;
+  if (!user) return <Auth initialMode={pathname === "/signup" ? "up" : "in"} />;
+  if (pathname === "/login" || pathname === "/signup") return <Navigate to="/app" replace />;
   return (
     <WorkspaceProvider>
       <Shell />
@@ -289,7 +292,7 @@ function Shell() {
           </button>
         )}
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/app" element={<Home />} />
           <Route path="/chat/:id" element={<Conversation />} />
           <Route path="/chats" element={<ChatsPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
@@ -303,7 +306,7 @@ function Shell() {
                 title="A fresh start?"
                 description="That page is not in this workspace."
                 action={
-                  <Link className="button" to="/">
+                  <Link className="button" to="/app">
                     New conversation
                   </Link>
                 }
@@ -561,7 +564,7 @@ function Conversation() {
         title="Conversation not found"
         description="It may have been deleted, or it belongs to another account."
         action={
-          <Link className="button" to="/">
+          <Link className="button" to="/app">
             Start a new conversation
           </Link>
         }
