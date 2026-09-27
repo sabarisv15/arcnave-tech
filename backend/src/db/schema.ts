@@ -524,7 +524,7 @@ export const artifacts = pgTable(
   (t) => [
     index('ix_artifacts_user').on(t.userId),
     index('ix_artifacts_project').on(t.projectId),
-    check('ck_artifact_kind', sql`${t.kind} in ('document','code','webpage','svg')`),
+    check('ck_artifact_kind', sql`${t.kind} in ('document','code','webpage','svg','slides')`),
   ],
 );
 

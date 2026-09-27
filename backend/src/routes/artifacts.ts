@@ -37,7 +37,7 @@ import { PREVIEW_MAX_BYTES, readSheets, sheetPreviewSchema } from './sheetPrevie
 
 const MAX_CONTENT_CHARS = 400_000;
 
-const kindSchema = z.enum(['document', 'code', 'webpage', 'svg']);
+const kindSchema = z.enum(['document', 'code', 'webpage', 'svg', 'slides']);
 const formatSchema = z.enum(['xlsx', 'docx', 'pptx']);
 
 const artifactSchema = z.object({

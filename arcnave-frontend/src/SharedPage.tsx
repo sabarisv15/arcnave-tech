@@ -9,6 +9,7 @@ import { api, ApiError, describeError, type PublicShareDto, type SharedArtifactD
 import { Markdown, MarkdownErrorBoundary } from "./Content";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import { SandboxFrame } from "./SandboxFrame";
+import { SlidesView } from "./SlidesView";
 import { applyTheme } from "./session";
 import type { UIBlock } from "./generative-ui/types";
 import type { Source } from "./types";
@@ -22,6 +23,8 @@ function SharedArtifact({ artifact }: { artifact: SharedArtifactDto }) {
   const body =
     artifact.kind === "webpage" || artifact.kind === "svg" ? (
       <SandboxFrame html={artifact.content} title={artifact.title} layout="page" autoHeight />
+    ) : artifact.kind === "slides" ? (
+      <SlidesView markdown={artifact.content} title={artifact.title} />
     ) : artifact.kind === "code" ? (
       <Markdown text={"```\n" + artifact.content + "\n```"} />
     ) : (

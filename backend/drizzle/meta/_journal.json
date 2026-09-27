@@ -148,6 +148,13 @@
       "when": 1791400000000,
       "tag": "0020_account_exports",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0021_artifact_kind_slides",
+      "breakpoints": true
     }
   ]
 }

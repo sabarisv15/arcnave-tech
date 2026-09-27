@@ -269,7 +269,7 @@ export interface SavedSource {
 export interface Artifact {
   id: string;
   title: string;
-  kind: "document" | "code" | "webpage" | "svg";
+  kind: "document" | "code" | "webpage" | "svg" | "slides";
   projectId: string | null;
   chatId: string | null;
   /** Which version the artifact currently points at. */
@@ -491,7 +491,7 @@ export function toArtifact(dto: ArtifactDto): Artifact {
   return {
     id: dto.id,
     title: dto.title,
-    kind: (dto.kind === "code" || dto.kind === "webpage" || dto.kind === "svg"
+    kind: (dto.kind === "code" || dto.kind === "webpage" || dto.kind === "svg" || dto.kind === "slides"
       ? dto.kind
       : "document") as Artifact["kind"],
     projectId: dto.projectId,

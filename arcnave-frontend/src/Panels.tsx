@@ -40,6 +40,7 @@ import {
 import { shouldRefreshArtifactOnUpdate } from "./selection";
 import { OfficeFrame, SheetPreview } from "./FilePreviews";
 import { PublicLink } from "./ShareLink";
+import { SlidesView } from "./SlidesView";
 import { officeKind } from "./officePreview";
 
 export function useMobile(query = "(max-width: 1050px)") {
@@ -658,6 +659,17 @@ export function ArtifactPanel({ id }: { id: string }) {
             <ArrowDownToLine size={14} />
             {exporting ? "Exporting…" : "Word (.docx)"}
           </button>
+        ) : kind === "slides" ? (
+          <button
+            type="button"
+            className="button button-subtle"
+            disabled={exporting}
+            onClick={() => exportAs("pptx")}
+            title="Download as PowerPoint (.pptx)"
+          >
+            <ArrowDownToLine size={14} />
+            {exporting ? "Exporting…" : "PowerPoint"}
+          </button>
         ) : (
           <IconButton
             label="Download artifact"
@@ -773,6 +785,8 @@ export function ArtifactPanel({ id }: { id: string }) {
               </button>
             </div>
           </>
+        ) : kind === "slides" ? (
+          <SlidesView markdown={content} title={meta?.title ?? "Slides"} />
         ) : kind === "webpage" || kind === "svg" ? (
           // Scripts in a webpage run, under the same sandbox as an inline visual (ADR-0035). An
           // SVG is drawn in it too, never inline in ArcNave's own page.

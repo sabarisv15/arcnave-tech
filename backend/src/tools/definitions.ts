@@ -332,8 +332,8 @@ export const CREATE_ARTIFACT: ToolDefinition = {
       },
       kind: {
         type: 'string',
-        enum: ['document', 'code', 'webpage', 'svg'],
-        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network, and gets the same theme tokens, element styles and chart library options as a render_ui visual), or 'svg' (an SVG image). Defaults to 'document'.",
+        enum: ['document', 'code', 'webpage', 'svg', 'slides'],
+        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network, and gets the same theme tokens, element styles and chart library options as a render_ui visual), or 'svg' (an SVG image), or 'slides' (a presentation: each slide starts with a `#` or `##` heading and holds a few bullets, one table, or one image; a line starting `Notes:` is that slide's speaker notes; the user can present it and download it as PowerPoint). Defaults to 'document'.",
       },
       content: {
         type: 'string',

@@ -3333,7 +3333,8 @@
                 "document",
                 "code",
                 "webpage",
-                "svg"
+                "svg",
+                "slides"
               ]
             },
             "in": "query",
@@ -3449,7 +3450,8 @@
                       "document",
                       "code",
                       "webpage",
-                      "svg"
+                      "svg",
+                      "slides"
                     ]
                   },
                   "content": {
@@ -3660,7 +3662,8 @@
                       "document",
                       "code",
                       "webpage",
-                      "svg"
+                      "svg",
+                      "slides"
                     ]
                   },
                   "projectId": {

@@ -436,6 +436,7 @@ export function buildDynamicRuntimeContext(
         `- brainstorming,\n` +
         `- and other content mainly intended to be read in chat.\n\n` +
         `If the user explicitly asks for an artifact, create one.\n\n` +
+        `A request for a deck, slides or a presentation with no file format named is a 'slides' artifact, which the user can present and download as PowerPoint. When they name a .pptx file, build the file instead.\n\n` +
         `Use:\n` +
         `- create_artifact for new artifacts,\n` +
         `- read_artifact when the existing content must be inspected,\n` +

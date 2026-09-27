@@ -50,7 +50,7 @@
 | WP-13 | 21, 22 | Memory import/export; full data export; account deletion | 4 | yes | [x] |
 | WP-14 | 25 | Connectors (remote MCP) | 5 | yes | future |
 | WP-15 | 26 | Skills settings: browse, turn off, add custom skills | 5 | yes | future |
-| WP-16 | 10 | Docs, Slides and Design artifact types | 5 | yes | [ ] |
+| WP-16 | 10 | Docs, Slides and Design artifact types | 5 | yes | [x] |
 | WP-17 | 12 | Save a created file to Google Drive | 5 | yes | future |
 | WP-18 | 27 | Voice dictation (then voice mode) | 5 | yes | [ ] |
 | WP-19 | 23, 24 | Break reminders, quiet hours, monthly recap | 5 | no | future |

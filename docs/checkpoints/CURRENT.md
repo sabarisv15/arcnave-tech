@@ -1,5 +1,15 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-16 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> A `slides` artifact kind ([ADR-0041](../decisions/0041-slides-artifacts.md)):
+> - The content is Markdown with one `#`/`##` heading per slide, the same rule the PowerPoint
+>   export uses.
+> - The panel shows a deck: a 16:9 stage, a filmstrip, arrow keys, speaker notes, full-screen
+>   Present, print to PDF, and a PowerPoint download. Cards show the first slide.
+> - The model is told a deck with no file format named is a slides artifact.
+> - Docs stay the single-author `document` kind; Design is deferred.
+> - Migration 0021 `artifact_kind_slides` (`when` 1791500000000). Checked in Chromium.
+>
 > **2026-09-27 (latest): WP-13 done on `claude/tools-skills-architecture-jyxa61`, not live.**
 > Data controls ([ADR-0040](../decisions/0040-data-export-and-account-deletion.md)):
 > - Memory import: paste what another assistant lists, one per line, or an ArcNave export.
