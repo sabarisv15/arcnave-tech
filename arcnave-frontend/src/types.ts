@@ -153,6 +153,7 @@ export interface MessageUsage {
 
 /** One stretch of an answer, in the order it happened (as Claude shows it). */
 export type MessageSegment =
+  | { type: "ui"; blockIds: string[] }
   | { type: "thinking"; text: string }
   | { type: "text"; text: string }
   | { type: "tools"; toolCallIds: string[] };
@@ -161,11 +162,14 @@ export type MessageSegment =
  *  kind, a tool call extends a run of calls. Returns a new array. */
 export function appendSegment(
   segments: MessageSegment[] | undefined,
-  piece: { type: "thinking" | "text"; text: string } | { type: "tool"; toolCallId: string },
+  piece: { type: "thinking" | "text"; text: string } | { type: "tool"; toolCallId: string } | { type: "ui"; blockId: string },
 ): MessageSegment[] {
   const out = [...(segments ?? [])];
   const last = out.at(-1);
-  if (piece.type === "tool") {
+  if (piece.type === "ui") {
+    if (last?.type === "ui") out[out.length - 1] = { type: "ui", blockIds: [...last.blockIds, piece.blockId] };
+    else out.push({ type: "ui", blockIds: [piece.blockId] });
+  } else if (piece.type === "tool") {
     if (last?.type === "tools") out[out.length - 1] = { type: "tools", toolCallIds: [...last.toolCallIds, piece.toolCallId] };
     else out.push({ type: "tools", toolCallIds: [piece.toolCallId] });
   } else if (last && last.type === piece.type) {
@@ -395,20 +399,13 @@ export function toMessage(dto: MessageDto): Message {
   const questions = Array.isArray(dto.questions) ? dto.questions : [];
 
   let uiBlocks: UIBlock[] | undefined;
-  const renderCall = toolCalls.find((c) => c.name === "render_ui");
-  if (renderCall) {
+  for (const renderCall of toolCalls.filter((c) => c.name === "render_ui" && c.ok === true)) {
     const jsonContent = renderCall.content?.find((c) => c.type === "json");
     if (jsonContent && typeof jsonContent.data === "object" && jsonContent.data !== null) {
       const dataObj = jsonContent.data as { blocks?: UIBlock[] };
       if (Array.isArray(dataObj.blocks)) {
-        uiBlocks = withVisualHtml(dataObj.blocks, renderCall.input);
+        uiBlocks = [...(uiBlocks ?? []), ...withVisualHtml(dataObj.blocks, renderCall.input)];
       }
-    } else if (
-      typeof renderCall.input === "object" &&
-      renderCall.input !== null &&
-      "blocks" in renderCall.input
-    ) {
-      uiBlocks = (renderCall.input as { blocks: UIBlock[] }).blocks;
     }
   }
 

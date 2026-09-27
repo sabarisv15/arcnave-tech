@@ -1008,6 +1008,28 @@
                                     "toolCallIds"
                                   ],
                                   "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "type": "string",
+                                      "enum": [
+                                        "ui"
+                                      ]
+                                    },
+                                    "blockIds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "blockIds"
+                                  ],
+                                  "additionalProperties": false
                                 }
                               ]
                             }

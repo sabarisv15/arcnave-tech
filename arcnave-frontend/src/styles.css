@@ -4287,8 +4287,8 @@ select:focus-visible {
 }
 
 .messages {
-  max-width: 860px;
-  width: calc(100% - 80px);
+  max-width: 760px;
+  width: calc(100% - 36px);
   padding: 8px 0 14px;
 }
 
@@ -4777,6 +4777,15 @@ select:focus-visible {
     line-height: 1.5;
   }
 }
+
+/* Keep long generated content inside the conversation column. */
+.conversation-view, .assistant-message, .markdown, .ui-generative-response { min-width: 0; }
+.markdown { overflow-wrap: anywhere; }
+.markdown pre, .markdown .katex-display { max-width: 100%; overflow-x: auto; }
+.markdown table { max-width: 100%; }
+.markdown img { max-width: 100%; }
+.sidebar svg { stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.sidebar .nav-item > svg { width: 20px; height: 20px; }
 
 /* -------------------------------------------------------------------------- Phase 6 Generative UI */
 

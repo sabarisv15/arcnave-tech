@@ -1,5 +1,19 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27: chat corrections integrated onto main `94deb57`, awaiting release approval.**
+> Branch `codex/wp-10-visual-sandbox`; [ADR-0043](../decisions/0043-contextual-chat-follow-ups-and-safe-answer-rendering.md).
+> Single-dollar math with currency preservation, contextual next actions and independent composer
+> hints, current-user language/script matching, bounded answer width and modern sidebar icons.
+> Tool protocol leakage becomes a typed error; confirmed visual blocks retain response ordering.
+> Latest upstream visual sandbox, dictation, styles, effort, sharing and slides are retained.
+> Backend typecheck/build and all **1075 tests pass** in isolated Node 22 with Python/Poppler.
+> Frontend build and all **176 tests pass** (host Node 26 with experimental webstorage disabled).
+> [Browser walkthrough](../walkthroughs/2026-09-27-chat-sync/README.md): fake-provider calculator,
+> full screen, artifact interaction, reload, math, contextual hints and aligned 760px columns.
+> Real-provider language/relevance acceptance remains pending. All prior stashes are retained.
+> Main's enabled Cloud Build trigger deploys automatically: merge requires explicit current-task
+> deployment approval under CLAUDE.md. No deployment has been performed by this task.
+
 > **2026-09-27 (latest): WP-18 phase 1 done on `claude/tools-skills-architecture-jyxa61`, not live.**
 > Voice dictation in the composer ([ADR-0042](../decisions/0042-voice-dictation.md)):
 > - The browser's speech recognition, with a mic at the right of the composer.

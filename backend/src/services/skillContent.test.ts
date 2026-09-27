@@ -76,7 +76,7 @@ describe('skill content matches the code', () => {
     const raw = service.getSkill(dir);
     expect(raw).not.toBeNull();
     const text = skills.find((s) => s.dir === dir)!.text;
-    const front = text.split('\n---\n')[0]!;
+    const front = text.replace(/\r\n/g, '\n').split('\n---\n')[0]!;
     const tools = [...front.matchAll(/^ {4}- ([a-z_A-Z]+)$/gm)].map((m) => m[1]!);
     for (const t of tools) {
       if (t.includes('.')) continue;

@@ -10,6 +10,7 @@
 
 import type { Config } from '../config.js';
 import type { ToolDefinition } from '../providers/types.js';
+import { NEXT_ACTIONS } from './nextActions.js';
 import {
   CREATE_ARTIFACT,
   DELIVERABLE_TOOL_DEFINITIONS,
@@ -112,6 +113,16 @@ export function usesWarmSandbox(cfg: Config): boolean {
 }
 
 export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
+  {
+    name: 'suggest_next_actions',
+    category: 'ui',
+    shortDescription: 'Proposes contextual next user actions and a separate composer hint.',
+    keywords: ['next action', 'follow up', 'suggestion'],
+    definition: NEXT_ACTIONS,
+    isInitialCore: true,
+    isFeatureEnabled: (cfg) => cfg.ENABLE_TOOL_USE,
+    isAuthorized: () => true,
+  },
   // 1. Discovery (Always in initial core set)
   {
     name: 'search_tools',
@@ -391,7 +402,7 @@ export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
     shortDescription: 'Renders structured, interactive UI layouts, charts, and metric cards in chat.',
     keywords: ['render ui', 'ui', 'dashboard', 'interactive card', 'chart', 'kpi'],
     definition: RENDER_UI,
-    isInitialCore: false,
+    isInitialCore: true,
     isFeatureEnabled: (cfg, flags) => Boolean(cfg.ENABLE_TOOL_USE && flags.generativeUiEnabled),
     isAuthorized: () => true,
   },

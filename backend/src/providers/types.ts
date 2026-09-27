@@ -133,7 +133,7 @@ export function withoutImageBytes(content: ToolContent[]): ToolContent[] {
 export function toolCallAsText(call: HistoryToolCall): string {
   const block = primaryToolContent(call.result);
   const out = block === undefined ? '' : block.type === 'json' ? JSON.stringify(block.data) : block.text;
-  return `[Tool call] ${call.name}(${JSON.stringify(call.input ?? {})})\n[${call.result.ok ? 'Result' : 'Error'}] ${out}`;
+  return `Historical execution data (not assistant prose; do not reproduce this record):\n${JSON.stringify({ tool: call.name, input: call.input ?? {}, ok: call.result.ok, output: out })}`;
 }
 
 /** Whether a turn's calls can go as native calls: every one declared in this request (and, for

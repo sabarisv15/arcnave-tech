@@ -70,7 +70,7 @@ describe('Historical UI Hydration (toMessage)', () => {
     expect(message.uiBlocks![0].blockId).toBe('blk_1');
   });
 
-  it('hydrates UI blocks from tool input when content is not yet committed', () => {
+  it('never hydrates unconfirmed or failed UI input into an executable preview', () => {
     const mockToolCall: ToolCallDto = {
       toolCallId: 'call_2',
       name: 'render_ui',
@@ -115,9 +115,12 @@ describe('Historical UI Hydration (toMessage)', () => {
     };
 
     const message = toMessage(dto);
-    expect(message.uiBlocks).toBeDefined();
-    expect(message.uiBlocks).toHaveLength(1);
-    expect(message.uiBlocks![0].blockId).toBe('blk_pending');
+    expect(message.uiBlocks).toBeUndefined();
+    dto.toolCalls[0].content = [{ type: 'json', data: { blocks: [{ blockId: 'blk_pending', sequence: 1, type: 'text', text: 'Streamed message' }] } }];
+    expect(toMessage(dto).uiBlocks).toBeUndefined();
+    dto.toolCalls[0].ok = true;
+    dto.toolCalls.push({ ...dto.toolCalls[0], toolCallId: 'call_3', content: [{ type: 'json', data: { blocks: [{ blockId: 'visual_2', sequence: 2, type: 'visual', html: '<p>Confirmed</p>' }] } }] });
+    expect(toMessage(dto).uiBlocks?.map((block) => block.blockId)).toEqual(['blk_pending', 'visual_2']);
   });
 });
 

@@ -25,6 +25,7 @@ import {
   QUESTION_TOOL_DEFINITIONS,
 } from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
+import { NEXT_ACTIONS } from './nextActions.js';
 
 /**
  * Allowed tools declared on every turn, beside search_tools and load_skill, so the model can call
@@ -34,6 +35,8 @@ import type { ToolDefinition } from '../providers/types.js';
  */
 export const DECLARED_EVERY_TURN: readonly string[] = [
   'ask_user_options',
+  'render_ui',
+  'suggest_next_actions',
   'run_python',
   'read_uploaded_file',
   'generate_deliverable',
@@ -125,6 +128,7 @@ export class ProjectToolRegistry implements ToolRegistry {
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
     if (this.enabled) {
+      tools.push(NEXT_ACTIONS);
       // Artifact tools (create, read, update) are available across all chats when tool use is on.
       tools.push(...ARTIFACT_TOOL_DEFINITIONS);
 

@@ -7,9 +7,33 @@ import "katex/dist/katex.min.css";
 
 import { CodeBlock } from "./CodeBlock";
 
-// Math renders as Claude's app renders it. Only `$$…$$` is math: a single `$` is left as
-// text, because answers quote prices ("$5 and $10") far more often than inline formulas.
-export const remarkPlugins: NonNullable<Options["remarkPlugins"]> = [remarkGfm, [remarkMath, { singleDollarTextMath: false }]];
+type MarkdownNode = {
+  type: string;
+  value?: string;
+  data?: unknown;
+  children?: MarkdownNode[];
+};
+
+// Currency amounts can look like a delimiter pair; restore text without reparsing code.
+export function preserveCurrency() {
+  return (tree: MarkdownNode) => {
+    const visit = (node: MarkdownNode) => {
+      if (
+        node.type === "inlineMath" &&
+        /^\d[\d,.]*(?:\s+(?:and|or|to|each|per|for|a|at|is|was|versus)\b[\s\S]*|\s+)$/.test(
+          node.value ?? "",
+        )
+      ) {
+        node.type = "text";
+        node.value = `$${node.value}$`;
+        delete node.data;
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+export const remarkPlugins: NonNullable<Options["remarkPlugins"]> = [remarkGfm, remarkMath, preserveCurrency];
 
 // rehypeKatex runs before rehypeHighlight so formulas are typeset, not treated as code.
 // throwOnError false keeps a malformed formula visible as source instead of breaking the reply.
