@@ -120,6 +120,13 @@
       "when": 1791000000000,
       "tag": "0016_artifact_kind_svg",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791100000000,
+      "tag": "0017_effort_and_styles",
+      "breakpoints": true
     }
   ]
 }

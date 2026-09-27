@@ -276,7 +276,7 @@ export interface Artifact {
 
 export interface Preferences {
   theme: "light" | "dark" | "system";
-  font: "sans" | "serif" | "readable";
+  font: "sans" | "system" | "dyslexic";
   modelAlias: string;
   effort: ReasoningEffort | null;
   instructions: string;
@@ -497,7 +497,8 @@ export function toArtifact(dto: ArtifactDto): Artifact {
 export function toPreferences(dto: PreferencesDto): Preferences {
   return {
     theme: dto.theme === "light" || dto.theme === "dark" ? dto.theme : "system",
-    font: dto.font === "serif" ? "serif" : dto.font === "readable" ? "readable" : "sans",
+    // "serif" was an older option; chat text already showed it as the default font.
+    font: dto.font === "system" || dto.font === "dyslexic" ? dto.font : "sans",
     modelAlias: dto.modelAlias,
     effort:
       dto.effort && REASONING_EFFORT_LADDER.includes(dto.effort as ReasoningEffort)

@@ -176,9 +176,9 @@ export default function Settings() {
                     })
                   }
                 >
-                  <option value="sans">Sans serif</option>
-                  <option value="serif">Serif</option>
-                  <option value="readable">Readable (Atkinson Hyperlegible)</option>
+                  <option value="sans">Default</option>
+                  <option value="system">Match system</option>
+                  <option value="dyslexic">Dyslexic friendly</option>
                 </select>
               </div>
               {toggle(

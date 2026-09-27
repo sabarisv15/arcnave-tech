@@ -77,7 +77,8 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
           'accepted here — use PATCH /usage/limits.',
         body: z.object({
           theme: z.enum(['system', 'light', 'dark']).optional(),
-          font: z.enum(['sans', 'serif', 'readable']).optional(),
+          // 'serif' stays accepted for older clients; the chat shows it as the default font.
+          font: z.enum(['sans', 'serif', 'system', 'dyslexic']).optional(),
           modelAlias: z.string().trim().min(1).max(64).optional(),
           instructions: z.string().max(20_000).optional(),
           enterToSend: z.boolean().optional(),

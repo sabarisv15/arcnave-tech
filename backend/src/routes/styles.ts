@@ -7,7 +7,7 @@
  * - Style synthesis from 1-3 writing samples (POST /styles/summarize)
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
@@ -366,7 +366,15 @@ export async function styleRoutes(app: AppInstance): Promise<void> {
         throw new ApiError('style_not_found');
       }
 
-      await db.delete(styles).where(eq(styles.id, id));
+      // A preference pointing at this style would fail every later turn with style_not_found,
+      // so it goes back to Normal in the same transaction as the delete.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(preferences)
+          .set({ styleId: 'normal', version: sql`${preferences.version} + 1` })
+          .where(and(eq(preferences.userId, user.id), eq(preferences.styleId, id)));
+        await tx.delete(styles).where(eq(styles.id, id));
+      });
       return reply.status(204).send(null);
     },
   );

@@ -389,8 +389,12 @@ export interface ModelsDto {
     reasoningEfforts?: string[];
   };
   models: ModelDto[];
+  /** The effort a turn uses when none is chosen; the menu marks it (stepped down) as Default. */
+  defaultEffort?: ReasoningEffortDto;
   capabilities: { groundedSearch: boolean; detail: string };
 }
+
+export type ReasoningEffortDto = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface SourceDto {
   id: number;

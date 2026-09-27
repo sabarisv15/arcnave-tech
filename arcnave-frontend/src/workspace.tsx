@@ -23,7 +23,7 @@ import {
   useState,
 } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { attach, generate } from "./adapter";
 import { useSession } from "./session";
@@ -126,8 +126,11 @@ interface Context {
   refreshArtifacts: () => Promise<void>;
   edit: { chatId: string; messageId: string; text: string } | null;
   setEdit: Dispatch<SetStateAction<Context["edit"]>>;
-  quote: { text: string; timestamp: number } | null;
-  insertQuote: (text: string) => void;
+  /** Text for a composer; with `chatId`, only that chat's composer takes it. */
+  quote: { text: string; timestamp: number; chatId?: string } | null;
+  insertQuote: (text: string, chatId?: string) => void;
+  /** Marks the quote with this timestamp as used, so no later composer pastes it again. */
+  consumeQuote: (timestamp: number) => void;
   artifactUpdateEvent: { artifactId?: string; timestamp: number } | null;
 }
 
@@ -151,6 +154,7 @@ const defaultPreferences: Preferences = {
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [chats, setChats] = useState<Chat[]>([]),
     [projects, setProjects] = useState<Project[]>([]),
@@ -169,9 +173,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [quote, setQuote] = useState<Context["quote"]>(null),
     [artifactUpdateEvent, setArtifactUpdateEvent] = useState<Context["artifactUpdateEvent"]>(null);
 
-  const insertQuote: Context["insertQuote"] = useCallback((text: string) => {
-    setQuote({ text, timestamp: Date.now() });
+  const insertQuote: Context["insertQuote"] = useCallback((text: string, chatId?: string) => {
+    setQuote({ text, timestamp: Date.now(), ...(chatId ? { chatId } : {}) });
   }, []);
+  const consumeQuote: Context["consumeQuote"] = useCallback((timestamp: number) => {
+    setQuote((q) => (q?.timestamp === timestamp ? null : q));
+  }, []);
+  // A quote for a chat is dropped once the user is somewhere else, so it never reappears later.
+  useEffect(() => {
+    setQuote((q) => (q?.chatId && !location.pathname.startsWith(`/chat/${q.chatId}`) ? null : q));
+  }, [location.pathname]);
 
   const controller = useRef<AbortController | null>(null);
   /** Set once `run` exists, so a transcript load can reattach to a reply still running. */
@@ -1097,6 +1108,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setEdit,
       quote,
       insertQuote,
+      consumeQuote,
       artifactUpdateEvent,
     }),
     [
@@ -1135,6 +1147,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       edit,
       quote,
       insertQuote,
+      consumeQuote,
       artifactUpdateEvent,
     ],
   );

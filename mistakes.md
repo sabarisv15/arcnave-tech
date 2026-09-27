@@ -819,6 +819,14 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-27** — No new heading (at the cap). Merging WP-03 to WP-07 into one branch, I
+  resolved conflicts by keeping both sides. In `styles.css` that split one rule's body from its
+  selector, and the build failed with "Unclosed block"; in `CURRENT.md` it duplicated entries.
+  Rule: keeping both sides is only safe for whole, independent blocks. After any conflict
+  resolution, run the build and read the merged region before committing. Also: WP-06 made
+  `ask_user_options` a tool on every turn but ran only its own test files, so
+  `tableExtraction.integration.test.ts` (which lists the exposed tools) failed until updated.
+  Run the whole suite before calling a package done.
 - **2026-09-27** — Added the frame-height entry. Retired "Returning early before useEffect
   broke the Rules of Hooks during fence streaming": `MarkdownStreaming.test.tsx` fails if it
   regresses (pruning criterion 1). **40 entries.**

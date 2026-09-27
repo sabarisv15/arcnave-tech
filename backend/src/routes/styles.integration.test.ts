@@ -284,6 +284,27 @@ describe('WP-05 Styles API Integration Tests', () => {
       expect(getRes.statusCode).toBe(404);
       expect(getRes.json().error.code).toBe('style_not_found');
     });
+
+    it('puts the preference back to Normal when the active style is deleted, so the next turn still runs', async () => {
+      const u = await signUp(ctx);
+      const created = (
+        await ctx.app.inject({ method: 'POST', url: '/v1/styles', headers: auth(u), payload: { name: 'Mine', instructions: 'Short.' } })
+      ).json();
+      const prefs = (await ctx.app.inject({ method: 'GET', url: '/v1/preferences', headers: auth(u) })).json();
+      await ctx.app.inject({ method: 'PATCH', url: '/v1/preferences', headers: auth(u), payload: { styleId: created.id, version: prefs.version } });
+
+      expect((await ctx.app.inject({ method: 'DELETE', url: `/v1/styles/${created.id}`, headers: auth(u) })).statusCode).toBe(204);
+      expect((await ctx.app.inject({ method: 'GET', url: '/v1/preferences', headers: auth(u) })).json().styleId).toBe('normal');
+
+      const chatId = (await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers: auth(u), payload: { title: 'after delete' } })).json().id;
+      ctx.provider.script = [
+        { type: 'delta', text: 'ok' },
+        { type: 'completed', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+      ];
+      const gen = await ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: auth(u), payload: { prompt: 'hi' } });
+      expect(gen.body).not.toContain('style_not_found');
+      expect(gen.body).toContain('event: done');
+    });
   });
 
   describe('POST /styles/summarize', () => {

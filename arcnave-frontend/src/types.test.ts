@@ -194,9 +194,10 @@ describe("preferences mapping", () => {
     expect(mapped.defaultMode).toBe("chat");
   });
 
-  it("maps readable and serif font preferences, falling back to sans for unknown font", () => {
-    expect(toPreferences(prefs({ font: "readable" })).font).toBe("readable");
-    expect(toPreferences(prefs({ font: "serif" })).font).toBe("serif");
+  it("maps the chat fonts, showing the old serif option and unknown values as the default", () => {
+    expect(toPreferences(prefs({ font: "system" })).font).toBe("system");
+    expect(toPreferences(prefs({ font: "dyslexic" })).font).toBe("dyslexic");
+    expect(toPreferences(prefs({ font: "serif" })).font).toBe("sans");
     expect(toPreferences(prefs({ font: "mono" })).font).toBe("sans");
     expect(toPreferences(prefs({ font: "unknown" })).font).toBe("sans");
   });

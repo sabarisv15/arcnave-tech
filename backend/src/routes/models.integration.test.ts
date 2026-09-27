@@ -79,4 +79,19 @@ describe('GET /v1/models reasoningEfforts', () => {
     // Because the chat resolved to Sonnet 5, Auto reflects Sonnet 5's levels
     expect(body.auto.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
   });
+
+  it("ignores another user's chatId instead of reading their chat's model", async () => {
+    ctx = await createTestApp();
+    const owner = await signUp(ctx, 'Owner');
+    const other = await signUp(ctx, 'Other');
+    const chat = await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers: { cookie: owner.cookie }, payload: { title: 'Private' } });
+    const chatId = (chat.json() as { id: string }).id;
+    await ctx.db.insert(messages).values({ chatId, userId: owner.id, seq: 0, role: 'assistant', text: 'x', modelAlias: 'Sonnet 5' });
+
+    const asOther = await ctx.app.inject({ method: 'GET', url: `/v1/models?chatId=${chatId}`, headers: { cookie: other.cookie } });
+    const asOwner = await ctx.app.inject({ method: 'GET', url: `/v1/models?chatId=${chatId}`, headers: { cookie: owner.cookie } });
+    // The other user sees the no-chat answer (every candidate's shared levels), not Sonnet 5's.
+    expect((asOther.json() as { auto: { reasoningEfforts: string[] } }).auto.reasoningEfforts).toEqual(['low', 'medium', 'high']);
+    expect((asOwner.json() as { auto: { reasoningEfforts: string[] } }).auto.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+  });
 });

@@ -26,7 +26,7 @@ export function isTerminalTool(toolName: string): boolean {
 }
 
 /** Returns true if any of the calls in the round is a terminal tool. */
-export function hasTerminalToolCall(toolCalls: Array<{ name: string }>): boolean {
+export function hasTerminalToolCall(toolCalls: ReadonlyArray<{ name: string }>): boolean {
   return toolCalls.some((c) => isTerminalTool(c.name));
 }
 

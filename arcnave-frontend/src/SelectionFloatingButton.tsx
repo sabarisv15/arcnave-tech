@@ -19,7 +19,7 @@ interface SelectionState {
 }
 
 export default function SelectionFloatingButton() {
-  const { insertQuote, send, panel, artifacts, toast, activeRun } = useWorkspace();
+  const { insertQuote, panel, artifacts, toast, activeRun } = useWorkspace();
   const [selectionState, setSelectionState] = useState<SelectionState | null>(null);
   const [isEditingChange, setIsEditingChange] = useState(false);
   const [changeInstruction, setChangeInstruction] = useState("");
@@ -120,7 +120,7 @@ export default function SelectionFloatingButton() {
 
   const handleAskClick = () => {
     const formatted = formatQuote(selectionState.text);
-    insertQuote(formatted);
+    insertQuote(formatted, activeChatId);
     window.getSelection()?.removeAllRanges();
     handleClose();
   };
@@ -151,14 +151,15 @@ export default function SelectionFloatingButton() {
           contextAfter: surroundingContext.after,
         });
 
+        // As Claude does with edit requests, the request joins the next message instead of
+        // sending at once: several passages can be marked before one send, and the user sees
+        // exactly what goes to the model.
         const targetChatId = artifact.chatId || activeChatId;
-        send(prompt, "chat", [], targetChatId);
-
         if (targetChatId && !location.pathname.startsWith(`/chat/${targetChatId}`)) {
           navigate(`/chat/${targetChatId}`);
         }
-
-        toast(`Requesting update to ${artifact.title}…`);
+        insertQuote(prompt, targetChatId);
+        toast("Edit request added to your message");
       }
     }
 

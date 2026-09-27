@@ -1,8 +1,8 @@
 /**
  * Preferences route integration tests.
  *
- * Verifies font preference restriction: 'sans', 'serif', and 'readable' are accepted;
- * unknown values and removed 'mono' are rejected with 400 validation_error.
+ * Verifies the chat font options: 'sans', 'system' and 'dyslexic' (and the older 'serif') are accepted;
+ * unknown values and removed 'mono' are rejected with 422 validation_error.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -35,17 +35,17 @@ describe('preferences routes', () => {
     expect(body.theme).toBe('system');
   });
 
-  it('accepts readable font and persists it', async () => {
+  it('accepts the dyslexic-friendly font and persists it', async () => {
     const patchRes = await ctx.app.inject({
       method: 'PATCH',
       url: '/v1/preferences',
       headers: { cookie: user.cookie },
-      payload: { font: 'readable' },
+      payload: { font: 'dyslexic' },
     });
 
     expect(patchRes.statusCode).toBe(200);
     const patched = patchRes.json() as { font: string };
-    expect(patched.font).toBe('readable');
+    expect(patched.font).toBe('dyslexic');
 
     const getRes = await ctx.app.inject({
       method: 'GET',
@@ -55,7 +55,7 @@ describe('preferences routes', () => {
 
     expect(getRes.statusCode).toBe(200);
     const fetched = getRes.json() as { font: string };
-    expect(fetched.font).toBe('readable');
+    expect(fetched.font).toBe('dyslexic');
   });
 
   it('accepts serif font', async () => {

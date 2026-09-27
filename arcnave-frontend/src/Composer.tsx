@@ -88,6 +88,7 @@ export interface EffortControlState {
   supported: ReasoningEffort[];
   requested: ReasoningEffort;
   applied: ReasoningEffort;
+  defaultLevel: ReasoningEffort;
   steppedDown: boolean;
   buttonLabel: string;
   ariaLabel: string;
@@ -113,7 +114,9 @@ export function describeEffortControl(
   const supported = getSupportedEfforts(models, selectedModelAlias, chatMessages);
   if (supported.length < 2) return null;
 
-  const requested: ReasoningEffort = savedEffort ?? "medium";
+  // The same default the server uses when no effort is chosen, stepped down the same way.
+  const defaultLevel = resolveEffortForModel(supported, models?.defaultEffort ?? "medium") ?? supported[0]!;
+  const requested: ReasoningEffort = savedEffort ?? defaultLevel;
   const applied = resolveEffortForModel(supported, requested) ?? supported[0]!;
   const steppedDown = savedEffort !== null && savedEffort !== applied;
 
@@ -126,7 +129,8 @@ export function describeEffortControl(
 
   const items = supported.map((level) => ({
     level,
-    label: EFFORT_COPY[level].label,
+    // Each model's recommended level is marked "Default", as Claude's menu marks it.
+    label: level === defaultLevel ? `${EFFORT_COPY[level].label} · Default` : EFFORT_COPY[level].label,
     description:
       steppedDown && level === applied
         ? `${requestedLabel} → ${appliedLabel} on this model`
@@ -138,6 +142,7 @@ export function describeEffortControl(
     supported,
     requested,
     applied,
+    defaultLevel,
     steppedDown,
     buttonLabel,
     ariaLabel,
@@ -287,6 +292,7 @@ export default function Composer({
     setEdit,
     messages,
     quote,
+    consumeQuote,
   } = useWorkspace();
   const { models } = useSession();
   const [text, setText] = useState(initialPrompt),
@@ -360,8 +366,15 @@ export default function Composer({
       textarea.current?.focus();
     }
   }, [edit, chatId]);
+  // Each composer instance pastes a quote once. A quote for one chat stays until it is sent or
+  // the user leaves that chat, because the conversation's composer can remount while the chat
+  // loads and a fresh instance must paste it again. The composer of the page being left does
+  // not take a quote meant for another chat. A quote with no chat is used up when pasted.
+  const takenQuote = useRef<number | null>(null);
   useEffect(() => {
-    if (quote?.text) {
+    if (quote?.text && takenQuote.current !== quote.timestamp && (!quote.chatId || quote.chatId === chatId)) {
+      takenQuote.current = quote.timestamp;
+      if (!quote.chatId) consumeQuote(quote.timestamp);
       setText((prev) => {
         const trimmed = prev.trim();
         return trimmed ? `${trimmed}\n\n${quote.text}` : quote.text;
@@ -374,7 +387,7 @@ export default function Composer({
         }
       }, 0);
     }
-  }, [quote]);
+  }, [quote, consumeQuote, chatId]);
   useEffect(() => {
     if (textarea.current) {
       textarea.current.style.height = "auto";
@@ -472,6 +485,7 @@ export default function Composer({
       (f) => f.status === "ready" || f.status === "unsupported",
     );
     send(text, mode, ready, chatId, projectId, artifact || artifactIntent);
+    if (quote) consumeQuote(quote.timestamp);
     setText("");
     setFiles([]);
     setArtifact(artifactIntent);
@@ -792,36 +806,33 @@ export default function Composer({
             trigger={
               <button
                 className="quiet-button model-button"
-                aria-label={`Model: ${preferences.modelAlias}`}
+                aria-label={`Model: ${preferences.modelAlias}${effortControl ? `, ${effortControl.ariaLabel}` : ""}`}
               >
                 {preferences.modelAlias}
+                {/* The effort shows beside the model only when it is not the default. */}
+                {effortControl && (effortControl.steppedDown || effortControl.applied !== effortControl.defaultLevel) && (
+                  <span className="model-effort">{effortControl.buttonLabel}</span>
+                )}
                 <ChevronDown size={13} />
               </button>
             }
-            items={modelItems}
+            items={[
+              ...modelItems,
+              // Effort lives in the model menu, as in Claude's app ("click the model name, then
+              // Effort"): the levels offered are the ones this model accepts.
+              ...(effortControl
+                ? [
+                    { label: "Effort", disabled: true, separator: true },
+                    ...effortControl.items.map((item) => ({
+                      label: item.label,
+                      description: item.description,
+                      selected: item.selected,
+                      onSelect: () => updatePreferences({ effort: item.level }),
+                    })),
+                  ]
+                : []),
+            ]}
           />
-          {effortControl && (
-            <Dropdown
-              label="Reasoning effort"
-              side="top"
-              align="end"
-              trigger={
-                <button
-                  className="quiet-button effort-button"
-                  aria-label={effortControl.ariaLabel}
-                >
-                  {effortControl.buttonLabel}
-                  <ChevronDown size={13} />
-                </button>
-              }
-              items={effortControl.items.map((item) => ({
-                label: item.label,
-                description: item.description,
-                selected: item.selected,
-                onSelect: () => updatePreferences({ effort: item.level }),
-              }))}
-            />
-          )}
           {ownRun ? (
             <button
               className="send-button"
