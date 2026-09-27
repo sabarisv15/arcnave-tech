@@ -1229,3 +1229,9 @@ practice, not canon.
   built into a new map and swapped in whole, and the app awaits it before taking requests
   (`createApp` → `skills.whenLoaded()`). Verify: `skills.test.ts` "never shows a half-loaded
   registry" fails without the fix; the full suite passed 3 runs in a row with it.
+- **2026-09-27 (office files)** — No new heading (at the cap). The docx and pptx skills told the
+  model the extracted text "is sufficient … answer directly", and every Office file went inline
+  as flattened text, losing cell addresses, formulas and hidden sheets. The reference assistant
+  reads those types from the file with code. Rule: a skill's claim about how a file reaches the
+  model must match the pipeline; check `attachmentContent.ts` before writing one. Verify:
+  `officeReadWithCode.integration.test.ts` (ADR-0045).

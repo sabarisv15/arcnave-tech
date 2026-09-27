@@ -57,12 +57,38 @@ function describe(a: AttachmentBlock): string {
   return `${name} (${facts})`;
 }
 
+/**
+ * Office and e-book files are read from the file, not from flattened text in the conversation,
+ * when the turn can run code (ADR-0045). Extracted text drops cell addresses, formulas, hidden
+ * sheets and layout, and a large workbook's text crowds the request; code reads them exactly.
+ * PDFs, images and plain-text formats stay in the conversation.
+ */
+const READ_WITH_CODE_EXTENSIONS = /\.(docx|xlsx|xlsm|xls|pptx|odt|rtf|epub)$/i;
+const READ_WITH_CODE_MIME = /wordprocessingml|spreadsheetml|presentationml|ms-excel|opendocument\.text|\/rtf$|epub\+zip/;
+
+export function readsWithCode(a: AttachmentBlock): boolean {
+  return READ_WITH_CODE_MIME.test(a.mimeType) || READ_WITH_CODE_EXTENSIONS.test(a.filename ?? '');
+}
+
+/** The attachment as sent when the turn can run code: identity and a pointer, no inline text. */
+export function asReadWithCode(a: AttachmentBlock): AttachmentBlock {
+  if (a.omittedReason || !readsWithCode(a)) return a;
+  const { base64: _bytes, extractedText: _text, ...rest } = a;
+  return { ...rest, extractedText: null, omittedReason: 'read_with_code' };
+}
+
 /** The note sent in place of an attachment whose content is not in this request. */
 export function unavailableAttachmentNote(a: AttachmentBlock): string {
   const reach = a.id
     ? ` It is still stored: call read_uploaded_file, or pass fileId "${a.id}" to a tool that takes files.`
     : '';
   switch (a.omittedReason) {
+    case 'read_with_code':
+      return (
+        `[Attachment ${describe(a)} is read from its file, not shown here as text. Open it in ` +
+        `run_python from input/ (its path is in the file list), or call read_uploaded_file` +
+        `${a.id ? ` with fileId "${a.id}"` : ''}.]`
+      );
     case 'history_budget':
       return (
         `[Attachment ${describe(a)} is not included in this request: earlier attachments exceed ` +

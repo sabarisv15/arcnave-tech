@@ -4,9 +4,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { readOfficeFilesWithCode } from '../services/generation.js';
 import { buildAnthropicMessages } from './anthropicVertex.js';
+import { asReadWithCode } from './attachmentContent.js';
 import { buildGeminiContents } from './gemini.js';
-import type { AttachmentBlock, GenerationRequest } from './types.js';
+import type { AttachmentBlock, GenerationRequest, Turn } from './types.js';
 
 const FILE_ID = '11111111-2222-3333-4444-555555555555';
 const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00, 0xff, 0xfe]).toString('base64');
@@ -93,5 +95,47 @@ describe.each([
     const out = wire({ id: FILE_ID, filename: 'r.docx', mimeType: cases[2]![1].mimeType, extractedText: 'Hello' });
     expect(out).toContain('Hello');
     expect(out).not.toContain('not included');
+  });
+});
+
+describe('Office files are read with code when the turn has a sandbox (ADR-0045)', () => {
+  const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const sheet: AttachmentBlock = { id: FILE_ID, filename: 'ledger.xlsx', mimeType: XLSX, extractedText: 'A | 100' };
+
+  it.each([
+    ['ledger.xlsx', XLSX],
+    ['notes.docx', cases[2]![1].mimeType],
+    ['deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['old.xls', 'application/vnd.ms-excel'],
+  ])('%s is sent as a pointer to its file, never as flattened text', (filename, mimeType) => {
+    const att = asReadWithCode({ id: FILE_ID, filename, mimeType, extractedText: 'A | 100', base64: ZIP_BYTES });
+    for (const out of [claudeWire(att), geminiWire(att)]) {
+      expect(out).not.toContain('A | 100');
+      expect(out).not.toContain(ZIP_BYTES);
+      expect(out).toContain('run_python');
+      expect(out).toContain(FILE_ID);
+    }
+  });
+
+  it.each([
+    ['bank.pdf', 'application/pdf'],
+    ['data.csv', 'text/csv'],
+    ['photo.png', 'image/png'],
+  ])('%s stays in the conversation', (filename, mimeType) => {
+    const att: AttachmentBlock = { id: FILE_ID, filename, mimeType, extractedText: 'kept' };
+    expect(asReadWithCode(att)).toBe(att);
+  });
+
+  it('a file already left out keeps its own reason', () => {
+    const att: AttachmentBlock = { ...sheet, omittedReason: 'history_budget' };
+    expect(asReadWithCode(att)).toBe(att);
+  });
+
+  it('without a sandbox the text stays, because nothing else could read the file', () => {
+    const history: Turn[] = [{ role: 'user', text: 'q', attachments: [sheet] }];
+    expect(readOfficeFilesWithCode(false, [sheet], history)).toEqual({ current: [sheet], history });
+    const withSandbox = readOfficeFilesWithCode(true, [sheet], history);
+    expect(withSandbox.current[0]!.omittedReason).toBe('read_with_code');
+    expect(withSandbox.history[0]!.attachments![0]!.omittedReason).toBe('read_with_code');
   });
 });

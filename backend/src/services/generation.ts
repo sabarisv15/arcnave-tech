@@ -39,6 +39,7 @@ import { AUTO_ALIAS } from '../providers/registry.js';
 import type { RoutingDecision } from '../providers/routing.js';
 import { routeAuto } from '../providers/routing.js';
 import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
+import { asReadWithCode } from '../providers/attachmentContent.js';
 import type {
   AttachmentBlock,
   AttachmentRef,
@@ -280,6 +281,23 @@ export interface PreferencesRow {
   routingPreference: string;
   timezone: string;
   effort?: ReasoningEffort | null;
+}
+
+/**
+ * With a sandbox on the turn, Office and e-book files are read from the file with code rather
+ * than sent as flattened text (ADR-0045): the text loses cell addresses, formulas, hidden sheets
+ * and layout. Without one, the text is all the model can read, so it stays.
+ */
+export function readOfficeFilesWithCode(
+  sandbox: boolean,
+  current: AttachmentBlock[],
+  history: Turn[],
+): { current: AttachmentBlock[]; history: Turn[] } {
+  if (!sandbox) return { current, history };
+  return {
+    current: current.map(asReadWithCode),
+    history: history.map((t) => (t.attachments ? { ...t, attachments: t.attachments.map(asReadWithCode) } : t)),
+  };
 }
 
 /* -------------------------------------------------------------------------- service */
@@ -702,8 +720,11 @@ export class GenerationService {
       }
 
       const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
+      const agentSandbox =
+        routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
+      const agentWire = readOfficeFilesWithCode(agentSandbox, wireAttachments, wireHistory);
       const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
-        sandbox: routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
+        sandbox: agentSandbox,
         loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
       });
 
@@ -712,7 +733,7 @@ export class GenerationService {
         : input.prompt;
 
       yield* this.agentLoop.stream(
-        { ...input, prompt: promptWithManifest, attachments: wireAttachments, chatFiles },
+        { ...input, prompt: promptWithManifest, attachments: agentWire.current, chatFiles },
         {
           entry,
           provider,
@@ -720,7 +741,7 @@ export class GenerationService {
           ...(reasoningEffort ? { reasoningEffort } : {}),
           prefs,
           project: project ? { id: project.id, instructions: project.instructions } : null,
-          history: wireHistory,
+          history: agentWire.history,
           systemInstruction,
           startedAt,
           releaseReservation,
@@ -943,6 +964,7 @@ export class GenerationService {
 
     const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
     codeExecutor?.setChatFiles(chatFiles);
+    const wire = readOfficeFilesWithCode(codeExecutor !== undefined, wireAttachments, wireHistory);
     const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
       sandbox: codeExecutor !== undefined,
       loadableSkills: this.loadableSkills(activeToolNames.has('load_skill')),
@@ -958,8 +980,8 @@ export class GenerationService {
     const previousContextTokens = compactedNow ? null : await this.previousContextTokens(input);
     const request: GenerationRequest = {
       prompt: effectivePrompt,
-      history: wireHistory,
-      attachments: wireAttachments,
+      history: wire.history,
+      attachments: wire.current,
       systemInstruction,
       promptAssembly,
       mode: input.mode,

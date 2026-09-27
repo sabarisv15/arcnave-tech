@@ -8,11 +8,13 @@
 > routes text-layer pages to `pdfplumber` and scanned pages to `extract_scanned_table_rows`
 > whether or not run_python is on; `pdf` keeps create/change/convert. Backend typecheck and the
 > full suite pass locally. Not yet run: the live KVB + Federal check (expect 48 / 277 / 325).
+> Office files (xlsx, docx, pptx, …) are read from the file with run_python when the turn has it,
+> not inlined as flattened text ([ADR-0045](../decisions/0045-office-files-read-with-code.md));
+> without run_python the text still goes.
 > Launch files no longer describe ArcNave as another assistant (ADR-0044 §4, `brandNeutral.test.ts`);
 > provider names remain only in provider code.
 > Still open from the same review: last-round forced answer when Vertex rejects function-calling
-> NONE, table tools deferred behind `search_tools`, silent model fallback (Invariant 1), and
-> `.xlsx`/`.docx` read with code instead of inline text.
+> NONE, table tools deferred behind `search_tools`, silent model fallback (Invariant 1).
 
 > **2026-09-27: chat corrections integrated onto main `94deb57`, awaiting release approval.**
 > Branch `codex/wp-10-visual-sandbox`; [ADR-0043](../decisions/0043-contextual-chat-follow-ups-and-safe-answer-rendering.md).

@@ -1,7 +1,7 @@
 ---
 name: docx
 version: 2.1.0
-description: "Use when a task needs Word procedure beyond reading a document already in the conversation: exact extraction from an uploaded .docx/.doc, editing it, or producing a Word file."
+description: "Use whenever a task touches a Word document: reading or answering questions about an uploaded .docx/.doc (read from the file with code), exact extraction, editing it, or producing a Word file."
 category: artifact
 scope: builtin
 requires:
@@ -40,12 +40,15 @@ Procedural knowledge for creating, formatting, inspecting, and editing professio
 
 ## 3. Understand & Inspect Existing Files
 
-### A. Provider File Adapter & Extracted Document Representation
-Uploaded Word documents (.docx) are ingested via ArcNave's Provider File Adapter as extracted text/document blocks. For reading, analyzing, or summarizing the content of an uploaded Word document, the adapter's extracted document representation is sufficient. Answer directly from the provided document context without unnecessary tool calls. Do not expect providers to consume raw OOXML binary packages natively for comprehension.
-
-Extracted text leaves out images, and it can flatten layout. When those matter, open the file
-in `run_python` (it is in `input/`) with `python-docx`, or convert it with LibreOffice
+### A. Reading an uploaded document
+With run_python on the turn, a Word document is not in the conversation as text: its attachment
+line says to read it from the file, which is in `input/`. Read it with `pandoc input/file.docx
+-t markdown` for the text with headings, lists and tables, or with `python-docx` for paragraphs,
+tables and styles. When images or layout matter, convert it with LibreOffice
 (`soffice --headless --convert-to pdf`) and render pages into `view/` to look at them.
+
+Without run_python, the document reaches you as extracted text, which leaves out images and can
+flatten layout; `read_uploaded_file` returns it again when it is not in the conversation.
 
 ### B. Deterministic Structural Inspection
 When programmatic workflows require exact paragraph counts, table counts, or section headings:
