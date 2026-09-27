@@ -140,7 +140,7 @@ export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
     name: 'load_skill',
     category: 'skills',
     shortDescription: 'Loads domain-specific instructions (SKILL.md) and resources into context.',
-    keywords: ['skill', 'load skill', 'instructions', 'domain guide', 'pdf', 'xlsx', 'docx', 'pptx', 'data-analysis'],
+    keywords: ['skill', 'load skill', 'instructions', 'domain guide', 'pdf', 'pdf-reading', 'xlsx', 'docx', 'pptx', 'data-analysis'],
     definition: LOAD_SKILL,
     isInitialCore: true,
     isFeatureEnabled: (_cfg, flags) => Boolean(flags.skillsEnabled),

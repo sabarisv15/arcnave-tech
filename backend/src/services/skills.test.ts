@@ -33,6 +33,22 @@ describe('SkillService', () => {
     expect(names).toContain('python-sandbox-patterns');
   });
 
+  it('splits PDF reading from PDF building, as Claude\'s pdf and pdf-reading skills do', () => {
+    const reading = service.getSkill('pdf-reading', []);
+    expect(reading).not.toBeNull();
+    // Reading needs no tool to be offered: a PDF can arrive in a turn with nothing else enabled.
+    expect(reading?.missingTools).toEqual([]);
+    expect(reading?.content).toContain('call `extract_scanned_table_rows`');
+    // The scanned-page path must not depend on run_python being off: the old pdf skill sent
+    // turns with run_python to read pages by eye, and they ran out of tool steps (2026-09-27).
+    expect(reading?.content).not.toMatch(/Without run_python, use `extract_scanned_table_rows`/);
+    expect(reading?.content).not.toContain('read the pages yourself a few at a time');
+
+    const building = service.getSkill('pdf', ['generate_deliverable']);
+    expect(building?.content).not.toContain('## Exact counts, totals and complete lists');
+    expect(building?.description).toContain('use the pdf-reading skill');
+  });
+
   it('includes internal skills when requested', () => {
     const all = service.listSkills(undefined, true);
     const names = all.map((s) => s.name);

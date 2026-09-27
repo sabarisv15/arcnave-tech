@@ -82,7 +82,7 @@ on the same day). Remove a duplicate only when it has the same source provenance
 
 ## From a PDF or document
 
-Read the source first (for every row of a PDF table, see the pdf skill's exact workflow). Then
+Read the source first (for every row of a PDF table, see the pdf-reading skill's exact workflow). Then
 build the typed workbook above. `sourceAttachmentId` copies a text or CSV file only; it does not
 parse a PDF.
 

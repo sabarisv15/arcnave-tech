@@ -1205,3 +1205,13 @@ practice, not canon.
   resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
   (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
 
+- **2026-09-27 (Claude-aligned PDF reading)** — No new heading (at the 40-entry cap). Two catches:
+  (1) A skill and a tool description gave opposite orders: the pdf skill said to use
+  `extract_scanned_table_rows` only *without* run_python, the tool said to call it first because
+  run_python cannot read a scanned page. Live, with run_python on, Gemini followed the skill, read
+  pages by eye a few at a time, hit the 16-round limit, then answered 172 entries for 277. Rule:
+  when a skill names a tool, read that tool's description and make them agree; `skills.test.ts`
+  now fails if `pdf-reading` makes the scanned path depend on run_python being off.
+  (2) In the cloud container, 22 PDF tests failed with no code change: `pdftoppm`/`pdftotext`
+  were missing. Rule: `apt-get install -y poppler-utils` alongside `service postgresql start`
+  before judging a PDF test failure; `which pdftoppm` verifies.

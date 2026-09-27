@@ -1,5 +1,17 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27: PDF reading and exact figures follow Opus 5.5, on `claude/keen-goldberg-7fz0ia`, not live.**
+> [ADR-0044](../decisions/0044-pdf-reading-and-exact-figures-follow-opus-5-5.md). A live chat gave
+> 172 Federal entries for 277 after the pdf skill and `extract_scanned_table_rows` gave opposite
+> orders. Now: the prompt carries Opus 5.5's "do not estimate figures in prose" sentence (exact
+> figures only); building skills load after the material is gathered; new `pdf-reading` skill
+> routes text-layer pages to `pdfplumber` and scanned pages to `extract_scanned_table_rows`
+> whether or not run_python is on; `pdf` keeps create/change/convert. Backend typecheck and the
+> full suite pass locally. Not yet run: the live KVB + Federal check (expect 48 / 277 / 325).
+> Still open from the same review: last-round forced answer when Vertex rejects function-calling
+> NONE, table tools deferred behind `search_tools`, silent model fallback (Invariant 1), and
+> `.xlsx`/`.docx` read with code instead of inline text.
+
 > **2026-09-27: chat corrections integrated onto main `94deb57`, awaiting release approval.**
 > Branch `codex/wp-10-visual-sandbox`; [ADR-0043](../decisions/0043-contextual-chat-follow-ups-and-safe-answer-rendering.md).
 > Single-dollar math with currency preservation, contextual next actions and independent composer

@@ -63,6 +63,9 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
   `<tool_use>\n\n` +
     `Answer directly when tools are unnecessary. Use a tool when it materially improves correctness or the task needs current information, file access, project retrieval, computation, verification, or creating a file. Prefer the most direct tool, and do not re-fetch what is already reliable in context.\n\n` +
     `Run independent calls together; keep dependent ones in order. Read each important result before deciding the next step: a call that was accepted has not necessarily succeeded.\n\n` +
+    // Opus 5.5's claude.ai prompt carries this one sentence rather than a verification section:
+    // a figure read off a page by eye went out as fact (172 entries for 277, 2026-09-27).
+    `A few lookups to scope a question are fine, but do not estimate figures in prose. When the answer is an exact figure taken from a file or data (a count, a total, every row or entry), get the data into a tool result or file and compute the figure with a tool. A summary, or a question one visible passage answers, needs no computation.\n\n` +
     `Before your first tool call, say in one sentence what you are about to do, in the user's language. While working, give a brief update only when you find something important or change direction.\n\n` +
     `When a tool fails:\n1. read the actual error;\n2. decide whether the input or approach should change;\n3. retry only when there is a reason it could now succeed;\n4. switch approaches when the same failure repeats;\n5. carry on with independent work.\n\n` +
     `Do not endlessly repeat the same failing operation.\n\n` +
@@ -299,13 +302,13 @@ export function buildDynamicRuntimeContext(
         `Use skills through progressive disclosure via load_skill.\n\n` +
         `Do not inject every skill into every request.\n\n` +
         `When specialized work would benefit from a skill:\n` +
-        `1. identify the relevant skill,\n` +
-        `2. load it using load_skill,\n` +
-        `3. follow its applicable procedural workflow,\n` +
-        `4. discover tools via search_tools if needed,\n` +
+        `1. identify the relevant skills; several may apply to one task,\n` +
+        `2. load a skill that helps gather or read the material (such as reading a file exactly) before that work,\n` +
+        `3. load a skill that builds a file after the material is in hand and before building: opened first, it pulls the work toward layout while there is nothing to put in it,\n` +
+        `4. follow its applicable procedural workflow, discovering tools via search_tools if needed,\n` +
         `5. use ArcNave's actual tools to perform the work.\n\n` +
         `Choosing a skill:\n` +
-        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Load a skill when the task needs its procedure (producing or converting a file, exact extraction, counting or computing over a file). A question you can answer from what is already in the conversation needs no skill.\n\n` +
+        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Load a skill when the task needs its procedure (producing or converting a file, exact extraction, counting or computing over a file). A question you can answer from what is already in the conversation needs no skill; an exact count or total over a file is not such a question.\n\n` +
         `A skill loaded earlier in this conversation is still in context while its load_skill result is in the history: do not load it again. After the conversation has been compacted, the skills loaded before it are given again under \"Loaded Skill\" in <skills_guidance>.\n\n` +
         `Use only the smallest useful set of skills.\n\n` +
         `Several skills may be used together when the task genuinely requires them.\n\n` +
