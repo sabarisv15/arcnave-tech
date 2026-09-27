@@ -5514,3 +5514,109 @@ select:focus-visible {
 .thinking-text p { margin: 0 0 8px; }
 .thinking-text strong { display: block; margin: 6px 0 4px; color: var(--ink); font-weight: 600; }
 .thinking-block .tool-activity-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* WP-07: Selection floating action button ('Ask about this' and 'Change this') */
+.selection-floating-button {
+  position: fixed;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transform: translateX(-50%);
+  user-select: none;
+  white-space: nowrap;
+  animation: fadeInSelectionButton 120ms ease;
+}
+
+.selection-floating-button:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong, var(--line));
+}
+
+.selection-floating-button:active {
+  transform: translateX(-50%) scale(0.98);
+}
+
+.selection-floating-button svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+@keyframes fadeInSelectionButton {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.selection-change-form {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 20px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  transform: translateX(-50%);
+  animation: fadeInSelectionButton 120ms ease;
+}
+
+.selection-change-form input {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  width: 220px;
+  outline: none;
+  font-family: inherit;
+}
+
+.selection-change-form input::placeholder {
+  color: var(--muted);
+}
+
+.selection-change-form button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.selection-change-form button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.edit-notice.update-notice {
+  background: var(--surface-hover);
+  border-left: 3px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+

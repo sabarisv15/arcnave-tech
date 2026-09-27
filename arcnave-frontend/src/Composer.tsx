@@ -164,6 +164,7 @@ export default function Composer({
     edit,
     setEdit,
     messages,
+    quote,
   } = useWorkspace();
   const { models } = useSession();
   const [text, setText] = useState(initialPrompt),
@@ -203,6 +204,21 @@ export default function Composer({
       textarea.current?.focus();
     }
   }, [edit, chatId]);
+  useEffect(() => {
+    if (quote?.text) {
+      setText((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed}\n\n${quote.text}` : quote.text;
+      });
+      setTimeout(() => {
+        if (textarea.current) {
+          textarea.current.focus();
+          const len = textarea.current.value.length;
+          textarea.current.setSelectionRange(len, len);
+        }
+      }, 0);
+    }
+  }, [quote]);
   useEffect(() => {
     if (textarea.current) {
       textarea.current.style.height = "auto";

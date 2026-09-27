@@ -124,6 +124,9 @@ interface Context {
   refreshArtifacts: () => Promise<void>;
   edit: { chatId: string; messageId: string; text: string } | null;
   setEdit: Dispatch<SetStateAction<Context["edit"]>>;
+  quote: { text: string; timestamp: number } | null;
+  insertQuote: (text: string) => void;
+  artifactUpdateEvent: { artifactId?: string; timestamp: number } | null;
 }
 
 const C = createContext<Context>(null!);
@@ -158,7 +161,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [settings, setSettings] = useState(false),
     [search, setSearch] = useState(false),
     [activeRun, setActiveRun] = useState<string | null>(null),
-    [edit, setEdit] = useState<Context["edit"]>(null);
+    [edit, setEdit] = useState<Context["edit"]>(null),
+    [quote, setQuote] = useState<Context["quote"]>(null),
+    [artifactUpdateEvent, setArtifactUpdateEvent] = useState<Context["artifactUpdateEvent"]>(null);
+
+  const insertQuote: Context["insertQuote"] = useCallback((text: string) => {
+    setQuote({ text, timestamp: Date.now() });
+  }, []);
 
   const controller = useRef<AbortController | null>(null);
   /** Set once `run` exists, so a transcript load can reattach to a reply still running. */
@@ -489,7 +498,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 },
               ],
             }));
-          if (event.type === "tool_result")
+          if (event.type === "tool_result") {
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
               toolCalls: (m.toolCalls ?? []).map((t) =>
@@ -498,6 +507,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                   : t,
               ),
             }));
+            if (event.name === "update_artifact" && event.ok) {
+              setArtifactUpdateEvent({ timestamp: Date.now() });
+            }
+          }
           if (event.type === "artifact_created") {
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
@@ -757,7 +770,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }
 
           navigate(`/chat/${targetId}`);
-          setPanel({ kind: "closed" });
+          setPanel((current) =>
+            current.kind === "artifact" && chatId ? current : { kind: "closed" },
+          );
           startTurn(targetId!, prompt, mode, files, artifact);
         } catch (error) {
           report(error, "The conversation could not be started.");
@@ -1040,6 +1055,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshArtifacts,
       edit,
       setEdit,
+      quote,
+      insertQuote,
+      artifactUpdateEvent,
     }),
     [
       chats,
@@ -1074,6 +1092,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshProjects,
       refreshArtifacts,
       edit,
+      quote,
+      insertQuote,
+      artifactUpdateEvent,
     ],
   );
 
