@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Content } from '@google/genai';
 
-import { CLEARED_TOOL_RESULT, resultsToClear } from './contextEditing.js';
+import { CLEARED_TOOL_RESULT, isSkillRead, resultsToClear } from './contextEditing.js';
 import { clearOldFunctionResponses } from './gemini.js';
 
-const policy = { triggerTokens: 100_000, keep: 3, batch: 5, excludeTools: ['load_skill'] };
+const policy = { triggerTokens: 100_000, keep: 3, batch: 5, keepResultOf: isSkillRead };
 
-const round = (name: string, i: number): Content[] => [
-  { role: 'model', parts: [{ functionCall: { id: `c${i}`, name, args: {} }, thoughtSignature: `sig${i}` }] },
+const round = (name: string, i: number, args: Record<string, unknown> = {}): Content[] => [
+  { role: 'model', parts: [{ functionCall: { id: `c${i}`, name, args }, thoughtSignature: `sig${i}` }] },
   { role: 'user', parts: [{ functionResponse: { id: `c${i}`, name, response: { output: `result ${i}` } } }] },
 ];
 
@@ -24,8 +24,9 @@ describe('resultsToClear', () => {
 describe('clearOldFunctionResponses', () => {
   it('replaces the oldest results with a placeholder and leaves calls, signatures and skills alone', () => {
     const contents = [
-      ...round('load_skill', 0),
-      ...Array.from({ length: 8 }, (_, i) => round('run_python', i + 1)).flat(),
+      ...round('view', 0, { path: '/skills/pdf-reading/SKILL.md' }),
+      ...round('view', 1, { path: 'input/a.csv' }),
+      ...Array.from({ length: 7 }, (_, i) => round('bash_tool', i + 2)).flat(),
     ];
     const edited = clearOldFunctionResponses(contents, policy);
     const outputs = edited
@@ -33,7 +34,7 @@ describe('clearOldFunctionResponses', () => {
       .filter((p) => p.functionResponse)
       .map((p) => (p.functionResponse!.response as { output: string }).output);
     expect(outputs).toEqual([
-      'result 0', // load_skill: excluded
+      'result 0', // a skill read: kept
       ...Array.from({ length: 5 }, () => CLEARED_TOOL_RESULT),
       'result 6',
       'result 7',

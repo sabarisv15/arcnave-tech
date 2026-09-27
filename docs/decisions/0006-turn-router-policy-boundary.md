@@ -6,6 +6,8 @@
 - Changes: the gating role `backend/src/services/routing/turnRouter.ts` plays today. Its header
   already says "the AI model evaluates the task first", but the code does not do that. No earlier
   ADR recorded the router's role, so none is superseded.
+- Amended by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): read_uploaded_file and generate_deliverable no longer exist.
+- Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): there is no discovery step; every allowed tool is declared, and search_tools and load_skill are removed.
 
 ## Context
 

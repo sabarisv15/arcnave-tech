@@ -648,6 +648,9 @@ const tokens = (value: number) => value.toLocaleString();
 
 const toolActivityLabels: Record<string, { running: string; complete: string }> = {
   run_python: { running: "Running a calculation", complete: "Calculation finished" },
+  bash_tool: { running: "Running a command", complete: "Command finished" },
+  present_files: { running: "Preparing files", complete: "Files ready" },
+  image_search: { running: "Finding images", complete: "Images found" },
   search_project_files: {
     running: "Searching project files",
     complete: "Project search finished",
@@ -965,10 +968,19 @@ function MessageView({
       {m.status === "generating" && m.visualDrafts?.map((d) => <VisualDraft key={d.id} draft={d} />)}
       {(() => {
         if (!m.toolCalls?.length) return null;
-        const { deliverables, images } = extractToolCardData(m.toolCalls);
-        if (!deliverables.length && !images.length) return null;
+        const { deliverables, images, webImages } = extractToolCardData(m.toolCalls);
+        if (!deliverables.length && !images.length && !webImages.length) return null;
         return (
           <div className="message-deliverable-tray">
+            {webImages.length > 0 && (
+              <div className="web-image-strip">
+                {webImages.map((img) => (
+                  <a key={img.imageUrl} href={img.sourceUrl} target="_blank" rel="noopener noreferrer" title={img.title}>
+                    <img src={img.thumbnailUrl} alt={img.title} loading="lazy" referrerPolicy="no-referrer" />
+                  </a>
+                ))}
+              </div>
+            )}
             {images.map((img) => (
               <ImageCard key={img.attachmentId} item={img} />
             ))}

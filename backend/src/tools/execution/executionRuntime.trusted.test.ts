@@ -20,6 +20,9 @@ class Recorder implements SandboxClient {
   }
 }
 
+/** A skill with a packaged script, so these tests do not depend on a shipped skill's files. */
+const SCRIPTED_ROOT = path.resolve(__dirname, '../../test/fixtures/skill-scripts');
+
 const all = { pythonAllowed: true, trustedCliAllowed: true, skillScriptAllowed: true };
 
 describe('trusted executor routing (ADR-0008)', () => {
@@ -38,10 +41,10 @@ describe('trusted executor routing (ADR-0008)', () => {
     expect([trusted.calls, sandbox.calls]).toEqual([1, 2]);
 
     const cfg = loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'postgres://x@localhost/x', COOKIE_SECRET: 'x'.repeat(32) });
-    const skills = new SkillService(path.resolve('.'), 'skills', buildCapabilityRegistry(cfg));
+    const skills = new SkillService(SCRIPTED_ROOT, 'skills', buildCapabilityRegistry(cfg));
     await skills.load();
     await runtime.withWorkspace(`trusted_${Date.now()}`, (ws) =>
-      runtime.runSkillScriptJson({ skill: 'pdf', resource: 'scripts/normalize_table_rows.py' }, { pages: [] }, ws, skills),
+      runtime.runSkillScriptJson({ skill: 'scripted', resource: 'scripts/echo_rows.py' }, { pages: [] }, ws, skills),
     );
     expect([trusted.calls, sandbox.calls]).toEqual([2, 2]);
   });
@@ -61,10 +64,10 @@ describe('trusted executor routing (ADR-0008)', () => {
     };
     const runtime = new ExecutionRuntime(undefined, undefined, all, failing);
     const cfg = loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'postgres://x@localhost/x', COOKIE_SECRET: 'x'.repeat(32) });
-    const skills = new SkillService(path.resolve('.'), 'skills', buildCapabilityRegistry(cfg));
+    const skills = new SkillService(SCRIPTED_ROOT, 'skills', buildCapabilityRegistry(cfg));
     await skills.load();
     const res = await runtime.withWorkspace(`trusted_fail_${Date.now()}`, (ws) =>
-      runtime.runSkillScriptJson({ skill: 'pdf', resource: 'scripts/normalize_table_rows.py' }, {}, ws, skills),
+      runtime.runSkillScriptJson({ skill: 'scripted', resource: 'scripts/echo_rows.py' }, {}, ws, skills),
     );
     expect(res).toMatchObject({ ok: false });
     expect((res as { error: string }).error).toContain('exit code 3');

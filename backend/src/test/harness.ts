@@ -161,7 +161,7 @@ export interface TestContext {
 function baseEnv(): Record<string, string> {
   return {
     NODE_ENV: 'test',
-    LOG_LEVEL: 'silent',
+    LOG_LEVEL: process.env.TEST_LOG_LEVEL ?? 'silent',
     DATABASE_URL: TEST_DATABASE_URL,
     GOOGLE_CLOUD_PROJECT: 'test-project',
     MODEL_GEMINI_FLASH: 'fake-flash',

@@ -1,10 +1,13 @@
 ---
 name: pdf-reading
-version: 1.0.0
+version: 3.0.0
 description: "Use whenever an answer depends on reading what is inside a PDF exactly: counting, totalling or listing every row or entry (bank statements, ledgers, invoices, registers, attendance sheets), extracting tables or text, reading scanned or photographed pages, or checking figures against the document. Also use it before converting a PDF's content into Excel, Word or PowerPoint. Not for creating, merging, splitting or rotating PDFs: use the pdf skill for those."
 category: analysis
 scope: builtin
 autoload: false
+requires:
+  tools:
+    - bash_tool
 metadata:
   source: arcnave
 ---
@@ -18,41 +21,47 @@ pages, text only (the attachment line says which). A summary, or a question one 
 passage answers, needs no tool call.
 
 A count, a total or a complete list is different: dense rows read from a page image can be
-skipped or merged without any sign of it. Get those rows into a tool result and compute the
-answer; do not estimate it in prose.
+skipped or merged without any sign of it. Get those rows into a file, check them against the
+document's own figures, and compute the answer; do not estimate it in prose.
 
-For a page or region you cannot read clearly (a figure, a small or faint value), open the file
-in `run_python` (it is in `input/`, path on its attachment line) and render a crop into `view/`:
+For a page or region you cannot read clearly (a figure, a small or faint value), render a crop
+of it with `bash_tool` (the file is in `input/`, path on its attachment line) and look at it
+with `view`:
 
 ```python
 import fitz  # pymupdf
 page = fitz.open("input/statement.pdf")[4]
-page.get_pixmap(dpi=250, clip=fitz.Rect(40, 300, 560, 420)).save("view/p5_rows.png")
+page.get_pixmap(dpi=250, clip=fitz.Rect(40, 300, 560, 420)).save("p5_rows.png")
 ```
+
+then `view` `p5_rows.png`.
 
 ## Choose the reading strategy by page type
 
-Check each page for a text layer first: `len(page.get_text().strip())` with pymupdf, or
-`inspectPdf` without run_python.
+Check each page for a text layer first: `len(page.get_text().strip())` with pymupdf.
 
 - **Text layer (a statement downloaded from net banking, an exported report):** extract with
-  `pdfplumber` in `run_python`: `page.extract_tables()`, or words by position when columns are
+  `pdfplumber` (a script run with `bash_tool`): `page.extract_tables()`, or words by position when columns are
   not ruled. This is exact; do not read these pages from the image.
-- **Scanned or photographed pages (no text layer):** call `extract_scanned_table_rows` with the
-  `fileId`. It renders every page, reads the rows, and re-reads low-confidence rows from a
-  high-resolution crop, in one call. If it is not among your tools yet, find it with
-  `search_tools`. Do not read scanned pages by eye a few at a time: each look costs a tool
-  step, a turn has a limited number, and Tesseract digits are unreliable on photographed pages.
+- **Scanned or photographed pages you can see (no text layer, 100 pages or fewer):** the page
+  images are already in front of you. Read every row from them in one pass, with no tool call
+  to look, and write the records into a file with `create_file`. Then run the checks below in
+  code. Only the rows a check flags need a second look: render those rows as a crop and
+  `view` it (above).
+- **Scanned pages you cannot see (past 100 pages, text only):** render the pages to PNG
+  with `bash_tool` and `view` them, a few at a time; use `pytesseract` only as a cross-check,
+  because its digits are unreliable on photographed pages.
 - **Mixed PDFs:** use each page's own strategy.
 
-Without run_python, `extract_scanned_table_rows` reads text-layer pages too.
+Do not look at pages you can already see through tool calls a few at a time: each look costs a
+tool step, and a turn has a limited number.
 
 ## Exact counts, totals and complete lists
 
 ```
 Progress:
 - [ ] 1. Page type for every page (above)
-- [ ] 2. Every record in a tool result or file, with named fields
+- [ ] 2. Every record in a file, with named fields
 - [ ] 3. Records checked against the document's own figures
 - [ ] 4. Answer computed from the checked records
 ```
@@ -68,16 +77,14 @@ is part of the row above it, not a new row. When one PDF holds several documents
 - printed totals, counts, and opening and closing balances;
 - arithmetic inside a row (qty × rate = amount).
 
-For an extraction, call `analyze_table_rows`: its `count`, `sum` and `running_balance`
-operations do these checks in code; pass a printed total or count as `expected` and the result
-reports the difference. A failed check means a record is wrong. Read that row again (call
-`extract_scanned_table_rows` with its `pages` and the same `extractionId`), then re-run the
-check. Do not change a number just to make a check pass.
+Run these checks in code over the records file, and compare with the document's printed
+figures. A failed check means a record is wrong: read that row again from a crop, correct the
+record, and re-run the check. Do not change a number just to make a check pass.
 
 **4. Answer.** Compute counts, sums and splits in code, never in prose. For a classification,
 apply written rules and keep anything they do not cover as `UNKNOWN`. Report which checks
-passed and anything that is unreconciled (with page and row), and the low-confidence rows and
-failed pages the extraction reported. Show at most about 50 rows in chat. When the user asks
+passed and anything that is unreconciled (with page and row), and any row you could not read
+clearly. Show at most about 50 rows in chat. When the user asks
 for the full list as a file, build it with the xlsx skill.
 
 ## Follow-up questions

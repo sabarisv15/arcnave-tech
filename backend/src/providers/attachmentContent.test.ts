@@ -64,7 +64,7 @@ describe.each([
     it(`${label}: names the fileId and sends no empty or binary content`, () => {
       const out = wire(att);
       expect(out).toContain(FILE_ID);
-      expect(out).toContain('read_uploaded_file');
+      expect(out).toContain('input/');
       expect(out).not.toContain('"data":""');
       expect(out).not.toContain('Empty or unreadable');
       expect(out).not.toContain(ZIP_BYTES);
@@ -112,7 +112,7 @@ describe('Office files are read with code when the turn has a sandbox (ADR-0045)
     for (const out of [claudeWire(att), geminiWire(att)]) {
       expect(out).not.toContain('A | 100');
       expect(out).not.toContain(ZIP_BYTES);
-      expect(out).toContain('run_python');
+      expect(out).toContain('input/');
       expect(out).toContain(FILE_ID);
     }
   });

@@ -12,16 +12,9 @@ import {
   UPDATE_ARTIFACT,
   SEARCH_PROJECT_FILES,
   READ_PROJECT_FILE,
-  READ_UPLOADED_FILE,
   WEB_SEARCH,
   WEB_FETCH,
-  LIST_SKILLS,
-  SEARCH_SKILLS,
-  READ_SKILL,
-  RUN_PYTHON,
-  GET_GOAL,
-  UPDATE_GOAL,
-  GET_CONTEXT_REMAINING,
+  codeToolDefinitions,
 } from '../tools/definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
@@ -41,7 +34,6 @@ const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
       UPDATE_ARTIFACT,
       SEARCH_PROJECT_FILES,
       READ_PROJECT_FILE,
-      READ_UPLOADED_FILE,
     ],
   },
   {
@@ -52,12 +44,9 @@ const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
       UPDATE_ARTIFACT,
       SEARCH_PROJECT_FILES,
       READ_PROJECT_FILE,
-      READ_UPLOADED_FILE,
       WEB_SEARCH,
       WEB_FETCH,
-      LIST_SKILLS,
-      SEARCH_SKILLS,
-      READ_SKILL,
+      
     ],
   },
   {
@@ -68,16 +57,9 @@ const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
       UPDATE_ARTIFACT,
       SEARCH_PROJECT_FILES,
       READ_PROJECT_FILE,
-      READ_UPLOADED_FILE,
       WEB_SEARCH,
       WEB_FETCH,
-      LIST_SKILLS,
-      SEARCH_SKILLS,
-      READ_SKILL,
-      RUN_PYTHON,
-      GET_GOAL,
-      UPDATE_GOAL,
-      GET_CONTEXT_REMAINING,
+      ...codeToolDefinitions(true),
     ],
   },
 ];

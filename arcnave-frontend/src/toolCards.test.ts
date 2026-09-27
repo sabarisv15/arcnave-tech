@@ -36,4 +36,28 @@ describe("extractToolCardData", () => {
     ]);
     expect(deliverables[0]!.downloadUrl).toBe("/v1/files/b-KVB_Masters.xml/download");
   });
+
+  it("shows image_search results from the web, and drops anything that is not a web address", () => {
+    const found = {
+      toolCallId: "i",
+      name: "image_search",
+      ok: true,
+      content: [
+        {
+          type: "json",
+          data: {
+            images: [
+              { title: "Temple", imageUrl: "https://a.example/t.jpg", thumbnailUrl: "https://a.example/t_s.jpg", sourceUrl: "https://a.example/page" },
+              { title: "Bad", imageUrl: "javascript:alert(1)", thumbnailUrl: "javascript:alert(1)", sourceUrl: "" },
+            ],
+          },
+        },
+      ],
+    } as unknown as ToolCall;
+    const { webImages, deliverables } = extractToolCardData([found]);
+    expect(deliverables).toEqual([]);
+    expect(webImages).toEqual([
+      { title: "Temple", imageUrl: "https://a.example/t.jpg", thumbnailUrl: "https://a.example/t_s.jpg", sourceUrl: "https://a.example/page" },
+    ]);
+  });
 });

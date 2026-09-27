@@ -1,5 +1,37 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): tools and skills match the reference one for one, on `claude/happy-maxwell-1h7hmx`, not live.**
+> [ADR-0047](../decisions/0047-tools-and-skills-match-the-reference.md), checked against the
+> Opus 5.5, Sonnet 5 and Fable 5.1 app prompts.
+> - The computer: `bash_tool`, `view`, `create_file`, `str_replace`, `present_files` replace
+>   `run_python`, on every sandbox engine. A file reaches the user only through `present_files`.
+> - Skills are read with `view /skills/<name>/SKILL.md`; `load_skill`, `read_skill`,
+>   `list_skills`, `search_skills` and `search_tools` are gone: every allowed tool is declared.
+>   New skills `file-reading` and `frontend-design` (replaces artifact-design). The manifest names
+>   no skill; the prompt says see what is in context first, then view skills before any code.
+> - Memory is files: six `memory_*` tools with version tokens; migration 0022 moves old topics
+>   to `/topics/<slug>.md`. Past chats: `conversation_search`, `read_conversation`, `recent_chats`.
+> - `image_search` (SerpAPI or Google CSE; says unavailable otherwise); `web_fetch` opens only
+>   URLs already in the conversation.
+> - Removed as ours: visual QA pass, analytics policy, regex memory distiller.
+> - Backend typecheck clean, **917/917 tests**; frontend build and **178/178 tests**.
+> - Not run: a live turn with Gemini on the new tools, and the KVB + Federal check
+>   (48 / 277 / 325). Both must pass before deployment, which needs the owner's approval.
+
+> **2026-09-27: tools and skills cut to the reference, on `claude/happy-maxwell-1h7hmx`, not live.**
+> [ADR-0046](../decisions/0046-tools-and-skills-cut-to-the-reference.md). Clean-up step only;
+> the plan and implementation come next.
+> - 21 tools removed (table extraction, generate_deliverable, read_uploaded_file, the 12
+>   per-format file tools, goal tools, suggest_next_actions, generate_image) with their
+>   executors and tests. Removed features, owner-confirmed: AgentLoop research path, image
+>   generation, follow-up chips. Research mode (grounded search) stays.
+> - 6 skills removed; docx, pdf, pptx, xlsx now build with run_python only; pdf-reading reads
+>   pages already in view in one pass and checks in code.
+> - Backend typecheck clean, **951/951 tests**; frontend build and **176/176 tests**.
+> - Not run: the live KVB + Federal check (48 / 277 / 325) with the active model; must pass
+>   before deployment. Next: bash / view / create_file / str_replace tools, file-reading
+>   skill, the prompt's order (see, then skill, then code).
+
 > **2026-09-27: PDF reading split and exact figures computed, on `claude/keen-goldberg-7fz0ia`, not live.**
 > [ADR-0044](../decisions/0044-pdf-reading-and-exact-figures.md). A live chat gave
 > 172 Federal entries for 277 after the pdf skill and `extract_scanned_table_rows` gave opposite

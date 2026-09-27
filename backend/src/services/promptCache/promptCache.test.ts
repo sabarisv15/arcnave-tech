@@ -143,17 +143,15 @@ describe('Prompt Caching Subsystem', () => {
   });
 
   describe('Tool policies follow the tools allowed this turn (Invariant 1)', () => {
-    it('includes the memory, UI and analytics policies only when their tool is allowed', () => {
+    it('includes the memory and UI policies only when their tool is allowed', () => {
       const none = buildStablePrefix([], []).systemText;
       expect(none).not.toContain('<memory_policy>');
       expect(none).not.toContain('GENERATIVE UI POLICY');
-      expect(none).not.toContain('DATA ANALYTICS POLICY');
-      const all = buildStablePrefix([{ name: 'render_ui', description: '', inputSchema: {} } as never], ['save_memory', 'render_ui', 'run_python']).systemText;
+      const all = buildStablePrefix([{ name: 'render_ui', description: '', inputSchema: {} } as never], ['memory_read', 'render_ui', 'bash_tool']).systemText;
       // Allowed but only discoverable: its "You have access" policy stays out.
       expect(buildStablePrefix([], ['render_ui']).systemText).not.toContain('GENERATIVE UI POLICY');
       expect(all).toContain('<memory_policy>');
       expect(all).toContain('GENERATIVE UI POLICY');
-      expect(all).toContain('DATA ANALYTICS POLICY');
     });
   });
 

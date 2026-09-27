@@ -15,7 +15,6 @@ import {
   UPDATE_ARTIFACT,
   SEARCH_PROJECT_FILES,
   READ_PROJECT_FILE,
-  READ_UPLOADED_FILE,
   WEB_SEARCH,
   WEB_FETCH,
 } from '../tools/definitions.js';
@@ -47,7 +46,6 @@ async function main() {
     UPDATE_ARTIFACT,
     SEARCH_PROJECT_FILES,
     READ_PROJECT_FILE,
-    READ_UPLOADED_FILE,
     WEB_SEARCH,
     WEB_FETCH,
   ];

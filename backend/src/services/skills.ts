@@ -7,7 +7,7 @@
  * - Strong frontmatter validation (Zod schema).
  * - Progressive disclosure: lightweight list & search summaries; lazy-loaded full bodies.
  * - Capability / Dependency checks: computes mode ('full' | 'guidance_only' | 'unavailable') based on active tools.
- * - Internal autoload skills (e.g. python-sandbox-patterns).
+ * - Internal autoload skills (`autoload: true` in frontmatter).
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';

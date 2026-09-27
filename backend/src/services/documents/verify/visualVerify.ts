@@ -6,8 +6,8 @@
  * 2. PPTX: Severe Text Clipping & Canvas Boundary Overflow (EMU coordinate boundary checks via OOXML inspection).
  * 3. PPTX/DOCX: Missing Media Placeholders (0-byte or corrupt image streams).
  *
- * NOTE: These are deterministic structural/style-property heuristics. Real rendered visual inspection
- * (page rasterization -> vision model inspection) is handled separately in `src/services/qa/visualQaEngine.ts`.
+ * NOTE: These are deterministic structural/style-property heuristics. Looking at the rendered pages
+ * is the model's own step: the file skills say to render them and view them (ADR-0047).
  */
 import JSZip from 'jszip';
 import type { ExportFormat, VerificationResult } from '../types.js';

@@ -168,6 +168,7 @@ export function deriveFollowUpSuggestion(
 ): string {
   const latestAssistant = history.at(-1);
   if (latestAssistant?.role !== "assistant" || latestAssistant.status !== "complete") return "";
+  // suggest_next_actions was removed (ADR-0046); only messages saved before carry it.
   const proposal = [...(latestAssistant?.toolCalls ?? [])].reverse().find((call) => call.name === "suggest_next_actions" && call.ok === true);
   if (proposal && proposal.input && typeof proposal.input === "object") {
     const composer = (proposal.input as Record<string, unknown>).composer;

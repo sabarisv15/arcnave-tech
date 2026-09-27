@@ -11,6 +11,7 @@
 - Date: 2026-09-25
 - See also: [docs/tools-skills-architecture.md](../tools-skills-architecture.md),
   [ADR-0010](0010-warm-sandbox-service.md) (the warm sandbox image)
+- Amended by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): six skills removed; the file skills build with run_python.
 
 ## Context
 

@@ -14,53 +14,22 @@ import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 
 describe('Capability Regression Suite', () => {
-  describe('1. 16-Tool Surface & Truthful Registry', () => {
-    it('accurately exposes all 16 tools with all gates enabled', () => {
-      const reg = new ProjectToolRegistry(true, true, true, true, true);
-      const tools = reg.getAvailableTools({
-        projectId: 'p1',
-        activeGoalId: 'g1',
-        allowPython: true,
-      });
-      expect(tools.length).toBe(17);
-      const names = tools.map((t: { name: string }) => t.name);
-
-      // Core CRUD
-      expect(names).toContain('create_artifact');
-      expect(names).toContain('read_artifact');
-      expect(names).toContain('update_artifact');
-
-      // Interactive options (ADR-0034)
-      expect(names).toContain('ask_user_options');
-
-      // Information access
-      expect(names).toContain('read_uploaded_file');
-      expect(names).toContain('web_search');
-      expect(names).toContain('web_fetch');
-      expect(names).toContain('search_project_files');
-      expect(names).toContain('read_project_file');
-
-      // Computation (general-chat decoupled)
-      expect(names).toContain('run_python');
-
-      // Agent loop goals
-      expect(names).toContain('get_goal');
-      expect(names).toContain('update_goal');
-      expect(names).toContain('get_context_remaining');
-
-      // Skills
-      expect(names).toContain('list_skills');
-      expect(names).toContain('search_skills');
-      expect(names).toContain('read_skill');
+  describe('1. Tool surface & truthful registry', () => {
+    it('exposes every tool its gates allow, and no discovery or skill tool', () => {
+      const reg = new ProjectToolRegistry(true, { codeEnabled: true, webEnabled: true });
+      const names = reg.getAvailableTools({ projectId: 'p1', allowCode: true }).map((t) => t.name);
+      for (const tool of ['create_artifact', 'ask_user_options', 'web_search', 'web_fetch', 'image_search', 'bash_tool', 'view', 'present_files', 'search_project_files']) {
+        expect(names).toContain(tool);
+      }
+      for (const gone of ['run_python', 'search_tools', 'load_skill', 'list_skills', 'search_skills', 'read_skill']) {
+        expect(names).not.toContain(gone);
+      }
     });
 
-    it('decouples run_python from project requirement while requiring per-turn authorization', () => {
-      const reg = new ProjectToolRegistry(true, true, false, false, false);
-      expect(reg.getAvailableTools({ projectId: null }).map((t) => t.name)).not.toContain(
-        'run_python',
-      );
-      const toolsWithoutProject = reg.getAvailableTools({ projectId: null, allowPython: true });
-      expect(toolsWithoutProject.map((t: { name: string }) => t.name)).toContain('run_python');
+    it('offers the computer without a project, but only with per-turn authorization', () => {
+      const reg = new ProjectToolRegistry(true, { codeEnabled: true });
+      expect(reg.getAvailableTools({ projectId: null }).map((t) => t.name)).not.toContain('bash_tool');
+      expect(reg.getAvailableTools({ projectId: null, allowCode: true }).map((t) => t.name)).toContain('bash_tool');
     });
   });
 
@@ -136,9 +105,8 @@ Please fill the details below.
 
       expect(prompt).toContain('ArcNave');
       expect(prompt).toContain('create_artifact');
-      expect(prompt).toContain('run_python');
-      expect(prompt).toContain('read_uploaded_file');
-      expect(prompt).toContain('list_skills');
+      expect(prompt).toContain('bash_tool');
+      expect(prompt).toContain('view the SKILL.md');
       // Web tool is disabled
       expect(prompt).not.toContain('web_search');
     });

@@ -21,24 +21,49 @@ export interface ImageData {
   aspectRatio?: string;
 }
 
+/** An image image_search found on the web: shown from its own site, linked to its page. */
+export interface WebImageData {
+  title: string;
+  imageUrl: string;
+  thumbnailUrl: string;
+  sourceUrl: string;
+}
+
+const httpUrl = (u: unknown): u is string => typeof u === "string" && /^https?:\/\//i.test(u);
+
 export function extractToolCardData(calls: ToolCall[]): {
   deliverables: DeliverableData[];
   images: ImageData[];
+  webImages: WebImageData[];
 } {
   const deliverables: DeliverableData[] = [];
   const images: ImageData[] = [];
+  const webImages: WebImageData[] = [];
 
   for (const c of calls) {
     if (c.ok && c.content) {
       for (const block of c.content) {
         if (block.type === "json" && block.data) {
           const data = block.data as Record<string, any>;
-          if (c.name === "generate_deliverable" && data.downloadUrl && data.filename) {
+          // generate_deliverable and generate_image were removed (ADR-0046); their calls stay in
+          // messages saved before, and those files must still download.
+          if (c.name === "image_search" && Array.isArray(data.images)) {
+            for (const img of data.images as Record<string, unknown>[]) {
+              // Only web addresses reach an <img> or a link: a result is data from outside.
+              if (!httpUrl(img.imageUrl) || !httpUrl(img.thumbnailUrl)) continue;
+              webImages.push({
+                title: typeof img.title === "string" ? img.title : "",
+                imageUrl: img.imageUrl,
+                thumbnailUrl: img.thumbnailUrl,
+                sourceUrl: httpUrl(img.sourceUrl) ? img.sourceUrl : img.imageUrl,
+              });
+            }
+          } else if (c.name === "generate_deliverable" && data.downloadUrl && data.filename) {
             deliverables.push(data as DeliverableData);
           } else if (c.name === "generate_image" && data.downloadUrl) {
             images.push(data as ImageData);
           } else {
-            // Files a tool wrote for the user (run_python's output/, a merged PDF, an edited
+            // Files a tool gave the user (present_files, or the older run_python's output/, a merged PDF, an edited
             // workbook) get the same card, so the answer text need not repeat their links.
             const files: unknown[] = [
               ...(Array.isArray(data.persistedFiles) ? data.persistedFiles : []),
@@ -71,5 +96,5 @@ export function extractToolCardData(calls: ToolCall[]): {
     latest.delete(d.filename);
     latest.set(d.filename, d);
   }
-  return { deliverables: [...latest.values()], images };
+  return { deliverables: [...latest.values()], images, webImages };
 }

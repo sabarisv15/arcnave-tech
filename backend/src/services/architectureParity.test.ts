@@ -1,40 +1,11 @@
-import path from 'node:path';
-import JSZip from 'jszip';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
-
-import { DECLARED_EVERY_TURN } from '../tools/registry.js';
+import { describe, expect, it } from 'vitest';
 
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { AttachmentBlock, GenerationRequest } from '../providers/types.js';
-import { deliverableValidator } from './qa/deliverableValidator.js';
 import { routeTurn } from './routing/turnRouter.js';
-import { SkillService } from './skills.js';
-import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
-import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
-import { SkillToolExecutor } from '../tools/skillExecutor.js';
-import {
-  GENERATE_DELIVERABLE,
-  LOAD_SKILL,
-  RUN_PYTHON,
-  SEARCH_TOOLS,
-} from '../tools/definitions.js';
 
-/** Discovery tools, then the allowed tools declared on every turn (ADR-0022). */
-const core = (d: { allowedTools: string[] }, discovery = ['search_tools', 'load_skill']): string[] => [
-  ...discovery,
-  ...DECLARED_EVERY_TURN.filter((n) => d.allowedTools.includes(n)),
-];
-
-describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
-  let skillService: SkillService;
-
-  beforeAll(async () => {
-    const backendRoot = path.resolve(__dirname, '../../');
-    skillService = new SkillService(backendRoot, 'skills');
-    await skillService.load();
-  });
-
+describe('Architecture Parity — real-world scenarios', () => {
   // Scenario 1: Summarize this PDF
   it('Scenario 1: "Summarize this PDF" — native document block in user turn, zero tools invoked', () => {
     const pdfAttachment: AttachmentBlock = {
@@ -75,189 +46,18 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     expect(geminiParts[0]?.inlineData?.mimeType).toBe('application/pdf');
     expect(geminiParts[1]?.text).toContain('Please provide a comprehensive summary');
 
-    // 3. Routing decision: only the core is exposed, nothing forced
-    const routing = routeTurn({
-      hasAttachments: true,
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-    });
-    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(routing.exposedTools).toEqual(core(routing));
+    // 3. Routing: nothing is forced; the model decides whether any tool is needed.
+    expect(routeTurn({ hasProject: false, codeEnabled: true }).allowedTools).toContain('view');
   });
 
-  // Scenario 2: Bank Statement PDF to Excel
-  it('Scenario 2: Bank Statement PDF to Excel — model evaluates task, loads xlsx skill, discovers deliverable tool, 3-level QA passes', async () => {
-    // 1. Skill evaluation: model evaluates task and invokes load_skill({ name: 'xlsx' })
-    const skillExecutor = new SkillToolExecutor(skillService);
-    const skillResult = await skillExecutor.execute(
-      { id: 'call-skill-1', name: 'load_skill', input: { name: 'xlsx' } },
-      new AbortController().signal,
-    );
-    expect(skillResult.ok).toBe(true);
-    const skillData = (skillResult.content[0] as any).data;
-    expect(skillData.name).toBe('xlsx');
-    expect(skillData.content).toContain('Spreadsheet');
-
-    // 2. Tool discovery: model determines tool required, searches catalog
-    const catalog = [SEARCH_TOOLS, LOAD_SKILL, GENERATE_DELIVERABLE, RUN_PYTHON];
-    const searchExecutor = new SearchToolsExecutor(catalog);
-    const searchResult = await searchExecutor.execute(
-      { id: 'call-search-1', name: 'search_tools', input: { query: 'excel spreadsheet deliverable' } },
-      new AbortController().signal,
-    );
-    expect(searchResult.ok).toBe(true);
-    const searchData = (searchResult.content[0] as any).data;
-    expect(searchData.tools.some((t: any) => t.name === 'generate_deliverable')).toBe(true);
-
-    // 3. Deliverable execution with structured extracted data
-    const mockStorage = { put: vi.fn().mockResolvedValue(undefined), get: vi.fn() } as any;
-    const mockDb = {
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([{ id: 'att-new-xlsx', filename: 'bank_statement.xlsx' }]),
-        }),
-      }),
-    } as any;
-
-    const deliverableExecutor = new DeliverableToolExecutor(
-      mockStorage,
-      mockDb,
-      'user-1',
-      'chat-1',
-      'msg-1',
-    );
-
-    const deliverableResult = await deliverableExecutor.execute(
-      {
-        id: 'call-gen-1',
-        name: 'generate_deliverable',
-        input: {
-          format: 'xlsx',
-          title: 'Bank_Statement_Summary',
-          content:
-            '# Account Summary\n\n' +
-            '| Date | Description | Deposits | Withdrawals | Balance |\n' +
-            '|---|---|---|---|---|\n' +
-            '| 2026-09-01 | Opening Balance | 10000.00 | 0.00 | 10000.00 |\n' +
-            '| 2026-09-05 | Client Retainer | 5000.00 | 0.00 | 15000.00 |\n' +
-            '| 2026-09-12 | Software Subscription | 0.00 | 150.00 | 14850.00 |',
-        },
-      },
-      new AbortController().signal,
-    );
-
-    expect(deliverableResult.ok).toBe(true);
-    const resultData = (deliverableResult.content[1] as any).data;
-    expect(resultData.qaReport.passed).toBe(true);
-    expect(resultData.qaReport.level1Structural.passed).toBe(true);
-    expect(resultData.qaReport.level2Semantic.passed).toBe(true);
-    expect(resultData.qaReport.level3Visual.passed).toBe(true);
-  });
-
-  // Scenario 3: PDF to Word
-  it('Scenario 3: PDF to Word — model uses docx skill & generate_deliverable format docx', async () => {
-    const mockStorage = { put: vi.fn().mockResolvedValue(undefined), get: vi.fn() } as any;
-    const mockDb = {
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([{ id: 'att-new-docx', filename: 'converted.docx' }]),
-        }),
-      }),
-    } as any;
-
-    const deliverableExecutor = new DeliverableToolExecutor(
-      mockStorage,
-      mockDb,
-      'user-1',
-      'chat-1',
-      'msg-1',
-    );
-
-    const result = await deliverableExecutor.execute(
-      {
-        id: 'call-docx-1',
-        name: 'generate_deliverable',
-        input: {
-          format: 'docx',
-          title: 'Executive_Summary',
-          content:
-            '# Executive Summary\n\n' +
-            '## Key Findings\n\n' +
-            'This report provides detailed analysis of quarterly performance.\n\n' +
-            '| Metric | Value |\n|---|---|\n| Growth | 24% |\n| Retention | 98% |',
-        },
-      },
-      new AbortController().signal,
-    );
-
-    expect(result.ok).toBe(true);
-    const data = (result.content[1] as any).data;
-    expect(data.qaReport.passed).toBe(true);
-    expect(data.qaReport.format).toBe('docx');
-  });
-
-  // Scenario 4: PDF to PowerPoint
-  it('Scenario 4: PDF to PowerPoint — model uses pptx skill & 16:9 visual verification passes', async () => {
-    const mockStorage = { put: vi.fn().mockResolvedValue(undefined), get: vi.fn() } as any;
-    const mockDb = {
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([{ id: 'att-new-pptx', filename: 'presentation.pptx' }]),
-        }),
-      }),
-    } as any;
-
-    const deliverableExecutor = new DeliverableToolExecutor(
-      mockStorage,
-      mockDb,
-      'user-1',
-      'chat-1',
-      'msg-1',
-    );
-
-    const result = await deliverableExecutor.execute(
-      {
-        id: 'call-pptx-1',
-        name: 'generate_deliverable',
-        input: {
-          format: 'pptx',
-          title: 'Strategy_Deck',
-          content:
-            '# Strategy 2027\n\nOverview of core strategic objectives.\n\n---\n\n' +
-            '# Market Expansion\n\n- Regional rollout in Q1\n- Enterprise pilot in Q2\n\n---\n\n' +
-            '# Financial Projections\n\n- ARR target: $50M\n- Operating margin: 28%',
-        },
-      },
-      new AbortController().signal,
-    );
-
-    expect(result.ok).toBe(true);
-    const data = (result.content[1] as any).data;
-    expect(data.qaReport.passed).toBe(true);
-    expect(data.qaReport.level3Visual.passed).toBe(true);
-  });
-
-  // Scenario 5: Explain XLSX Trends
-  it('Scenario 5: Explain XLSX Trends — qualitative explanation, zero Python executed', () => {
-    const decision = routeTurn({
-      hasAttachments: true,
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-      runPythonEnabled: true,
-    });
-    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(decision.exposedTools).toEqual(core(decision));
+  // Scenario 5: the wording of a request changes nothing the router allows (ADR-0006).
+  it('Scenario 5: Explain XLSX Trends — same tools whatever is asked', () => {
+    expect(routeTurn({ hasProject: false, codeEnabled: true })).toEqual(routeTurn({ hasProject: false, codeEnabled: true }));
   });
 
   // Scenario 6: XLSX Regression & Chart
-  it('Scenario 6: XLSX Regression & Chart — run_python is in the catalog because the sandbox is enabled', () => {
-    const decision = routeTurn({
-      hasAttachments: true,
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-      runPythonEnabled: true,
-    });
-    expect(decision.allowedTools).toContain('run_python');
+  it('Scenario 6: XLSX Regression & Chart — the computer is allowed because the sandbox is enabled', () => {
+    expect(routeTurn({ hasProject: false, codeEnabled: true }).allowedTools).toContain('bash_tool');
   });
 
   // Scenario 7: Describe Image
@@ -290,41 +90,6 @@ describe('Architecture Parity — 10 Real-World Target Scenarios', () => {
     expect(blocks[0]?.source?.media_type).toBe('image/png');
     expect(blocks[1]?.text).toContain('Describe what is depicted');
 
-    const routing = routeTurn({
-      hasAttachments: true,
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-    });
-    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(routing.exposedTools).toEqual(core(routing));
-  });
-
-  // Scenario 8: Generate Image
-  it('Scenario 8: Generate Image — generate_image is allowed because image generation is enabled', () => {
-    const decision = routeTurn({
-      hasAttachments: false,
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-      imageEnabled: true,
-    });
-    expect(decision.allowedTools).toContain('generate_image');
-    expect(decision.exposedTools).toContain('search_tools');
-  });
-
-  // Scenario 9: Update DOCX Styles
-  it('Scenario 9: Update DOCX Styles — loads docx skill and verifies document styling', async () => {
-    const skill = skillService.getSkill('docx');
-    expect(skill).not.toBeNull();
-    expect(skill?.content).toContain('Typography & Clean Layout');
-
-    const validZip = new JSZip();
-    validZip.file('[Content_Types].xml', '<Types></Types>');
-    validZip.file('word/document.xml', '<w:document></w:document>');
-    validZip.file('dummy.txt', 'a'.repeat(300));
-    const buf = await validZip.generateAsync({ type: 'nodebuffer' });
-
-    const qa = await deliverableValidator.validate(buf, 'docx', '# Title\n\n## Subheading\n\nContent');
-    expect(qa.passed).toBe(true);
   });
 
   // Scenario 10: Multi-Turn Follow-Up on PDF

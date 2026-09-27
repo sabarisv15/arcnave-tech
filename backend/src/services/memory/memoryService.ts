@@ -1,14 +1,10 @@
+import { createHash } from 'node:crypto';
+
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import { config } from '../../config.js';
 import { getDb } from '../../db/client.js';
 import { memoryItems, type MemoryItem } from '../../db/schema.js';
 import { checkPrivacy } from './privacy.js';
-import type {
-  CreateMemoryInput,
-  MemorySearchResult,
-  SearchMemoryFilter,
-  UpdateMemoryInput,
-} from './types.js';
+import type { CreateMemoryInput, UpdateMemoryInput } from './types.js';
 
 /** Letters and digits of a query, lower-cased and de-duplicated: safe to join into a tsquery. */
 export function searchWords(query: string): string[] {
@@ -21,6 +17,76 @@ export class MemoryConcurrencyError extends Error {
     super(`Memory concurrency conflict: expected version ${expectedVersion}, but current version is ${actualVersion}`);
     this.name = 'MemoryConcurrencyError';
   }
+}
+
+/** Memory files a listing returns at once; the rest page with cursor. */
+const MEMORY_LIST_LIMIT = 100;
+/** A memory file's size cap. */
+export const MEMORY_FILE_MAX_BYTES = 16 * 1024;
+const MEMORY_PATH = /^\/[A-Za-z0-9_\-./]{1,190}$/;
+
+export interface MemoryFileInfo {
+  path: string;
+  sizeBytes: number;
+  updatedAt: string;
+}
+
+export interface MemoryFile extends MemoryFileInfo {
+  content: string;
+  /** Opaque: a write passes it back to prove it saw this content. */
+  version: string;
+}
+
+export type MemoryWriteResult =
+  | { ok: true; file?: MemoryFile }
+  | { ok: false; error: string; current?: MemoryFile };
+
+/**
+ * A topic name given in settings or an import ("Writing style") as the file path the memory
+ * tools use (/topics/writing-style.md), the same way migration 0022 moved the ones saved before.
+ */
+export function toMemoryPath(key: string): string {
+  if (key.startsWith('/')) return key;
+  const slug = key.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 150);
+  return `/topics/${slug || 'note'}.md`;
+}
+
+/** A 12-character token for one version of one file. */
+export function versionToken(row: Pick<MemoryItem, 'id' | 'version'>): string {
+  return createHash('sha256').update(`${row.id}:${String(row.version)}`).digest('hex').slice(0, 12);
+}
+
+function toFile(row: MemoryItem): MemoryFile {
+  return {
+    path: row.key,
+    sizeBytes: Buffer.byteLength(row.content, 'utf8'),
+    updatedAt: row.updatedAt.toISOString(),
+    content: row.content,
+    version: versionToken(row),
+  };
+}
+
+/** The frontmatter's description line, or the first content line. */
+export function fileDescription(content: string): string {
+  const fm = /^---\n([\s\S]*?)\n---/.exec(content);
+  const desc = fm ? /^description:\s*(.+)$/m.exec(fm[1]!)?.[1] : undefined;
+  if (desc) return desc.trim().slice(0, 200);
+  const body = fm ? content.slice(fm[0].length) : content;
+  return (body.split('\n').find((l) => l.trim() !== '') ?? '').trim().slice(0, 200);
+}
+
+/** Why a path or content cannot be stored, or null. */
+function checkFile(path: string, content: string): string | null {
+  if (!MEMORY_PATH.test(path) || path.includes('..') || path.endsWith('/')) {
+    return 'A memory path starts with / and uses letters, digits, - _ . and /, e.g. /topics/work.md.';
+  }
+  if (content.trim() === '') return 'Empty content is not stored.';
+  if (Buffer.byteLength(content, 'utf8') > MEMORY_FILE_MAX_BYTES) {
+    return `A memory file is at most ${String(MEMORY_FILE_MAX_BYTES)} bytes: condense it.`;
+  }
+  const secret = checkPrivacy(content);
+  if (secret.hasSecret) return `Memory never stores secrets or credentials: ${secret.violations.join(', ')}.`;
+  return null;
 }
 
 export class MemoryService {
@@ -38,6 +104,7 @@ export class MemoryService {
       throw new Error(`Memory key cannot contain sensitive secrets: ${keyCheck.violations.join(', ')}`);
     }
 
+    input = { ...input, key: toMemoryPath(input.key) };
     const db = getDb();
     const scope = input.scope ?? 'global';
     const projectId = scope === 'project' ? (input.projectId ?? null) : null;
@@ -146,7 +213,7 @@ export class MemoryService {
     const patch: Partial<typeof memoryItems.$inferInsert> = {
       updatedAt: new Date(),
     };
-    if (updates.key !== undefined) patch.key = updates.key;
+    if (updates.key !== undefined) patch.key = toMemoryPath(updates.key);
     if (updates.content !== undefined) patch.content = updates.content;
     if (updates.summary !== undefined) patch.summary = updates.summary;
     if (updates.kind !== undefined) patch.kind = updates.kind;
@@ -201,236 +268,183 @@ export class MemoryService {
     return deleted.length > 0;
   }
 
-  /**
-   * Full-text search over key, summary and content, any word matching, ranked by ts_rank_cd.
-   * Falls back to ILIKE on each word when full-text search finds nothing.
-   */
-  async searchMemory(userId: string, filter: SearchMemoryFilter): Promise<MemorySearchResult[]> {
-    const db = getDb();
-    const limit = filter.limit ?? 10;
-    const words = searchWords(filter.query);
-    if (words.length === 0) return [];
-    // Any word may match, ranked by how many do: websearch_to_tsquery would AND every word, so
-    // a memory about "KVB" never matched "how many entries in kvb and federal".
-    const cleanQuery = words.join(' | ');
+  /* ------------------------------------------------------------ Memory as files (ADR-0047) */
 
-    // Scope conditions
-    const scopeConditions = [eq(memoryItems.userId, userId)];
-    if (filter.scope === 'global') {
-      scopeConditions.push(eq(memoryItems.scope, 'global'));
-    } else if (filter.scope === 'project' && filter.projectId) {
-      scopeConditions.push(
-        and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, filter.projectId))!,
-      );
-    } else if (filter.projectId) {
-      scopeConditions.push(
-        or(
-          eq(memoryItems.scope, 'global'),
-          and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, filter.projectId)),
-        )!,
-      );
-    } else {
-      scopeConditions.push(eq(memoryItems.scope, 'global'));
-    }
-
-    if (filter.kind) {
-      scopeConditions.push(eq(memoryItems.kind, filter.kind));
-    }
-
-    // 1. Full-text search with ts_rank_cd
-    const ftsQuery = sql`
-      SELECT ${memoryItems.id} as id,
-             ${memoryItems.key} as key,
-             ${memoryItems.content} as content,
-             ${memoryItems.summary} as summary,
-             ${memoryItems.scope} as scope,
-             ${memoryItems.kind} as kind,
-             ${memoryItems.isStanding} as "isStanding",
-             ${memoryItems.version} as version,
-             ${memoryItems.updatedAt} as "updatedAt",
-             ts_rank_cd(
-               to_tsvector('simple', coalesce(${memoryItems.key}, '') || ' ' || coalesce(${memoryItems.summary}, '') || ' ' || coalesce(${memoryItems.content}, '')),
-               to_tsquery('simple', ${cleanQuery})
-             ) as score
-      FROM ${memoryItems}
-      WHERE ${and(...scopeConditions)}
-        AND to_tsvector('simple', coalesce(${memoryItems.key}, '') || ' ' || coalesce(${memoryItems.summary}, '') || ' ' || coalesce(${memoryItems.content}, '')) @@ to_tsquery('simple', ${cleanQuery})
-      ORDER BY score DESC, ${memoryItems.updatedAt} DESC
-      LIMIT ${limit}
-    `;
-
-    try {
-      const ftsResults = (await db.execute(ftsQuery)) as unknown as Array<{
-        id: string;
-        key: string;
-        content: string;
-        summary: string;
-        scope: 'global' | 'project';
-        kind: 'preference' | 'workflow' | 'fact' | 'constraint';
-        isStanding: boolean;
-        version: number;
-        updatedAt: string | Date;
-        score: number;
-      }>;
-
-      if (ftsResults.length > 0) {
-        return ftsResults.map((r) => ({
-          ...r,
-          updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : r.updatedAt.toISOString(),
-          score: Number(r.score) || 1.0,
-        }));
-      }
-    } catch {
-      // If FTS expression parsing errors on edge-case syntax, gracefully fallback to ILIKE
-    }
-
-    // 2. Fallback to ILIKE match on any word, for text the tokenizer splits differently.
-    const likePatterns = words.map((w) => `%${w}%`);
-    const fallbackQuery = sql`
-      SELECT ${memoryItems.id} as id,
-             ${memoryItems.key} as key,
-             ${memoryItems.content} as content,
-             ${memoryItems.summary} as summary,
-             ${memoryItems.scope} as scope,
-             ${memoryItems.kind} as kind,
-             ${memoryItems.isStanding} as "isStanding",
-             ${memoryItems.version} as version,
-             ${memoryItems.updatedAt} as "updatedAt",
-             0.5 as score
-      FROM ${memoryItems}
-      WHERE ${and(...scopeConditions)}
-        AND (${sql.join(
-          likePatterns.map(
-            (p) =>
-              sql`${memoryItems.key} ILIKE ${p} OR ${memoryItems.summary} ILIKE ${p} OR ${memoryItems.content} ILIKE ${p}`,
-          ),
-          sql` OR `,
-        )})
-      ORDER BY ${memoryItems.updatedAt} DESC
-      LIMIT ${limit}
-    `;
-
-    const fallbackResults = (await db.execute(fallbackQuery)) as unknown as Array<{
-      id: string;
-      key: string;
-      content: string;
-      summary: string;
-      scope: 'global' | 'project';
-      kind: 'preference' | 'workflow' | 'fact' | 'constraint';
-      isStanding: boolean;
-      version: number;
-      updatedAt: string | Date;
-      score: number;
-    }>;
-
-    return fallbackResults.map((r) => ({
-      ...r,
-      updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : r.updatedAt.toISOString(),
-      score: Number(r.score) || 0.5,
-    }));
+  /** The store a chat reads and writes: the project's own inside a project, the user's otherwise. */
+  private storeWhere(userId: string, projectId: string | null) {
+    return and(
+      eq(memoryItems.userId, userId),
+      projectId
+        ? and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, projectId))!
+        : eq(memoryItems.scope, 'global'),
+    )!;
   }
 
-  /**
-   * The topic a user means by name, case-insensitively: the current project's first, then global.
-   */
-  async findByTopic(userId: string, topic: string, projectId: string | null): Promise<MemoryItem | null> {
-    const db = getDb();
-    const rows = await db
+  private async fileRow(userId: string, projectId: string | null, path: string): Promise<MemoryItem | null> {
+    const rows = await getDb()
       .select()
       .from(memoryItems)
-      .where(
-        and(
-          eq(memoryItems.userId, userId),
-          sql`lower(${memoryItems.key}) = lower(${topic.trim()})`,
-          projectId
-            ? or(eq(memoryItems.scope, 'global'), and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, projectId)))!
-            : eq(memoryItems.scope, 'global'),
-        ),
-      );
-    return rows.find((r) => r.scope === 'project') ?? rows[0] ?? null;
+      .where(and(this.storeWhere(userId, projectId), eq(memoryItems.key, path)))
+      .limit(1);
+    return rows[0] ?? null;
   }
 
-  /**
-   * Everything remembered for this user, as the conversation starts from it: global topics, and
-   * the project's own inside a project (a separate memory per project). Standing
-   * items first, then most recently updated, within `maxChars`. What does not fit stays
-   * reachable through search_memory; `omitted` says how many.
-   */
-  async getMemoryContext(
+  /** Files in the store, by path, from `cursor` on. */
+  async listFiles(
     userId: string,
     projectId: string | null,
-    maxChars: number,
-  ): Promise<{ text: string; included: number; omitted: number }> {
-    const db = getDb();
-    const items = await db
+    options: { pathPrefix?: string; cursor?: string; limit?: number } = {},
+  ): Promise<{ files: Array<MemoryFileInfo & { description: string }>; nextCursor: string | null }> {
+    const limit = options.limit ?? MEMORY_LIST_LIMIT;
+    const rows = await getDb()
       .select()
       .from(memoryItems)
       .where(
         and(
-          eq(memoryItems.userId, userId),
-          projectId
-            ? or(eq(memoryItems.scope, 'global'), and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, projectId)))!
-            : eq(memoryItems.scope, 'global'),
+          this.storeWhere(userId, projectId),
+          options.pathPrefix ? sql`starts_with(${memoryItems.key}, ${options.pathPrefix})` : sql`TRUE`,
+          options.cursor ? sql`${memoryItems.key} > ${options.cursor}` : sql`TRUE`,
         ),
       )
-      .orderBy(desc(memoryItems.isStanding), desc(memoryItems.updatedAt));
-    const lines: string[] = [];
-    let used = 0;
-    for (const item of items) {
-      const line = `- ${item.key}${item.scope === 'project' ? ' (this project)' : ''}: ${item.content}`;
-      if (used + line.length + 1 > maxChars) break;
-      lines.push(line);
-      used += line.length + 1;
-    }
-    return { text: lines.join('\n'), included: lines.length, omitted: items.length - lines.length };
+      .orderBy(memoryItems.key)
+      .limit(limit + 1);
+    const files = rows.slice(0, limit).map((r) => ({
+      path: r.key,
+      sizeBytes: Buffer.byteLength(r.content, 'utf8'),
+      updatedAt: r.updatedAt.toISOString(),
+      description: fileDescription(r.content),
+    }));
+    return { files, nextCursor: rows.length > limit ? files[files.length - 1]!.path : null };
+  }
+
+  async readFile(userId: string, projectId: string | null, path: string): Promise<MemoryFile | null> {
+    const row = await this.fileRow(userId, projectId, path);
+    return row ? toFile(row) : null;
   }
 
   /**
-   * Retrieves standing memories formatted as concise bullets, capped at MEMORY_STANDING_MAX_CHARS.
+   * Writes a whole file against the version last read ('new' for a file not there yet). A
+   * conflict returns the current file, so the model can merge and retry in the same turn.
    */
-  async getStandingMemories(userId: string, projectId?: string | null): Promise<string> {
-    const db = getDb();
-    const cfg = config();
-    const maxChars = cfg.MEMORY_STANDING_MAX_CHARS ?? 2000;
-
-    const conditions = [
-      eq(memoryItems.userId, userId),
-      eq(memoryItems.isStanding, true),
-    ];
-
-    if (projectId) {
-      conditions.push(
-        or(
-          eq(memoryItems.scope, 'global'),
-          and(eq(memoryItems.scope, 'project'), eq(memoryItems.projectId, projectId)),
-        )!,
-      );
-    } else {
-      conditions.push(eq(memoryItems.scope, 'global'));
+  async writeFile(
+    userId: string,
+    projectId: string | null,
+    path: string,
+    content: string,
+    ifVersion: string,
+  ): Promise<MemoryWriteResult> {
+    const problem = checkFile(path, content);
+    if (problem) return { ok: false, error: problem };
+    const current = await this.fileRow(userId, projectId, path);
+    if (ifVersion === 'new') {
+      if (current) {
+        return { ok: false, error: `${path} already exists: read it and pass its version.`, current: toFile(current) };
+      }
+      try {
+        const [row] = await getDb()
+          .insert(memoryItems)
+          .values({
+            userId,
+            scope: projectId ? 'project' : 'global',
+            projectId,
+            key: path,
+            content,
+            summary: fileDescription(content),
+            sourceType: 'user_statement',
+            version: 1,
+          })
+          .returning();
+        return { ok: true, file: toFile(row!) };
+      } catch (err) {
+        const code = (err as { code?: string; cause?: { code?: string } }).code ?? (err as { cause?: { code?: string } }).cause?.code;
+        if (code !== '23505') throw err;
+        const now = await this.fileRow(userId, projectId, path);
+        return { ok: false, error: `${path} was just created elsewhere: read it and retry.`, ...(now ? { current: toFile(now) } : {}) };
+      }
     }
+    if (!current) return { ok: false, error: `${path} does not exist: pass new to create it.` };
+    if (versionToken(current) !== ifVersion) {
+      return { ok: false, error: `${path} has changed since that version.`, current: toFile(current) };
+    }
+    // The version in the WHERE makes a concurrent write lose instead of overwrite (a transaction is not a lock).
+    const [row] = await getDb()
+      .update(memoryItems)
+      .set({ content, summary: fileDescription(content), version: current.version + 1, updatedAt: new Date() })
+      .where(and(eq(memoryItems.id, current.id), eq(memoryItems.version, current.version)))
+      .returning();
+    if (!row) {
+      const now = await this.fileRow(userId, projectId, path);
+      return { ok: false, error: `${path} has changed since that version.`, ...(now ? { current: toFile(now) } : {}) };
+    }
+    return { ok: true, file: toFile(row) };
+  }
 
-    const items = await db
+  async appendFile(userId: string, projectId: string | null, path: string, text: string, ifVersion: string) {
+    if (ifVersion === 'new') return this.writeFile(userId, projectId, path, text, 'new');
+    const current = await this.fileRow(userId, projectId, path);
+    if (!current) return { ok: false as const, error: `${path} does not exist: pass new to create it.` };
+    const joined = current.content.endsWith('\n') ? current.content + text : `${current.content}\n${text}`;
+    return this.writeFile(userId, projectId, path, joined, ifVersion);
+  }
+
+  async strReplaceFile(
+    userId: string,
+    projectId: string | null,
+    path: string,
+    oldStr: string,
+    newStr: string,
+    ifVersion: string,
+  ): Promise<MemoryWriteResult> {
+    const current = await this.fileRow(userId, projectId, path);
+    if (!current) return { ok: false, error: `${path} does not exist.` };
+    const count = current.content.split(oldStr).length - 1;
+    if (count !== 1) {
+      return {
+        ok: false,
+        error: count === 0 ? `old_str was not found in ${path}.` : `old_str occurs ${String(count)} times in ${path}; make it unique.`,
+        current: toFile(current),
+      };
+    }
+    return this.writeFile(userId, projectId, path, current.content.replace(oldStr, () => newStr), ifVersion);
+  }
+
+  async deleteFile(userId: string, projectId: string | null, path: string, ifVersion: string): Promise<MemoryWriteResult> {
+    const current = await this.fileRow(userId, projectId, path);
+    if (!current) return { ok: false, error: `${path} does not exist.` };
+    if (versionToken(current) !== ifVersion) {
+      return { ok: false, error: `${path} has changed since that version.`, current: toFile(current) };
+    }
+    const deleted = await getDb()
+      .delete(memoryItems)
+      .where(and(eq(memoryItems.id, current.id), eq(memoryItems.version, current.version)))
+      .returning({ id: memoryItems.id });
+    if (deleted.length === 0) return { ok: false, error: `${path} has changed since that version.` };
+    return { ok: true };
+  }
+
+  /**
+   * What a conversation starts from: the listing of every file, and /profile.md and
+   * /preferences.md in full. The same text from turn to turn, so it keeps the prompt cache.
+   */
+  async memoryPrompt(userId: string, projectId: string | null, maxChars: number): Promise<string> {
+    const rows = await getDb()
       .select()
       .from(memoryItems)
-      .where(and(...conditions))
-      .orderBy(desc(memoryItems.updatedAt))
-      .limit(30);
-
-    if (items.length === 0) return '';
-
-    const lines: string[] = [];
-    let currentLength = 0;
-
-    for (const item of items) {
-      const line = `- ${item.key}: ${item.content}`;
-      if (currentLength + line.length + 1 > maxChars) {
-        break;
-      }
-      lines.push(line);
-      currentLength += line.length + 1;
-    }
-
-    return lines.join('\n');
+      .where(this.storeWhere(userId, projectId))
+      .orderBy(memoryItems.key);
+    const byPath = new Map(rows.map((r) => [r.key, r]));
+    const lines = rows.map((r) => {
+      const d = fileDescription(r.content);
+      return `${r.key}${d ? ` — ${d}` : ''}`;
+    });
+    let listing = lines.join('\n');
+    if (listing.length > maxChars) listing = `${listing.slice(0, maxChars)}\n(more files: memory_list shows them)`;
+    const parts = [`<memory_listing>\n${listing || '(empty)'}\n</memory_listing>`];
+    const profile = byPath.get('/profile.md');
+    parts.push(`<profile>\n${profile ? profile.content.slice(0, maxChars) : '(not yet written)'}\n</profile>`);
+    const preferences = byPath.get('/preferences.md');
+    if (preferences) parts.push(`<preferences>\n${preferences.content.slice(0, maxChars)}\n</preferences>`);
+    return parts.join('\n');
   }
 
   /**

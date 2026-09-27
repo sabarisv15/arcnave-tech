@@ -3,6 +3,7 @@
 - Status: accepted by the user's 2026-09-27 instructions to implement and integrate these fixes.
 - Amends ADR-0032 (reply language), ADR-0022 (initial tools), and ADR-0035 (visual persistence).
 - Base: latest main `94deb57`. Retains ADR-0035/0036/0037 sandbox, theme and visual draft design.
+- Amended by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): the `suggest_next_actions` tool and follow-up chips are removed.
 
 ## Decision
 

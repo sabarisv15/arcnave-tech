@@ -20,6 +20,15 @@ describe("tool activity copy", () => {
     expect(summariseToolCalls([call("web_search", true), call("web_search", true)])).toBe("Searched the web");
   });
 
+  it("reads a view of a skill as reading a skill, and the computer's tools plainly", () => {
+    const skill: ToolCall = { toolCallId: "v", name: "view", input: { path: "/skills/pdf/SKILL.md" }, ok: true };
+    const file: ToolCall = { toolCallId: "f", name: "view", input: { path: "input/a.csv" }, ok: true };
+    expect(toolStepLabel(skill)).toBe("Read skill");
+    expect(
+      summariseToolCalls([skill, call("bash_tool", true), call("bash_tool", true), file, call("present_files", true)]),
+    ).toBe("Read a skill, ran 2 commands, viewed a file, shared files");
+  });
+
   it("names the step by its state", () => {
     expect(toolStepLabel(call("run_python"))).toBe("Running command");
     expect(toolStepLabel(call("run_python", true))).toBe("Ran command");

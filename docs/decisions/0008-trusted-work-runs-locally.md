@@ -5,6 +5,7 @@
 - Amends: [ADR-0005](0005-cloud-run-sandbox.md) and G20 in the tools pipeline plan, where the
   one Cloud Run sandbox ran trusted CLIs and skill scripts as well as `run_python`. ADR-0007
   (no general egress for the sandbox) is unchanged.
+- Amended by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): `extract_scanned_table_rows` and the pdf table scripts are removed; the trusted executor has no shipped script to run.
 
 ## Context
 

@@ -1235,3 +1235,23 @@ practice, not canon.
   reads those types from the file with code. Rule: a skill's claim about how a file reaches the
   model must match the pipeline; check `attachmentContent.ts` before writing one. Verify:
   `officeReadWithCode.integration.test.ts` (ADR-0045).
+- **2026-09-27 (tool clean-up, ADR-0046)** — No new heading (at the cap). Rewriting the pdf
+  skill to build files with code, I first named `reportlab` and `qpdf` because the reference's
+  pdf skill uses them; the sandbox image (`sandbox/Dockerfile.service`) has neither, so the
+  model would have been sent to libraries that are not there. The check only covered libraries
+  listed in `skillContent.test.ts`. Rule: every library or CLI a skill names is checked against
+  the sandbox image before it is written, and added to that test's `LIBRARIES` so a later
+  mention fails when the image lacks it. Verify: `npx vitest run src/services/skillContent.test.ts`
+  fails if a skill names `reportlab` or `qpdf`.
+- **2026-09-27 (computer tools, ADR-0047)** — No new heading (at the cap). Three found here.
+  (1) I told the user the reference has one memory tool (`memory_user_edits`, from the Sonnet 5
+  capture); the newer Opus 5.5 and Fable 5.1 captures have six `memory_*` file tools. Rule: when
+  captures differ, read the newest ones before stating the reference's tool list, and say which
+  capture a claim comes from. (2) Python source written inside a TypeScript template literal:
+  `'\n'` in TS becomes a real newline in the Python, a syntax error the typecheck cannot see.
+  Rule: write `\\n`/`\\t` for Python escapes in a template literal, and run the program on the
+  process engine in a test. Verify: `codeExecutionExecutor.test.ts` "view numbers a text file"
+  fails without the double escape. (3) I gated the memory prompt on the router's allowed tools;
+  the router does not know `ENABLE_TOOL_USE`, so with tool use off it still queried memory
+  (13 chat tests failed with CONNECTION_ENDED). Rule: gate prompt text on the tools actually
+  declared on the request. Verify: `chats.integration.test.ts` passes whole, not only one test.

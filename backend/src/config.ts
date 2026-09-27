@@ -187,9 +187,6 @@ const envSchema = z.object({
   /** G20: packaged `.py` scripts shipped inside skills (`backend/skills/<skill>/scripts/`),
    *  independent of ENABLE_RUN_PYTHON. Model-written code never runs through this grant. */
   ENABLE_SKILL_SCRIPTS: bool(false),
-  /** Pages one extract_scanned_table_rows call reads. Larger PDFs are extracted in chunks the
-   *  model asks for, accumulating under one extractionId. */
-  TABLE_EXTRACTION_MAX_PAGES: int(30),
   /** Where trusted work runs: poppler CLIs (pdftoppm, pdfinfo, pdftotext) and packaged skill
    *  scripts. 'local' runs them as a sanitized child process of the backend (ADR-0008): they are
    *  repository code, and a cold Cloud Run Job per call made one extraction take minutes.
@@ -250,27 +247,11 @@ const envSchema = z.object({
    *  abandoned while it's genuinely in flight. */
   SANDBOX_CLAIM_LEASE_BUFFER_MS: int(30_000),
 
-  // --- Agent Loop & Goals (Item 10) ---------------------------------------
-  /** Master gate for the autonomous multi-step agent loop and goal bookkeeping tools. */
-  ENABLE_AGENT_LOOP: bool(false),
-  /** Default token budget allocated to an autonomous agent goal. */
-  GOAL_DEFAULT_TOKEN_BUDGET: int(100_000),
-  /** Maximum number of autonomous turns / steps executed in one agent run before stopping. */
-  AGENT_MAX_STEPS: int(12),
-  /** Maximum total tool calls executed across an entire agent run before stopping. */
-  AGENT_MAX_TOOL_CALLS: int(30),
-  /** Maximum wall-clock time in milliseconds allowed for an autonomous agent loop run. */
-  AGENT_LOOP_TIMEOUT_MS: int(120_000),
-
   // --- Skills System (Item 11) -------------------------------------------
   /** Master gate for the skills registry, progressive disclosure, and skill tools. */
   ENABLE_SKILLS: bool(true),
   /** Directory path containing ArcNave production SKILL.md bundles (relative to backend root). */
   SKILLS_DIR: z.string().default('skills'),
-  /** Maximum number of distinct skills that can be loaded in one step. */
-  MAX_LOADED_SKILLS_PER_STEP: int(3),
-  /** Maximum character/token budget allocated to injected skill instructions in context. */
-  MAX_SKILL_CONTEXT_TOKENS: int(12_000),
 
   // --- Artifacts ----------------------------------------------------------
   /** Maximum bytes of content allowed in a model-generated artifact (create/update). */
@@ -283,9 +264,7 @@ const envSchema = z.object({
   /** Persistent memory (memory_items). On by default (ADR-0025). */
   ENABLE_MEMORY: bool(true),
   /** Background conservative distillation of durable user-stated facts. */
-  ENABLE_MEMORY_BACKGROUND_DISTILL: bool(false),
   /** Maximum total characters allocated to standing context memories. */
-  MEMORY_STANDING_MAX_CHARS: int(2000),
   /** Characters of memory topics a conversation starts with; the rest stay searchable. */
   MEMORY_CONTEXT_MAX_CHARS: int(8000),
 
@@ -302,8 +281,6 @@ const envSchema = z.object({
   // --- Phase 6: Generative UI & Phase 7: Analytics ------------------------
   /** Master gate for structured Generative UI (render_ui tool). */
   ENABLE_GENERATIVE_UI: bool(true),
-  /** Master gate for image generation and editing via Gemini Image hierarchy. */
-  ENABLE_IMAGE_GENERATION: bool(true),
   /** Maximum bytes for a validated Generative UI response payload. */
   UI_MAX_RESPONSE_BYTES: int(100_000),
 
