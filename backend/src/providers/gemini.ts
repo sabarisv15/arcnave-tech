@@ -405,18 +405,24 @@ export class GeminiProvider implements Provider {
           this.cfg.GEMINI_STREAM_TOOL_ARGS &&
           !this.wholeCallModels.has(request.providerModelId) &&
           toolDefs.some((t) => t.name === 'render_ui');
-        const open = (forceAnswer: boolean, stream: boolean) => this.getClient().models.generateContentStream({
+        // `dropTools` leaves the whole `tools` field off the request, unlike `forceAnswer`
+        // (toolConfig mode NONE), which still declares the functions. When Vertex rejects
+        // toolConfig on the final round, retrying with functions still declared lets the model
+        // call one anyway; that call is never run (a round past the limit), so the turn ends
+        // with no answer ("Answer cut off"). Dropping the declarations is the only way left to
+        // force a text answer.
+        const open = (forceAnswer: boolean, stream: boolean, dropTools = false) => this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
           config: {
             ...(systemInstruction ? { systemInstruction } : {}),
             maxOutputTokens: request.maxOutputTokens,
-            ...(grounded || codeExecution || useTools
+            ...(grounded || codeExecution || (useTools && !dropTools)
               ? {
                   tools: [
                     ...(grounded ? [{ googleSearch: {} }] : []),
                     ...(codeExecution ? [{ codeExecution: {} }] : []),
-                    ...(useTools
+                    ...(useTools && !dropTools
                       ? [{ functionDeclarations: toolDefs.map(toGeminiFunctionDeclaration) }]
                       : []),
                   ],
@@ -453,9 +459,9 @@ export class GeminiProvider implements Provider {
             this.wholeCallModels.add(request.providerModelId);
             log.warn({ err: String(err), model: request.providerModelId }, 'streamed function-call arguments were rejected; using whole calls for this model');
           } else {
-            log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
+            log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying with tools dropped to force an answer');
           }
-          stream = await open(false, false);
+          stream = await open(false, false, finalToolRound);
         }
 
         let roundText = '';
