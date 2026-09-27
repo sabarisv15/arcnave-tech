@@ -223,7 +223,7 @@ export default function ToolActivity({
 }
 
 /**
- * The line a thought summary shows when folded, as Claude shows one line per stretch of
+ * The line a thought summary shows when folded, one line per stretch of
  * thinking: its latest "**Heading**", else its first sentence.
  */
 export function thoughtHeadline(text: string): string {
@@ -250,12 +250,12 @@ function ThoughtText({ text }: { text: string }) {
 }
 
 /**
- * One stretch of the model's thinking, as Claude shows it: a single line naming what it is
+ * One stretch of the model's thinking: a single line naming what it is
  * thinking about (live while it thinks), which opens to the full summary.
  */
 export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
-  // Claude's app shows "a 'Thinking' indicator with a timer" while it thinks (Help Center).
+  // A "Thinking" indicator with a timer shows while it thinks.
   const [seconds, setSeconds] = useState(1);
   useEffect(() => {
     if (!live) return;

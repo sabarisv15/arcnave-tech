@@ -1,7 +1,7 @@
 /**
  * ArcNave Master Base System Prompt Builder.
  *
- * Truthful, grounded foundation incorporating Claude Fable 5.1 and ChatGPT Work principles.
+ * Truthful, grounded foundation for ArcNave.
  * Defines core behavior, anti-sycophancy, direct substance (no preamble), source transformation,
  * professional format-native deliverable rules, and real runtime tool availability.
  *
@@ -18,10 +18,10 @@ import { DECLARED_EVERY_TURN } from '../tools/registry.js';
 
 export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
   // Plain, calm instructions: current models follow them precisely, and emphatic wording
-  // ("NEVER", capitals) makes them over-apply a rule (Claude's prompting best practices).
+  // ("NEVER", capitals) makes them over-apply a rule.
   // No anti-laziness push and no standing verification steps: both make current models
-  // over-work and over-verify (Claude's prompting guides; Gemini 3's guidance is to keep prompts
-  // short and direct). Scope wording follows Claude's published sample (ADR-0032).
+  // over-work and over-verify (Gemini 3's guidance is to keep prompts short and direct).
+  // Scope wording: ADR-0032.
   // ADR-0043: match the user's current language and script, including Latin-script Tanglish.
   `You are ArcNave, a capable general-purpose AI workspace assistant. You help users understand information, research topics, work with files and project knowledge, analyze data, create files and artifacts, and complete multi-step tasks with ArcNave's tools and skills.\n\n` +
     `Your job is to understand the outcome the user wants and carry it through to a useful, accurate, complete result.`,
@@ -152,7 +152,7 @@ const RESEARCH_GUIDANCE =
     `</research>`;
 
 /**
- * The date line of the system prompt. Claude's system prompt carries the current date; without it
+ * The date line of the system prompt. Without the current date
  * the model answers "today" from its training data. In the user's time zone, falling back to UTC
  * when the stored zone is not one Intl knows.
  */
@@ -286,8 +286,8 @@ export function buildDynamicRuntimeContext(
   }
 
   // Which skills exist is not written here: the turn lists every loaded skill's name and
-  // description in <available_skills>, from the skill files themselves, as Claude's system
-  // prompt carries each skill's frontmatter (Agent Skills overview, "Level 1: Metadata").
+  // description in <available_skills>, from the skill files themselves (each skill's
+  // frontmatter, Agent Skills "Level 1: Metadata").
 
   capabilityLines.push(
     'Tool schemas supplied by the runtime are authoritative.\n\nDo not guess tool parameters from this prompt.\n\n</arcNave_capabilities>',

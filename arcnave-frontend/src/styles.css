@@ -4126,7 +4126,7 @@ textarea {
 }
 @media (max-width: 760px) { .auth-study { display: none; }.auth-welcome { padding: 0; }.auth-layout { width: 100%; } }
 
-/* Claude-inspired workspace pass: quiet sans UI and editorial type only for display moments. */
+/* Workspace pass: quiet sans UI and editorial type only for display moments. */
 :root {
   font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -5607,7 +5607,7 @@ select:focus-visible {
   font-weight: 500;
 }
 
-/* Tool activity: the turn's steps, Claude-style (ToolActivity.tsx). */
+/* Tool activity: the turn's steps (ToolActivity.tsx). */
 .tool-activity {
   margin: 4px 0 14px;
   font-size: 13.5px;

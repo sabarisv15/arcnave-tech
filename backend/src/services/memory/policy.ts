@@ -3,7 +3,7 @@
  *
  * Static, so it sits in the cacheable prefix. Included only when save_memory is allowed on the
  * turn (promptAssembly), because every sentence here names a tool the model must be able to call.
- * The behaviour follows Claude's memory as documented in September 2026 (ADR-0025): topics saved
+ * The behaviour (ADR-0025): topics saved
  * as you chat, loaded into the next conversation, editable by the user, sensitive subjects left out.
  */
 

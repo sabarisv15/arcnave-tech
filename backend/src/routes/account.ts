@@ -14,7 +14,7 @@ import { generateStorageKey } from '../services/storage.js';
 import type { AppInstance } from '../types.js';
 import { iso, uuidParam } from './helpers.js';
 
-/** How long an export's download link works, as Claude's does. */
+/** How long an export's download link works. */
 export const EXPORT_TTL_MS = 24 * 3_600_000;
 
 export async function accountRoutes(app: AppInstance): Promise<void> {

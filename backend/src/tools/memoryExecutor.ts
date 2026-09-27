@@ -2,7 +2,7 @@
  * Memory tool executor for Phase 5.2.
  *
  * Implements:
- * - save_memory: create or replace a topic (Claude saves memory as topics while you chat)
+ * - save_memory: create or replace a topic (memory is saved as topics while the user chats)
  * - search_memory: full-text search with rank-based scoring
  * - read_memory: direct lookup by canonical memoryId
  * - update_memory: optimistic concurrency control via expectedVersion

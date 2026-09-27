@@ -44,7 +44,7 @@ metadata:
 Field rules (a skill that breaks one is not loaded):
 
 - `name`: at most 64 characters; lowercase letters, numbers and hyphens only; must not contain
-  "anthropic" or "claude"; must equal the skill's directory name.
+  a model vendor's name; must equal the skill's directory name.
 - `description`: non-empty, at most 1024 characters, no XML tags. Say both what the skill does
   and when to use it: the model chooses skills by matching the request against this text.
 

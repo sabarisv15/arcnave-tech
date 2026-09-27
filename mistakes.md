@@ -1215,3 +1215,9 @@ practice, not canon.
   (2) In the cloud container, 22 PDF tests failed with no code change: `pdftoppm`/`pdftotext`
   were missing. Rule: `apt-get install -y poppler-utils` alongside `service postgresql start`
   before judging a PDF test failure; `which pdftoppm` verifies.
+- **2026-09-27 (brand)** — No new heading (at the cap). Launch code described ArcNave by another
+  assistant ("as Claude does", "Claude-style", claude.ai limits: ~70 comment lines, a skill line,
+  and two user-facing error strings). ArcNave is its own brand; the reference assistant is a
+  design input only. Rule: in launch files, state the behaviour and cite an ADR, never "as X
+  does"; provider names only where the code talks to that provider. Verify:
+  `src/test/brandNeutral.test.ts` fails on reference wording in launch files.

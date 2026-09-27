@@ -1,6 +1,6 @@
 /**
- * What an adapter sends for an attachment it cannot send natively (G15, G17). Shared so Claude
- * and Gemini say the same thing.
+ * What an adapter sends for an attachment it cannot send natively (G15, G17). Shared so every
+ * adapter says the same thing.
  *
  * Invariant 1: an attachment is never sent as an empty block, and binary bytes are never
  * decoded and passed off as text. The model is told what is missing, why, and the fileId that

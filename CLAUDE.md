@@ -29,6 +29,11 @@ These are not style preferences. Each one exists because the alternative ships a
 6. **No secret is ever committed.** Credentials come from Application Default Credentials —
    workload identity on GCP, `gcloud auth application-default login` locally. No service
    account key is written to a file in this repo, pasted into a config, or baked into an image.
+7. **ArcNave is its own brand.** Launch files (`backend/src` outside tests and scripts,
+   `backend/skills`, `backend/sandbox`, `arcnave-frontend/src`) never describe ArcNave as
+   following another assistant ("as Claude does"). Provider names appear only where the code
+   talks to that provider. Reference files (`docs/`, `tools/`, tests) may name anything.
+   [ADR-0044](docs/decisions/0044-pdf-reading-and-exact-figures.md).
 
 ## Commands
 

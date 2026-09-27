@@ -1,9 +1,8 @@
 /**
  * Checkpoints of a chat's sandbox workspace (ADR-0015).
  *
- * Claude's code-execution containers are "checkpointed" after about 5 minutes of inactivity and
- * restored on the next request for 30 days (platform.claude.com, "Code execution tool"). The
- * warm sandbox keeps a workspace in one instance, which drops it after WORKSPACE_TTL_S idle, when
+ * A workspace is checkpointed after about 5 minutes of inactivity and restored on the next
+ * request for 30 days. The warm sandbox keeps a workspace in one instance, which drops it after WORKSPACE_TTL_S idle, when
  * its slots are full, or on a restart. So the backend copies an idle workspace's files to storage
  * and puts them back when the chat runs code again.
  *

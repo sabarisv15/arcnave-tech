@@ -8,6 +8,8 @@
 > routes text-layer pages to `pdfplumber` and scanned pages to `extract_scanned_table_rows`
 > whether or not run_python is on; `pdf` keeps create/change/convert. Backend typecheck and the
 > full suite pass locally. Not yet run: the live KVB + Federal check (expect 48 / 277 / 325).
+> Launch files no longer describe ArcNave as another assistant (ADR-0044 §4, `brandNeutral.test.ts`);
+> provider names remain only in provider code.
 > Still open from the same review: last-round forced answer when Vertex rejects function-calling
 > NONE, table tools deferred behind `search_tools`, silent model fallback (Invariant 1), and
 > `.xlsx`/`.docx` read with code instead of inline text.

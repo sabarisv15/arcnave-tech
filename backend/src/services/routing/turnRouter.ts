@@ -6,8 +6,8 @@
  * decides what it needs: every turn gets the same core (`search_tools`, plus `load_skill` when
  * skills exist) and discovers the rest from `allowedTools`.
  *
- * There is no intent detection: the prompt's wording is never read here. Claude's harness has no
- * keyword router either; the model reads the request (ADR-0032).
+ * There is no intent detection: the prompt's wording is never read here. The model reads the
+ * request (ADR-0032).
  */
 
 import { DECLARED_EVERY_TURN } from '../../tools/registry.js';

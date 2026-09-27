@@ -37,8 +37,13 @@ not something it names or imitates to users. Three gaps against that reference:
    `pdfplumber`; scanned → `extract_scanned_table_rows` (found with `search_tools`), whether or
    not run_python is on. `pdf` keeps creating, changing and converting PDFs. The two table
    scripts stay under `skills/pdf/scripts/`, because the tools run them from there.
-4. Model-facing text (prompt, skills, tool descriptions) names no other assistant or model
-   family as what ArcNave is or follows. The skill-creator skill's "same as …" line was removed.
+4. Files that ship at launch (`backend/src` outside tests and dev scripts, `backend/skills`,
+   `backend/sandbox`, `arcnave-frontend/src`) never describe ArcNave as following or imitating
+   another assistant ("as Claude does", "Claude-style", claude.ai limits). Provider names stay
+   only where the code talks to that provider: the Anthropic adapter, its model ids and aliases,
+   env vars, SDK packages and API facts. Skills and the static prompt name no model vendor at
+   all. Reference material (`docs/`, `tools/`, tests, `backend/src/scripts/`) may. Guarded by
+   `src/test/brandNeutral.test.ts`, `skillContent.test.ts` and `behaviorEvaluation.test.ts`.
 
 Not done here: sending `.xlsx`/`.docx` to the model as files to read with code instead of
 inline text. That changes the attachment pipeline and ADR-0004/0011 and needs its own decision.

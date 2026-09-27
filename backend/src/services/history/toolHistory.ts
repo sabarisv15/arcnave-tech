@@ -1,15 +1,13 @@
 /**
- * Earlier turns' tool calls, replayed to the model as Claude's history keeps them (ADR-0022).
+ * Earlier turns' tool calls, replayed to the model (ADR-0022).
  *
- * Claude's tool loop sends "the original messages, the assistant's response, and ... the
- * tool_result blocks" on every request (How tool use works), and a later turn "can reuse
- * discovered tools ... without re-searching" (Tool search). ArcNave used to keep only each
+ * A tool loop sends the original messages, the assistant's response and the tool results on
+ * every request, and a later turn can reuse discovered tools without re-searching. ArcNave used to keep only each
  * turn's final text, so every follow-up reloaded its skill and redid its work.
  *
- * Every result goes back in full. Claude's app keeps the whole history and summarizes only "when
- * your conversation approaches the context window limit" (compaction, ADR-0019); clearing tool
- * results by rule is an opt-in API feature ("Context editing is opt-in") the app does not
- * document using. ArcNave cleared at 100,000 tokens, and follow-ups recounted what they had
+ * Every result goes back in full. The whole history is kept and summarized only when the
+ * conversation approaches the context window limit (compaction, ADR-0019); clearing tool
+ * results by rule is opt-in. ArcNave cleared at 100,000 tokens, and follow-ups recounted what they had
  * lost (ADR-0023).
  */
 import { asc, inArray } from 'drizzle-orm';

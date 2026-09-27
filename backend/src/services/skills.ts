@@ -33,7 +33,7 @@ export type SkillMode = 'full' | 'guidance_only' | 'unavailable';
 const XML_TAG = /<[^>]*>/;
 
 /**
- * Claude's Agent Skills field rules (platform.claude.com, "Agent Skills", Skill structure):
+ * Agent Skills field rules (the open skill format):
  * name at most 64 characters of lowercase letters, numbers and hyphens, no XML tags, no reserved
  * words; description non-empty, at most 1024 characters, no XML tags. Every skill's description
  * is in every system prompt, so the length cap is what keeps that list cheap.

@@ -243,7 +243,7 @@ interface GeminiUsageMetadata {
  * (Agent Platform pricing), and `candidatesTokenCount` leaves the thoughts out. So output is both.
  * The request's context for compaction stays prompt plus answer: thoughts are not sent back.
  */
-/** Claude's effort ladder on Gemini's thinkingLevel: levels above HIGH run at HIGH. */
+/** ArcNave's effort ladder on Gemini's thinkingLevel: levels above HIGH run at HIGH. */
 export function geminiThinkingLevel(effort: ReasoningEffort): ThinkingLevel {
   if (effort === 'low') return ThinkingLevel.LOW;
   if (effort === 'medium') return ThinkingLevel.MEDIUM;
@@ -257,7 +257,7 @@ export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage 
   const cached = cachedContentTokenCount ?? 0;
   return {
     // promptTokenCount "also includes the number of tokens in the cached content" (SDK
-    // UsageMetadata). inputTokens is the uncached part, as Claude's input_tokens is, so the
+    // UsageMetadata). inputTokens is the uncached part, as on every adapter, so the
     // cached tokens are priced once, at the cache-read rate, and not again at the input rate.
     inputTokens: Math.max(0, (promptTokenCount ?? 0) - cached),
     outputTokens: (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0),
@@ -388,7 +388,7 @@ export class GeminiProvider implements Provider {
         // The SDK's `abortSignal` config only stops a request already underway; without this
         // check, an abort here would still issue one more provider call.
         if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        // The last round must end in an answer, as the Claude adapter's does: function calling
+        // The last round must end in an answer, as on every adapter: function calling
         // is switched off and the system instruction says to answer from the results so far.
         // The conversation itself is left as it is: a text part added to the functionResponse
         // turn made Vertex reject the request ("Requests ending with a model turn are not
@@ -427,7 +427,7 @@ export class GeminiProvider implements Provider {
               : stream
                 ? { toolConfig: { functionCallingConfig: { streamFunctionCallArguments: true } } }
                 : {}),
-            // Thought summaries, shown to the user as Claude shows its thinking (audit B8). They
+            // Thought summaries, shown to the user (audit B8). They
             // arrive as parts marked `thought`, which `chunk.text` leaves out of the answer.
             thinkingConfig: {
               includeThoughts: true,
@@ -535,7 +535,7 @@ export class GeminiProvider implements Provider {
         contents = [...contents, { role: 'model', parts: modelParts }];
 
         // Every call of the response is run, in order, and all their responses go back together
-        // in one turn, as Claude runs parallel tool calls (ADR-0026). Sequential, not
+        // in one turn (parallel tool calls, ADR-0026). Sequential, not
         // concurrent: two run_python calls share one workspace.
         const responseParts: Part[] = [];
         for (const [i, c] of roundCalls.entries()) {
@@ -564,7 +564,7 @@ export class GeminiProvider implements Provider {
     } catch (err) {
       if (request.signal.aborted) throw err;
       // The caller did not abort, so this is the SDK's own per-request timeout firing: a typed,
-      // retryable timeout, as Claude's SDK treats one (APIConnectionTimeoutError, retried).
+      // retryable timeout, as the other adapter's SDK treats one.
       if (isAbort(err)) {
         throw new ProviderError(`Gemini request timed out after ${this.cfg.PROVIDER_TIMEOUT_MS}ms`, {
           retryable: true,

@@ -106,9 +106,7 @@ describe('skill content matches the code', () => {
   });
 
   it.each(skills)('$dir: names no other assistant as what ArcNave is or follows (ADR-0044)', ({ text }) => {
-    // The reserved-word rule for skill names is the one place these words may appear.
-    const prose = text.replace(/^.*must not contain.*$|^.*"anthropic" or "claude".*$/gim, '');
-    expect(prose).not.toMatch(/\b(claude|opus|anthropic)\b/i);
+    expect(text).not.toMatch(/\b(claude|opus|sonnet|anthropic|fable)\b/i);
   });
 
   it.each(skills)('$dir: description says when to use it', ({ dir }) => {

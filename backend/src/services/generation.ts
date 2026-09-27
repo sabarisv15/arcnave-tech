@@ -205,7 +205,7 @@ function sentAsBytes(att: { mimeType: string }): boolean {
 
 /**
  * The same attachments with each rendered page image stored for the model to read by URI. New
- * objects, never the cached pages themselves: those are shared with Claude requests.
+ * objects, never the cached pages themselves: those are shared with requests to other providers.
  */
 async function referencePages(atts: AttachmentBlock[], store: ModelInputStore): Promise<AttachmentBlock[]> {
   return Promise.all(
@@ -284,8 +284,7 @@ export interface PreferencesRow {
 
 /* -------------------------------------------------------------------------- service */
 
-/** Characters of a skill given again after a compaction. Claude Code caps each at 5,000 tokens;
- *  ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
+/** Characters of a skill given again after a compaction. ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
 const REINJECTED_SKILL_MAX_CHARS = 20_000;
 
 /** A turn without tools gets project excerpts instead of the search tool: how many, and their
@@ -354,7 +353,7 @@ export class GenerationService {
 
   /**
    * Every file of the conversation, oldest first, then any of this turn's not yet stored on a
-   * message. Claude keeps every file of a chat in reach for the whole chat; here a file whose turn
+   * message. Every file of a chat stays in reach for the whole chat: a file whose turn
    * is no longer in the history (compacted, or past the backstop) is still listed and still in
    * run_python's input/ (ADR-0019). Upload order keeps each file's input/ name stable.
    */
@@ -450,7 +449,7 @@ export class GenerationService {
       });
     }
 
-    // Claude "searches the web when it helps" in every chat (Help Center, web search): the search
+    // The web is searched when it helps, in every chat: the search
     // tool is offered on every turn the web is on, and the model decides whether to use it.
     // Search and Research modes still require it.
     const searchAvailable = entry.supportsGrounding && provider.supportsGrounding();
@@ -469,7 +468,7 @@ export class GenerationService {
 
     const codeExecution = input.codeExecution && (provider.supportsCodeExecution?.() ?? false);
     if (input.codeExecution && !codeExecution) {
-      // Claude has no code-execution tool on Vertex (ADR-0004) — never silently run the turn
+      // The Anthropic adapter has no code-execution tool on Vertex (ADR-0004): never silently run the turn
       // on a different model than the one the caller asked for just because it can run code.
       throw new ApiError('capability_unavailable', {
         detail:
@@ -555,8 +554,8 @@ export class GenerationService {
         );
       }
 
-      // After a compaction, the skills loaded in the summarised turns come back in full: Claude
-      // Code "re-injects the body of each skill you invoked" after compacting (ADR-0027); the
+      // After a compaction, the skills loaded in the summarised turns come back in full
+      // (ADR-0027); the
       // summary alone would leave a skill the model believes it has read.
       const reinjected = latestCompaction
         ? await this.skillsLoadedThrough(input.chatId, latestCompaction.throughSeq)
@@ -981,7 +980,7 @@ export class GenerationService {
     let errorCode: string | null = null;
     const collectedText: string[] = [];
     const collectedThinking: string[] = [];
-    // The answer in the order it happened, as Claude shows it: thinking, text and tool steps
+    // The answer in the order it happened: thinking, text and tool steps
     // interleaved. Kept on the message so a reload shows the same timeline.
     const segments: MessageSegment[] = [];
     const answerGuard = new AnswerProtocolGuard();
@@ -1381,7 +1380,7 @@ export class GenerationService {
     }
 
     const available = await this.registry.availableEntries({ probe: 'never' });
-    // Claude keeps one model for a conversation. Auto picks once, then the chat stays on that
+    // One model per conversation. Auto picks once, then the chat stays on that
     // model while it is available and can do what the turn needs: a follow-up about a file is
     // not handed to a weaker model, and thinking tied to the model is not lost mid-task.
     const earlier = await this.chatModelAlias(input.chatId, input.messageId);
@@ -1411,7 +1410,7 @@ export class GenerationService {
       throw new ApiError('no_model_available', {
         detail: requiresVision
           ? 'No configured model can see images or PDFs. Remove the attachment, or configure ' +
-            'Claude or Gemini.'
+            'a model that can.'
           : requiresGrounding
             ? 'No configured model supports grounded search. Enable grounding or use Chat mode.'
             : 'No model in the registry is configured and reachable. Check the MODEL_* ' +
@@ -1429,7 +1428,7 @@ export class GenerationService {
    * Only retries before the first event is yielded downstream. Once the client has seen a
    * token, a restart would duplicate text, so the failure propagates instead.
    *
-   * There is no first-token cutoff, as Claude's SDK has none: a request is bounded by the
+   * There is no first-token cutoff: a request is bounded by the
    * adapter's PROVIDER_TIMEOUT_MS (10 minutes, the SDK's default) and retried only when it fails
    * (connection error, timeout, 408/409/429/5xx), never for being slow. A 12 s cutoff aborted
    * large follow-ups that were still reading, and each retry repeated the same slow request
@@ -1607,7 +1606,7 @@ export class GenerationService {
       .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq })
       .from(messages)
       .where(and(...conditions))
-      // No turn count: like Claude, the whole conversation goes, up to the model's window. What
+      // No turn count: the whole conversation goes, up to the model's window. What
       // keeps it inside the window is compaction (ADR-0019); the character budget below is the
       // backstop. A 20-message cap here used to drop a file sent 11 questions ago.
       .orderBy(desc(messages.seq));
@@ -1728,8 +1727,8 @@ export class GenerationService {
 
   /**
    * Compacts the chat before this turn when the previous request reached the trigger (ADR-0019),
-   * with the model this turn runs on, as Claude compacts with the model of the request. The user
-   * sees it happen, as claude.ai shows "Compacting our conversation". A failed compaction leaves
+   * with the model this turn runs on. The user sees it happen ("Compacting our conversation").
+   * A failed compaction leaves
    * the history whole and the turn goes on; an abort ends the turn.
    */
   private async *compactIfNeeded(
@@ -1850,8 +1849,8 @@ export class GenerationService {
     try {
       const spec = getModelCapability(alias);
       const limited = await enforceModelLimits(spec, current, history);
-      // Gemini reads page images from Cloud Storage, as Claude's Files API keeps a large PDF
-      // out of the request (ADR-0016). Claude on Vertex takes base64 only, so it is left as is.
+      // Gemini reads page images from Cloud Storage, keeping a large PDF out of the request
+      // (ADR-0016). The Anthropic adapter on Vertex takes base64 only, so it is left as is.
       if (spec.provider !== 'google' || !this.modelInputs) return { current, history: limited };
       const store = this.modelInputs;
       return {
@@ -1874,9 +1873,8 @@ export class GenerationService {
     const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
     let cumulativeBytes = 0;
 
-    // Claude has every earlier image of the chat (Vision: "Claude has access to every image from
-    // earlier turns"). The budget only guards bytes that ride inline in a request whose limit is
-    // not verified: Gemini's inline data. Claude's own request limit is verified and enforced,
+    // Every earlier image of the chat stays available. The budget only guards bytes that ride inline in a request whose limit is
+    // not verified: Gemini's inline data. The Anthropic adapter's request limit is verified and enforced,
     // newest first, by enforceModelLimits; a Gemini PDF with a model-input bucket goes by gs://
     // URI (ADR-0016) and adds nothing inline. Those are loaded whatever their size (ADR-0019).
     const spec = getModelCapability(alias);
@@ -1995,7 +1993,7 @@ export class GenerationService {
     isAgentMode: boolean = false,
     /** Every tool allowed this turn, declared or discoverable; tool policies key on these. */
     allowedToolNames?: string[],
-    /** The model's own web search is on this turn (Gemini grounding, Claude's web_search). */
+    /** The model's own web search is on this turn (Gemini grounding, the Anthropic adapter's web_search). */
     builtInWebSearch = false,
   ): Promise<{
     systemInstruction: string;
@@ -2007,7 +2005,7 @@ export class GenerationService {
     // 1. Standing preferences: the user's own instructions.
     const combinedStandingPrefs = prefs.instructions.trim();
 
-    // 2. Memory. Claude's conversations start "from what it already knows about you": every topic,
+    // 2. Memory. A conversation starts from what is already known about the user: every topic,
     // not a per-prompt search. That also keeps this text the same from turn to turn, so it does not
     // break the prompt cache the way a prompt-matched selection did (ADR-0025).
     let relevantMemoryText = '';
@@ -2033,9 +2031,8 @@ export class GenerationService {
       }
     }
 
-    // 4. Project knowledge. Claude keeps a project's files in context and switches to search
-    // only "when your project knowledge approaches the context window limit" (Help Center, RAG
-    // for projects). So: every file whole while they fit, excerpts by relevance past that.
+    // 4. Project knowledge. A project's files stay in context, switching to search only when
+    // the project knowledge approaches the context window limit (ADR-0020). So: every file whole while they fit, excerpts by relevance past that.
     let retrievedContextText: string | undefined;
     const wholeFiles = project ? await projectFileTexts(this.db, project.id) : [];
     const wholeChars = wholeFiles.reduce((n, f) => n + f.text.length, 0);
@@ -2056,8 +2053,7 @@ export class GenerationService {
         },
       });
     } else if (project && wholeFiles.length > 0 && allowedToolNames?.includes('search_project_files')) {
-      // Past the limit Claude "uses a project knowledge search tool to retrieve relevant
-      // information" (Help Center, RAG for projects): the model searches when it needs to. Chunks
+      // Past the limit the model searches when it needs to. Chunks
       // picked here by the prompt's words changed the system prompt every turn and broke its
       // cache (audit B9, B10).
       retrievedContextText =
@@ -2387,7 +2383,7 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
         code: 'provider_payload_limit',
         title: 'Image exceeds provider 5 MB limit',
         detail:
-          'This image exceeds the provider base64 limit (5 MB on Anthropic Claude). ' +
+          'This image exceeds the selected model\'s 5 MB image limit. ' +
           'Upload a smaller image or select Gemini 3.8 Flash, which supports larger files.',
       };
     }
@@ -2410,7 +2406,7 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
       code: 'provider_payload_limit',
       title: 'Image exceeds provider 5 MB limit',
       detail:
-        'This image exceeds the provider base64 limit (5 MB on Anthropic Claude). ' +
+        'This image exceeds the selected model\'s 5 MB image limit. ' +
         'Upload a smaller image or select Gemini 3.8 Flash, which supports larger files.',
     };
   }

@@ -1,13 +1,11 @@
 /**
- * Compaction of a long chat, as Claude does it (ADR-0019).
+ * Compaction of a long chat (ADR-0019).
  *
- * "Compaction replaces the older turns of a conversation with a summary ... It keeps a long
- * conversation or agent task inside the context window" (platform.claude.com, Compaction
- * overview). When: Claude's app summarizes "when your conversation approaches the context window
- * limit" (Help Center), and Claude Code, by default, "compacts before the window fills, at about
- * 967K tokens" on a 1M window (model-config). The API's 150,000 default belongs to its opt-in
- * compaction beta and was wrongly used here until the 2026-09-26 audit (ADR-0027). Gemini has no
- * server-side compaction, so this is Claude's third option, "your own summarizer", with its
+ * Compaction replaces the older turns of a conversation with a summary, keeping a long
+ * conversation or agent task inside the context window. When: as the conversation approaches
+ * the context window limit, compacting before the window fills (about 967K tokens on a 1M
+ * window). A 150,000 default was wrongly used here until the 2026-09-26 audit (ADR-0027).
+ * Gemini has no server-side compaction, so this is our own summarizer, with a
  * keep-recent-turns shape: the older turns become a summary, the last KEEP_TURNS stay word for word.
  *
  * The trigger is the previous turn's last provider request as the provider reported it: its whole
@@ -26,7 +24,7 @@ import type { Database } from '../../db/client.js';
 import { attachments, conversationCompactions, messages, toolCalls, usageRecords } from '../../db/schema.js';
 import { EMPTY_USAGE, toolCallAsText, type Provider, type ProviderUsage, type ToolContent, type Turn } from '../../providers/types.js';
 
-/** Claude's default summarization prompt (Compaction at a token threshold). */
+/** The summarization prompt (ADR-0019). */
 export const SUMMARY_PROMPT =
   'You have written a partial transcript for the initial task above. Please write a summary of the transcript. ' +
   'The purpose of this summary is to provide continuity so you can continue to make progress towards solving ' +
@@ -37,19 +35,19 @@ export const SUMMARY_PROMPT =
 /** Turns kept word for word after the summary, as the docs' keep-recent-turns example keeps two. */
 export const KEEP_TURNS = 2;
 
-/** Room left below the window when compaction runs: Claude Code's 1M window compacts at about
- *  967K (model-config, "Default auto-compact thresholds"), leaving 33,000 tokens for the next
+/** Room left below the window when compaction runs: a 1M window compacts at about
+ *  967K, leaving 33,000 tokens for the next
  *  message and its answer. */
 export const COMPACTION_WINDOW_RESERVE = 33_000;
-/** The lowest trigger Claude's compaction accepts. */
-const CLAUDE_MIN_TRIGGER = 50_000;
+/** The lowest compaction trigger. */
+const MIN_TRIGGER = 50_000;
 
 /**
  * Tokens of the previous request at which a chat compacts: as the conversation approaches the
  * model's window, not before. `fallback` applies only when the window is unknown.
  */
 export function compactionTrigger(fallback: number, windowTokens: number | null): number {
-  return Math.max(CLAUDE_MIN_TRIGGER, windowTokens ? windowTokens - COMPACTION_WINDOW_RESERVE : fallback);
+  return Math.max(MIN_TRIGGER, windowTokens ? windowTokens - COMPACTION_WINDOW_RESERVE : fallback);
 }
 
 export interface TextSummary {
@@ -172,8 +170,8 @@ export async function compact(
     filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ?? f.id} (fileId ${f.id})`]);
   }
 
-  // What the older turns ran and found goes into the summary too, whole, as Claude compacts the
-  // whole transcript, tool results included. It fit in the last request, so it fits in this one.
+  // What the older turns ran and found goes into the summary too, whole: the whole
+  // transcript is compacted, tool results included. It fit in the last request, so it fits in this one.
   const callRows = await deps.db
     .select({ messageId: toolCalls.messageId, id: toolCalls.toolCallId, name: toolCalls.name, input: toolCalls.input, content: toolCalls.content, ok: toolCalls.ok })
     .from(toolCalls)

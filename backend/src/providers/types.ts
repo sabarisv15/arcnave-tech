@@ -71,8 +71,7 @@ export function totalTokens(usage: ProviderUsage): number {
 
 /**
  * A turn's usage after one more provider request. Every round of a tool loop is a new request
- * that resends the conversation ("Send a new request containing the original messages, the
- * assistant's response, and ... the tool_result blocks", Claude docs, How tool use works), and
+ * that resends the conversation (the original messages, the assistant's response and the tool results), and
  * each is billed, so a turn's tokens are the sum of its requests. The sum is exact only when
  * every request's count was reported; one missing count makes the turn exact:false with zeros
  * (Invariant 3), never a part shown as the whole.
@@ -277,8 +276,8 @@ export interface HistoryToolCall {
 export interface Turn {
   role: 'user' | 'assistant';
   text: string;
-  /** An assistant turn's tool calls, in order, before its final text. As Claude's history keeps
-   *  every tool_use and tool_result, a later turn sees what was loaded, run and found. */
+  /** An assistant turn's tool calls, in order, before its final text. With every tool call and result
+   *  kept in history, a later turn sees what was loaded, run and found. */
   toolCalls?: HistoryToolCall[];
   /** Attachments belonging to this turn (PDFs, images, or documents), carried forward across
    *  turns so the model keeps "seeing" them with prompt caching. */
@@ -286,8 +285,8 @@ export interface Turn {
 }
 
 /**
- * How hard the model thinks, on Claude's effort ladder. Each adapter maps it to its model's own
- * control (Claude `output_config.effort`, Gemini `thinkingLevel`); the service clamps it to the
+ * How hard the model thinks, on ArcNave's effort ladder. Each adapter maps it to its model's own
+ * control (`output_config.effort` on the Anthropic adapter, Gemini `thinkingLevel`); the service clamps it to the
  * levels the model supports first.
  */
 export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;

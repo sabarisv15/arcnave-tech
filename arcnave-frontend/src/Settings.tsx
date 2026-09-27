@@ -282,7 +282,7 @@ function Personalization() {
 }
 
 /**
- * Memory, by topic. As in Claude's settings, every topic can be read, edited and deleted, and the
+ * Memory, by topic. Every topic can be read, edited and deleted, and the
  * user can add one themselves (ADR-0025).
  */
 function MemoryTopics() {

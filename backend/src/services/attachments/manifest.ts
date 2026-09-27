@@ -1,7 +1,7 @@
 /**
  * What the model is told about the chat's files, and where run_python finds them.
  *
- * Claude's file handling is the reference: an uploaded file is already in the code container at
+ * An uploaded file is already in the code container at
  * a path the model is told, and the model reads the skill for that kind of file before working
  * on it. Here, both follow from one deterministic plan:
  *
