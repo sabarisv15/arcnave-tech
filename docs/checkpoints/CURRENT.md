@@ -1,6 +1,14 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): WP-10 sandboxed visuals (ADR-0035), on branch `feat/wp-10-visual-sandbox`, not live.**
+> **2026-09-27 (latest): visuals inherit ArcNave's theme (ADR-0036), same branch `feat/wp-10-visual-sandbox`, not live.**
+> - The sandbox document now carries ArcNave's light/dark tokens, `:where()` base styles, and
+>   layout/SVG classes; the theme follows ArcNave by message, without reloading the frame.
+> - Chart.js picks up theme colours; `window.arcnave.colors()` and `onThemeChange` exist.
+> - `GENERATIVE_UI_POLICY_V1` has a compact visual design guide in our own words.
+> - Fixed: inline frames were stuck at 150px (`flex: 1` beat `height`).
+> - Verified in Chromium with a chart + diagram visual in both themes; tests frontend 106, backend 976.
+>
+> **2026-09-26: WP-10 sandboxed visuals (ADR-0035), on branch `feat/wp-10-visual-sandbox`, not live.**
 > - `render_ui` has a `visual` block: model-written HTML with scripts, at most 200,000 bytes and
 >   2 per response. Over the limit, the tool fails with `visual_too_large` or `visual_limit`.
 >   The model's tool result carries `htmlBytes`, not the HTML; the client restores it from the

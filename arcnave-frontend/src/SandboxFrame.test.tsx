@@ -11,6 +11,7 @@ import {
   buildSrcDoc,
   readFrameMessage,
 } from "./SandboxFrame";
+import { SANDBOX_BASE_CSS } from "./sandboxTheme";
 
 vi.mock("./workspace", () => ({
   useWorkspace: () => ({ saveVisualAsArtifact: vi.fn(), toast: vi.fn() }),
@@ -53,7 +54,7 @@ describe("SandboxFrame isolation (ADR-0035)", () => {
 
   it("puts ArcNave's CSP first, before the bridge and the content", async () => {
     const doc = buildSrcDoc('<script>fetch("https://example.com")</script>');
-    expect(doc.startsWith(`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">`)).toBe(true);
+    expect(doc.startsWith(`<!doctype html><html data-theme="light"><head><meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">`)).toBe(true);
     expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(doc.indexOf("fetch("));
     for (const directive of ["default-src 'none'", "connect-src 'none'", "form-action 'none'", "base-uri 'none'"]) {
       expect(SANDBOX_CSP).toContain(directive);
@@ -65,6 +66,63 @@ describe("SandboxFrame isolation (ADR-0035)", () => {
   it("does not let the content's own head replace the policy", () => {
     const doc = buildSrcDoc('<html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head></html>');
     expect(doc.indexOf(SANDBOX_CSP)).toBeLessThan(doc.indexOf("default-src *"));
+  });
+});
+
+describe("theme (ADR-0036)", () => {
+  afterEach(() => {
+    delete document.documentElement.dataset["theme"];
+  });
+
+  it("builds the document with the base styles after the policy, in the theme asked for", () => {
+    const doc = buildSrcDoc("<p>x</p>", "dark");
+    expect(doc.startsWith('<!doctype html><html data-theme="dark">')).toBe(true);
+    expect(doc.indexOf(SANDBOX_BASE_CSS)).toBeGreaterThan(doc.indexOf(SANDBOX_CSP));
+    expect(doc.indexOf(SANDBOX_BASE_CSS)).toBeLessThan(doc.indexOf("<p>x</p>"));
+    expect(doc).toContain('<meta name="color-scheme" content="light dark">');
+  });
+
+  it("pads a page (artifact panel) but not an inline visual", () => {
+    expect(buildSrcDoc("x", "light", "page")).toContain('<html data-theme="light" data-layout="page">');
+    expect(buildSrcDoc("x", "light").startsWith('<!doctype html><html data-theme="light"><head>')).toBe(true);
+    expect(SANDBOX_BASE_CSS).toContain(':where([data-layout="page"]) :where(body){padding:16px 20px}');
+  });
+
+  it("styles elements only through :where(), so the content's own CSS always wins", () => {
+    const rules = SANDBOX_BASE_CSS.split("}")
+      .map((r) => r.trim())
+      .filter((r) => r.includes("{") && !r.startsWith(":root"))
+      .map((r) => r.slice(0, r.indexOf("{")).trim())
+      .filter(Boolean);
+    expect(rules.length).toBeGreaterThan(10);
+    for (const selector of rules) expect(selector.startsWith(":where(")).toBe(true);
+  });
+
+  it("defines every token in both themes", () => {
+    const block = (start: string) => {
+      const from = SANDBOX_BASE_CSS.indexOf(start);
+      return SANDBOX_BASE_CSS.slice(from, SANDBOX_BASE_CSS.indexOf("}", from));
+    };
+    const light = block(":root{");
+    const dark = block(':root[data-theme="dark"]{');
+    const names = (s: string) => new Set([...s.matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]));
+    for (const name of names(dark)) expect(names(light)).toContain(name);
+    for (const name of ["--text", "--surface", "--border", "--c1", "--c6"]) expect(names(dark)).toContain(name);
+  });
+
+  it("opens in ArcNave's theme and sends later changes to its own frame", async () => {
+    document.documentElement.dataset["theme"] = "dark";
+    await render(<SandboxFrame html="<p>x</p>" title="t" />);
+    expect(frameOf().getAttribute("srcdoc")!.startsWith('<!doctype html><html data-theme="dark">')).toBe(true);
+
+    const post = vi.spyOn(frameOf().contentWindow!, "postMessage");
+    await act(async () => {
+      document.documentElement.dataset["theme"] = "light";
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(post).toHaveBeenCalledWith({ type: "arcnave:theme", theme: "light" }, "*");
+    // A theme change must not rebuild the document: that would reload the frame and lose its state.
+    expect(frameOf().getAttribute("srcdoc")!.startsWith('<!doctype html><html data-theme="dark">')).toBe(true);
   });
 });
 

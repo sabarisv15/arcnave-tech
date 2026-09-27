@@ -333,7 +333,7 @@ export const CREATE_ARTIFACT: ToolDefinition = {
       kind: {
         type: 'string',
         enum: ['document', 'code', 'webpage', 'svg'],
-        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network), or 'svg' (an SVG image). Defaults to 'document'.",
+        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network, and gets the same theme tokens, element styles and chart library options as a render_ui visual), or 'svg' (an SVG image). Defaults to 'document'.",
       },
       content: {
         type: 'string',

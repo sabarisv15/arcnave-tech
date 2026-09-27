@@ -727,7 +727,7 @@ function ArtifactPanel({ id }: { id: string }) {
         ) : kind === "webpage" || kind === "svg" ? (
           // Scripts in a webpage run, under the same sandbox as an inline visual (ADR-0035). An
           // SVG is drawn in it too, never inline in ArcNave's own page.
-          <SandboxFrame html={content} title={`${meta?.title ?? "Artifact"} preview`} />
+          <SandboxFrame html={content} title={`${meta?.title ?? "Artifact"} preview`} layout="page" />
         ) : kind === "code" ? (
           <Markdown
             text={

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SANDBOX_BASE_CSS, currentTheme, type SandboxTheme } from "./sandboxTheme";
 
 /**
  * The only place model-written HTML runs (ADR-0035).
@@ -24,21 +25,30 @@ export const PROMPT_MAX_CHARS = 500;
 export const MIN_HEIGHT = 80;
 export const MAX_HEIGHT = 2000;
 
-// Runs before the content: reports the document height and exposes window.arcnave.prompt. It
-// posts to the parent with "*" because an opaque origin cannot name its parent's.
-const BRIDGE = `(function(){var p=window.parent;function h(){try{p.postMessage({type:"arcnave:resize",height:Math.ceil(document.documentElement.scrollHeight)},"*")}catch(e){}}window.arcnave={prompt:function(t){p.postMessage({type:"arcnave:prompt",text:String(t)},"*")}};window.addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}setTimeout(h,50)})();`;
+// Runs before the content: reports the document height, exposes window.arcnave, applies the theme
+// ArcNave sends, and gives Chart.js the theme's colours when the page loads it. It posts to the
+// parent with "*" because an opaque origin cannot name its parent's.
+const BRIDGE = `(function(){var p=window.parent,d=document.documentElement,subs=[],C;function h(){try{p.postMessage({type:"arcnave:resize",height:Math.ceil(d.scrollHeight)},"*")}catch(e){}}function v(n){return getComputedStyle(d).getPropertyValue("--"+n).trim()}function colors(){return{text:v("text"),muted:v("text-muted"),faint:v("text-faint"),border:v("border"),surface:v("surface"),accent:v("accent"),good:v("good"),bad:v("bad"),series:[1,2,3,4,5,6].map(function(i){return v("c"+i)})}}function chart(x){try{var c=colors();x.defaults.color=c.muted;x.defaults.borderColor=c.border;x.defaults.font.family=v("font")}catch(e){}}try{Object.defineProperty(window,"Chart",{configurable:true,get:function(){return C},set:function(x){C=x;chart(x)}})}catch(e){}window.addEventListener("message",function(e){if(e.source!==p||!e.data||e.data.type!=="arcnave:theme")return;var t=e.data.theme==="dark"?"dark":"light";if(d.getAttribute("data-theme")===t)return;d.setAttribute("data-theme",t);if(C)chart(C);subs.forEach(function(f){try{f(t)}catch(x){}})});window.arcnave={prompt:function(t){p.postMessage({type:"arcnave:prompt",text:String(t)},"*")},theme:function(){return d.getAttribute("data-theme")},colors:colors,onThemeChange:function(f){if(typeof f==="function")subs.push(f)}};window.addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).observe(d)}setTimeout(h,50)})();`;
 
-/** The document the frame loads: ArcNave's CSP first, then the bridge, then the content. */
-export function buildSrcDoc(html: string): string {
+/**
+ * The document the frame loads: ArcNave's CSP first, then the bridge and the base styles, then
+ * the content. `color-scheme` lets the frame stay transparent over ArcNave's page in both themes.
+ */
+export function buildSrcDoc(html: string, theme: SandboxTheme = "light", layout: SandboxLayout = "inline"): string {
+  const layoutAttr = layout === "page" ? ' data-layout="page"' : "";
   return (
-    `<!doctype html><html><head>` +
+    `<!doctype html><html data-theme="${theme === "dark" ? "dark" : "light"}"${layoutAttr}><head>` +
     `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">` +
     `<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">` +
+    `<meta name="color-scheme" content="light dark">` +
     `<script>${BRIDGE}</script>` +
-    `<style>html,body{margin:0;padding:0}body{padding:12px;font-family:system-ui,sans-serif}</style>` +
+    `<style>${SANDBOX_BASE_CSS}</style>` +
     `</head><body>${html}</body></html>`
   );
 }
+
+/** "inline" sits in a reply with the text around it; "page" fills the artifact panel. */
+export type SandboxLayout = "inline" | "page";
 
 export type FrameMessage =
   | { type: "arcnave:resize"; height: number }
@@ -66,6 +76,7 @@ export function SandboxFrame({
   html,
   title,
   autoHeight = false,
+  layout = "inline",
   className,
   onPrompt,
 }: {
@@ -73,6 +84,7 @@ export function SandboxFrame({
   title: string;
   /** Size to the content (inline visuals); otherwise fill the container (artifact panel). */
   autoHeight?: boolean;
+  layout?: SandboxLayout;
   className?: string;
   onPrompt?: (text: string) => void;
 }) {
@@ -81,6 +93,24 @@ export function SandboxFrame({
   const [generation, setGeneration] = useState(0);
   const [height, setHeight] = useState(240);
   const [blocked, setBlocked] = useState(false);
+  // The document is built once with the theme of the moment; later changes are sent as messages,
+  // because a new srcdoc would reload the frame and lose what the user has done in it.
+  const [initialTheme] = useState(currentTheme);
+
+  const sendTheme = useCallback(() => {
+    frame.current?.contentWindow?.postMessage({ type: "arcnave:theme", theme: currentTheme() }, "*");
+  }, []);
+
+  useEffect(() => {
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(sendTheme);
+    observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    media?.addEventListener?.("change", sendTheme);
+    return () => {
+      observer?.disconnect();
+      media?.removeEventListener?.("change", sendTheme);
+    };
+  }, [sendTheme]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -106,12 +136,13 @@ export function SandboxFrame({
   // The first load is the document. Any later load means the frame navigated itself (a link or
   // a script), which the sandbox cannot prevent, so the original document is put back.
   const onLoad = useCallback(() => {
+    sendTheme();
     loads.current += 1;
     if (loads.current > 1) {
       setBlocked(true);
       setGeneration((g) => g + 1);
     }
-  }, []);
+  }, [sendTheme]);
 
   return (
     <div className={`sandbox-frame ${className ?? ""}`}>
@@ -126,7 +157,7 @@ export function SandboxFrame({
         title={title}
         sandbox={SANDBOX_TOKENS}
         referrerPolicy="no-referrer"
-        srcDoc={buildSrcDoc(html)}
+        srcDoc={buildSrcDoc(html, initialTheme, layout)}
         onLoad={onLoad}
         style={autoHeight ? { height } : undefined}
       />

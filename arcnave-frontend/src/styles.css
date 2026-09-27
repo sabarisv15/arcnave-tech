@@ -5697,7 +5697,7 @@ select:focus-visible {
   width: 100%;
   border: 0;
   flex: 1;
-  background: #fff;
+  background: var(--surface);
 }
 .sandbox-frame-note {
   margin: 0;
@@ -5706,27 +5706,41 @@ select:focus-visible {
   color: var(--muted);
   border-bottom: 1px solid var(--line);
 }
+/* An inline visual sits in the reply like the text around it: no box of its own, and its
+   document is transparent, so ArcNave's page shows through in either theme. */
 .ui-visual {
   margin: 16px 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--soft);
 }
 .ui-visual-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
-  background: color-mix(in srgb, var(--soft) 70%, var(--surface));
-  border-bottom: 1px solid var(--line);
+  padding: 0 2px 6px;
   font-size: 12px;
   color: var(--muted);
 }
+@media (hover: hover) {
+  .ui-visual:not(.ui-visual-full) .ui-visual-actions {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .ui-visual:hover .ui-visual-actions,
+  .ui-visual:focus-within .ui-visual-actions {
+    opacity: 1;
+  }
+}
+.ui-visual .sandbox-frame iframe {
+  background: transparent;
+}
+/* Inline, the frame takes the height its document reports; flex: 1 would size it from its
+   150px default instead and cut the visual off. */
+.ui-visual:not(.ui-visual-full) .sandbox-frame iframe {
+  flex: 0 0 auto;
+}
 .ui-visual-title {
-  font-weight: 600;
-  color: var(--ink);
+  font-weight: 500;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5764,6 +5778,10 @@ select:focus-visible {
   margin: 0;
   display: flex;
   flex-direction: column;
+  padding: 10px 16px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   box-shadow: 0 12px 48px rgb(0 0 0 / 0.3);
 }
 .ui-visual-full .sandbox-frame {

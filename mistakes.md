@@ -103,13 +103,6 @@ failure mode of this pattern, not a sign it is working.
 - **Note:** This is the same failure the project's own ADR-0002 exists to prevent — a label that
   does not name what actually happens.
 
-### 2026-09-26 — Returning early before useEffect broke the Rules of Hooks during fence streaming
-
-- **Symptom:** App crashed blank with `Rendered fewer hooks than expected. This may be caused by an accidental early return statement.` while a reply was streaming (e.g. ```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
-- **Cause:** `CodeBlock.tsx` declared hooks (`useState`, `useRef`) and then returned early when `language === "mermaid"` before its `useEffect`. During streaming, the fence prefix changed languages dynamically, altering hook counts between renders. With no Error Boundary around message Markdown, the entire React root went blank.
-- **Rule:** **Never branch or return early between hook calls based on dynamic props/classes. Keep dispatchers pure and hookless, delegating to specialized child components that own their hooks.** And always enclose markdown render trees in an `ErrorBoundary` that recovers to raw text.
-- **Verify:** `npx vitest run src/MarkdownStreaming.test.tsx` (using `jsdom`, `createRoot`, and `act`) verifies sequential transition across `"```m\nx"`, `"```mer\nx"`, `"```mermaid\ngraph TD;A-->B"`.
-
 ### 2026-09-17 — A devDependency the production image asks for but does not have
 
 - **Symptom:** The backend container crash-looped with
@@ -789,6 +782,19 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `behaviorEvaluation.test.ts` Eval 11b; `turnRouter.test.ts` (router takes no
   prompt); `evalScope.ts` against the deployed service. ADR-0032.
 
+### 2026-09-27 — An inline frame's height was checked in its style, not on screen
+
+- **Symptom:** WP-10 was reported as verified with "inline height 219px", but every inline
+  visual showed only its first 150px. The user saw thin, cut-off graphics.
+- **Cause:** The check read `iframe.style.height`, which the component had set correctly. The
+  stylesheet's `flex: 1` on the same iframe made flex-basis win over `height`, so the browser
+  laid it out at the iframe default of 150px.
+- **Rule:** **A size is verified by the laid-out box (`offsetHeight`, a screenshot of the
+  element), never by the style the code wrote.** jsdom has no layout, so this check belongs in
+  the real-browser pass.
+- **Verify:** In Chromium against the local stack, `.ui-visual iframe` has `offsetHeight`
+  equal to the height its document reports (571 for 571 in the ADR-0036 check).
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -813,6 +819,9 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-27** — Added the frame-height entry. Retired "Returning early before useEffect
+  broke the Rules of Hooks during fence streaming": `MarkdownStreaming.test.tsx` fails if it
+  regresses (pruning criterion 1). **40 entries.**
 - **2026-09-25** — Added the abort-listener entry. Retired "A decision changed and its ADR did
   not": its rule is in `CLAUDE.md` ("A decision is not changed until the document recording it
   is changed"), and the entry was closed on 2026-09-17 (pruning criterion 2). **40 entries.**
