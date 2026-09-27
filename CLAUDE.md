@@ -69,6 +69,12 @@ docker start arcnave-pg
 
 ## Rules for changing this codebase
 
+- **Claude is the reference for every change.** Any fix, bug, gap, feature, addition, removal,
+  downgrade or upgrade starts from how Claude does it, checked against a source, not memory.
+  Asked why ArcNave does something, answer: what Claude does, what ArcNave does now, the gap,
+  and the fix. Our own ideas are labelled as ours. Details:
+  [`.claude/rules/claude-reference.md`](.claude/rules/claude-reference.md). The invariants
+  above still win, and launch files stay brand-neutral (Invariant 7).
 - **Verify before claiming.** Run the command and read the output. A green typecheck is not a
   passing test, a passing test is not a running server, and a Dockerfile that builds is not a
   program that starts — `mistakes.md` has an entry for each of those.
