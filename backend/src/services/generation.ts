@@ -16,6 +16,8 @@
 import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
+import { nextActionsExecutor } from '../tools/nextActions.js';
+import { AnswerProtocolGuard } from './answerProtocolGuard.js';
 import { usesWarmSandbox } from '../tools/catalog.js';
 
 import type { Config } from '../config.js';
@@ -785,6 +787,9 @@ export class GenerationService {
           { userId: input.userId, chatId: input.chatId, projectId: project?.id ?? null },
           this.cfg.UI_MAX_RESPONSE_BYTES,
           (block) => {
+            const last = segments.at(-1);
+            if (last?.type === 'ui') last.blockIds.push(block.blockId);
+            else segments.push({ type: 'ui', blockIds: [block.blockId] });
             pendingUiEvents.push({
               type: 'ui_block',
               block,
@@ -797,6 +802,8 @@ export class GenerationService {
     if (this.cfg.ENABLE_TOOL_USE) {
       toolMap.set('ask_user_options', new AskUserOptionsExecutor());
     }
+    let proposedActions: string[] = [];
+    toolMap.set('suggest_next_actions', nextActionsExecutor((actions) => { proposedActions = actions; }));
     if (uiToolExecutor) {
       toolMap.set('render_ui', uiToolExecutor);
     }
@@ -977,6 +984,7 @@ export class GenerationService {
     // The answer in the order it happened, as Claude shows it: thinking, text and tool steps
     // interleaved. Kept on the message so a reload shows the same timeline.
     const segments: MessageSegment[] = [];
+    const answerGuard = new AnswerProtocolGuard();
     const addSegment = (type: 'thinking' | 'text', text: string) => {
       const last = segments.at(-1);
       if (last && last.type === type) last.text += text;
@@ -1010,11 +1018,13 @@ export class GenerationService {
         timing.note('streamMs', split.summary());
         if (event.type === 'tool_use') timing.note('toolCalls', (toolCallCount += 1));
         switch (event.type) {
-          case 'delta':
-            collectedText.push(event.text);
-            addSegment('text', event.text);
-            yield { type: 'delta', text: event.text };
+          case 'delta': {
+            const safe = answerGuard.push(event.text);
+            collectedText.push(safe);
+            addSegment('text', safe);
+            if (safe) yield { type: 'delta', text: safe };
             break;
+          }
 
           case 'thinking':
             collectedThinking.push(event.text);
@@ -1115,6 +1125,14 @@ export class GenerationService {
             throw refusalError(event);
 
           case 'completed':
+            {
+              const tail = answerGuard.finish();
+              if (tail) {
+                collectedText.push(tail);
+                addSegment('text', tail);
+                yield { type: 'delta', text: tail };
+              }
+            }
             usage = event.usage;
             finishReason = event.finishReason;
             this.registry.recordOutcome(entry.alias, { available: true });
@@ -1190,10 +1208,17 @@ export class GenerationService {
         const synthesisStream = provider.stream(synthesisRequest);
         for await (const event of synthesisStream) {
           if (event.type === 'delta' && event.text) {
-            collectedText.push(event.text);
-            addSegment('text', event.text);
-            yield { type: 'delta', text: event.text };
+            const safe = answerGuard.push(event.text);
+            collectedText.push(safe);
+            addSegment('text', safe);
+            if (safe) yield { type: 'delta', text: safe };
           } else if (event.type === 'completed') {
+            const tail = answerGuard.finish();
+            if (tail) {
+              collectedText.push(tail);
+              addSegment('text', tail);
+              yield { type: 'delta', text: tail };
+            }
             // A second request of the same turn: billed on top of the first.
             usage = addRequestUsage(usage, event.usage);
             finishReason = event.finishReason;
@@ -1202,9 +1227,15 @@ export class GenerationService {
         text = collectedText.join('');
       } catch (synthErr) {
         log.warn({ err: synthErr }, 'Forced synthesis round failed');
+        if (synthErr instanceof ApiError && synthErr.code === 'tool_protocol_in_text') {
+          status = 'error';
+          errorCode = synthErr.code;
+          text = collectedText.join('');
+          yield { type: 'error', code: synthErr.code, title: synthErr.title, detail: synthErr.detail, usage: toUsageDto(usage, null) };
+        }
       }
 
-      if (text.trim().length === 0) {
+      if (status !== 'error' && text.trim().length === 0) {
         status = 'error';
         errorCode = 'empty_response';
         const emptyApi = new ApiError('empty_response');
@@ -1218,7 +1249,7 @@ export class GenerationService {
       }
     }
 
-    const questions = status === 'complete' ? suggestFollowUps(input.mode, collectedSources) : [];
+    const questions = status === 'complete' ? proposedActions : [];
 
     await this.finalise(input, {
       text,
@@ -2081,7 +2112,7 @@ export class GenerationService {
     // 7. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
       currentDate: currentDateLine(new Date(), prefs.timezone),
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       styleInstructions,
@@ -2385,23 +2416,6 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
   }
   const api = new ApiError('provider_error');
   return { code: api.code, title: api.title, detail: api.detail };
-}
-
-/**
- * Follow-up suggestions.
- *
- * Deliberately generic and derived from what the turn actually produced. Asking the model for
- * suggestions would double the cost of every reply; inventing topic-specific ones without
- * reading the answer would be theatre.
- */
-function suggestFollowUps(mode: Mode, sources: ProviderSource[]): string[] {
-  if (mode === 'chat') return [];
-  if (sources.length === 0) return [];
-  const domains = [...new Set(sources.map((s) => s.domain).filter(Boolean))].slice(0, 2);
-  const out = ['What does the strongest evidence here actually establish?'];
-  if (domains.length > 0) out.push(`Summarise what ${domains.join(' and ')} say on this.`);
-  out.push('What would change this conclusion?');
-  return out;
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

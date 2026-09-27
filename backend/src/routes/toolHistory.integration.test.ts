@@ -60,6 +60,23 @@ const plainAnswer = (): void => {
 };
 
 describe('tool calls in the history (ADR-0022)', () => {
+  it('stops split textual tool protocol before its HTML reaches the stream or transcript', async () => {
+    const { chatId } = await newChat();
+    ctx.provider.script = [
+      { type: 'delta', text: 'Here is the calculator.\n[Tool ca' },
+      { type: 'delta', text: 'll] render_ui({html:"PRIVATE_HTML"})' },
+    ];
+    const response = await ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: { cookie: user.cookie }, payload: { prompt: 'Show a calculator' } });
+    expect(response.body).toContain('tool_protocol_in_text');
+    expect(response.body).not.toContain('PRIVATE_HTML');
+    expect(response.body).not.toContain('[Tool ca');
+    const persisted = await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}`, headers: { cookie: user.cookie } });
+    expect(persisted.statusCode).toBe(200);
+    expect(persisted.body).toContain('tool_protocol_in_text');
+    expect(persisted.body).not.toContain('PRIVATE_HTML');
+    plainAnswer();
+  });
+
   it('gives the next turn the earlier calls and results, and Gemini its signed functionCall back', async () => {
     const { send } = await newChat();
     scriptCall('c1', 'run_python', 'Federal: 244 debits, 33 credits');
@@ -113,8 +130,10 @@ describe('tool calls in the history (ADR-0022)', () => {
       tools: [{ name: 'run_python', description: '', inputSchema: { type: 'object' } }],
     };
     for (const wire of [JSON.stringify(buildGeminiContents(request)), JSON.stringify(buildAnthropicMessages(request))]) {
-      expect(wire).toContain('[Tool call] extract_scanned_table_rows({\\"fileId\\":\\"f\\"})');
-      expect(wire).toContain('[Result] ROWS');
+      expect(wire).toContain('Historical execution data');
+      expect(wire).toContain('extract_scanned_table_rows');
+      expect(wire).toContain('ROWS');
+      expect(wire).not.toContain('[Tool call]');
       expect(wire).not.toContain('functionCall');
       expect(wire).not.toContain('tool_use');
     }
@@ -164,7 +183,7 @@ describe('tool calls in the history (ADR-0022)', () => {
     ctx.provider.onRequest = null;
     const summary = ctx.provider.seen.slice(before).find((r) => r.prompt === SUMMARY_PROMPT)!;
     const text = summary.history.map((t) => t.text).join('\n');
-    expect(text).toContain('[Tool call] run_python');
+    expect(text).toContain('run_python');
     expect(text).toContain('244 debits');
   });
   it('gives a skill loaded before a compaction back in full after it (ADR-0027)', async () => {

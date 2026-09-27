@@ -18,15 +18,16 @@ const message = (role: Message["role"], text: string): Message => ({
 });
 
 describe("deriveFollowUpSuggestion", () => {
-  it("prefers follow-up metadata produced for the latest answer", () => {
+  it("uses a separate confirmed composer proposal, rather than copying Keep exploring", () => {
     const assistant = message("assistant", "A detailed answer.");
     assistant.questions = ["Would you like a rollout plan?"];
+    assistant.toolCalls = [{ toolCallId: "next", name: "suggest_next_actions", ok: true, input: { actions: assistant.questions, composer: "Create a staged rollout checklist." } }];
     expect(deriveFollowUpSuggestion([assistant])).toBe(
-      "Would you like a rollout plan?",
+      "Create a staged rollout checklist.",
     );
   });
 
-  it("uses the question the assistant actually ended with", () => {
+  it("does not put a question addressed to the user in the composer", () => {
     expect(
       deriveFollowUpSuggestion([
         message("user", "Help me choose"),
@@ -35,7 +36,7 @@ describe("deriveFollowUpSuggestion", () => {
           "Option A is safer for this case. Would you like a side-by-side migration plan?",
         ),
       ]),
-    ).toBe("Would you like a side-by-side migration plan?");
+    ).toBe("");
   });
 
   it("does not turn the chat title into a fabricated follow-up", () => {
@@ -44,16 +45,16 @@ describe("deriveFollowUpSuggestion", () => {
         message("user", "What is your name?"),
         message("assistant", "I am ArcNave."),
       ]),
-    ).toBe("What can you help me accomplish?");
+    ).toBe("");
   });
 
-  it("maps implementation conversations to a concrete next action", () => {
+  it("does not fabricate a next action from a keyword", () => {
     expect(
       deriveFollowUpSuggestion([
         message("user", "How should I deploy this app?"),
         message("assistant", "Use a guarded build from the main branch."),
       ]),
-    ).toBe("Turn this into the next concrete action.");
+    ).toBe("");
   });
 });
 

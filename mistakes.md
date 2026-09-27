@@ -1,5 +1,15 @@
 # mistakes.md
 
+- **2026-09-27 (chat sync; existing 40-entry cap)** — A successful stash save can still
+  fail cleanup on Windows. Verify saved trees before restoring tracked files; retain the stash.
+  PowerShell text pipelines rewrite patch line endings: use Git's native `--output` for patches.
+  JavaScript replacement strings interpret dollar sequences: use replacement callbacks for
+  arbitrary source text. Node 26 experimental webstorage breaks this project's jsdom setup;
+  use the declared Node 22 runtime (or disable experimental webstorage for frontend checks).
+  Isolate validation databases when migration histories differ. Python-backed tests require
+  the configured `python` executable, not only `python3`. Parse Markdown front matter after
+  normalizing CRLF so Windows checkouts validate the same content as Linux.
+
 **Owner:** the coding agent. Humans may prune it; the agent writes it.
 **Read:** at the start of every session, before touching code.
 **Write:** before closing any task, while the mistake is still fresh.

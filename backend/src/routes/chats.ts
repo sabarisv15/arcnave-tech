@@ -115,6 +115,7 @@ const messageSchema = z.object({
         z.object({ type: z.literal('thinking'), text: z.string() }),
         z.object({ type: z.literal('text'), text: z.string() }),
         z.object({ type: z.literal('tools'), toolCallIds: z.array(z.string()) }),
+        z.object({ type: z.literal('ui'), blockIds: z.array(z.string()) }),
       ]),
     )
     .nullable(),

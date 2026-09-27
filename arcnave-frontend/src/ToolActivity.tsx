@@ -187,7 +187,7 @@ export default function ToolActivity({
   /** Answer text has started to arrive. */
   answering: boolean;
 }) {
-  const visible = calls.filter((c) => c.name !== "render_ui" && c.name !== "ask_user_options");
+  const visible = calls.filter((c) => !["render_ui", "ask_user_options", "suggest_next_actions"].includes(c.name));
   const live = working && !answering;
   const [open, setOpen] = useState(live);
   useEffect(() => setOpen(live), [live]);

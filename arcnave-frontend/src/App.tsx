@@ -41,6 +41,7 @@ import { SessionProvider, useSession } from "./session";
 import { handleAppKeyDown } from "./shortcuts";
 import Auth from "./Auth";
 import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
+import { relevantFollowUps } from "./followUps";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import Composer, { AttachmentChip } from "./Composer";
 import Settings from "./Settings";
@@ -912,6 +913,8 @@ function MessageView({
         // Claude's order: each stretch of thinking, text and tool steps where it happened.
         m.segments.map((seg, i) => {
           const last = i === m.segments!.length - 1;
+          if (seg.type === "ui")
+            return <GenerativeUIRenderer key={i} blocks={(m.uiBlocks ?? []).filter((block) => seg.blockIds.includes(block.blockId))} onAction={handleAction} chatId={chatId} />;
           if (seg.type === "thinking")
             return <ThinkingBlock key={i} text={seg.text} live={loading && last} />;
           if (seg.type === "tools") {
@@ -957,7 +960,7 @@ function MessageView({
         </>
       )}
       {m.uiBlocks && m.uiBlocks.length > 0 && (
-        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} chatId={chatId} />
+        <GenerativeUIRenderer blocks={m.uiBlocks.filter((block) => !m.segments?.some((segment) => segment.type === "ui" && segment.blockIds.includes(block.blockId)))} onAction={handleAction} chatId={chatId} />
       )}
       {m.status === "generating" && m.visualDrafts?.map((d) => <VisualDraft key={d.id} draft={d} />)}
       {(() => {
@@ -1137,10 +1140,10 @@ function MessageView({
       {usage && !loading && (
         <UsageRow usage={usage} createdAt={m.createdAt} effort={m.effort} />
       )}
-      {m.questions && m.status === "complete" && m.questions.length > 0 && (
+      {m.status === "complete" && relevantFollowUps(m.questions).length > 0 && (
         <div className="related-questions">
           <p className="eyebrow">KEEP EXPLORING</p>
-          {m.questions.map((q) => (
+          {relevantFollowUps(m.questions).map((q) => (
             <RelatedQuestion key={q} text={q} chatId={chatId} mode={m.mode} />
           ))}
         </div>
@@ -1314,4 +1317,3 @@ function ShareButton({ chatId }: { chatId: string }) {
     </>
   );
 }
-

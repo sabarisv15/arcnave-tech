@@ -43,6 +43,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       expect(initialNames).toEqual([
         'search_tools',
         'load_skill',
+        'suggest_next_actions',
         'ask_user_options',
         'read_uploaded_file',
         'generate_deliverable',
@@ -50,6 +51,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'save_memory',
         'search_chats',
         'forget_memory',
+        'render_ui',
         'run_python',
       ]);
 
@@ -59,7 +61,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       expect(initialNames).not.toContain('generate_image');
       expect(initialNames).not.toContain('create_artifact');
       expect(initialNames).not.toContain('search_project_files');
-      expect(initialNames).not.toContain('render_ui');
+      expect(initialNames).toContain('render_ui');
       expect(initialNames).not.toContain('search_memory');
 
       // Goal tools must NOT be present without an active goal
@@ -84,12 +86,14 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'get_goal',
         'update_goal',
         'get_context_remaining',
+        'suggest_next_actions',
         'ask_user_options',
         'read_uploaded_file',
         'generate_deliverable',
         'save_memory',
         'search_chats',
         'forget_memory',
+        'render_ui',
         'run_python',
       ]);
 
@@ -239,12 +243,14 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       expect(availableTools.map((t) => t.name)).toEqual([
         'search_tools',
         'load_skill',
+        'suggest_next_actions',
         'ask_user_options',
         'read_uploaded_file',
         'generate_deliverable',
         'save_memory',
         'search_chats',
         'forget_memory',
+        'render_ui',
         'run_python',
       ]);
 

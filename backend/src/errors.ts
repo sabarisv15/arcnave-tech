@@ -23,6 +23,11 @@ interface CatalogEntry {
 }
 
 export const ERROR_CATALOG = {
+  tool_protocol_in_text: {
+    status: 502,
+    title: 'The response could not be displayed',
+    detail: 'The model returned internal tool data as answer text. Retry this response.',
+  },
   // --- client -------------------------------------------------------------
   validation_error: {
     status: 422,

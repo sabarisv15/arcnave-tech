@@ -22,7 +22,7 @@ describe('Capability Regression Suite', () => {
         activeGoalId: 'g1',
         allowPython: true,
       });
-      expect(tools.length).toBe(16);
+      expect(tools.length).toBe(17);
       const names = tools.map((t: { name: string }) => t.name);
 
       // Core CRUD

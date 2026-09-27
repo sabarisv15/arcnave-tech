@@ -589,6 +589,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 ...m,
                 status: "generating",
                 uiBlocks: updated,
+                segments: exists ? m.segments : appendSegment(m.segments, { type: "ui", blockId: event.block.blockId }),
               };
             });
           }

@@ -258,6 +258,7 @@ export const chats = pgTable(
 
 /** One stretch of an answer: thinking, text, or a run of consecutive tool calls. */
 export type MessageSegment =
+  | { type: 'ui'; blockIds: string[] }
   | { type: 'thinking'; text: string }
   | { type: 'text'; text: string }
   | { type: 'tools'; toolCallIds: string[] };

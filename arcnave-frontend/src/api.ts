@@ -234,6 +234,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "Something went wrong",
     detail: "An unexpected error occurred. The request ID helps trace it.",
   },
+  tool_protocol_in_text: {
+    title: "The response contained an invalid tool record",
+    detail: "ArcNave stopped before displaying that record. Retry the response.",
+  },
 };
 
 /**

@@ -7,19 +7,19 @@ import {
   ChevronRight,
   Download,
   Ellipsis,
-  FolderClosed,
-  FolderKanban,
+  Folder,
+  Folders,
   FolderInput,
   GitBranch,
   Loader2,
   LogOut,
-  MessageCircleMore,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  LibraryBig,
+  Shapes,
   Pin,
   Plus,
-  SquarePen,
+  SquarePlus,
   Search,
   Settings,
   Trash2,
@@ -149,7 +149,7 @@ export function ChatMenu({ chat }: { chat: Chat }) {
                 setModal(null);
               }}
             >
-              <FolderClosed size={17} />
+              <Folder size={17} />
               <span>
                 <strong>{project.title}</strong>
                 <small>{project.description || "Project workspace"}</small>
@@ -169,7 +169,7 @@ export function ChatMenu({ chat }: { chat: Chat }) {
                 setModal(null);
               }}
             >
-              <MessageCircleMore size={17} />
+              <MessageSquare size={17} />
               <span>
                 <strong>Remove from project</strong>
                 <small>Keep it as a standalone conversation</small>
@@ -222,8 +222,8 @@ export default function Sidebar({
   const location = useLocation(),
     navigate = useNavigate();
   const nav = [
-    { label: "Projects", icon: FolderKanban, to: "/projects" },
-    { label: "Artifacts", icon: LibraryBig, to: "/artifacts" },
+    { label: "Projects", icon: Folders, to: "/projects" },
+    { label: "Artifacts", icon: Shapes, to: "/artifacts" },
   ];
   // The server already orders by pinned then recency; this keeps that order stable if the
   // list is refreshed mid-render.
@@ -279,7 +279,7 @@ export default function Sidebar({
             aria-label="New chat"
             onClick={() => go("/")}
           >
-            <SquarePen size={18} />
+            <SquarePlus size={18} />
             <span>New chat</span>
           </button>
         </Tip>
@@ -330,7 +330,7 @@ export default function Sidebar({
                       })
                     }
                   >
-                    <FolderClosed size={16} />
+                    <Folder size={16} />
                     <span>{project.title}</span>
                     {open ? (
                       <ChevronDown size={14} />
@@ -349,7 +349,7 @@ export default function Sidebar({
                             className={`sidebar-child-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
                             onClick={() => go(`/chat/${chat.id}`)}
                           >
-                            <MessageCircleMore
+                            <MessageSquare
                               size={14}
                               className={chat.pinned ? "pinned" : ""}
                             />
@@ -401,7 +401,7 @@ export default function Sidebar({
                 className={`sidebar-standalone-chat ${location.pathname === `/chat/${chat.id}` ? "active" : ""}`}
                 onClick={() => go(`/chat/${chat.id}`)}
               >
-                <MessageCircleMore
+                <MessageSquare
                   size={14}
                   className={chat.pinned ? "pinned" : ""}
                 />
@@ -525,7 +525,7 @@ export function SearchDialog() {
               setQuery("");
             }}
           >
-            <MessageCircleMore size={17} />
+            <MessageSquare size={17} />
             <span>
               <strong>{c.title}</strong>
               <small>

@@ -46,7 +46,7 @@ export interface RuntimeDebugTrace {
  * Computes the complete policy-approved tool catalog authorized for this turn.
  */
 function computeAllowedTools(input: RouteTurnInput): string[] {
-  const allowed = new Set<string>(['search_tools']);
+  const allowed = new Set<string>(['search_tools', 'suggest_next_actions']);
 
   if (input.candidateSkills.length > 0) {
     allowed.add('load_skill');

@@ -534,6 +534,15 @@ WPs inside one phase are independent unless a WP says otherwise.
 
 ## Kick-off prompt for each WP (paste into Antigravity, Planning mode)
 
+### Chat correction addendum (2026-09-27, ADR-0043)
+
+- [x] Integrate on latest main while preserving upstream work and local stashes.
+- [x] Single-dollar math, contextual next actions and independent composer hints.
+- [x] Current-user language/script matching, bounded answer width and refreshed icons.
+- [x] Typed answer-protocol guard and ordered, confirmed visual hydration.
+- [x] Local browser screenshots in `docs/walkthroughs/2026-09-27-chat-sync/`.
+- [ ] Real-provider language/relevance acceptance and approved production release.
+
 ```
 Implement WP-XX from docs/handover/2026-09-26-claude-ui-parity-plan.md.
 
