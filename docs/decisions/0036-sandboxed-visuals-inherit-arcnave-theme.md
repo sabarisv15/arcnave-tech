@@ -53,14 +53,27 @@ How Claude does it (official sources, read 2026-09-27):
    only when `render_ui` is declared. We do not add Claude's "read the guide first" tool call:
    our guide is short enough to send every time, and an extra round costs more than it saves.
 
+7. **The artifact library shows each artifact, not a label**, as Claude's gallery does. A card
+   reads its artifact once it scrolls into view (once per version) and draws it: webpages in
+   the same sandbox at half scale, SVGs whole and centred, documents and code as their opening
+   lines. The thumbnail is `inert` and `aria-hidden`; the card's button stays the only control.
+   If the read fails, the old placeholder stays.
+8. **ArcNave stops loading Anthropic's fonts.** `styles.css` fetched "Anthropic Sans" and
+   "Anthropic Serif" from Anthropic's asset host. Those are Anthropic's brand fonts, not ours to
+   use, and every page load depended on their server. The app now bundles Inter and Source
+   Serif 4 (OFL-1.1, `@fontsource-variable`), served from our own origin. Visuals keep the
+   system font, because their CSP allows fonts only as `data:` URLs.
+
 ## Consequences
 
 - A visual written with no CSS of its own already matches ArcNave in both themes.
 - The guide adds roughly 600 tokens to turns that declare `render_ui`; they are cached.
 - The inline frame bug found on the way (the iframe stuck at 150px because `flex: 1` beat its
   `height`) is fixed and recorded in `mistakes.md`.
-- Not done here: thumbnails of artifacts in the library (Claude's gallery shows a preview);
-  that is separate work.
+- The library makes one read per visible artifact; a webpage thumbnail runs that page's
+  scripts in its sandbox, as the panel would.
+- Not done: streaming a visual while the model is still writing it (Claude draws it as it
+  arrives). That needs the provider to stream tool-call arguments; separate work.
 
 ## Verification (local, real Chromium)
 
@@ -69,5 +82,8 @@ How Claude does it (official sources, read 2026-09-27):
 - Switching ArcNave to dark changes the frame's theme, text colour and Chart.js colours without
   a reload; the slider keeps its value.
 - `window.arcnave.prompt` still only fills the composer. No CSP or page errors.
-- Tests: frontend 106 (theme, `:where()` only, tokens in both themes, theme message without
+- Library, light and dark: webpage, SVG, document and code cards all show their artifact;
+  headings render in Source Serif 4; no page or CSP errors.
+- Tests: frontend 111 (thumbnails: sandboxed and inert, document excerpt, placeholder on
+  failure, one read per version); earlier: frontend 106 (theme, `:where()` only, tokens in both themes, theme message without
   rebuild, page layout); backend 976.

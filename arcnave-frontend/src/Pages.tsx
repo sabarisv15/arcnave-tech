@@ -24,6 +24,7 @@ import { Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import type { Artifact, Attachment, Project, SavedSource } from "./types";
 import { toProjectFile, toSavedSource } from "./types";
 import { ChatMenu } from "./Navigation";
+import { ArtifactThumbnail } from "./ArtifactThumbnail";
 import Composer, { AttachmentChip } from "./Composer";
 import { validateFile } from "./storage";
 
@@ -738,25 +739,32 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
         <div
           className={`artifact-card-preview ${a.kind === "webpage" ? "preview-blue" : ""}`}
         >
-          {a.kind === "document" ? (
-            <>
-              <p>DOCUMENT</p>
-              <h3>{a.title}</h3>
-              <span />
-              <span />
-              <span />
-            </>
-          ) : a.kind === "webpage" || a.kind === "svg" ? (
-            <>
-              <p>{a.kind === "svg" ? "IMAGE" : "WEBPAGE"}</p>
-              <h3>{a.title}</h3>
-            </>
-          ) : (
-            <>
-              <Code2 size={28} />
-              <code>{a.title}</code>
-            </>
-          )}
+          <ArtifactThumbnail
+            artifact={a}
+            fallback={
+              <div className="artifact-card-placeholder">
+                {a.kind === "document" ? (
+                  <>
+                    <p>DOCUMENT</p>
+                    <h3>{a.title}</h3>
+                    <span />
+                    <span />
+                    <span />
+                  </>
+                ) : a.kind === "webpage" || a.kind === "svg" ? (
+                  <>
+                    <p>{a.kind === "svg" ? "IMAGE" : "WEBPAGE"}</p>
+                    <h3>{a.title}</h3>
+                  </>
+                ) : (
+                  <>
+                    <Code2 size={28} />
+                    <code>{a.title}</code>
+                  </>
+                )}
+              </div>
+            }
+          />
         </div>
         <div className="artifact-card-info">
           <strong>{a.title}</strong>

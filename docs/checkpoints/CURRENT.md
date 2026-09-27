@@ -6,7 +6,9 @@
 > - Chart.js picks up theme colours; `window.arcnave.colors()` and `onThemeChange` exist.
 > - `GENERATIVE_UI_POLICY_V1` has a compact visual design guide in our own words.
 > - Fixed: inline frames were stuck at 150px (`flex: 1` beat `height`).
-> - Verified in Chromium with a chart + diagram visual in both themes; tests frontend 106, backend 976.
+> - Artifact library cards show the artifact itself (`ArtifactThumbnail.tsx`), read lazily.
+> - Anthropic's brand fonts removed; Inter and Source Serif 4 (OFL) are bundled.
+> - Verified in Chromium in both themes; tests frontend 111, backend 976.
 >
 > **2026-09-26: WP-10 sandboxed visuals (ADR-0035), on branch `feat/wp-10-visual-sandbox`, not live.**
 > - `render_ui` has a `visual` block: model-written HTML with scripts, at most 200,000 bytes and
