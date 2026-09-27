@@ -2110,3 +2110,6 @@ verification command for each is in `mistakes.md`; summary:
 
 > **2026-09-27: Academic Campus AI public website release approved.** Public homepage/about/data/use pages, campus preparation examples, signup/login routing and /app workspace entry. Frontend build and 183 tests passed; final copy focused tests 7 passed. Desktop/390px evidence saved locally. Live registration remains disabled. User authorized commit, push, merge and cloud deployment in this task.
 
+
+> **2026-09-28: Campus website layout correction.** Compact tablet/short-screen hero keeps preview visible; consistent gutters and responsive product columns. Product explains NAAC/NBA/AICTE inputs, assisted drafts and campus review. How it works includes source verification and an IQAC request example. Frontend 185 tests pass; build passes. Existing release authorization retained for website correction.
+

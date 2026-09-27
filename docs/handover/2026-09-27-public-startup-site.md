@@ -34,3 +34,10 @@ focused homepage/auth suite 7 tests passed after campus copy changes. Desktop an
 phone inspected, no horizontal overflow. Existing backend database schema drift prevents
 claiming authenticated end-to-end acceptance. Live registration is currently disabled;
 signup has early-access contact handling. Production has not been changed.
+
+## Layout and practical workflow correction
+
+- At 899px the old stacked hero put the preview below the first screen. Use a compact two-column hero from 760px; preserve natural mobile scrolling and a common gutter across sections.
+- Product now explains inputs, assisted work, draft outputs, and campus reviewers separately for NAAC, NBA, and AICTE.
+- How it works includes a concrete IQAC request and source verification before human approval/submission. Official requirements linked; no automatic portal or compliance claims.
+- Local focused public/auth tests pass (7). Browser checks include 899px and 390px widths.
