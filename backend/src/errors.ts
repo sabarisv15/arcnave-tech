@@ -131,6 +131,12 @@ export const ERROR_CATALOG = {
     detail: 'Its content has none of the structure that format needs.',
   },
 
+  preview_unsupported: {
+    status: 422,
+    title: 'No preview for this file',
+    detail: 'Download it to open it in its own application.',
+  },
+
   empty_response: {
     status: 502,
     title: 'No response generated',

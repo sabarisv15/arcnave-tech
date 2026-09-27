@@ -817,6 +817,10 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-27** — No new heading (WP-11). The plan named a PowerPoint renderer by reputation;
+  `pptx-preview` rendered a fixture deck but drew an empty frame for the decks ArcNave itself
+  generates, with no error. Rule: try a rendering library on this app's own output before
+  building on it. The check was a Playwright page loading the library against `gen.pptx`.
 - **2026-09-27** — Added the select-list subquery entry (WP-09). Retired "A legacy transcript
   field crashed the whole workspace": `types.test.ts` ("does not crash when a legacy transcript
   omits optional evidence arrays") fails if it regresses (pruning criterion 1). Also, not an

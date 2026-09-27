@@ -1,5 +1,20 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-11 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Office files open in the file panel before download, from attachments and from created-file
+> cards (the card is now clickable, and the panel can expand):
+> - Word: `docx-preview`, loaded on demand.
+> - PowerPoint: drawn by `arcnave-frontend/src/officePreview.ts` (shapes, text, pictures, tables
+>   at their positions). `pptx-preview` was tried and drew nothing for ArcNave's own decks.
+>   Charts, effects and grouped-shape offsets are not drawn.
+> - Excel: `GET /files/{id}/preview` and `GET /artifacts/{id}/versions/{v}/preview` return every
+>   sheet's first 200 rows × 50 columns as typed cells, with a truncation flag; the panel shows
+>   sheet tabs and a grid. Code `preview_unsupported` (422) for other files, corrupt workbooks
+>   and files over 25 MB.
+> - Word and PowerPoint draw into a frame with `sandbox="allow-same-origin"` and no scripts, so
+>   a file's styles and links cannot reach the app. LibreOffice is only in the sandbox image, so
+>   the server does not convert for previews.
+>
 > **2026-09-27 (latest): WP-09 done on `claude/tools-skills-architecture-jyxa61`, not live.**
 > Editing a prompt now makes another version of the same chat ([ADR-0038](../decisions/0038-edited-prompts-make-versions.md)):
 > `< i / n >` on the prompt switches versions, the sidebar keeps one row, delete removes every

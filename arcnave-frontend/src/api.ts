@@ -176,6 +176,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "This version cannot be exported to that format",
     detail: "Its content has none of the structure that format needs.",
   },
+  preview_unsupported: {
+    title: "No preview for this file",
+    detail: "Download it to open it in its own application.",
+  },
   forbidden: {
     title: "Not permitted",
     detail: "You do not have access to that.",
@@ -477,6 +481,24 @@ export interface MessageDto {
   attachments: MessageAttachmentDto[];
   usage: UsageDto | null;
   versions?: { index: number; versions: { chatId: string; createdAt: string }[] } | null;
+}
+
+export interface SheetPreviewCellDto {
+  value: string | number | boolean | null;
+  type: "number" | "string" | "boolean" | "date" | "error" | null;
+  numFmt?: string;
+  formula?: string;
+}
+
+export interface SheetPreviewDto {
+  sheets: {
+    name: string;
+    rows: SheetPreviewCellDto[][];
+    rowCount: number;
+    columnCount: number;
+    truncatedRows: boolean;
+    truncatedColumns: boolean;
+  }[];
 }
 
 export interface ChatDto {
@@ -948,6 +970,9 @@ export const api = {
     read: (id: string) => get<AttachmentDto>(`/files/${id}`),
     remove: (id: string) => del(`/files/${id}`),
     downloadUrl: (id: string) => url(`/files/${id}/download`),
+    /** A spreadsheet's sheets as typed cells (WP-11). */
+    preview: (id: string, signal?: AbortSignal) =>
+      get<SheetPreviewDto>(`/files/${id}/preview`, undefined, signal),
     cleanup: () => post<{ deleted: number }>("/files/cleanup", {}),
   },
 

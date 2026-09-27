@@ -45,7 +45,7 @@
 | WP-08 | 15 | Incognito chats | 2 | yes | future |
 | WP-09 | 14 | Branch switcher `< 1/2 >` on edited prompts | 2 | yes | [x] |
 | WP-10 | 1, 8, 9 | Custom visuals in chat; interactive and SVG artifacts (sandbox) | 3 | yes | [x] |
-| WP-11 | 13 | Word, Excel and PowerPoint previews | 4 | no | [ ] |
+| WP-11 | 13 | Word, Excel and PowerPoint previews | 4 | no | [x] |
 | WP-12 | 11, 16 | Public share links for chats and artifacts | 4 | yes | [ ] |
 | WP-13 | 21, 22 | Memory import/export; full data export; account deletion | 4 | yes | [ ] |
 | WP-14 | 25 | Connectors (remote MCP) | 5 | yes | future |

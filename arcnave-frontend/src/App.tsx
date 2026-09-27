@@ -1140,16 +1140,36 @@ function DeliverableCard({ item }: { item: DeliverableData }) {
 
   return (
     <div className="deliverable-card" role="region" aria-label={`Deliverable: ${item.filename}`}>
-      <div className="deliverable-card-icon">
-        <FileText size={24} />
-        <span className="deliverable-card-badge">{formatUpper}</span>
-      </div>
-      <div className="deliverable-card-info">
-        <strong className="deliverable-card-title">{item.title || item.filename}</strong>
-        <span className="deliverable-card-meta">
-          {item.filename} • {Math.round((item.sizeBytes || 0) / 1024)} KB
-        </span>
-      </div>
+      {/* Opening a created file shows it before it is downloaded, as Claude's file cards do (WP-11). */}
+      <button
+        type="button"
+        className="deliverable-card-open"
+        title={`Preview ${item.filename}`}
+        onClick={() =>
+          setPanel({
+            kind: "file",
+            file: {
+              id: item.attachmentId,
+              name: item.filename,
+              size: item.sizeBytes,
+              type: item.mimeType,
+              status: "ready",
+              downloadUrl: api.files.downloadUrl(item.attachmentId),
+            },
+          })
+        }
+      >
+        <div className="deliverable-card-icon">
+          <FileText size={24} />
+          <span className="deliverable-card-badge">{formatUpper}</span>
+        </div>
+        <div className="deliverable-card-info">
+          <strong className="deliverable-card-title">{item.title || item.filename}</strong>
+          <span className="deliverable-card-meta">
+            {item.filename} • {Math.round((item.sizeBytes || 0) / 1024)} KB
+          </span>
+        </div>
+      </button>
       <div className="deliverable-card-actions">
         {item.artifactId && (
           <button

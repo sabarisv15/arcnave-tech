@@ -6477,3 +6477,127 @@ select:focus-visible {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* WP-11: a created file's card opens its preview; the panel draws Office files. */
+.deliverable-card-open {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.deliverable-card-open:hover .deliverable-card-title {
+  text-decoration: underline;
+}
+.office-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 480px;
+}
+.office-preview iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 480px;
+  border: 0;
+  border-radius: 8px;
+  background: #f3f3f1;
+}
+.office-preview iframe.is-hidden {
+  display: none;
+}
+.office-preview-status {
+  padding: 8px 0;
+}
+.sheet-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.sheet-grid {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  background: var(--surface);
+}
+.sheet-grid table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-grid th,
+.sheet-grid td {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: center;
+}
+.sheet-grid tbody th {
+  position: sticky;
+  left: 0;
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: right;
+  min-width: 36px;
+}
+.sheet-grid .sheet-corner {
+  left: 0;
+  z-index: 2;
+}
+.sheet-grid td.num {
+  text-align: right;
+}
+.sheet-grid td.err {
+  color: var(--danger);
+}
+.sheet-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  padding: 4px;
+}
+.sheet-tabs button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sheet-tabs button.active {
+  background: var(--soft);
+  color: var(--ink);
+  font-weight: 500;
+}
+.sheet-note {
+  margin: 6px 0 0;
+}

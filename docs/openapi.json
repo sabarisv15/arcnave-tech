@@ -4158,6 +4158,133 @@
         }
       }
     },
+    "/artifacts/{id}/versions/{version}/preview": {
+      "get": {
+        "summary": "A spreadsheet version as sheets of typed cells, for the preview panel",
+        "tags": [
+          "artifacts"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "version",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sheets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "boolean"
+                                      }
+                                    ],
+                                    "nullable": true
+                                  },
+                                  "type": {
+                                    "nullable": true,
+                                    "type": "string",
+                                    "enum": [
+                                      "number",
+                                      "string",
+                                      "boolean",
+                                      "date",
+                                      "error"
+                                    ]
+                                  },
+                                  "numFmt": {
+                                    "type": "string"
+                                  },
+                                  "formula": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "type"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "rowCount": {
+                            "type": "number"
+                          },
+                          "columnCount": {
+                            "type": "number"
+                          },
+                          "truncatedRows": {
+                            "type": "boolean"
+                          },
+                          "truncatedColumns": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "rows",
+                          "rowCount",
+                          "columnCount",
+                          "truncatedRows",
+                          "truncatedColumns"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "sheets"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/artifacts/{id}/versions/{version}/download": {
       "get": {
         "summary": "Download the bytes of a binary (exported) version",
@@ -5760,6 +5887,124 @@
         "responses": {
           "200": {
             "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/files/{id}/preview": {
+      "get": {
+        "summary": "A spreadsheet attachment as sheets of typed cells, for the preview panel",
+        "tags": [
+          "projects"
+        ],
+        "description": "Every sheet's first 200 rows and 50 columns. Only .xlsx.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sheets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "boolean"
+                                      }
+                                    ],
+                                    "nullable": true
+                                  },
+                                  "type": {
+                                    "nullable": true,
+                                    "type": "string",
+                                    "enum": [
+                                      "number",
+                                      "string",
+                                      "boolean",
+                                      "date",
+                                      "error"
+                                    ]
+                                  },
+                                  "numFmt": {
+                                    "type": "string"
+                                  },
+                                  "formula": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "type"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "rowCount": {
+                            "type": "number"
+                          },
+                          "columnCount": {
+                            "type": "number"
+                          },
+                          "truncatedRows": {
+                            "type": "boolean"
+                          },
+                          "truncatedColumns": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "rows",
+                          "rowCount",
+                          "columnCount",
+                          "truncatedRows",
+                          "truncatedColumns"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "sheets"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
