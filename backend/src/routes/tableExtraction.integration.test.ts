@@ -133,7 +133,7 @@ const json = (r: ToolResult): Record<string, any> =>
   JSON.parse((r.content[0] as { text: string }).text) as Record<string, any>;
 
 describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
-  it('model → load_skill(pdf) → search_tools → extract → reconcile → repair → verified counts', async () => {
+  it('model → load_skill(pdf-reading) → search_tools → extract → reconcile → repair → verified counts', async () => {
     const fileId = await uploadPdf();
     const trace: Array<{ name: string; result: ToolResult }> = [];
     let exposed: string[] = [];
@@ -147,7 +147,7 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
         return result;
       };
 
-      await call('load_skill', { name: 'pdf' });
+      await call('load_skill', { name: 'pdf-reading' });
       await call('search_tools', { query: 'extract table rows from scanned pdf' });
       const first = json(await call('extract_scanned_table_rows', { fileId }));
       const checks = (expectedDebits: number) => [

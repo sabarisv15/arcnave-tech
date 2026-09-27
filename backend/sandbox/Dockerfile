@@ -11,8 +11,7 @@ FROM python:3.12-slim
 # Install approved native document parsing and rendering utilities in the isolated container
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils pandoc libreoffice-nogui && rm -rf /var/lib/apt/lists/*
 
-# Fixed, build-time-installed package set — matches ADR-0004's parity goal with Claude.ai/
-# ChatGPT's own code-execution tools. No pip install happens at request time.
+# Fixed, build-time-installed package set (ADR-0004). No pip install happens at request time.
 RUN pip install --no-cache-dir pandas numpy matplotlib openpyxl
 
 RUN useradd --create-home --shell /usr/sbin/nologin sandbox

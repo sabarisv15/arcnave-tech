@@ -79,11 +79,11 @@ export interface CodeExecutionOptions {
   /** Looks at rendered output pages for visual QA (G14). Without it the visual layer is `not_checked`. */
   visionProvider?: Provider;
   /** Every file in the conversation. All of them are placed in input/ before the first call,
-   *  under the names the attachment manifest printed, as Claude's container has uploads. */
+   *  under the names the attachment manifest printed. */
   chatFiles?: Pick<ManifestFile, 'id' | 'filename'>[];
 }
 
-/** A failure's output budget, as Claude Code's: head and tail within about 10,000 characters. */
+/** A failure's output budget: head and tail within about 10,000 characters. */
 const ERROR_OUTPUT_CHARS = 10_000;
 
 /** `text` within `max` characters, keeping its start and its end, with the cut marked. */
@@ -198,8 +198,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
 
     const rawStdout = parsedChunk.msg_out ?? '';
     const rawStderr = parsedChunk.msg_err ?? '';
-    // Claude Code reads back about 30,000 characters of a command's output, and a failure's as a
-    // head-and-tail excerpt of about 10,000 (tools-reference, "Output limits"). An error is
+    // About 30,000 characters of a command's output are read back, and a failure's as a
+    // head-and-tail excerpt of about 10,000. An error is
     // usually at the end, so stderr keeps its head and tail within ERROR_OUTPUT_CHARS first.
     const stderr = headAndTail(rawStderr, Math.min(ERROR_OUTPUT_CHARS, this.maxOutputChars));
     const stdout = headAndTail(rawStdout, Math.max(0, this.maxOutputChars - stderr.length));

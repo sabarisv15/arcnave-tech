@@ -1,10 +1,8 @@
 /**
  * Stage 2 for PDFs: what a model is shown when a PDF is sent to it.
  *
- * Claude is the reference ("How PDF support works", platform.claude.com/docs, PDF support):
- * "When you send a PDF to Claude ... the system converts each page of the document into an
- * image" and "the text from each page is extracted and provided alongside each page's image."
- * Its limits decide which PDFs get images (ADR-0011): up to 100 pages, text and page images;
+ * Each page of the document is converted into an image, and the text of each page is
+ * extracted and provided alongside that page's image (ADR-0013). The limits decide which PDFs get images (ADR-0011): up to 100 pages, text and page images;
  * beyond that, text only.
  *
  * The work is done here, locally with poppler, rather than by handing the PDF's bytes to one
@@ -12,7 +10,7 @@
  * same pages, the same text, and the same images.
  *
  * Page images are JPEG, quality 90, with the long edge at 2000 px. That is the largest size
- * Claude accepts when a request carries more than 20 images. Measured on the 12-page scanned
+ * the Anthropic adapter accepts when a request carries more than 20 images. Measured on the 12-page scanned
  * KVB statement: 0.7 s to render, 5.8 MB in all, and the balance and count figures were legible.
  */
 import { execFile } from 'node:child_process';

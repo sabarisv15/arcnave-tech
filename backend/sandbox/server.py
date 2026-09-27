@@ -67,7 +67,7 @@ MAX_TIMEOUT_MS = int(os.environ.get("MAX_CODE_TIMEOUT_MS", str(15 * 60_000)))
 MAX_STDOUT_BYTES = int(os.environ.get("MAX_STDOUT_BYTES", "262144"))
 MAX_STDERR_BYTES = int(os.environ.get("MAX_STDERR_BYTES", "65536"))
 MAX_OUTPUT_FILES = 50
-# Memory is per run, like Claude's per-container limit: one chat's code that runs away is stopped
+# Memory is per run: one chat's code that runs away is stopped
 # on its own instead of taking the instance, and every other chat's files, down with it.
 # 3 GiB measured: pandas peaks at 1.6 GB reading a 500 MB CSV (the largest upload) and at
 # 2.36 GB for read, sort, merge and write of it; a 48 MB .xlsx read peaks at 0.7 GB.

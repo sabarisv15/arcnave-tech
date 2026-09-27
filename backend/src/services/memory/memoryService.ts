@@ -352,7 +352,7 @@ export class MemoryService {
 
   /**
    * Everything remembered for this user, as the conversation starts from it: global topics, and
-   * the project's own inside a project (Claude keeps a separate memory per project). Standing
+   * the project's own inside a project (a separate memory per project). Standing
    * items first, then most recently updated, within `maxChars`. What does not fit stays
    * reachable through search_memory; `omitted` says how many.
    */

@@ -1,7 +1,7 @@
 ---
 name: pptx
 version: 2.1.0
-description: "Use when a task needs presentation procedure beyond reading slides already in the conversation: exact extraction from an uploaded .pptx/.ppt, editing slides, or producing a PowerPoint deck."
+description: "Use whenever a task touches a presentation: reading or answering questions about an uploaded .pptx/.ppt (read from the file with code), exact extraction, editing slides, or producing a PowerPoint deck."
 category: artifact
 scope: builtin
 requires:
@@ -40,8 +40,14 @@ Procedural knowledge for designing, creating, editing, reordering, and inspectin
 
 ## 3. Understand & Inspect Existing Files
 
-### A. Provider File Adapter & Extracted Presentation Representation
-Uploaded PowerPoint presentations (.pptx) are ingested via ArcNave's Provider File Adapter as extracted text/document blocks. When the user asks "What is slide 4 about?" or "Summarize this deck", answer directly using the adapter's extracted slide content without unnecessary tool calls. Do not expect providers to parse raw OpenXML presentation binaries natively for comprehension.
+### A. Reading an uploaded presentation
+With run_python on the turn, a presentation is not in the conversation as text: its attachment
+line says to read it from the file, which is in `input/`. Read slide text, tables and speaker
+notes with `python-pptx`, slide by slide; to see a slide, convert the deck with LibreOffice
+(`soffice --headless --convert-to pdf`) and render that page into `view/`.
+
+Without run_python, the deck reaches you as extracted text; `read_uploaded_file` returns it
+again when it is not in the conversation.
 
 ### B. Deterministic Structural Inspection
 When programmatic workflows require exact slide counts or titles:

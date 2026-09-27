@@ -44,8 +44,8 @@ const SCRIPT = /\.(py|sh)$/i;
 export interface SkillExecutorOptions {
   /**
    * Where the sandbox has the skills directory, when it has one (the warm sandbox image copies it
-   * to /skills). Claude runs a skill's scripts with bash and "receives only the output (the script
-   * code itself never enters context)" (Agent Skills overview); with this set, asking for a
+   * to /skills). A skill's scripts are run and only their output enters
+   * context (Agent Skills overview); with this set, asking for a
    * script returns how to run it rather than its source.
    */
   scriptsRoot?: string;

@@ -20,7 +20,7 @@ RUN apt-get update \
         fonts-dejavu-core fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
-# The same package set ChatGPT's and Claude's code tools ship for files: tables, PDFs (text,
+# The package set file work needs: tables, PDFs (text,
 # tables, rendering), Office formats, images, OCR, charts.
 RUN pip install --no-cache-dir \
         pandas numpy scipy matplotlib \
@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir \
 
 COPY sandbox/server.py /opt/arcnave/server.py
 
-# The skills, as Claude's code-execution container has them: the model reads a skill's files and
+# The skills: the model reads a skill's files and
 # runs its scripts here, and only a script's output enters its context (Agent Skills overview,
 # "Level 3"). Owned by root and not writable by the per-chat uids the code runs as.
 COPY skills /skills

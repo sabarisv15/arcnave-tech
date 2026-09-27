@@ -2,7 +2,7 @@
  * Everything an account holds, as one zip (WP-13, ADR-0040).
  *
  * Built from the rows the account owns, never from what a client says it owns. Conversation
- * files are listed by name but their bytes are not included, as with Claude's export; artifact
+ * files are listed by name but their bytes are not included; artifact
  * versions are included whole, text and binary.
  */
 import { strToU8, zipSync } from 'fflate';

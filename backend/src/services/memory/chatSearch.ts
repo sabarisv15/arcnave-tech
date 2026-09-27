@@ -1,7 +1,6 @@
 /**
- * Search over the user's earlier conversations, as Claude's chat search: "All chats outside of
- * projects" from a chat outside one, and "limited to within each specific project" from a chat
- * inside one (Help Center, chat search and memory). The model calls it when the user refers to
+ * Search over the user's earlier conversations: all chats outside projects from a chat outside
+ * one, and only that project's chats from a chat inside one. The model calls it when the user refers to
  * an earlier conversation; each hit names its chat so the answer can cite it.
  *
  * Lexical, like every search here (Invariant 4): any word may match, ranked by ts_rank_cd.

@@ -200,7 +200,7 @@ export class ModelRegistry {
     const cached = this.statuses.get(alias);
     if (cached?.checkedAt != null && Date.now() - cached.checkedAt < ttlMs) return cached;
 
-    // A turn never waits on a probe (ADR-0028): Claude's SDK sends the request itself, and the
+    // A turn never waits on a probe (ADR-0028): the provider SDK sends the request itself, and the
     // request's own error says when a model is missing (recordOutcome keeps that). A configured
     // model not known to have failed recently is tried.
     if (options.probe === 'never') {

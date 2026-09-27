@@ -1205,3 +1205,33 @@ practice, not canon.
   resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
   (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
 
+- **2026-09-27 (PDF reading split)** — No new heading (at the 40-entry cap). Two catches:
+  (1) A skill and a tool description gave opposite orders: the pdf skill said to use
+  `extract_scanned_table_rows` only *without* run_python, the tool said to call it first because
+  run_python cannot read a scanned page. Live, with run_python on, Gemini followed the skill, read
+  pages by eye a few at a time, hit the 16-round limit, then answered 172 entries for 277. Rule:
+  when a skill names a tool, read that tool's description and make them agree; `skills.test.ts`
+  now fails if `pdf-reading` makes the scanned path depend on run_python being off.
+  (2) In the cloud container, 22 PDF tests failed with no code change: `pdftoppm`/`pdftotext`
+  were missing. Rule: `apt-get install -y poppler-utils` alongside `service postgresql start`
+  before judging a PDF test failure; `which pdftoppm` verifies.
+- **2026-09-27 (brand)** — No new heading (at the cap). Launch code described ArcNave by another
+  assistant ("as Claude does", "Claude-style", claude.ai limits: ~70 comment lines, a skill line,
+  and two user-facing error strings). ArcNave is its own brand; the reference assistant is a
+  design input only. Rule: in launch files, state the behaviour and cite an ADR, never "as X
+  does"; provider names only where the code talks to that provider. Verify:
+  `src/test/brandNeutral.test.ts` fails on reference wording in launch files.
+- **2026-09-27 (skills load race)** — No new heading (at the cap). `GET /v1/skills` failed
+  about 1 run in 3 of the full suite, listing 12 of 13 skills (the last directory, `xlsx`,
+  missing). Cause: `container.ts` fired `void skills.load()`, which cleared the map and filled
+  it asynchronously, so a request (or a cold-start turn's `<available_skills>`) could see a
+  partial registry; one more skill made the window wider. Rule: a registry read by requests is
+  built into a new map and swapped in whole, and the app awaits it before taking requests
+  (`createApp` → `skills.whenLoaded()`). Verify: `skills.test.ts` "never shows a half-loaded
+  registry" fails without the fix; the full suite passed 3 runs in a row with it.
+- **2026-09-27 (office files)** — No new heading (at the cap). The docx and pptx skills told the
+  model the extracted text "is sufficient … answer directly", and every Office file went inline
+  as flattened text, losing cell addresses, formulas and hidden sheets. The reference assistant
+  reads those types from the file with code. Rule: a skill's claim about how a file reaches the
+  model must match the pipeline; check `attachmentContent.ts` before writing one. Verify:
+  `officeReadWithCode.integration.test.ts` (ADR-0045).

@@ -105,8 +105,7 @@ const envSchema = z.object({
   AUTO_ROUTE_LONG_PROMPT_CHARS: int(2000),
   AUTO_ROUTE_LONG_CONTEXT_CHARS: int(8000),
   MODEL_PROBE_TTL_SECONDS: int(300),
-  /** One provider request, stream included. Claude's SDK default ("By default requests time out
-   *  after 10 minutes"); there is no separate first-token cutoff (ADR-0024). */
+  /** One provider request, stream included: 10 minutes, the provider SDK default; there is no separate first-token cutoff (ADR-0024). */
   PROVIDER_TIMEOUT_MS: int(600_000),
   PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
   PROVIDER_MAX_RETRIES: int(2),
@@ -115,28 +114,27 @@ const envSchema = z.object({
   TURN_DEADLINE_MS: int(3_540_000),
 
   // --- Generation limits --------------------------------------------------
-  // Claude's docs: "Set it to 64,000 for agentic work (128,000 at xhigh or max effort)". A turn
+  // 64,000 for agentic work (128,000 at xhigh or max effort). A turn
   // never asks for more than its model's own maximum (capabilitiesTable maxOutputTokens).
   DEFAULT_MAX_OUTPUT_TOKENS: int(64_000),
   MAX_OUTPUT_TOKENS_CEILING: int(128_000),
-  /** Clearing old tool results (providers/contextEditing.ts), with Claude's defaults. */
+  /** Clearing old tool results (providers/contextEditing.ts), with the provider defaults. */
   CONTEXT_EDIT_TRIGGER_TOKENS: int(100_000),
   CONTEXT_EDIT_KEEP_TOOL_RESULTS: int(3),
   CONTEXT_EDIT_CLEAR_BATCH: int(5),
   /** How hard models think (ReasoningEffort). Clamped per model to the levels it supports.
-   *  Medium is the default of both Gemini 3.8 Flash (thinkingLevel MEDIUM) and Claude Opus 5.5.
+   *  Medium is the default of Gemini 3.8 Flash (thinkingLevel MEDIUM).
    *  High made every round of every turn think at the maximum, including a plain summary
    *  (ADR-0032). Raise it per deployment only after an eval shows quality needs it. */
   REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   /** Project files go into the prompt whole while their text totals at most this many
-   *  characters; past it, the model searches them with search_project_files, as Claude's
-   *  project knowledge search tool does (ADR-0020). Claude publishes no number ("approaches the
-   *  context window limit"). This one is ArcNave's, small enough for the smallest configured
+   *  characters; past it, the model searches them with search_project_files (ADR-0020).
+   *  This one is ArcNave's, small enough for the smallest configured
    *  window (GPT-OSS, 128,000 tokens) to keep room for the conversation. */
   PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
   /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
    *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
-   *  of the current turn never does. Claude (verified request limit) and Gemini PDFs sent by
+   *  of the current turn never does. The Anthropic adapter (verified request limit) and Gemini PDFs sent by
    *  gs:// URI are not held to it (ADR-0019). */
   HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
 
@@ -150,8 +148,8 @@ const envSchema = z.object({
   GROUNDING_REDIRECT_TIMEOUT_MS: int(5000),
 
   /**
-   * Gemini's server-side `code_execution` tool (Python sandbox). Claude has no equivalent on
-   * Vertex — see ADR-0004 — so this only ever grows Gemini's capability set, never Claude's.
+   * Gemini's server-side `code_execution` tool (Python sandbox). The Anthropic adapter has no
+   * equivalent on Vertex (ADR-0004), so this only ever grows Gemini's capability set.
    */
   ENABLE_GEMINI_CODE_EXECUTION: bool(false),
   /** ADR-0037: ask Vertex to stream function-call arguments so a visual draws while written. */
@@ -164,7 +162,7 @@ const envSchema = z.object({
   ENABLE_TOOL_USE: bool(false),
   /** One round = one provider request + every tool call it made (ADR-0026). The loop answers with
    *  `finishReason: 'tool_limit'` rather than looping forever once this is hit, and the UI offers
-   *  Continue, as Claude's app does at its per-turn tool-use limit. 16, not 8:
+   *  Continue at the per-turn tool-use limit. 16, not 8:
    *  search, skill, extract, analyze, one repair and the answer must all fit, and on the real
    *  statement 8 ran out before analysis (G11). TURN_DEADLINE_MS bounds the time. */
   TOOL_MAX_ROUNDS: int(16),
@@ -238,8 +236,8 @@ const envSchema = z.object({
   MAX_STDERR_BYTES: int(64 * 1024),
   /** Same three-tier shape as READ_PROJECT_FILE_MAX_CHARS/TOOL_RESULT_PREVIEW_CHARS above: this
    *  bounds what the model receives and what is persisted; the SSE preview is bounded again by
-   *  TOOL_RESULT_PREVIEW_CHARS, unchanged. 30,000 is Claude Code's read-back default
-   *  (BASH_MAX_OUTPUT_LENGTH); past it, the head and tail are kept. */
+   *  TOOL_RESULT_PREVIEW_CHARS, unchanged. 30,000 is the usual read-back size;
+   *  past it, the head and tail are kept. */
   RUN_PYTHON_MAX_OUTPUT_CHARS: int(30_000),
   /** Global cap on concurrent run_python executions, across every backend instance — enforced in
    *  Postgres (tools/sandbox/semaphore.ts), not per-instance, since the service autoscales.
@@ -282,7 +280,7 @@ const envSchema = z.object({
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
   ENABLE_PROMPT_CACHE: bool(true),
 
-  /** Persistent memory (memory_items). On by default, as Claude's memory is (ADR-0025). */
+  /** Persistent memory (memory_items). On by default (ADR-0025). */
   ENABLE_MEMORY: bool(true),
   /** Background conservative distillation of durable user-stated facts. */
   ENABLE_MEMORY_BACKGROUND_DISTILL: bool(false),
@@ -318,22 +316,22 @@ const envSchema = z.object({
    * inline in the request. Only Vertex's service agent needs read access to it.
    */
   MODEL_INPUT_BUCKET: optionalStr,
-  /** A deleted chat's rows and uploaded files are removed this long after deletion (Claude: 30). */
+  /** A deleted chat's rows and uploaded files are removed this long after deletion. */
   CHAT_PURGE_AFTER_DAYS: int(30),
   /** An upload never sent with a message is removed after this long. */
   UNSENT_UPLOAD_TTL_HOURS: int(24),
-  /** A chat's sandbox workspace is checkpointed after this long without a run (Claude: ~5 min). */
+  /** A chat's sandbox workspace is checkpointed after this long without a run. */
   SANDBOX_CHECKPOINT_IDLE_SECONDS: int(300),
-  /** A checkpoint is kept this long after the chat last ran code (Claude: 30 days). */
+  /** A checkpoint is kept this long after the chat last ran code. */
   SANDBOX_STATE_RETENTION_DAYS: int(30),
   /**
    * Ceiling for uploads that pass through the backend as one request (multipart routes):
-   * project files, whose limit in Claude is 30 MB. The body limit adds 1 MiB for framing, which
+   * project files, whose limit is 30 MB. The body limit adds 1 MiB for framing, which
    * keeps the request under Cloud Run's 32 MiB cap.
    */
   MAX_UPLOAD_BYTES: int(30 * 1024 * 1024),
   /**
-   * Ceiling for a chat attachment, which the browser uploads straight to storage (Claude's
+   * Ceiling for a chat attachment, which the browser uploads straight to storage (the
    * per-file limit). Cloud Run caps a request at 32 MiB, so only the direct path can reach it.
    */
   ATTACHMENT_MAX_BYTES: int(500 * 1024 * 1024),

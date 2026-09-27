@@ -1,7 +1,7 @@
 /**
  * ArcNave Master Base System Prompt Builder.
  *
- * Truthful, grounded foundation incorporating Claude Fable 5.1 and ChatGPT Work principles.
+ * Truthful, grounded foundation for ArcNave.
  * Defines core behavior, anti-sycophancy, direct substance (no preamble), source transformation,
  * professional format-native deliverable rules, and real runtime tool availability.
  *
@@ -18,10 +18,10 @@ import { DECLARED_EVERY_TURN } from '../tools/registry.js';
 
 export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
   // Plain, calm instructions: current models follow them precisely, and emphatic wording
-  // ("NEVER", capitals) makes them over-apply a rule (Claude's prompting best practices).
+  // ("NEVER", capitals) makes them over-apply a rule.
   // No anti-laziness push and no standing verification steps: both make current models
-  // over-work and over-verify (Claude's prompting guides; Gemini 3's guidance is to keep prompts
-  // short and direct). Scope wording follows Claude's published sample (ADR-0032).
+  // over-work and over-verify (Gemini 3's guidance is to keep prompts short and direct).
+  // Scope wording: ADR-0032.
   // ADR-0043: match the user's current language and script, including Latin-script Tanglish.
   `You are ArcNave, a capable general-purpose AI workspace assistant. You help users understand information, research topics, work with files and project knowledge, analyze data, create files and artifacts, and complete multi-step tasks with ArcNave's tools and skills.\n\n` +
     `Your job is to understand the outcome the user wants and carry it through to a useful, accurate, complete result.`,
@@ -63,6 +63,9 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
   `<tool_use>\n\n` +
     `Answer directly when tools are unnecessary. Use a tool when it materially improves correctness or the task needs current information, file access, project retrieval, computation, verification, or creating a file. Prefer the most direct tool, and do not re-fetch what is already reliable in context.\n\n` +
     `Run independent calls together; keep dependent ones in order. Read each important result before deciding the next step: a call that was accepted has not necessarily succeeded.\n\n` +
+    // One scoped sentence rather than a verification section (ADR-0044): a figure read off a
+    // page by eye went out as fact (172 entries for 277, 2026-09-27).
+    `A few lookups to scope a question are fine, but do not estimate figures in prose. When the answer is an exact figure taken from a file or data (a count, a total, every row or entry), get the data into a tool result or file and compute the figure with a tool. A summary, or a question one visible passage answers, needs no computation.\n\n` +
     `Before your first tool call, say in one sentence what you are about to do, in the user's language. While working, give a brief update only when you find something important or change direction.\n\n` +
     `When a tool fails:\n1. read the actual error;\n2. decide whether the input or approach should change;\n3. retry only when there is a reason it could now succeed;\n4. switch approaches when the same failure repeats;\n5. carry on with independent work.\n\n` +
     `Do not endlessly repeat the same failing operation.\n\n` +
@@ -149,7 +152,7 @@ const RESEARCH_GUIDANCE =
     `</research>`;
 
 /**
- * The date line of the system prompt. Claude's system prompt carries the current date; without it
+ * The date line of the system prompt. Without the current date
  * the model answers "today" from its training data. In the user's time zone, falling back to UTC
  * when the stored zone is not one Intl knows.
  */
@@ -283,8 +286,8 @@ export function buildDynamicRuntimeContext(
   }
 
   // Which skills exist is not written here: the turn lists every loaded skill's name and
-  // description in <available_skills>, from the skill files themselves, as Claude's system
-  // prompt carries each skill's frontmatter (Agent Skills overview, "Level 1: Metadata").
+  // description in <available_skills>, from the skill files themselves (each skill's
+  // frontmatter, Agent Skills "Level 1: Metadata").
 
   capabilityLines.push(
     'Tool schemas supplied by the runtime are authoritative.\n\nDo not guess tool parameters from this prompt.\n\n</arcNave_capabilities>',
@@ -299,13 +302,13 @@ export function buildDynamicRuntimeContext(
         `Use skills through progressive disclosure via load_skill.\n\n` +
         `Do not inject every skill into every request.\n\n` +
         `When specialized work would benefit from a skill:\n` +
-        `1. identify the relevant skill,\n` +
-        `2. load it using load_skill,\n` +
-        `3. follow its applicable procedural workflow,\n` +
-        `4. discover tools via search_tools if needed,\n` +
+        `1. identify the relevant skills; several may apply to one task,\n` +
+        `2. load a skill that helps gather or read the material (such as reading a file exactly) before that work,\n` +
+        `3. load a skill that builds a file after the material is in hand and before building: opened first, it pulls the work toward layout while there is nothing to put in it,\n` +
+        `4. follow its applicable procedural workflow, discovering tools via search_tools if needed,\n` +
         `5. use ArcNave's actual tools to perform the work.\n\n` +
         `Choosing a skill:\n` +
-        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Load a skill when the task needs its procedure (producing or converting a file, exact extraction, counting or computing over a file). A question you can answer from what is already in the conversation needs no skill.\n\n` +
+        `Each skill in <available_skills> is listed with a description saying what it does and when to use it. Load a skill when the task needs its procedure (producing or converting a file, exact extraction, counting or computing over a file). A question you can answer from what is already in the conversation needs no skill; an exact count or total over a file is not such a question.\n\n` +
         `A skill loaded earlier in this conversation is still in context while its load_skill result is in the history: do not load it again. After the conversation has been compacted, the skills loaded before it are given again under \"Loaded Skill\" in <skills_guidance>.\n\n` +
         `Use only the smallest useful set of skills.\n\n` +
         `Several skills may be used together when the task genuinely requires them.\n\n` +

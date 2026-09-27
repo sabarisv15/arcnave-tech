@@ -1,8 +1,8 @@
 /**
  * A generation run outlives the HTTP connection that started it.
  *
- * Claude and ChatGPT keep answering when the tab sleeps or the phone's network drops, and the
- * reply is there when the user comes back. Tying the run to the socket (abort on `close`) threw
+ * An answer should keep going when the tab sleeps or the phone's network drops, and the
+ * reply should be there when the user comes back. Tying the run to the socket (abort on `close`) threw
  * away minutes of tool work on every blip. Here the run publishes its events to a per-chat
  * buffer; the connection that started it, and any later one that reconnects, are subscribers.
  * Only an explicit stop (or shutdown, or the turn deadline) aborts a run.

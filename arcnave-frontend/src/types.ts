@@ -151,7 +151,7 @@ export interface MessageUsage {
   costUsd: number | null;
 }
 
-/** One stretch of an answer, in the order it happened (as Claude shows it). */
+/** One stretch of an answer, in the order it happened. */
 export type MessageSegment =
   | { type: "ui"; blockIds: string[] }
   | { type: "thinking"; text: string }

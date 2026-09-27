@@ -20,7 +20,7 @@ describe('sandboxInputNames', () => {
 
 describe('skillForFile', () => {
   it('maps by MIME type, falling back to the extension', () => {
-    expect(skillForFile(pdf)).toBe('pdf');
+    expect(skillForFile(pdf)).toBe('pdf-reading');
     expect(skillForFile({ filename: 'q.XLSX', mimeType: 'application/octet-stream' })).toBe('xlsx');
     expect(skillForFile({ filename: 'photo.png', mimeType: 'image/png' })).toBeUndefined();
   });
@@ -28,9 +28,9 @@ describe('skillForFile', () => {
 
 describe('buildAttachmentManifest', () => {
   it('prints the sandbox path and the skill, and says what to do with them', () => {
-    const text = buildAttachmentManifest([pdf], { sandbox: true, loadableSkills: new Set(['pdf']) });
+    const text = buildAttachmentManifest([pdf], { sandbox: true, loadableSkills: new Set(['pdf-reading']) });
     expect(text).toContain('run_python path: input/kvb_fedral.pdf');
-    expect(text).toContain('skill: pdf');
+    expect(text).toContain('skill: pdf-reading');
     expect(text).toContain('call load_skill for the skill named on its line');
   });
 
@@ -43,5 +43,18 @@ describe('buildAttachmentManifest', () => {
 
   it('is empty for no files', () => {
     expect(buildAttachmentManifest([], { sandbox: true, loadableSkills: new Set(['pdf']) })).toBe('');
+  });
+});
+
+describe('Office files are read with code only where the sandbox has the readers (ADR-0045)', () => {
+  it('warm service and local process engines read them; the Cloud Run Job image does not', async () => {
+    const { sandboxReadsOfficeFiles } = await import('../../tools/catalog.js');
+    const cfg = (v: Record<string, unknown>) => v as unknown as Parameters<typeof sandboxReadsOfficeFiles>[0];
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'warm' }))).toBe(true);
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'auto', SANDBOX_SERVICE_URL: 'https://s' }))).toBe(true);
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'process' }))).toBe(true);
+    // sandbox/Dockerfile (the Job) has no xlrd, python-docx or python-pptx.
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'cloud-run' }))).toBe(false);
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'auto' }))).toBe(false);
   });
 });

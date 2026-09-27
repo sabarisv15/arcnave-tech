@@ -1,7 +1,7 @@
 ---
 name: xlsx
 version: 3.0.0
-description: "Use when a task works on spreadsheet data: analysing or computing over an uploaded .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file. Not needed to answer a question from a sheet's text already in the conversation."
+description: "Use whenever a task touches spreadsheet data: any question about an uploaded .xlsx/.xls (read from the file with code), analysing or computing over a .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file."
 category: artifact
 scope: builtin
 requires:
@@ -18,14 +18,19 @@ metadata:
 
 ## Reading an uploaded workbook
 
-An uploaded workbook reaches you as extracted text and tables. Answer questions about what is
-shown directly from that.
+With run_python on the turn, a workbook is not in the conversation as text: its attachment
+line says to read it from the file, which is in `input/`. Flattened text would lose cell
+addresses, formulas and hidden sheets.
+- A quick look: `pandas.read_excel(path, sheet_name=None)`, one DataFrame per sheet.
+- Formulas and values: openpyxl twice, `load_workbook(path)` for the formulas and
+  `load_workbook(path, data_only=True)` for the values last saved with them.
+- Hidden sheets and rows: `ws.sheet_state` and `ws.row_dimensions[r].hidden`; say when a
+  figure includes or leaves them out.
+- Counts and totals are computed in code, never read off by eye.
 
-For exact structure, call `inspectSpreadsheet` with the `fileId`. It returns `sheetNames`,
+Without run_python, the workbook reaches you as extracted text, with no cell addresses or
+formulas. Call `inspectSpreadsheet` with the `fileId` for exact structure: `sheetNames`,
 `totalRows` and `cellTypes` (address → `number`, `string`, `formula`, `date`, `boolean`).
-
-For analysis beyond the tools, `run_python` has pandas, openpyxl, xlrd and xlsxwriter; the file
-is in `input/`.
 
 ## Creating a workbook
 
@@ -82,7 +87,7 @@ on the same day). Remove a duplicate only when it has the same source provenance
 
 ## From a PDF or document
 
-Read the source first (for every row of a PDF table, see the pdf skill's exact workflow). Then
+Read the source first (for every row of a PDF table, see the pdf-reading skill's exact workflow). Then
 build the typed workbook above. `sourceAttachmentId` copies a text or CSV file only; it does not
 parse a PDF.
 

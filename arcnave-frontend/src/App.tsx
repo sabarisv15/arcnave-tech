@@ -528,7 +528,7 @@ function Conversation() {
     const roomBelow = scrollerRect.bottom - anchorRect.bottom;
 
     // Short turns stay in place when there is already useful reading room. Long conversations
-    // get a one-shot Claude-style turn anchor without tying scroll state to token rendering.
+    // get a one-shot turn anchor without tying scroll state to token rendering.
     if (
       anchorRect.top >= scrollerRect.top &&
       anchorRect.bottom <= scrollerRect.bottom &&
@@ -910,7 +910,7 @@ function MessageView({
         <ResponseActivity message={m} />
       )}
       {m.segments && m.segments.length > 0 ? (
-        // Claude's order: each stretch of thinking, text and tool steps where it happened.
+        // In order: each stretch of thinking, text and tool steps where it happened.
         m.segments.map((seg, i) => {
           const last = i === m.segments!.length - 1;
           if (seg.type === "ui")
@@ -1158,7 +1158,7 @@ function DeliverableCard({ item }: { item: DeliverableData }) {
 
   return (
     <div className="deliverable-card" role="region" aria-label={`Deliverable: ${item.filename}`}>
-      {/* Opening a created file shows it before it is downloaded, as Claude's file cards do (WP-11). */}
+      {/* Opening a created file shows it before it is downloaded (WP-11). */}
       <button
         type="button"
         className="deliverable-card-open"

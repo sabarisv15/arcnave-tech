@@ -1,12 +1,11 @@
 /**
  * Step 1 of file handling: what happens to an uploaded file before any model sees it.
  *
- * Claude is the reference (support.claude.com, "What kinds of documents can I upload to
- * Claude"): a PDF of up to 1,000 pages is accepted, and one of up to 100 pages is read as text
+ * ArcNave's upload rules (ADR-0011): a PDF of up to 1,000 pages is accepted, and one of up to 100 pages is read as text
  * and as page images, a longer one as text only; an image may be up to 8000×8000 pixels; every
  * other document is read as its extracted text. This module applies the same rules.
  *
- * Extracted text is kept whole. As in Claude, what limits it is the answering model's context
+ * Extracted text is kept whole. What limits it is the answering model's context
  * window, and that is decided when the file is sent to a model, from exact token counts; an
  * upload-time character cap would decide it here, blind to the model.
  *
@@ -26,14 +25,14 @@ import { ExtractionUnsupported, extractText } from '../retrieval.js';
 
 const run = promisify(execFile);
 
-/** Claude's published limits. */
+/** ArcNave's upload limits (ADR-0011). */
 export const FILE_LIMITS = {
   maxFilesPerChat: 20,
   pdfMaxPages: 1000,
   /** Up to this many pages a PDF is read as text and page images; beyond it, text only. */
   pdfVisualMaxPages: 100,
   imageMaxDimension: 8000,
-  /** claude.ai's per-image size: "10 MB on claude.ai" (Vision, Request limits). */
+  /** Per-image size: 10 MB. */
   imageMaxBytes: 10 * 1024 * 1024,
 } as const;
 
@@ -58,7 +57,7 @@ export function readingFor(file: { mimeType: string; pageCount: number | null; h
   return file.hasText ? 'text' : 'none';
 }
 
-/** The file breaks one of Claude's limits. It is not stored; the upload is refused. */
+/** The file breaks one of the upload limits. It is not stored; the upload is refused. */
 export class UploadRejected extends Error {
   override name = 'UploadRejected';
   constructor(

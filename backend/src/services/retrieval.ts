@@ -634,7 +634,7 @@ export async function projectFileTexts(db: Database, projectId: string): Promise
   return files;
 }
 
-/** The project's files in full, for a prompt, as Claude puts project knowledge in context. */
+/** The project's files in full, for a prompt: project knowledge goes in context whole (ADR-0020). */
 export function formatWholeFiles(files: ProjectFileText[]): string {
   return (
     "The complete text of this project's files. They are whole documents, not excerpts.\n\n" +
