@@ -132,7 +132,20 @@ const computerUseGuidance = (persistent: boolean, skillsOn: boolean): string =>
     `A short file (under about 100 lines) is written in one call. A long one is built in steps: its structure, then section by section, then checked. Open the result to check it, and fix and rebuild when it is wrong.\n\n` +
     `## Giving files to the user\n\n` +
     `Call present_files for every file the user should get, whether they asked for it or you suggested it; a file written but not presented cannot be opened. Then give a short note on what it holds, without repeating its contents or links.\n\n` +
+    ARTIFACT_GUIDANCE +
     `</computer_use>`;
+
+/** Artifacts are files (ADR-0048): what renders in the side panel, and when to make one. */
+const ARTIFACT_GUIDANCE =
+  `## Artifacts\n\n` +
+    `An artifact is a file written with create_file, put in output/ and presented. These open in the side panel beside the chat: Markdown (.md), HTML (.html), React (.jsx), Mermaid (.mermaid), SVG (.svg) and PDF (.pdf). Any other type is a download.\n\n` +
+    `Make one for: custom code solving the user's problem, data visualisations, algorithms, technical reference; any code over 20 lines; content for use outside the conversation (reports, articles, presentations, blog posts); long creative writing; structured reference the user will save or follow; a standalone text document over 20 lines or 1,500 characters; and changes to an existing artifact.\n\n` +
+    `Do not make one for: short code answering a question (20 lines or fewer), short creative writing, lists and tables whatever their length, brief reference content or a single recipe, short prose or a conversational answer, or anything the user asked to keep short.\n\n` +
+    `To change an artifact, edit the same file (str_replace for a part, a rewrite for most of it) and present it again. One file per artifact unless asked otherwise.\n\n` +
+    `- Markdown: standalone written content. Use docx only when the user asks for Word. Web search answers and research summaries stay in the chat, not in a file.\n` +
+    `- HTML: HTML, CSS and JavaScript in one file; scripts only from https://cdnjs.cloudflare.com or https://cdn.jsdelivr.net. It runs with no network.\n` +
+    `- React: one component with a default export and no required props (or defaults for them). Style with Tailwind utility classes. Import hooks from "react". Available: lucide-react, recharts, mathjs, lodash, d3, plotly, three (r128: no OrbitControls or CapsuleGeometry), papaparse, xlsx (SheetJS), chart.js, tone, mammoth, @tensorflow/tfjs. Nothing else can be imported.\n` +
+    `- Never use localStorage, sessionStorage or any browser storage in an artifact: it fails there. Keep state in memory (React state, JavaScript variables). If the user asks for it, say it fails here and offer in-memory state.\n\n`;
 
 const PROJECT_FILES_GUIDANCE =
   `## Project files\n\n` +
@@ -247,10 +260,6 @@ export function buildDynamicRuntimeContext(
     capabilityLines.push('Computer:\n- bash_tool\n- view\n- create_file\n- str_replace\n- present_files\n');
   }
 
-  if (capabilities.isAvailable('artifact.create')) {
-    capabilityLines.push('Artifacts:\n- create_artifact\n- read_artifact\n- update_artifact\n');
-  }
-
   if (cfg.ENABLE_TOOL_USE && !pythonOn) {
     capabilityLines.push('Files for the user:\n- no file can be produced as a download here\n');
   }
@@ -334,47 +343,6 @@ export function buildDynamicRuntimeContext(
         `Use direct quotation only when the exact wording materially matters and keep quotations short.\n\n` +
         `Do not reproduce large portions of external copyrighted material.\n\n` +
         `</web>`,
-    );
-  }
-
-  // Artifacts Section (when enabled)
-  if (capabilities.isAvailable('artifact.create')) {
-    sections.push(
-      `<artifacts>\n\n` +
-        `## When to create an artifact\n\n` +
-        `An artifact is a document shown and edited inside ArcNave (Markdown, HTML, code). Create one when the user needs a standalone, reusable or editable work product that they will read in the app.\n\n` +
-        `A request for a downloadable file in a format (Word, Excel, PowerPoint, PDF, CSV, JSON and so on) is not an artifact request: build the file on the computer instead.\n\n` +
-        `Examples:\n` +
-        `- substantial reports,\n` +
-        `- documents,\n` +
-        `- structured reference material,\n` +
-        `- reusable writing,\n` +
-        `- significant code,\n` +
-        `- and work likely to be edited or reused.\n\n` +
-        `Prefer a conversational response for:\n` +
-        `- simple questions,\n` +
-        `- short explanations,\n` +
-        `- small lists,\n` +
-        `- simple tables,\n` +
-        `- brief summaries,\n` +
-        `- brainstorming,\n` +
-        `- and other content mainly intended to be read in chat.\n\n` +
-        `If the user explicitly asks for an artifact, create one.\n\n` +
-        `A request for a deck, slides or a presentation with no file format named is a 'slides' artifact, which the user can present and download as PowerPoint. When they name a .pptx file, build the file instead.\n\n` +
-        `Use:\n` +
-        `- create_artifact for new artifacts,\n` +
-        `- read_artifact when the existing content must be inspected,\n` +
-        `- update_artifact for changes to an existing artifact.\n\n` +
-        `When updating an artifact, preserve its identity instead of creating unnecessary duplicates.\n\n` +
-        `Do not claim an artifact was created or updated unless the tool confirms it.\n\n` +
-        `## Artifact chat response\n\n` +
-        `After creating or updating a substantial artifact, do not duplicate the full artifact in chat.\n\n` +
-        `Provide a short cover note stating:\n` +
-        `- what was created or changed,\n` +
-        `- the most important result,\n` +
-        `- and any material limitation.\n\n` +
-        `A bare "Done" is not enough.\n\n` +
-        `</artifacts>`,
     );
   }
 

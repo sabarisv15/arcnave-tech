@@ -19,7 +19,7 @@ export function isLastRound(round: number, maxRounds: number): boolean {
 }
 
 /** Tools that end the provider round loop immediately after execution (ADR-0034). */
-export const TERMINAL_TOOLS = new Set<string>(['ask_user_options']);
+export const TERMINAL_TOOLS = new Set<string>(['ask_user_input_v0']);
 
 export function isTerminalTool(toolName: string): boolean {
   return TERMINAL_TOOLS.has(toolName);

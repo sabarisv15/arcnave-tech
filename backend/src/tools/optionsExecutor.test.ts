@@ -1,124 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { AskUserOptionsExecutor, validateAskUserOptionsInput } from './optionsExecutor.js';
+import { AskUserInputExecutor, validateAskUserInput } from './optionsExecutor.js';
 
-describe('AskUserOptionsExecutor', () => {
-  const executor = new AskUserOptionsExecutor();
-  const dummySignal = new AbortController().signal;
+describe('ask_user_input_v0', () => {
+  const executor = new AskUserInputExecutor();
+  const signal = new AbortController().signal;
+  const run = (input: unknown) => executor.execute({ id: 'c', name: 'ask_user_input_v0', input }, signal);
 
-  it('accepts valid single-choice options (2-6 items)', async () => {
-    const input = {
-      question: 'Which framework do you prefer?',
-      kind: 'single',
-      options: [
-        { label: 'React', description: 'Component-based UI' },
-        { label: 'Vue', description: 'Progressive framework' },
+  it('shows one to three questions of each type, defaulting to single_select', async () => {
+    const res = await run({
+      questions: [
+        { question: 'Goal?', options: ['Strength', 'Cardio'] },
+        { question: 'Equipment?', options: ['None', 'Dumbbells', 'Gym'], type: 'multi_select' },
+        { question: 'Order these', options: ['Time', 'Cost', 'Fun', 'Health'], type: 'rank_priorities' },
       ],
-    };
-
-    const result = await executor.execute({ id: 'c1', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(true);
-    expect(result.content).toEqual([{ type: 'json', data: { status: 'shown' } }]);
+    });
+    expect(res.ok).toBe(true);
+    expect(res.content).toEqual([{ type: 'json', data: { status: 'shown' } }]);
+    const v = validateAskUserInput({ questions: [{ question: ' Q ', options: [' a ', 'b'] }] });
+    expect(v).toEqual({ ok: true, data: { questions: [{ question: 'Q', type: 'single_select', options: ['a', 'b'] }] } });
   });
 
-  it('accepts valid multi-select options', async () => {
-    const input = {
-      question: 'Select topics of interest',
-      kind: 'multi',
-      options: [
-        { label: 'Technology' },
-        { label: 'Science' },
-        { label: 'Art' },
-      ],
-    };
-
-    const result = await executor.execute({ id: 'c2', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(true);
-  });
-
-  it('accepts valid rank options up to 6 items', async () => {
-    const input = {
-      question: 'Rank priorities',
-      kind: 'rank',
-      options: [
-        { label: '1' },
-        { label: '2' },
-        { label: '3' },
-        { label: '4' },
-        { label: '5' },
-        { label: '6' },
-      ],
-    };
-
-    const result = await executor.execute({ id: 'c3', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(true);
-  });
-
-  it('rejects fewer than 2 options', async () => {
-    const input = {
-      question: 'Choose one',
-      kind: 'single',
-      options: [{ label: 'Only one' }],
-    };
-
-    const result = await executor.execute({ id: 'c4', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(false);
-    expect(result.content[0]?.type).toBe('text');
-    expect((result.content[0] as { text: string }).text).toContain('must be between 2 and 6');
-  });
-
-  it('rejects more than 6 options', async () => {
-    const input = {
-      question: 'Choose one',
-      kind: 'single',
-      options: [
-        { label: '1' },
-        { label: '2' },
-        { label: '3' },
-        { label: '4' },
-        { label: '5' },
-        { label: '6' },
-        { label: '7' },
-      ],
-    };
-
-    const result = await executor.execute({ id: 'c5', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(false);
-    expect((result.content[0] as { text: string }).text).toContain('must be between 2 and 6');
-  });
-
-  it('rejects invalid kind', async () => {
-    const input = {
-      question: 'Choose one',
-      kind: 'dropdown',
-      options: [{ label: 'A' }, { label: 'B' }],
-    };
-
-    const result = await executor.execute({ id: 'c6', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(false);
-    expect((result.content[0] as { text: string }).text).toContain('kind must be');
-  });
-
-  it('rejects empty or missing question', async () => {
-    const input = {
-      question: '   ',
-      kind: 'single',
-      options: [{ label: 'A' }, { label: 'B' }],
-    };
-
-    const result = await executor.execute({ id: 'c7', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(false);
-    expect((result.content[0] as { text: string }).text).toContain('question must be');
-  });
-
-  it('rejects option missing label', async () => {
-    const input = {
-      question: 'Choose one',
-      kind: 'single',
-      options: [{ label: 'A' }, { description: 'No label' }],
-    };
-
-    const result = await executor.execute({ id: 'c8', name: 'ask_user_options', input }, dummySignal);
-    expect(result.ok).toBe(false);
-    expect((result.content[0] as { text: string }).text).toContain('label must be a non-empty string');
+  it('refuses what the card cannot show', async () => {
+    const q = { question: 'Q', options: ['a', 'b'] };
+    for (const bad of [
+      {},
+      { questions: [] },
+      { questions: [q, q, q, q] },
+      { questions: [{ question: 'Q', options: ['a'] }] },
+      { questions: [{ question: 'Q', options: ['a', 'b', 'c', 'd', 'e'] }] },
+      { questions: [{ question: '', options: ['a', 'b'] }] },
+      { questions: [{ question: 'Q', options: ['a', ''] }] },
+      { questions: [{ ...q, type: 'rank' }] },
+    ]) {
+      const res = await run(bad);
+      expect(res.ok, JSON.stringify(bad)).toBe(false);
+    }
   });
 });

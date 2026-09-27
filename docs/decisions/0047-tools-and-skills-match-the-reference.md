@@ -10,6 +10,7 @@
   five tools), [ADR-0025](0025-memory-by-topic-as-claude.md) (memory is files), [ADR-0027](0027-compaction-as-the-window-fills.md)
   (a skill read with view comes back after compaction), [ADR-0044](0044-pdf-reading-and-exact-figures.md)
   (skill order), [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md) (the plan it left open).
+- Amended by [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md): artifacts are files, the question card is ask_user_input_v0, render_ui is show_widget and read_me, and 13 display cards are added.
 
 ## Reference
 

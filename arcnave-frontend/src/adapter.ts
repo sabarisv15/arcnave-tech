@@ -57,6 +57,8 @@ export type StreamEvent =
       name: string;
       ok: boolean;
       preview: string;
+      /** What present_files gave the user (ADR-0048). */
+      files?: Array<{ attachmentId: string; filename: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
     }
   | {
       type: "artifact_created";

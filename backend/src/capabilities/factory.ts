@@ -71,24 +71,6 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
     limitation: 'Cloud Run isolated sandbox with timeouts and memory bounds.',
   });
 
-  // Artifact CRUD
-  reg.register({
-    id: 'artifact.create',
-    status: cfg.ENABLE_TOOL_USE ? 'full' : 'unavailable',
-    source: 'create_artifact',
-  });
-  reg.register({
-    id: 'artifact.read',
-    status: cfg.ENABLE_TOOL_USE ? 'full' : 'unavailable',
-    source: 'read_artifact',
-  });
-  reg.register({
-    id: 'artifact.update',
-    status: cfg.ENABLE_TOOL_USE ? 'full' : 'unavailable',
-    source: 'update_artifact',
-    limitation: 'Optimistic locking with expectedVersion.',
-  });
-
   // Artifact Exporters: All four formats satisfy full contracts with format-native renderers and verifiers
   reg.register({
     id: 'artifact.export.docx',

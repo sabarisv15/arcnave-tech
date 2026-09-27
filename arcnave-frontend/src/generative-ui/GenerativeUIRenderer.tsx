@@ -11,6 +11,7 @@ import { CardsBlock } from './blocks/CardsBlock';
 import { SourcesBlock } from './blocks/SourcesBlock';
 import { DashboardBlock } from './blocks/DashboardBlock';
 import { VisualBlock } from './blocks/VisualBlock';
+import { DisplayCard } from './blocks/DisplayCards';
 
 export class BlockErrorBoundary extends Component<
   { blockType: string; children: ReactNode },
@@ -113,6 +114,8 @@ export function GenerativeUIRenderer({
               return <DashboardBlock block={block} />;
             case 'visual':
               return <VisualBlock block={block} chatId={chatId} />;
+            case 'display':
+              return <DisplayCard block={block} />;
             default:
               return null;
           }

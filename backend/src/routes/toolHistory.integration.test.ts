@@ -220,20 +220,16 @@ describe('tool calls in the history (ADR-0022)', () => {
     expect(after.systemInstruction).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
   });
 
-  it('replays a turn-ending ask_user_options call and its {status:"shown"} result on the next turn (ADR-0034)', async () => {
+  it('replays a turn-ending ask_user_input_v0 call and its {status:"shown"} result on the next turn (ADR-0034)', async () => {
     const { send } = await newChat();
-    const optionsInput = {
-      question: 'Where would you like to go?',
-      mode: 'single',
-      options: [{ label: 'Japan' }, { label: 'Italy' }],
-    };
+    const optionsInput = { questions: [{ question: 'Where would you like to go?', options: ['Japan', 'Italy'] }] };
     ctx.provider.script = [
       { type: 'delta', text: 'Let us narrow down your trip.' },
-      { type: 'tool_use', toolCallId: 'opt-1', name: 'ask_user_options', input: optionsInput, thoughtSignature: 'sig-opt-1' },
+      { type: 'tool_use', toolCallId: 'opt-1', name: 'ask_user_input_v0', input: optionsInput, thoughtSignature: 'sig-opt-1' },
       {
         type: 'tool_result',
         toolCallId: 'opt-1',
-        name: 'ask_user_options',
+        name: 'ask_user_input_v0',
         result: { toolCallId: 'opt-1', ok: true, content: [{ type: 'json', data: { status: 'shown' } }] },
       },
       { type: 'completed', usage: { inputTokens: 100, outputTokens: 15, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
@@ -248,23 +244,23 @@ describe('tool calls in the history (ADR-0022)', () => {
     expect(earlier.toolCalls).toEqual([
       {
         id: 'opt-1',
-        name: 'ask_user_options',
+        name: 'ask_user_input_v0',
         input: optionsInput,
         result: { toolCallId: 'opt-1', ok: true, content: [{ type: 'json', data: { status: 'shown' } }] },
         thoughtSignature: 'sig-opt-1',
       },
     ]);
-    expect((request.tools ?? []).map((t) => t.name)).toContain('ask_user_options');
+    expect((request.tools ?? []).map((t) => t.name)).toContain('ask_user_input_v0');
 
     const gemini = buildGeminiContents(request);
     expect(gemini[1]).toEqual({
       role: 'model',
-      parts: [{ functionCall: { id: 'opt-1', name: 'ask_user_options', args: optionsInput }, thoughtSignature: 'sig-opt-1' }],
+      parts: [{ functionCall: { id: 'opt-1', name: 'ask_user_input_v0', args: optionsInput }, thoughtSignature: 'sig-opt-1' }],
     });
     expect(JSON.stringify(gemini[2])).toContain('"status":"shown"');
 
     const anthropic = buildAnthropicMessages(request);
-    expect(anthropic[1]).toMatchObject({ role: 'assistant', content: [{ type: 'tool_use', id: 'hist_1_0', name: 'ask_user_options' }] });
+    expect(anthropic[1]).toMatchObject({ role: 'assistant', content: [{ type: 'tool_use', id: 'hist_1_0', name: 'ask_user_input_v0' }] });
     expect(anthropic[2]).toMatchObject({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'hist_1_0', content: '{"status":"shown"}' }] });
   });
 });

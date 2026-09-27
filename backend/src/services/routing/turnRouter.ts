@@ -9,7 +9,7 @@
  * request (ADR-0032).
  */
 
-import { CODE_TOOL_NAMES } from '../../tools/definitions.js';
+import { CODE_TOOL_NAMES, UI_TOOL_DEFINITIONS } from '../../tools/definitions.js';
 
 /** Flags and infrastructure only. The prompt is deliberately not an input: wording decides nothing. */
 export interface RouteTurnInput {
@@ -31,7 +31,7 @@ export interface RuntimeDebugTrace {
 }
 
 export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
-  const allowed = new Set<string>(['create_artifact', 'read_artifact', 'update_artifact', 'ask_user_options']);
+  const allowed = new Set<string>(['ask_user_input_v0']);
   if (input.webEnabled) for (const t of ['web_search', 'web_fetch', 'image_search']) allowed.add(t);
   if (input.memoryEnabled) {
     for (const t of ['memory_list', 'memory_read', 'memory_write', 'memory_append', 'memory_str_replace', 'memory_delete']) {
@@ -45,6 +45,6 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
   }
   // Permission and infrastructure only (ENABLE_RUN_PYTHON + a sandbox client), never wording.
   if (input.codeEnabled) for (const t of CODE_TOOL_NAMES) allowed.add(t);
-  if (input.generativeUiEnabled) allowed.add('render_ui');
+  if (input.generativeUiEnabled) for (const t of UI_TOOL_DEFINITIONS) allowed.add(t.name);
   return { allowedTools: [...allowed] };
 }

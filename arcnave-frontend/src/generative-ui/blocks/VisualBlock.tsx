@@ -31,6 +31,13 @@ function download(name: string, type: string, text: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** show_widget names a visual in snake_case ('q4_revenue_by_line'); it reads as words. */
+export function visualLabel(title: string): string {
+  if (!/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(title)) return title;
+  const words = title.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function fileName(title: string): string {
   return title.trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').slice(0, 60) || 'visual';
 }
@@ -81,7 +88,7 @@ export function VisualBlock({ block, chatId }: { block: VisualBlockType; chatId?
   if (!html) {
     return (
       <div className="ui-visual ui-visual-missing" role="note">
-        <p>{block.title}: this visual is no longer available.</p>
+        <p>{visualLabel(block.title)}: this visual is no longer available.</p>
       </div>
     );
   }
@@ -97,9 +104,9 @@ export function VisualBlock({ block, chatId }: { block: VisualBlockType; chatId?
   };
 
   return (
-    <figure className={`ui-visual ${full ? 'ui-visual-full' : ''}`} aria-label={block.title}>
+    <figure className={`ui-visual ${full ? 'ui-visual-full' : ''}`} aria-label={visualLabel(block.title)}>
       <figcaption className="ui-visual-header">
-        <span className="ui-visual-title">{block.title}</span>
+        <span className="ui-visual-title">{visualLabel(block.title)}</span>
         <span className="ui-visual-actions">
           <button type="button" onClick={() => setFull((f) => !f)} aria-label={full ? 'Exit full screen' : 'Full screen'}>
             {full ? <Minimize2 size={13} aria-hidden="true" /> : <Maximize2 size={13} aria-hidden="true" />}
@@ -130,7 +137,7 @@ export function VisualBlock({ block, chatId }: { block: VisualBlockType; chatId?
           {!readOnly && (
             <button
               type="button"
-              onClick={() => saveVisualAsArtifact({ title: block.title, html, kind: svg ? 'svg' : 'webpage', chatId })}
+              onClick={() => saveVisualAsArtifact({ title: visualLabel(block.title), html, kind: svg ? 'svg' : 'webpage', chatId })}
               aria-label="Save as artifact"
             >
               <Save size={13} aria-hidden="true" />

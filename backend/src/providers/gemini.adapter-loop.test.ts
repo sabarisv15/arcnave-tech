@@ -374,16 +374,14 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(client.calls).toHaveLength(1);
   });
 
-  it('ends the turn after ask_user_options and replays its {status:"shown"} result cleanly on the next user turn', async () => {
+  it('ends the turn after ask_user_input_v0 and replays its {status:"shown"} result cleanly on the next user turn', async () => {
     const ASK_TOOL = {
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       description: 'Present clickable options.',
       inputSchema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
     };
     const askInput = {
-      question: 'Which stack should we use?',
-      kind: 'single',
-      options: [{ label: 'React + Fastify' }, { label: 'Next.js' }],
+      questions: [{ question: 'Which stack should we use?', options: ['React + Fastify', 'Next.js'] }],
     };
     const shownResult: ToolResult = {
       toolCallId: 'c-ask-1',
@@ -391,18 +389,18 @@ describe('GeminiProvider tool-calling loop', () => {
       content: [{ type: 'json', data: { status: 'shown' } }],
     };
 
-    // Turn 1: model calls ask_user_options -> adapter stops after 1 round with finishReason: 'stop'
+    // Turn 1: model calls ask_user_input_v0 -> adapter stops after 1 round with finishReason: 'stop'
     const client1 = new FakeGeminiClient();
     client1.responses = [
       fakeStream([
         {
-          functionCalls: [{ id: 'c-ask-1', name: 'ask_user_options', args: askInput }],
+          functionCalls: [{ id: 'c-ask-1', name: 'ask_user_input_v0', args: askInput }],
           usageMetadata: { promptTokenCount: 25, candidatesTokenCount: 12 },
         },
       ]),
     ];
     const executor = new ScriptedExecutor();
-    executor.results.set('ask_user_options', shownResult);
+    executor.results.set('ask_user_input_v0', shownResult);
 
     const cfg = loadConfig({ NODE_ENV: 'test' });
     const provider1 = new GeminiProvider(cfg, client1 as never);
@@ -415,13 +413,13 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(turn1Events.find((e) => e.type === 'tool_use')).toMatchObject({
       type: 'tool_use',
       toolCallId: 'c-ask-1',
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       input: askInput,
     });
     expect(turn1Events.find((e) => e.type === 'tool_result')).toMatchObject({
       type: 'tool_result',
       toolCallId: 'c-ask-1',
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       result: shownResult,
     });
     expect(turn1Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'stop' });
@@ -447,7 +445,7 @@ describe('GeminiProvider tool-calling loop', () => {
               toolCalls: [
                 {
                   id: 'c-ask-1',
-                  name: 'ask_user_options',
+                  name: 'ask_user_input_v0',
                   input: askInput,
                   result: shownResult,
                   thoughtSignature: 'sig-ask-1',
@@ -467,7 +465,7 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(sentContents.map((c) => c.role)).toEqual(['user', 'model', 'user']);
     expect(sentContents[1]!.parts).toEqual([
       {
-        functionCall: { id: 'c-ask-1', name: 'ask_user_options', args: askInput },
+        functionCall: { id: 'c-ask-1', name: 'ask_user_input_v0', args: askInput },
         thoughtSignature: 'sig-ask-1',
       },
     ]);
@@ -475,7 +473,7 @@ describe('GeminiProvider tool-calling loop', () => {
       {
         functionResponse: {
           id: 'c-ask-1',
-          name: 'ask_user_options',
+          name: 'ask_user_input_v0',
           response: { output: { status: 'shown' } },
         },
       },
@@ -566,14 +564,14 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
 });
 
 describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
-  const RENDER_UI = { name: 'render_ui', description: 'Renders UI.', inputSchema: { type: 'object', properties: {} } };
+  const SHOW_WIDGET = { name: 'show_widget', description: 'Shows a visual.', inputSchema: { type: 'object', properties: {} } };
   const part = (functionCall: unknown) => ({ candidates: [{ content: { parts: [{ functionCall }] } }] });
   const configOf = (req: unknown) => (req as { config: { toolConfig?: { functionCallingConfig?: Record<string, unknown> } } }).config;
 
-  it('asks for streamed arguments only when render_ui is declared', async () => {
+  it('asks for streamed arguments only when show_widget is declared', async () => {
     const cfg = loadConfig({ NODE_ENV: 'test' });
     for (const [tools, expected] of [
-      [[RENDER_UI, SEARCH_TOOL], { streamFunctionCallArguments: true }],
+      [[SHOW_WIDGET, SEARCH_TOOL], { streamFunctionCallArguments: true }],
       [[SEARCH_TOOL], undefined],
     ] as const) {
       const client = new FakeGeminiClient();
@@ -588,30 +586,30 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
     const client = new FakeGeminiClient();
     client.responses = [
       fakeStream([
-        part({ id: 'v1', name: 'render_ui', willContinue: true }),
-        part({ partialArgs: [{ jsonPath: '$.blocks[0].type', stringValue: 'visual' }], willContinue: true }),
-        part({ partialArgs: [{ jsonPath: '$.blocks[0].html', stringValue: '<svg>', willContinue: true }], willContinue: true }),
-        part({ partialArgs: [{ jsonPath: '$.blocks[0].html', stringValue: '</svg>' }], willContinue: true }),
+        part({ id: 'v1', name: 'show_widget', willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.title', stringValue: 'flow' }], willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.widget_code', stringValue: '<svg>', willContinue: true }], willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.widget_code', stringValue: '</svg>' }], willContinue: true }),
         part({}),
       ]),
       fakeStream([{ text: 'Here it is.' }]),
     ];
     const executor = new ScriptedExecutor();
-    executor.results.set('render_ui', { toolCallId: 'v1', ok: true, content: [{ type: 'text', text: 'rendered' }] });
+    executor.results.set('show_widget', { toolCallId: 'v1', ok: true, content: [{ type: 'text', text: 'rendered' }] });
     const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
     const seen: string[] = [];
-    for await (const e of provider.stream(baseRequest({ tools: [RENDER_UI], toolExecutor: executor }))) {
+    for await (const e of provider.stream(baseRequest({ tools: [SHOW_WIDGET], toolExecutor: executor }))) {
       // The input is live: what an event shows must be read when it arrives.
       if (e.type === 'tool_input_partial') seen.push(JSON.stringify(e.input));
       if (e.type === 'tool_use') seen.push(`use ${JSON.stringify(e.input)}`);
     }
     expect(seen).toEqual([
-      '{"blocks":[{"type":"visual"}]}',
-      '{"blocks":[{"type":"visual","html":"<svg>"}]}',
-      '{"blocks":[{"type":"visual","html":"<svg></svg>"}]}',
-      'use {"blocks":[{"type":"visual","html":"<svg></svg>"}]}',
+      '{"title":"flow"}',
+      '{"title":"flow","widget_code":"<svg>"}',
+      '{"title":"flow","widget_code":"<svg></svg>"}',
+      'use {"title":"flow","widget_code":"<svg></svg>"}',
     ]);
-    expect(executor.calls).toEqual([{ id: 'v1', name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg></svg>' }] } }]);
+    expect(executor.calls).toEqual([{ id: 'v1', name: 'show_widget', input: { title: 'flow', widget_code: '<svg></svg>' } }]);
   });
 
   it('falls back to whole calls for a model that rejects the option, and does not ask again', async () => {
@@ -633,7 +631,7 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
     ];
     const executor = new ScriptedExecutor();
     const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
-    const events = await collect(provider.stream(baseRequest({ tools: [RENDER_UI, SEARCH_TOOL], toolExecutor: executor })));
+    const events = await collect(provider.stream(baseRequest({ tools: [SHOW_WIDGET, SEARCH_TOOL], toolExecutor: executor })));
     expect(events.some((e) => e.type === 'delta')).toBe(true);
     expect(configOf(client.calls[0]).toolConfig?.functionCallingConfig).toEqual({ streamFunctionCallArguments: true });
     expect(configOf(client.calls[1]).toolConfig).toBeUndefined();
@@ -644,7 +642,7 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
     const client = new FakeGeminiClient();
     client.responses = [fakeStream([{ text: 'ok' }])];
     const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', GEMINI_STREAM_TOOL_ARGS: 'false' }), client as never);
-    await collect(provider.stream(baseRequest({ tools: [RENDER_UI], toolExecutor: new ScriptedExecutor() })));
+    await collect(provider.stream(baseRequest({ tools: [SHOW_WIDGET], toolExecutor: new ScriptedExecutor() })));
     expect(configOf(client.calls[0]).toolConfig).toBeUndefined();
   });
 });

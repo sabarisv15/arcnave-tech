@@ -253,10 +253,6 @@ const envSchema = z.object({
   /** Directory path containing ArcNave production SKILL.md bundles (relative to backend root). */
   SKILLS_DIR: z.string().default('skills'),
 
-  // --- Artifacts ----------------------------------------------------------
-  /** Maximum bytes of content allowed in a model-generated artifact (create/update). */
-  ARTIFACT_MAX_CONTENT_BYTES: int(500_000),
-
   // --- Phase 5: Context Intelligence -------------------------------------
   /** Master gate for provider prompt caching (prefix stability & cache_control). */
   ENABLE_PROMPT_CACHE: bool(true),

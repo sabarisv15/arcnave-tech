@@ -51,6 +51,7 @@ import {
 } from "./types";
 import type { Panel } from "./types";
 import { adoptServerId, appendSegment, applyVisualDraft } from "./types";
+import { artifactKind } from "./fileArtifacts";
 
 type TranscriptState = "loading" | "ready" | "missing" | "failed";
 
@@ -544,16 +545,39 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               visualDrafts: applyVisualDraft(m.visualDrafts, event),
             }));
           if (event.type === "tool_result") {
+            const files = event.files;
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
               // The finished visual follows as a checked ui_block; the draft goes now either way.
-              ...(event.name === "render_ui" ? { visualDrafts: undefined } : {}),
+              ...(event.name === "render_ui" || event.name === "show_widget" ? { visualDrafts: undefined } : {}),
               toolCalls: (m.toolCalls ?? []).map((t) =>
                 t.toolCallId === event.toolCallId
-                  ? { ...t, ok: event.ok, preview: event.preview }
+                  ? {
+                      ...t,
+                      ok: event.ok,
+                      preview: event.preview,
+                      // Presented files show as cards now, not after a reload.
+                      ...(files?.length ? { content: [{ type: "json", data: { persistedFiles: files } }] } : {}),
+                    }
                   : t,
               ),
             }));
+            // An artifact opens beside the chat as soon as it is presented (ADR-0048).
+            const artifact = files?.find((f) => artifactKind(f.filename));
+            if (artifact && !openedArtifact) {
+              openedArtifact = true;
+              setPanel({
+                kind: "file",
+                file: {
+                  id: artifact.attachmentId,
+                  name: artifact.filename,
+                  size: artifact.sizeBytes,
+                  type: artifact.mimeType,
+                  status: "ready",
+                  downloadUrl: api.files.downloadUrl(artifact.attachmentId),
+                },
+              });
+            }
             if (event.name === "update_artifact" && event.ok) {
               setArtifactUpdateEvent({ timestamp: Date.now() });
             }

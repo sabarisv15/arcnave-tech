@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGeminiContents, toGeminiFunctionDeclaration, toGeminiFunctionResponsePart, usageFrom } from './gemini.js';
-import { RENDER_UI } from '../tools/definitions.js';
+import { UI_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import type { GenerationRequest } from './types.js';
 
 function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequest {
@@ -122,12 +122,14 @@ describe('toGeminiFunctionDeclaration', () => {
     expect(original['type']).toBe('object');
   });
 
-  it('converts RENDER_UI tool definition to valid Gemini function declaration', () => {
-    const decl = toGeminiFunctionDeclaration(RENDER_UI);
-    expect(decl.name).toBe('render_ui');
-    expect(decl.description).toContain('interactive generative UI layout');
-    expect(decl.parametersJsonSchema).toBeDefined();
-    expect((decl.parametersJsonSchema as Record<string, unknown>)['type']).toBe('object');
+  it('declares show_widget, read_me and every display card in plain JSON Schema', () => {
+    for (const def of UI_TOOL_DEFINITIONS) {
+      const decl = toGeminiFunctionDeclaration(def);
+      expect(decl.name).toBe(def.name);
+      expect((decl.parametersJsonSchema as Record<string, unknown>)['type']).toBe('object');
+      // ADR-0048: no $ref, anyOf or null types, which one provider or the other rejects.
+      expect(JSON.stringify(def.inputSchema), def.name).not.toMatch(/"\$ref"|"\$defs"|"anyOf"|"oneOf"|"null"/);
+    }
   });
 });
 

@@ -5,6 +5,7 @@
 - Date: 2026-09-27
 - Builds on: [ADR-0035](0035-sandboxed-visuals-and-interactive-artifacts.md),
   [ADR-0036](0036-sandboxed-visuals-inherit-arcnave-theme.md).
+- Amended by [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md): drafts come from show_widget's widget_code, titled by its first loading message.
 
 ## Context
 

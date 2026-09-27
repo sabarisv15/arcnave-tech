@@ -25,9 +25,8 @@ import { loadConfig } from '../config.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
 import {
-  CREATE_ARTIFACT,
+  ASK_USER_INPUT,
   codeToolDefinitions,
-  READ_ARTIFACT,
   SEARCH_PROJECT_FILES,
   WEB_FETCH,
   WEB_SEARCH,
@@ -47,8 +46,7 @@ interface ScenarioResult {
 const ALL_STANDARD_TOOLS: ToolDefinition[] = [
   WEB_SEARCH,
   WEB_FETCH,
-  CREATE_ARTIFACT,
-  READ_ARTIFACT,
+  ASK_USER_INPUT,
   ...codeToolDefinitions(true),
   SEARCH_PROJECT_FILES,
 ];

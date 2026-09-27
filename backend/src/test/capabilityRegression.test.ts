@@ -18,10 +18,10 @@ describe('Capability Regression Suite', () => {
     it('exposes every tool its gates allow, and no discovery or skill tool', () => {
       const reg = new ProjectToolRegistry(true, { codeEnabled: true, webEnabled: true });
       const names = reg.getAvailableTools({ projectId: 'p1', allowCode: true }).map((t) => t.name);
-      for (const tool of ['create_artifact', 'ask_user_options', 'web_search', 'web_fetch', 'image_search', 'bash_tool', 'view', 'present_files', 'search_project_files']) {
+      for (const tool of ['ask_user_input_v0', 'web_search', 'web_fetch', 'image_search', 'bash_tool', 'view', 'present_files', 'search_project_files']) {
         expect(names).toContain(tool);
       }
-      for (const gone of ['run_python', 'search_tools', 'load_skill', 'list_skills', 'search_skills', 'read_skill']) {
+      for (const gone of ['run_python', 'search_tools', 'load_skill', 'list_skills', 'search_skills', 'read_skill', 'create_artifact', 'render_ui']) {
         expect(names).not.toContain(gone);
       }
     });
@@ -104,7 +104,8 @@ Please fill the details below.
       const prompt = buildBaseSystemPrompt(cfg, caps);
 
       expect(prompt).toContain('ArcNave');
-      expect(prompt).toContain('create_artifact');
+      expect(prompt).not.toContain('create_artifact');
+      expect(prompt).toContain('An artifact is a file written with create_file');
       expect(prompt).toContain('bash_tool');
       expect(prompt).toContain('view the SKILL.md');
       // Web tool is disabled

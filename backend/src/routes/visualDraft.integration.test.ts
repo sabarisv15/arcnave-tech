@@ -27,8 +27,8 @@ describe('visual drafts', () => {
     const grow = (html: string): ProviderEvent => ({
       type: 'tool_input_partial',
       index: 0,
-      name: 'render_ui',
-      input: { blocks: [{ type: 'text', text: 'hi' }, { type: 'visual', title: 'Curve', html }] },
+      name: 'show_widget',
+      input: { title: 'curve', loading_messages: ['Drawing the curve'], widget_code: html },
     });
     ctx.provider.script = [
       { type: 'tool_input_partial', index: 0, name: 'run_python', input: { code: 'print(1)' } },
@@ -48,19 +48,18 @@ describe('visual drafts', () => {
       .filter((f) => f.event === 'ui_draft')
       .map((f) => f.data);
     expect(drafts).toEqual([
-      { type: 'ui_draft', draftId: '0:1', title: 'Curve', from: 0, text: '<svg>' },
-      { type: 'ui_draft', draftId: '0:1', title: 'Curve', from: 5, text: '<path/>' },
-      { type: 'ui_draft', draftId: '0:1', title: 'Curve', from: 12, text: '</svg>' },
+      { type: 'ui_draft', draftId: '0:0', title: 'Drawing the curve', from: 0, text: '<svg>' },
+      { type: 'ui_draft', draftId: '0:0', title: 'Drawing the curve', from: 5, text: '<path/>' },
+      { type: 'ui_draft', draftId: '0:0', title: 'Drawing the curve', from: 12, text: '</svg>' },
     ]);
   });
 
-  it('finds only visual blocks with HTML so far', () => {
-    expect(
-      visualDrafts({ blocks: [{ type: 'visual', title: 'A', html: '<p>' }, { type: 'visual' }, { type: 'text', text: 'x' }, null, { type: 'visual', html: '' }] }, '3'),
-    ).toEqual([
-      { draftId: '3:0', title: 'A', html: '<p>' },
-      { draftId: '3:4', title: '', html: '' },
+  it('drafts a show_widget call once it has code, titled by its first loading message', () => {
+    expect(visualDrafts({ title: 'a', loading_messages: ['Sketching', 'Almost'], widget_code: '<p>' }, '3')).toEqual([
+      { draftId: '3:0', title: 'Sketching', html: '<p>' },
     ]);
+    expect(visualDrafts({ title: 'a', widget_code: '' }, '1')).toEqual([{ draftId: '1:0', title: 'a', html: '' }]);
+    expect(visualDrafts({ title: 'a' }, '0')).toEqual([]);
     expect(visualDrafts({}, '0')).toEqual([]);
   });
 });

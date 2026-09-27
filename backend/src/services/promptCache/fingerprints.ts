@@ -63,14 +63,12 @@ export function computePrefixHash(systemText: string, toolBundleHash: string): s
 const KNOWN_BUNDLES: { name: ToolBundleName; toolNames: Set<string> }[] = [
   {
     name: 'chat_core',
-    toolNames: new Set(['create_artifact', 'read_artifact', 'update_artifact']),
+    toolNames: new Set(['ask_user_input_v0']),
   },
   {
     name: 'project',
     toolNames: new Set([
-      'create_artifact',
-      'read_artifact',
-      'update_artifact',
+      'ask_user_input_v0',
       'search_project_files',
       'read_project_file',
     ]),
@@ -78,9 +76,7 @@ const KNOWN_BUNDLES: { name: ToolBundleName; toolNames: Set<string> }[] = [
   {
     name: 'research',
     toolNames: new Set([
-      'create_artifact',
-      'read_artifact',
-      'update_artifact',
+      'ask_user_input_v0',
       'search_project_files',
       'read_project_file',
       'web_search',
@@ -91,9 +87,7 @@ const KNOWN_BUNDLES: { name: ToolBundleName; toolNames: Set<string> }[] = [
   {
     name: 'agent',
     toolNames: new Set([
-      'create_artifact',
-      'read_artifact',
-      'update_artifact',
+      'ask_user_input_v0',
       'search_project_files',
       'read_project_file',
       'web_search',

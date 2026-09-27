@@ -38,7 +38,7 @@ describe('CapabilityRegistry', () => {
 
     const reg = buildCapabilityRegistry(devCfg);
     expect(reg.isFull('project.search')).toBe(true);
-    expect(reg.isFull('artifact.create')).toBe(true);
+    expect(reg.get('artifact.create')).toBeUndefined();
     expect(reg.isFull('python.execute')).toBe(false);
     expect(reg.isFull('skills.discover')).toBe(true);
   });

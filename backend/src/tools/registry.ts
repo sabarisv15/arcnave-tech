@@ -6,7 +6,6 @@
  * `projectId` reaching here is already the caller's own project.
  */
 import {
-  ARTIFACT_TOOL_DEFINITIONS,
   CHAT_TOOL_DEFINITIONS,
   MEMORY_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
@@ -32,6 +31,7 @@ export interface ToolRegistryFlags {
   webEnabled?: boolean;
   /** Memory, and the past-chat tools with it. */
   memoryEnabled?: boolean;
+  /** show_widget, read_me and the display cards. */
   generativeUiEnabled?: boolean;
 }
 
@@ -47,7 +47,7 @@ export class ProjectToolRegistry implements ToolRegistry {
 
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     if (!this.enabled) return [];
-    const tools: ToolDefinition[] = [...ARTIFACT_TOOL_DEFINITIONS, ...QUESTION_TOOL_DEFINITIONS];
+    const tools: ToolDefinition[] = [...QUESTION_TOOL_DEFINITIONS];
     if (this.flags.memoryEnabled) tools.push(...MEMORY_TOOL_DEFINITIONS, ...CHAT_TOOL_DEFINITIONS);
     if (this.flags.generativeUiEnabled) tools.push(...UI_TOOL_DEFINITIONS);
     if (this.flags.webEnabled) tools.push(...WEB_TOOL_DEFINITIONS);

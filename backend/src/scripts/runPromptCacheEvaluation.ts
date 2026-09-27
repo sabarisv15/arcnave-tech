@@ -10,9 +10,7 @@
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { config } from '../config.js';
 import {
-  CREATE_ARTIFACT,
-  READ_ARTIFACT,
-  UPDATE_ARTIFACT,
+  ASK_USER_INPUT,
   SEARCH_PROJECT_FILES,
   READ_PROJECT_FILE,
   WEB_SEARCH,
@@ -41,9 +39,7 @@ async function main() {
   });
 
   const tools = [
-    CREATE_ARTIFACT,
-    READ_ARTIFACT,
-    UPDATE_ARTIFACT,
+    ASK_USER_INPUT,
     SEARCH_PROJECT_FILES,
     READ_PROJECT_FILE,
     WEB_SEARCH,

@@ -63,6 +63,12 @@ describe("SandboxFrame isolation (ADR-0035)", () => {
     expect(frameOf().getAttribute("srcdoc")).toBe(buildSrcDoc("<p>x</p>"));
   });
 
+  it("gives show_widget code sendPrompt, the same message as window.arcnave.prompt (ADR-0048)", () => {
+    const doc = buildSrcDoc("<p>x</p>");
+    expect(doc).toContain("window.sendPrompt=window.arcnave.prompt;");
+    expect(doc.indexOf("window.sendPrompt")).toBeLessThan(doc.indexOf("<p>x</p>"));
+  });
+
   it("does not let the content's own head replace the policy", () => {
     const doc = buildSrcDoc('<html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head></html>');
     expect(doc.indexOf(SANDBOX_CSP)).toBeLessThan(doc.indexOf("default-src *"));

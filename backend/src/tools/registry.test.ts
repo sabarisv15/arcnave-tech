@@ -22,10 +22,7 @@ describe('ProjectToolRegistry', () => {
       generativeUiEnabled: true,
     });
     expect(names(registry, { projectId: 'p1', allowCode: true })).toEqual([
-      'create_artifact',
-      'read_artifact',
-      'update_artifact',
-      'ask_user_options',
+      'ask_user_input_v0',
       'memory_list',
       'memory_read',
       'memory_write',
@@ -35,7 +32,21 @@ describe('ProjectToolRegistry', () => {
       'conversation_search',
       'read_conversation',
       'recent_chats',
-      'render_ui',
+      'read_me',
+      'show_widget',
+      'chart_display_v0',
+      'comparison_card_display_v0',
+      'featured_card_display_v0',
+      'itinerary_display_v0',
+      'link_preview_display_v0',
+      'message_compose_v1',
+      'options_card_display_v0',
+      'places_list_display_v0',
+      'product_carousel_display_v0',
+      'quiz_display_v0',
+      'recipe_display_v0',
+      'step_card_display_v0',
+      'translation_display_v0',
       'web_search',
       'web_fetch',
       'image_search',
@@ -52,7 +63,7 @@ describe('ProjectToolRegistry', () => {
   it('has no discovery or skill-loading tool: skills are read with view', () => {
     const registry = new ProjectToolRegistry(true, { codeEnabled: true, webEnabled: true, memoryEnabled: true });
     const all = names(registry, { projectId: 'p1', allowCode: true });
-    for (const gone of ['search_tools', 'load_skill', 'read_skill', 'list_skills', 'search_skills', 'run_python']) {
+    for (const gone of ['search_tools', 'load_skill', 'read_skill', 'list_skills', 'search_skills', 'run_python', 'render_ui', 'create_artifact']) {
       expect(all).not.toContain(gone);
     }
   });

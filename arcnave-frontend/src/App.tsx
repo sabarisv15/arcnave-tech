@@ -51,13 +51,13 @@ import { api, describeError } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
 import type { Message, MessageUsage, Mode, ReasoningEffort, ToolCall } from "./types";
 import { extractToolCardData, type DeliverableData, type ImageData } from "./toolCards";
-import { cutOffReason } from "./types";
+import { DRAWN_TOOLS, cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import { VisualDraft } from "./generative-ui/blocks/VisualDraft";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage, MarkdownErrorBoundary } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
-import QuestionOptions, { extractAskUserOptions } from "./QuestionOptions";
+import QuestionOptions, { extractAskUserInput } from "./QuestionOptions";
 import SelectionFloatingButton from "./SelectionFloatingButton";
 
 const ContextPanel = lazy(() => import("./Panels"));
@@ -617,9 +617,9 @@ function Conversation() {
         </button>
       )}
       <div className="conversation-composer">
-        {!isRunning && extractAskUserOptions(last) && (
+        {!isRunning && extractAskUserInput(last) && (
           <QuestionOptions
-            data={extractAskUserOptions(last)!}
+            data={extractAskUserInput(last)!}
             disabled={!!activeRun}
             onSubmit={(replyText) =>
               void send(
@@ -664,6 +664,9 @@ const toolActivityLabels: Record<string, { running: string; complete: string }> 
   create_artifact: { running: "Creating the artifact", complete: "Artifact created" },
   read_artifact: { running: "Reading the artifact", complete: "Artifact read" },
   update_artifact: { running: "Updating the artifact", complete: "Artifact updated" },
+  create_file: { running: "Writing a file", complete: "File written" },
+  str_replace: { running: "Editing a file", complete: "File edited" },
+  view: { running: "Reading", complete: "Read" },
   web_search: { running: "Searching the web", complete: "Web search finished" },
   generate_image: { running: "Generating image", complete: "Image generated" },
   generate_deliverable: { running: "Compiling file deliverable", complete: "File ready" },
@@ -690,10 +693,10 @@ function ResponseActivity({ message: m }: { message: Message }) {
   const latestResearchEvent = m.events?.at(-1);
   const activeTool = [...(m.toolCalls ?? [])]
     .reverse()
-    .find((call) => call.ok === undefined && call.name !== "render_ui" && call.name !== "ask_user_options");
+    .find((call) => call.ok === undefined && !DRAWN_TOOLS.has(call.name));
   const latestTool = [...(m.toolCalls ?? [])]
     .reverse()
-    .find((call) => call.name !== "render_ui" && call.name !== "ask_user_options");
+    .find((call) => !DRAWN_TOOLS.has(call.name));
   const activity = activeTool
     ? { label: toolActivity(activeTool.name, true), detail: "Tool is running" }
     : latestResearchEvent && latestResearchEvent.stage !== "complete"
@@ -909,7 +912,7 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui" && c.name !== "ask_user_options") && (
+      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => !DRAWN_TOOLS.has(c.name)) && (
         <ResponseActivity message={m} />
       )}
       {m.segments && m.segments.length > 0 ? (

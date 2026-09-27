@@ -406,13 +406,13 @@ export class GeminiProvider implements Provider {
           ? `${request.systemInstruction ? `${request.systemInstruction}\n\n` : ''}${FINAL_ROUND_NOTE}`
           : request.systemInstruction;
         if (lastPromptTokens >= editing.triggerTokens) contents = clearOldFunctionResponses(contents, editing);
-        // Arguments stream while written only when a call can show them (a render_ui visual)
+        // Arguments stream while written only when a call can show them (a show_widget visual)
         // and the model takes the option; everything else is unchanged (ADR-0037).
         const streamArgs =
           useTools &&
           this.cfg.GEMINI_STREAM_TOOL_ARGS &&
           !this.wholeCallModels.has(request.providerModelId) &&
-          toolDefs.some((t) => t.name === 'render_ui');
+          toolDefs.some((t) => t.name === 'show_widget');
         const open = (forceAnswer: boolean, stream: boolean) => this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,

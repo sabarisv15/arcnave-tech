@@ -54,7 +54,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
         'computer_use',
         'web',
         'files',
-        'artifacts',
+        'computer_use',
         'professional_deliverables',
         'source_transformation',
         'research',
@@ -74,8 +74,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
   describe('12 Model-Level Behavioral Contracts', () => {
     it('Eval 1: Casual greeting ("Hi") -> Instructs direct response, no tools/AgentLoop overhead', () => {
       expect(masterPrompt).toContain('Answer directly when tools are unnecessary');
-      expect(masterPrompt).toContain('Prefer a conversational response for:');
-      expect(masterPrompt).toContain('simple questions');
+      expect(masterPrompt).toContain('short prose or a conversational answer');
       expect(masterPrompt).toContain('casual conversation');
     });
 

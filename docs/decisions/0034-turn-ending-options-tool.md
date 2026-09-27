@@ -3,6 +3,7 @@
 - Status: proposed
 - Date: 2026-09-26
 - Work package: WP-06 (Gap 3: Clickable question options)
+- Amended by [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md): the question tool is ask_user_input_v0 (1 to 3 questions, string options, single_select, multi_select or rank_priorities).
 
 ## Context
 

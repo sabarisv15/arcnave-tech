@@ -339,16 +339,14 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     expect(client.calls).toHaveLength(1);
   });
 
-  it('ends the turn after ask_user_options and replays its {status:"shown"} result cleanly on the next user turn', async () => {
+  it('ends the turn after ask_user_input_v0 and replays its {status:"shown"} result cleanly on the next user turn', async () => {
     const ASK_TOOL = {
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       description: 'Present clickable options.',
       inputSchema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
     };
     const askInput = {
-      question: 'Which stack should we use?',
-      kind: 'single',
-      options: [{ label: 'React + Fastify' }, { label: 'Next.js' }],
+      questions: [{ question: 'Which stack should we use?', options: ['React + Fastify', 'Next.js'] }],
     };
     const shownResult: ToolResult = {
       toolCallId: 't-ask-1',
@@ -356,17 +354,17 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
       content: [{ type: 'json', data: { status: 'shown' } }],
     };
 
-    // Turn 1: model calls ask_user_options -> adapter stops after 1 round with finishReason: 'stop'
+    // Turn 1: model calls ask_user_input_v0 -> adapter stops after 1 round with finishReason: 'stop'
     const client1 = new FakeAnthropicClient();
     client1.responses = [
       fakeMessageStream([], {
-        content: [{ type: 'tool_use', id: 't-ask-1', name: 'ask_user_options', input: askInput }],
+        content: [{ type: 'tool_use', id: 't-ask-1', name: 'ask_user_input_v0', input: askInput }],
         usage: { input_tokens: 25, output_tokens: 12 },
         stop_reason: 'tool_use',
       }),
     ];
     const executor = new ScriptedExecutor();
-    executor.results.set('ask_user_options', shownResult);
+    executor.results.set('ask_user_input_v0', shownResult);
 
     const cfg = loadConfig({ NODE_ENV: 'test' });
     const provider1 = new AnthropicVertexProvider(cfg, client1 as never);
@@ -379,13 +377,13 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     expect(turn1Events.find((e) => e.type === 'tool_use')).toMatchObject({
       type: 'tool_use',
       toolCallId: 't-ask-1',
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       input: askInput,
     });
     expect(turn1Events.find((e) => e.type === 'tool_result')).toMatchObject({
       type: 'tool_result',
       toolCallId: 't-ask-1',
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       result: shownResult,
     });
     expect(turn1Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'stop' });
@@ -411,7 +409,7 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
               toolCalls: [
                 {
                   id: 't-ask-1',
-                  name: 'ask_user_options',
+                  name: 'ask_user_input_v0',
                   input: askInput,
                   result: shownResult,
                 },
@@ -432,7 +430,7 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     expect(assistantBlocks).toHaveLength(1);
     expect(assistantBlocks[0]).toMatchObject({
       type: 'tool_use',
-      name: 'ask_user_options',
+      name: 'ask_user_input_v0',
       input: askInput,
     });
     const finalUserBlocks = sentMessages[2]!.content as { type: string; tool_use_id?: string; text?: string }[];
@@ -497,18 +495,18 @@ describe('AnthropicVertexProvider timeouts (ADR-0024)', () => {
 });
 
 describe('AnthropicVertexProvider partial tool input (ADR-0037)', () => {
-  it('reports a render_ui call while it streams, from the SDK snapshot, and no other tool', async () => {
+  it('reports a show_widget call while it streams, from the SDK snapshot, and no other tool', async () => {
     // The SDK's MessageStream keeps `currentMessage` up to date before each event is read.
     const snapshots = [
       [{ type: 'tool_use', id: 's', name: 'search_project_files', input: { query: 'x' } }],
       [
         { type: 'tool_use', id: 's', name: 'search_project_files', input: { query: 'x' } },
-        { type: 'tool_use', id: 'v', name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg>' }] } },
+        { type: 'tool_use', id: 'v', name: 'show_widget', input: { widget_code: '<svg>' } },
       ],
     ];
     const events = [
       { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"x"}' } },
-      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"blocks":[' } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"widget_code":"<svg' } },
     ];
     let current: unknown[] = [];
     const stream = {
@@ -532,7 +530,7 @@ describe('AnthropicVertexProvider partial tool input (ADR-0037)', () => {
     const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
     const out = await collect(provider.stream(baseRequest()));
     expect(out.filter((e) => e.type === 'tool_input_partial')).toEqual([
-      { type: 'tool_input_partial', index: 1, name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg>' }] } },
+      { type: 'tool_input_partial', index: 1, name: 'show_widget', input: { widget_code: '<svg>' } },
     ]);
   });
 });

@@ -1260,3 +1260,19 @@ practice, not canon.
   also records that main's Cloud Build trigger deploys the backend. The session had no GCP
   credentials to check which happened. Rule: before a merge to main, read CURRENT.md for every
   trigger on main and name each one to the owner; say "unverified" when it cannot be checked.
+- **2026-09-27 (artifacts, questions, visuals, cards; ADR-0048)** — No new heading (at the cap).
+  Four found here. (1) Asked for a totals comparison, I told the owner ArcNave's three artifact
+  tools, `render_ui` and `ask_user_options` "do the same job as the reference under another
+  name", from memory; the capture says an artifact is a file written with `create_file`, and
+  the Visualizer and question tool have different schemas. Rule: a "same job" claim is checked
+  against the capture's schema for that tool, not its name. (2) The show_widget description
+  first said sendPrompt "sends a message as if the person typed it", copied from the reference;
+  in ArcNave a visual's prompt only fills the message box (ADR-0035). Rule: a tool description
+  says what ArcNave does, checked in the client code. Verify: `grep -n sendPrompt
+  backend/src/tools/definitions.ts`. (3) `npx prettier --write` on one file reformatted 40
+  unrelated lines; the repo is not prettier-formatted. Rule: never run a formatter over a
+  whole file here; `git diff --stat` before moving on. (4) lucide-react's UMD build reads React
+  from `window.react` (lowercase), which no UMD React defines. Rule: run a CDN runtime in real
+  Chromium before shipping it (jsDelivr is blocked in this sandbox: mirror the npm tarballs and
+  serve them locally). Verify: the harness in ADR-0048's session showed n=2→3, 3 bars, the icon,
+  and Tailwind padding; `displayCards.test.tsx` checks the loader's inputs.

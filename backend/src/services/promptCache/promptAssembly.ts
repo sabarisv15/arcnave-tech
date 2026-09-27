@@ -25,16 +25,16 @@ import type { DynamicSuffix, PromptAssembly, StablePrefix } from './types.js';
  */
 export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedToolNames?: string[]): StablePrefix {
   // A policy about a tool goes in only when the tool is allowed this turn: a prompt that talks
-  // about memory or render_ui with neither available promises what the request cannot keep
+  // about memory or visuals with neither available promises what the request cannot keep
   // (Invariant 1). Still stable per tool set, which is what the prefix cache keys on.
   const allowed = new Set(allowedToolNames ?? authorizedTools.map((t) => t.name));
   const systemText = [
     STATIC_BASE_SYSTEM_PROMPT_V1,
     ...(allowed.has('memory_read') ? [STATIC_MEMORY_POLICY_V1] : []),
     STATIC_COMPACTION_POLICY_V1,
-    // render_ui's policy says "You have access to the render_ui tool", so it goes in only when
-    // the tool is declared: a model can only call what it was declared (Gemini function calling).
-    ...(authorizedTools.some((t) => t.name === 'render_ui') ? [GENERATIVE_UI_POLICY_V1] : []),
+    // The visuals policy names show_widget and the cards, so it goes in only when they are
+    // declared: a model can only call what it was declared (Gemini function calling).
+    ...(authorizedTools.some((t) => t.name === 'show_widget') ? [GENERATIVE_UI_POLICY_V1] : []),
   ].join('\n\n');
 
   const tools = canonicalizeTools(authorizedTools);

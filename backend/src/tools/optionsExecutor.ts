@@ -1,100 +1,64 @@
 /**
- * Tool executor for ask_user_options (WP-06 / ADR-0034).
- *
- * Validates question, selection kind ('single' | 'multi' | 'rank'), and 2-6 options.
- * Returns { status: 'shown' } on success.
+ * ask_user_input_v0 (ADR-0048): one to three questions, each with two to four short options, as
+ * the reference's tappable question card. The card is the turn's end (TERMINAL_TOOLS); the
+ * person's choice arrives as their next message, never as this tool's result.
  */
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
 
-export interface AskUserOptionItem {
-  label: string;
-  description?: string;
-}
+export type AskUserInputType = 'single_select' | 'multi_select' | 'rank_priorities';
 
-export interface AskUserOptionsInput {
+export interface AskUserInputQuestion {
   question: string;
-  kind: 'single' | 'multi' | 'rank';
-  options: AskUserOptionItem[];
+  options: string[];
+  type: AskUserInputType;
 }
 
-export function validateAskUserOptionsInput(
+export interface AskUserInputInput {
+  questions: AskUserInputQuestion[];
+}
+
+const TYPES: readonly AskUserInputType[] = ['single_select', 'multi_select', 'rank_priorities'];
+
+export function validateAskUserInput(
   input: unknown,
-): { ok: true; data: AskUserOptionsInput } | { ok: false; error: string } {
-  if (!input || typeof input !== 'object') {
-    return { ok: false, error: 'Input must be an object' };
+): { ok: true; data: AskUserInputInput } | { ok: false; error: string } {
+  if (!input || typeof input !== 'object') return { ok: false, error: 'Input must be an object' };
+  const { questions } = input as Record<string, unknown>;
+  if (!Array.isArray(questions) || questions.length < 1 || questions.length > 3) {
+    return { ok: false, error: 'questions must be an array of 1 to 3 questions' };
   }
-  const { question, kind, options } = input as Record<string, unknown>;
-
-  if (typeof question !== 'string' || question.trim() === '') {
-    return { ok: false, error: 'question must be a non-empty string' };
-  }
-
-  if (kind !== 'single' && kind !== 'multi' && kind !== 'rank') {
-    return { ok: false, error: 'kind must be "single", "multi", or "rank"' };
-  }
-
-  if (!Array.isArray(options)) {
-    return { ok: false, error: 'options must be an array' };
-  }
-
-  if (options.length < 2 || options.length > 6) {
-    return { ok: false, error: `options count must be between 2 and 6 (got ${options.length})` };
-  }
-
-  for (let i = 0; i < options.length; i++) {
-    const opt = options[i];
-    if (!opt || typeof opt !== 'object') {
-      return { ok: false, error: `options[${i}] must be an object` };
+  const out: AskUserInputQuestion[] = [];
+  for (const [i, raw] of questions.entries()) {
+    if (!raw || typeof raw !== 'object') return { ok: false, error: `questions[${i}] must be an object` };
+    const q = raw as Record<string, unknown>;
+    if (typeof q.question !== 'string' || !q.question.trim()) {
+      return { ok: false, error: `questions[${i}].question must be a non-empty string` };
     }
-    const { label, description } = opt as Record<string, unknown>;
-    if (typeof label !== 'string' || label.trim() === '') {
-      return { ok: false, error: `options[${i}].label must be a non-empty string` };
+    const type = (q.type ?? 'single_select') as AskUserInputType;
+    if (!TYPES.includes(type)) {
+      return { ok: false, error: `questions[${i}].type must be one of ${TYPES.join(', ')}` };
     }
-    if (description !== undefined && typeof description !== 'string') {
-      return { ok: false, error: `options[${i}].description must be a string if provided` };
+    if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 4) {
+      return { ok: false, error: `questions[${i}].options must hold 2 to 4 options` };
     }
+    if (!q.options.every((o) => typeof o === 'string' && o.trim())) {
+      return { ok: false, error: `questions[${i}].options must be non-empty strings` };
+    }
+    out.push({ question: q.question.trim(), type, options: (q.options as string[]).map((o) => o.trim()) });
   }
-
-  return {
-    ok: true,
-    data: {
-      question: question.trim(),
-      kind,
-      options: options.map((o) => ({
-        label: (o as { label: string }).label.trim(),
-        ...((o as { description?: string }).description !== undefined
-          ? { description: (o as { description: string }).description.trim() }
-          : {}),
-      })),
-    },
-  };
+  return { ok: true, data: { questions: out } };
 }
 
-export class AskUserOptionsExecutor implements ToolExecutor {
+export class AskUserInputExecutor implements ToolExecutor {
   async execute(call: ToolCall, _signal: AbortSignal): Promise<ToolResult> {
-    const validation = validateAskUserOptionsInput(call.input);
+    const validation = validateAskUserInput(call.input);
     if (!validation.ok) {
       return {
         toolCallId: call.id,
         ok: false,
-        content: [
-          {
-            type: 'text',
-            text: `Invalid ask_user_options arguments: ${validation.error}`,
-          },
-        ],
+        content: [{ type: 'text', text: `Invalid ask_user_input_v0 arguments: ${validation.error}` }],
       };
     }
-
-    return {
-      toolCallId: call.id,
-      ok: true,
-      content: [
-        {
-          type: 'json',
-          data: { status: 'shown' },
-        },
-      ],
-    };
+    return { toolCallId: call.id, ok: true, content: [{ type: 'json', data: { status: 'shown' } }] };
   }
 }

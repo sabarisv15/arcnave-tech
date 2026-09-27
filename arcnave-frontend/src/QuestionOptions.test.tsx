@@ -1,18 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import QuestionOptions, {
-  extractAskUserOptions,
+  extractAskUserInput,
+  formatAnswers,
   formatMultiSelection,
   formatRankSelection,
   reorderOptions,
 } from "./QuestionOptions";
 import ToolActivity from "./ToolActivity";
-import type { AskUserOptionsInput, Message } from "./types";
+import type { AskUserQuestion, Message } from "./types";
 
-const makeAssistantMessage = (
-  toolCalls?: Message["toolCalls"],
-  role: Message["role"] = "assistant",
-): Message => ({
+const makeAssistantMessage = (toolCalls?: Message["toolCalls"], role: Message["role"] = "assistant"): Message => ({
   id: "msg-1",
   seq: 1,
   role,
@@ -22,150 +20,97 @@ const makeAssistantMessage = (
   toolCalls,
 });
 
-describe("extractAskUserOptions", () => {
-  it("extracts valid ask_user_options payload from an assistant message", () => {
+describe("extractAskUserInput", () => {
+  it("reads one to three questions, defaulting each to single_select", () => {
     const msg = makeAssistantMessage([
       {
         toolCallId: "tc-1",
-        name: "ask_user_options",
+        name: "ask_user_input_v0",
         ok: true,
         input: {
-          question: "Which framework should we use?",
-          kind: "single",
-          options: [
-            { label: "React", description: "Component-based UI" },
-            { label: "Svelte", description: "Compiler-first UI" },
+          questions: [
+            { question: "Goal?", options: ["Strength", "Cardio"] },
+            { question: "Kit?", options: ["None", "Dumbbells", "Gym"], type: "multi_select" },
           ],
         },
       },
     ]);
-
-    expect(extractAskUserOptions(msg)).toEqual({
-      question: "Which framework should we use?",
-      kind: "single",
-      options: [
-        { label: "React", description: "Component-based UI" },
-        { label: "Svelte", description: "Compiler-first UI" },
-      ],
-    });
+    expect(extractAskUserInput(msg)).toEqual([
+      { question: "Goal?", type: "single_select", options: ["Strength", "Cardio"] },
+      { question: "Kit?", type: "multi_select", options: ["None", "Dumbbells", "Gym"] },
+    ]);
   });
 
-  it("returns null when the latest message is a user message (dismissed after user replies)", () => {
-    const userMsg = makeAssistantMessage(undefined, "user");
-    expect(extractAskUserOptions(userMsg)).toBeNull();
+  it("still shows the one question of an older ask_user_options reply", () => {
+    const msg = makeAssistantMessage([
+      { toolCallId: "tc", name: "ask_user_options", ok: true, input: { question: "Pick", kind: "rank", options: [{ label: "A" }, { label: "B" }] } },
+    ]);
+    expect(extractAskUserInput(msg)).toEqual([{ question: "Pick", type: "rank_priorities", options: ["A", "B"] }]);
   });
 
-  it("returns null when ask_user_options failed validation or has out-of-range options", () => {
-    const failedCall = makeAssistantMessage([
-      {
-        toolCallId: "tc-fail",
-        name: "ask_user_options",
-        ok: false,
-        input: {
-          question: "Pick one",
-          kind: "single",
-          options: [{ label: "A" }, { label: "B" }],
-        },
-      },
-    ]);
-    expect(extractAskUserOptions(failedCall)).toBeNull();
-
-    const tooFew = makeAssistantMessage([
-      {
-        toolCallId: "tc-few",
-        name: "ask_user_options",
-        ok: true,
-        input: {
-          question: "Pick one",
-          kind: "single",
-          options: [{ label: "Only one" }],
-        },
-      },
-    ]);
-    expect(extractAskUserOptions(tooFew)).toBeNull();
+  it("returns null for a user message, a failed call, or questions the card cannot show", () => {
+    expect(extractAskUserInput(makeAssistantMessage(undefined, "user"))).toBeNull();
+    const call = (input: unknown, ok = true) =>
+      extractAskUserInput(makeAssistantMessage([{ toolCallId: "t", name: "ask_user_input_v0", ok, input }]));
+    const q = { question: "Q", options: ["a", "b"] };
+    expect(call({ questions: [q] }, false)).toBeNull();
+    expect(call({ questions: [] })).toBeNull();
+    expect(call({ questions: [q, q, q, q] })).toBeNull();
+    expect(call({ questions: [{ question: "Q", options: ["a"] }] })).toBeNull();
+    expect(call({ questions: [{ question: "Q", options: ["a", "b", "c", "d", "e"] }] })).toBeNull();
+    expect(call({ questions: [{ ...q, type: "rank" }] })).toBeNull();
   });
 });
 
-describe("QuestionOptions rendering and selection formatting", () => {
-  it("renders question text above options in single mode without a Send button", () => {
-    const data: AskUserOptionsInput = {
-      question: "How would you like the report formatted?",
-      kind: "single",
-      options: [
-        { label: "Executive summary", description: "1-page overview" },
-        { label: "Detailed breakdown", description: "Full tables and appendix" },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      <QuestionOptions data={data} onSubmit={() => {}} />,
-    );
-    expect(html).toContain("How would you like the report formatted?");
-    expect(html).toContain("Executive summary");
-    expect(html).toContain("1-page overview");
-    expect(html).toContain("Detailed breakdown");
+describe("QuestionOptions", () => {
+  it("shows a single-select question as buttons with no Send, and counts the questions", () => {
+    const data: AskUserQuestion[] = [
+      { question: "How should the report look?", type: "single_select", options: ["Summary", "Detailed"] },
+      { question: "Deadline?", type: "single_select", options: ["Today", "This week"] },
+    ];
+    const html = renderToStaticMarkup(<QuestionOptions data={data} onSubmit={() => {}} />);
+    expect(html).toContain("How should the report look?");
+    expect(html).toContain("Summary");
+    expect(html).toContain("1 of 2");
+    expect(html).not.toContain("Deadline?");
     expect(html).not.toContain(">Send<");
   });
 
-  it("renders checkboxes and a disabled Send button in multi mode, and formats selected labels", () => {
-    const data: AskUserOptionsInput = {
-      question: "Which features do you need?",
-      kind: "multi",
-      options: [
-        { label: "Authentication" },
-        { label: "Database" },
-        { label: "File uploads" },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      <QuestionOptions data={data} onSubmit={() => {}} />,
+  it("shows checkboxes for multi_select and reorder controls for rank_priorities", () => {
+    const multi = renderToStaticMarkup(
+      <QuestionOptions data={[{ question: "Features?", type: "multi_select", options: ["Auth", "DB", "Files"] }]} onSubmit={() => {}} />,
     );
-    expect(html).toContain("Which features do you need?");
-    expect(html).toContain("Select all that apply");
-    expect(html).toContain('type="checkbox"');
-    expect(html).toContain(">Send<");
-
-    expect(formatMultiSelection(data.options, new Set([0, 2]))).toBe(
-      "Authentication, File uploads",
+    expect(multi).toContain("Select all that apply");
+    expect(multi).toContain('type="checkbox"');
+    expect(multi).toContain(">Send<");
+    const rank = renderToStaticMarkup(
+      <QuestionOptions
+        data={[
+          { question: "Rank:", type: "rank_priorities", options: ["Latency", "Cost", "Accuracy"] },
+          { question: "Then?", type: "single_select", options: ["a", "b"] },
+        ]}
+        onSubmit={() => {}}
+      />,
     );
+    expect(rank).toContain("Order by preference");
+    expect(rank).toContain('aria-label="Move Accuracy up"');
+    expect(rank).toContain(">Next<");
   });
 
-  it("renders numbered items and reorder controls in rank mode, and formats reordered items", () => {
-    const data: AskUserOptionsInput = {
-      question: "Rank your priorities:",
-      kind: "rank",
-      options: [
-        { label: "Latency" },
-        { label: "Cost" },
-        { label: "Accuracy" },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      <QuestionOptions data={data} onSubmit={() => {}} />,
-    );
-    expect(html).toContain("Rank your priorities:");
-    expect(html).toContain("Order by preference");
-    expect(html).toContain('aria-label="Move Accuracy up"');
-    expect(html).toContain(">Send<");
-
-    const reordered = reorderOptions(data.options, 2, 0);
-    expect(formatRankSelection(reordered)).toBe(
-      "1. Accuracy\n2. Latency\n3. Cost",
-    );
+  it("formats selections, and puts each answer under its question when there are several", () => {
+    expect(formatMultiSelection(["Auth", "DB", "Files"], new Set([0, 2]))).toBe("Auth, Files");
+    expect(formatRankSelection(reorderOptions(["Latency", "Cost", "Accuracy"], 2, 0))).toBe("1. Accuracy\n2. Latency\n3. Cost");
+    const one: AskUserQuestion[] = [{ question: "Q", type: "single_select", options: ["a", "b"] }];
+    expect(formatAnswers(one, ["a"])).toBe("a");
+    expect(formatAnswers([...one, { question: "R", type: "single_select", options: ["c", "d"] }], ["a", "d"])).toBe("Q\na\n\nR\nd");
   });
 });
 
-describe("ToolActivity hides ask_user_options", () => {
-  it("renders nothing when ask_user_options is the only tool call", () => {
+describe("ToolActivity hides the question card", () => {
+  it("renders nothing when ask_user_input_v0 is the only tool call", () => {
     const html = renderToStaticMarkup(
       <ToolActivity
-        calls={[
-          {
-            toolCallId: "tc-ask",
-            name: "ask_user_options",
-            input: { question: "Pick one" },
-            ok: true,
-          },
-        ]}
+        calls={[{ toolCallId: "tc-ask", name: "ask_user_input_v0", input: { questions: [] }, ok: true }]}
         working={false}
         answering={false}
       />,

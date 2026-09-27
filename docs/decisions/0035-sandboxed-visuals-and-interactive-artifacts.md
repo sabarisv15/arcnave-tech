@@ -3,6 +3,7 @@
 - Status: accepted. Tested locally; not live.
 - Date: 2026-09-26
 - Work package: WP-10 in `docs/handover/2026-09-26-claude-ui-parity-plan.md` (gaps 1, 8 and 9).
+- Amended by [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md): render_ui is replaced by show_widget, which draws one visual through the same sandbox; a React artifact file runs in the sandbox with eval allowed for that frame only.
 
 ## Context
 

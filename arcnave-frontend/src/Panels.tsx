@@ -42,6 +42,7 @@ import { OfficeFrame, SheetPreview } from "./FilePreviews";
 import { PublicLink } from "./ShareLink";
 import { SlidesView } from "./SlidesView";
 import { officeKind } from "./officePreview";
+import { artifactKind, reactArtifactBody } from "./fileArtifacts";
 
 export function useMobile(query = "(max-width: 1050px)") {
   const [mobile, setMobile] = useState(() => matchMedia(query).matches);
@@ -853,6 +854,11 @@ function FilePanel({ file }: { file: Attachment }) {
   }>({ status: "loading" });
   const office = officeKind(file.name, file.type);
   const [attempt, setAttempt] = useState(0);
+  // A presented .md, .html, .jsx, .mermaid or .svg is an artifact, drawn here (ADR-0048).
+  const art = artifactKind(file.name);
+  const drawn = art !== null && art !== "pdf";
+  const [view, setView] = useState<"preview" | "code">("preview");
+  useEffect(() => setView("preview"), [file]);
 
   useEffect(() => {
     let canceled = false;
@@ -866,9 +872,11 @@ function FilePanel({ file }: { file: Attachment }) {
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
         const blob = await response.blob();
-        const text = canPreviewText(file)
-          ? await blob.slice(0, 200000).text()
-          : undefined;
+        const text = drawn
+          ? await blob.text()
+          : canPreviewText(file)
+            ? await blob.slice(0, 200000).text()
+            : undefined;
         url = URL.createObjectURL(blob);
         // Word and PowerPoint are drawn from their bytes (WP-11); Excel is read by the server.
         const bytes = office === "docx" || office === "pptx" ? await blob.arrayBuffer() : undefined;
@@ -881,7 +889,7 @@ function FilePanel({ file }: { file: Attachment }) {
       canceled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [file, attempt, office]);
+  }, [file, attempt, office, drawn]);
 
   if (state.status === "loading")
     return (
@@ -906,6 +914,17 @@ function FilePanel({ file }: { file: Attachment }) {
   return (
     <>
       <div className="file-meta">
+        {drawn && (
+          <div className="segmented" aria-label="Artifact view">
+            <button className={view === "preview" ? "active" : ""} aria-pressed={view === "preview"} onClick={() => setView("preview")}>
+              Preview
+            </button>
+            <button className={view === "code" ? "active" : ""} aria-pressed={view === "code"} onClick={() => setView("code")}>
+              <Code2 size={13} />
+              Code
+            </button>
+          </div>
+        )}
         <span>
           {sizeLabel(file.size)}
           {file.hasText === false ? " · no text extracted" : ""}
@@ -918,8 +937,24 @@ function FilePanel({ file }: { file: Attachment }) {
           Download
         </button>
       </div>
-      <div className="panel-scroll file-content">
-        {file.type.startsWith("image/") ? (
+      <div className={`panel-scroll file-content${drawn && view === "preview" && art !== "markdown" ? " is-artifact" : ""}`}>
+        {drawn && state.text !== undefined ? (
+          view === "code" ? (
+            <Markdown text={"````" + (art === "react" ? "jsx" : art === "markdown" ? "md" : art) + "\n" + state.text + "\n````"} />
+          ) : art === "markdown" ? (
+            <Markdown text={state.text} />
+          ) : art === "mermaid" ? (
+            <Markdown text={"```mermaid\n" + state.text + "\n```"} />
+          ) : (
+            // HTML, SVG and React run only in the sandbox, as an inline visual does (ADR-0035).
+            <SandboxFrame
+              html={art === "react" ? reactArtifactBody(state.text) : state.text}
+              title={`${file.name} preview`}
+              layout="page"
+              allowEval={art === "react"}
+            />
+          )
+        ) : file.type.startsWith("image/") ? (
           <img alt={file.name} src={state.url} />
         ) : (office === "docx" || office === "pptx") && state.bytes ? (
           <OfficeFrame kind={office} bytes={state.bytes} name={file.name} />

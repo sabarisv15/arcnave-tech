@@ -41,7 +41,8 @@ describe('tool exposure with tool use on (ADR-0006)', () => {
     it(`"${prompt}" reaches the provider with the same declared tools, and nothing to discover`, async () => {
       const request = await sendTurn(ctx, user, prompt);
       const names = (request.tools ?? []).map((t) => t.name);
-      expect(names).toEqual(expect.arrayContaining(['create_artifact', 'ask_user_options']));
+      expect(names).toEqual(expect.arrayContaining(['ask_user_input_v0']));
+      expect(names).not.toContain('create_artifact');
       expect(names).not.toContain('search_tools');
       expect(names).not.toContain('load_skill');
     });

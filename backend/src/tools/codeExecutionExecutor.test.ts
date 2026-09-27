@@ -13,6 +13,7 @@ import { ProcessSandboxClient } from './sandbox/processSandboxClient.js';
 import { ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
 import { CodeExecutionToolExecutor, numberedView } from './codeExecutionExecutor.js';
 import { SkillService } from '../services/skills.js';
+import { presentedFiles } from '../services/generation.js';
 
 const signal = () => new AbortController().signal;
 const text = (r: { content: unknown[] }) => (r.content[0] as { text: string }).text;
@@ -184,7 +185,14 @@ describe('the computer on the local process engine', () => {
     expect(files.map((f) => f.filename)).toEqual(['report.txt']);
     expect(files[0]!.downloadUrl).toBe('/files/id-report.txt/download');
     expect(inserted.map((i) => i.filename)).toEqual(['report.txt']);
-    expect((await run('present_files', { filepaths: ['nope.txt'] })).ok).toBe(false);
+    // The client gets the file at once, to show and open it, but never its storage key.
+    const streamed = presentedFiles('present_files', res)!;
+    expect(streamed.map((f) => f.filename)).toEqual(['report.txt']);
+    expect(Object.keys(streamed[0]!).sort()).toEqual(['attachmentId', 'downloadUrl', 'filename', 'mimeType', 'sizeBytes']);
+    expect(presentedFiles('bash_tool', res)).toBeUndefined();
+    const missing = await run('present_files', { filepaths: ['nope.txt'] });
+    expect(missing.ok).toBe(false);
+    expect(presentedFiles('present_files', missing)).toBeUndefined();
   });
 
   it('does not hand over a structurally broken Office file', async () => {

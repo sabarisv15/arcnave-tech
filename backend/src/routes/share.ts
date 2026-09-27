@@ -24,6 +24,8 @@ import {
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import type { AppInstance } from '../types.js';
+import { DISPLAY_TOOL_NAMES } from '../tools/displayDefinitions.js';
+import { displayBlock, type Photo } from '../tools/uiExecutor.js';
 import { iso, uuidParam } from './helpers.js';
 
 type ShareRow = typeof shareLinks.$inferSelect;
@@ -320,20 +322,28 @@ async function sharedArtifactAt(
   return row ?? null;
 }
 
-/** A reply's `render_ui` blocks, with each visual's markup taken from the call when the stored
- *  result left it out (the same join the app makes when it reads a transcript). */
-function uiBlocksOf(calls: Array<{ input: unknown; content: unknown }>): unknown[] {
+/** A reply's visuals and cards (show_widget, the display cards, and render_ui in older replies),
+ *  each visual's markup taken from the call when the stored result left it out: the same join the
+ *  app makes when it reads a transcript. */
+function uiBlocksOf(calls: Array<{ toolCallId: string; name: string; input: unknown; content: unknown }>): unknown[] {
   const out: unknown[] = [];
   for (const call of calls) {
-    const json = (call.content as Array<{ type?: string; data?: { blocks?: unknown[] } }>).find((c) => c.type === 'json');
-    const blocks = Array.isArray(json?.data?.blocks) ? json!.data!.blocks! : [];
-    const inputBlocks = Array.isArray((call.input as { blocks?: unknown[] } | null)?.blocks)
-      ? (call.input as { blocks: unknown[] }).blocks
-      : [];
+    const json = (call.content as Array<{ type?: string; data?: Record<string, unknown> }>).find((c) => c.type === 'json');
+    if (DISPLAY_TOOL_NAMES.includes(call.name)) {
+      const photos = Array.isArray(json?.data?.['photos']) ? (json!.data!['photos'] as Photo[][]) : undefined;
+      out.push(displayBlock(call.toolCallId, call.name, (call.input ?? {}) as Record<string, unknown>, photos));
+      continue;
+    }
+    const blocks = Array.isArray(json?.data?.['blocks']) ? (json!.data!['blocks'] as unknown[]) : [];
+    const input = (call.input ?? {}) as { blocks?: unknown[]; widget_code?: unknown };
+    const inputBlocks = Array.isArray(input.blocks) ? input.blocks : [];
     for (const block of blocks as Array<Record<string, unknown>>) {
       if (block['type'] === 'visual' && typeof block['html'] !== 'string') {
-        const source = inputBlocks[Number(block['sequence']) - 1] as Record<string, unknown> | undefined;
-        out.push(typeof source?.['html'] === 'string' ? { ...block, html: source['html'] } : block);
+        const html =
+          typeof input.widget_code === 'string'
+            ? input.widget_code
+            : (inputBlocks[Number(block['sequence']) - 1] as Record<string, unknown> | undefined)?.['html'];
+        out.push(typeof html === 'string' ? { ...block, html } : block);
       } else {
         out.push(block);
       }
@@ -386,9 +396,21 @@ async function publicChat(
       : [],
     ids.length
       ? db
-          .select({ messageId: toolCalls.messageId, input: toolCalls.input, content: toolCalls.content })
+          .select({
+            messageId: toolCalls.messageId,
+            toolCallId: toolCalls.toolCallId,
+            name: toolCalls.name,
+            input: toolCalls.input,
+            content: toolCalls.content,
+          })
           .from(toolCalls)
-          .where(and(inArray(toolCalls.messageId, ids), eq(toolCalls.name, 'render_ui'), eq(toolCalls.ok, true)))
+          .where(
+            and(
+              inArray(toolCalls.messageId, ids),
+              inArray(toolCalls.name, ['render_ui', 'show_widget', ...DISPLAY_TOOL_NAMES]),
+              eq(toolCalls.ok, true),
+            ),
+          )
           .orderBy(asc(toolCalls.ordinal))
       : [],
   ]);

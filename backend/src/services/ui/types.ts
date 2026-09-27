@@ -212,7 +212,19 @@ export interface VisualBlock extends BaseBlock {
   htmlBytes?: number;
 }
 
+/**
+ * A display card (ADR-0048): the client draws `tool`'s card from `data`, the call's arguments
+ * with any photos the server added. Its `blockId` is `display_<toolCallId>`, so a reload finds
+ * the same block from the stored call.
+ */
+export interface DisplayBlock extends BaseBlock {
+  type: 'display';
+  tool: string;
+  data: Record<string, unknown>;
+}
+
 export type UIBlock =
+  | DisplayBlock
   | TextBlock
   | TableBlock
   | MetricBlock

@@ -6,7 +6,7 @@
  * search" and must not claim conceptual/semantic matching, because there is none.
  */
 import type { ToolDefinition } from '../providers/types.js';
-import { getProviderSafeUISchema } from '../services/ui/schemas.js';
+import { DISPLAY_TOOL_DEFINITIONS } from './displayDefinitions.js';
 
 export const SEARCH_PROJECT_FILES: ToolDefinition = {
   name: 'search_project_files',
@@ -176,88 +176,6 @@ export function codeToolDefinitions(persistent: boolean): ToolDefinition[] {
 }
 
 export const CODE_TOOL_NAMES = ['bash_tool', 'view', 'create_file', 'str_replace', 'present_files'] as const;
-
-/* -------------------------------------------------------------------------- Artifacts */
-
-export const CREATE_ARTIFACT: ToolDefinition = {
-  name: 'create_artifact',
-  description:
-    'Creates a new standalone editable artifact (document, code, or webpage) in the workspace. ' +
-    'The artifact immediately appears in the side panel for the user to inspect, edit, and export to supported formats (.docx, .xlsx, .pptx). ' +
-    'Call this whenever the user asks for a document, report, presentation, spreadsheet, or asks to convert an uploaded file into a reusable deliverable. ' +
-    'Do NOT output raw text in chat telling the user to copy-paste when they requested a document/file.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      title: {
-        type: 'string',
-        description: 'Concise title for the artifact (1 to 200 characters).',
-      },
-      kind: {
-        type: 'string',
-        enum: ['document', 'code', 'webpage', 'svg', 'slides'],
-        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network, and gets the same theme tokens, element styles and chart library options as a render_ui visual), or 'svg' (an SVG image), or 'slides' (a presentation: each slide starts with a `#` or `##` heading and holds a few bullets, one table, or one image; a line starting `Notes:` is that slide's speaker notes; the user can present it and download it as PowerPoint). Defaults to 'document'.",
-      },
-      content: {
-        type: 'string',
-        description: 'The complete content of the artifact. Use clean, well-formatted Markdown with headings, tables, and lists for documents.',
-      },
-    },
-    required: ['title', 'content'],
-    additionalProperties: false,
-  },
-};
-
-export const READ_ARTIFACT: ToolDefinition = {
-  name: 'read_artifact',
-  description:
-    'Reads the latest version, title, kind, and content of an existing workspace artifact. ' +
-    'Call this before updating or refining an artifact so you understand its current text and version.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      id: {
-        type: 'string',
-        description: 'The UUID of the artifact to read.',
-      },
-    },
-    required: ['id'],
-    additionalProperties: false,
-  },
-};
-
-export const UPDATE_ARTIFACT: ToolDefinition = {
-  name: 'update_artifact',
-  description:
-    'Appends a new version to an existing workspace artifact. ' +
-    'Requires expectedVersion (the current version you read) to prevent overwriting concurrent user edits. ' +
-    'If a version conflict occurs, read_artifact again to inspect the latest changes before reapplying your update.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      id: {
-        type: 'string',
-        description: 'The UUID of the artifact to update.',
-      },
-      expectedVersion: {
-        type: 'integer',
-        description: 'The current version of the artifact you expect to update (must match currentVersion).',
-      },
-      content: {
-        type: 'string',
-        description: 'The full updated content for the new artifact version.',
-      },
-    },
-    required: ['id', 'expectedVersion', 'content'],
-    additionalProperties: false,
-  },
-};
-
-export const ARTIFACT_TOOL_DEFINITIONS: ToolDefinition[] = [
-  CREATE_ARTIFACT,
-  READ_ARTIFACT,
-  UPDATE_ARTIFACT,
-];
 
 /* -------------------------------------------------------------------------- Web */
 
@@ -488,73 +406,127 @@ export const RECENT_CHATS: ToolDefinition = {
 
 export const CHAT_TOOL_DEFINITIONS: ToolDefinition[] = [CONVERSATION_SEARCH, READ_CONVERSATION, RECENT_CHATS];
 
-export const RENDER_UI: ToolDefinition = {
-  name: 'render_ui',
+export const VISUALIZE_MODULES = ['diagram', 'mockup', 'interactive', 'data_viz', 'art', 'chart', 'elicitation'] as const;
+
+export const READ_ME: ToolDefinition = {
+  name: 'read_me',
   description:
-    'Renders a structured, interactive generative UI layout in the chat. Use it when ' +
-    'structured presentation significantly improves clarity (e.g. comparing options, ' +
-    'plotting time-series or categorical data, displaying KPI metrics with deltas/trends, ' +
-    'showing project timelines, or laying out multi-step processes or interactive dashboards). ' +
-    "A 'visual' block holds your own self-contained HTML (with CSS and JavaScript) for a diagram, chart or small " +
-    'interactive explanation that text and the other blocks cannot show, such as a slider that changes a curve. ' +
-    'It runs in a sandbox with no network: no fetch, forms, popups or external images; libraries only from ' +
-    'cdnjs.cloudflare.com or cdn.jsdelivr.net. window.arcnave.prompt(text) suggests a follow-up for the user to send. ' +
-    'Do not call this for simple conversational text or greetings.',
-  inputSchema: getProviderSafeUISchema(),
-};
-
-export const UI_TOOL_DEFINITIONS: ToolDefinition[] = [RENDER_UI];
-
-/* -------------------------------------------------------------------------- Question Options (WP-06) */
-
-export const ASK_USER_OPTIONS: ToolDefinition = {
-  name: 'ask_user_options',
-  description:
-    'Presents clickable options (multiple choice, multi-select, or ranking) to the user at the bottom of the chat. ' +
-    'Use this only when the answer is one of a few known options, and at most once per turn. ' +
-    'Calling this tool ends the turn so the user can make their selection. ' +
-    'The question will be displayed prominently above the options in the UI, so do not repeat the question in your text reply.',
+    'Returns what show_widget needs: the theme\'s CSS variables and colours, typography, layout rules and examples ' +
+    'for a kind of visual. Call it before your first show_widget call, and again later for a different module. It ' +
+    'is a setup step: do not mention or narrate it; go straight on to the visual.',
   inputSchema: {
     type: 'object',
     properties: {
-      question: {
-        type: 'string',
-        description: 'The prompt or question to show above the options.',
-      },
-      kind: {
-        type: 'string',
-        enum: ['single', 'multi', 'rank'],
-        description:
-          '"single" for single-choice buttons (one click responds), "multi" for multi-select checkboxes, "rank" for ordering choices.',
-      },
-      options: {
+      modules: {
         type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            label: {
-              type: 'string',
-              description: 'The display text for this option.',
-            },
-            description: {
-              type: 'string',
-              description: 'Optional supporting explanation or detail for this option.',
-            },
-          },
-          required: ['label'],
-          additionalProperties: false,
-        },
-        minItems: 2,
-        maxItems: 6,
-        description: 'Between 2 and 6 options to present.',
+        items: { type: 'string', enum: [...VISUALIZE_MODULES] },
+        description: 'Which modules to load. Pick all that fit.',
+      },
+      platform: {
+        type: 'string',
+        enum: ['mobile', 'desktop', 'unknown'],
+        description: "'mobile' when the person is on a narrow (~380px) screen, so sizes suit it; otherwise 'desktop'. Defaults to 'unknown' (desktop sizing).",
       },
     },
-    required: ['question', 'kind', 'options'],
     additionalProperties: false,
   },
 };
 
-export const QUESTION_TOOL_DEFINITIONS: ToolDefinition[] = [ASK_USER_OPTIONS];
+export const SHOW_WIDGET: ToolDefinition = {
+  name: 'show_widget',
+  description:
+    'Shows visual content inline alongside your reply: SVG graphics and diagrams, charts, or interactive HTML ' +
+    'widgets. Use it for flowcharts, architecture diagrams, dashboards, forms, calculators, data tables, games, ' +
+    'illustrations or any visual. Code starting with <svg is drawn as SVG, anything else as HTML. A global ' +
+    'sendPrompt(text) puts a follow-up in the person\'s message box for them to send. Call read_me before your first ' +
+    'show_widget call, silently, then answer as if you went straight to the visual.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      loading_messages: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        maxItems: 4,
+        description:
+          '1 to 4 messages of about 5 words shown while the visual draws, in the person\'s language. One for a simple ' +
+          'visual, more for a complex one. On a serious topic (illness, death, grief, war, disaster, trauma, abuse, ' +
+          'addiction, medical decisions) keep them plain and neutral.',
+      },
+      title: {
+        type: 'string',
+        description:
+          "Short snake_case name for this visual, specific enough to tell it apart from the conversation's other " +
+          "visuals ('q4_revenue_by_product_line', not 'chart'). Also the download file name: no spaces or special characters.",
+      },
+      widget_code: {
+        type: 'string',
+        description:
+          'The SVG or HTML to draw. SVG: raw code starting with <svg>, colours from the CSS variables. HTML: content ' +
+          'only, no DOCTYPE, <html>, <head> or <body>. Use the CSS variables for theming, keep the background ' +
+          'transparent and avoid top-level padding. Scripts run after the code is complete.',
+      },
+    },
+    required: ['loading_messages', 'title', 'widget_code'],
+    additionalProperties: false,
+  },
+};
+
+export const UI_TOOL_DEFINITIONS: ToolDefinition[] = [READ_ME, SHOW_WIDGET, ...DISPLAY_TOOL_DEFINITIONS];
+
+/* -------------------------------------------------------------------------- Questions */
+
+export const ASK_USER_INPUT: ToolDefinition = {
+  name: 'ask_user_input_v0',
+  description:
+    'Shows tappable options to learn the person\'s preferences, constraints or goals before giving advice ' +
+    '(a workout plan: goal, time, equipment; a book: genre, mood). Tapping is easier than typing on a phone.\n\n' +
+    'First check the conversation: if the answer is already there or can be inferred, use it. If you are about to ' +
+    'write clarifying questions as prose bullets, ask them with this tool instead.\n\n' +
+    'Do not use it when the person asks "A or B?" (they want your recommendation), is venting, asks for your ' +
+    'opinion, asks a factual question, needs written feedback, or already gave detailed constraints (proceed and ' +
+    'state any assumption inline).\n\n' +
+    'Always write a short message before the options. Prefer one question; three is a ceiling, not a target; ' +
+    'each with 2 to 4 short, mutually exclusive options. Calling this ends your turn: the choice arrives as the ' +
+    'person\'s next message, not as a tool result, so write nothing after it.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      questions: {
+        type: 'array',
+        description: '1 to 3 questions to ask.',
+        minItems: 1,
+        maxItems: 3,
+        items: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', description: 'The question shown to the person.' },
+            options: {
+              type: 'array',
+              description: '2 to 4 options with short labels.',
+              minItems: 2,
+              maxItems: 4,
+              items: { type: 'string', description: 'Short label.' },
+            },
+            type: {
+              type: 'string',
+              enum: ['single_select', 'multi_select', 'rank_priorities'],
+              description:
+                "'single_select' to choose one option, 'multi_select' to choose one or more, " +
+                "'rank_priorities' to drag the options into order. Defaults to single_select.",
+            },
+          },
+          required: ['question', 'options'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['questions'],
+    additionalProperties: false,
+  },
+};
+
+export const QUESTION_TOOL_DEFINITIONS: ToolDefinition[] = [ASK_USER_INPUT];
 
 
 

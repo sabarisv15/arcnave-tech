@@ -1,6 +1,23 @@
 # ArcNave — current checkpoint
 
-> **2026-09-27 (latest): tools and skills match the reference one for one; merged in PR #32 (`ca8599c`) and deployed.**
+> **2026-09-27 (latest): artifacts, question card, visuals and display cards work as the reference's, on `claude/happy-maxwell-1h7hmx`, not live.**
+> [ADR-0048](../decisions/0048-artifacts-questions-visuals-and-cards-as-the-reference.md),
+> checked against the Fable 5.1, Opus 5.5 and Sonnet 5 app prompts and the read_me capture.
+> - Artifacts are files: `create_artifact`/`read_artifact`/`update_artifact` removed. A presented
+>   .md, .html, .jsx, .mermaid, .svg or .pdf opens in the side panel (Preview / Code) as soon as
+>   it is presented. React artifacts compile in the sandbox (eval allowed in that frame only);
+>   checked in real Chromium with the libraries mirrored from npm (jsDelivr is blocked here).
+> - `ask_user_input_v0` (1 to 3 questions) replaces `ask_user_options`.
+> - `show_widget` + `read_me` replace `render_ui`; sendPrompt fills the message box (ADR-0035).
+> - 13 display cards (chart, comparison, featured, itinerary, link preview, message compose,
+>   options, places list, product carousel, quiz, recipe, step, translation); photos from the
+>   configured image search. `places_map_display_v0` not built (needs places search and maps).
+> - Backend typecheck clean, **900/900 tests**; frontend typecheck, build and **188/188 tests**.
+> - Next: owner's approval to merge and deploy; then a live turn with a card, a visual, a React
+>   artifact, and the question card; and the checks still open from ADR-0047 (KVB + Federal
+>   48 / 277 / 325, memory, image_search).
+
+> **2026-09-27: tools and skills match the reference one for one; merged in PR #32 (`ca8599c`) and deployed.**
 > Main's Cloud Build for `ca8599c` succeeded (reported by the owner; this session had no GCP
 > access to see the revision). The Cloudflare frontend build also succeeded. Live behaviour is
 > not yet checked.

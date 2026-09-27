@@ -129,15 +129,11 @@ export interface ToolCall {
   at?: string | null;
 }
 
-export interface AskUserOptionItem {
-  label: string;
-  description?: string;
-}
-
-export interface AskUserOptionsInput {
+/** One question of ask_user_input_v0 (ADR-0048). */
+export interface AskUserQuestion {
   question: string;
-  kind: "single" | "multi" | "rank";
-  options: AskUserOptionItem[];
+  type: "single_select" | "multi_select" | "rank_priorities";
+  options: string[];
 }
 
 export interface MessageUsage {
@@ -398,16 +394,7 @@ export function toMessage(dto: MessageDto): Message {
   const attachments = Array.isArray(dto.attachments) ? dto.attachments : [];
   const questions = Array.isArray(dto.questions) ? dto.questions : [];
 
-  let uiBlocks: UIBlock[] | undefined;
-  for (const renderCall of toolCalls.filter((c) => c.name === "render_ui" && c.ok === true)) {
-    const jsonContent = renderCall.content?.find((c) => c.type === "json");
-    if (jsonContent && typeof jsonContent.data === "object" && jsonContent.data !== null) {
-      const dataObj = jsonContent.data as { blocks?: UIBlock[] };
-      if (Array.isArray(dataObj.blocks)) {
-        uiBlocks = [...(uiBlocks ?? []), ...withVisualHtml(dataObj.blocks, renderCall.input)];
-      }
-    }
-  }
+  const uiBlocks = uiBlocksOf(toolCalls);
 
   return {
     id: dto.id,
@@ -419,7 +406,7 @@ export function toMessage(dto: MessageDto): Message {
     ...(sources.length ? { sources: sources.map(toSource) } : {}),
     ...(events.length ? { events: events.map(toResearchEvent) } : {}),
     ...(toolCalls.length ? { toolCalls: toolCalls.map(toToolCall) } : {}),
-    ...(uiBlocks && uiBlocks.length ? { uiBlocks } : {}),
+    ...(uiBlocks.length ? { uiBlocks } : {}),
     ...(dto.researchStage ? { researchStage: dto.researchStage } : {}),
     ...(questions.length ? { questions } : {}),
     ...(dto.artifactId ? { artifactId: dto.artifactId } : {}),
@@ -538,17 +525,60 @@ export function adoptServerId(
     messages.map((m) => (m.id === placeholderId ? { ...m, ...patch, id: realId } : m));
 }
 
+/** The display cards (ADR-0048). */
+export const DISPLAY_TOOLS = new Set([
+  "chart_display_v0",
+  "comparison_card_display_v0",
+  "featured_card_display_v0",
+  "itinerary_display_v0",
+  "link_preview_display_v0",
+  "message_compose_v1",
+  "options_card_display_v0",
+  "places_list_display_v0",
+  "product_carousel_display_v0",
+  "quiz_display_v0",
+  "recipe_display_v0",
+  "step_card_display_v0",
+  "translation_display_v0",
+]);
+
+/** Tools drawn in the reply (a visual, a card, the question card) rather than listed as a step. */
+export const DRAWN_TOOLS = new Set(["render_ui", "show_widget", "read_me", "ask_user_input_v0", "ask_user_options", ...DISPLAY_TOOLS]);
+
 /**
- * The stored render_ui result carries a visual's size, not its HTML (ADR-0035): the HTML is in
- * the call's input, at the block's position (`sequence` is 1-based over the input's blocks).
+ * A stored reply's visuals and cards, rebuilt from its tool calls the way the server streamed
+ * them. A card's block is `display_<toolCallId>` with the call's arguments (and the photos its
+ * result holds); a visual's markup is in the call, since its stored result has only the size.
+ */
+export function uiBlocksOf(
+  calls: Array<{ toolCallId: string; name: string; ok?: boolean; input?: unknown; content?: Array<{ type: string; data?: unknown }> }>,
+): UIBlock[] {
+  const out: UIBlock[] = [];
+  for (const call of calls) {
+    if (call.ok !== true) continue;
+    const json = call.content?.find((c) => c.type === "json")?.data as Record<string, unknown> | undefined;
+    if (DISPLAY_TOOLS.has(call.name)) {
+      const data = { ...((call.input ?? {}) as Record<string, unknown>) };
+      if (Array.isArray(json?.photos)) data.photos = json.photos;
+      out.push({ blockId: `display_${call.toolCallId}`, sequence: 1, type: "display", tool: call.name, data });
+    } else if ((call.name === "render_ui" || call.name === "show_widget") && Array.isArray(json?.blocks)) {
+      out.push(...withVisualHtml(json.blocks as UIBlock[], call.input));
+    }
+  }
+  return out;
+}
+
+/**
+ * The stored result carries a visual's size, not its HTML (ADR-0035): the HTML is in the call's
+ * input, as show_widget's `widget_code` or at the block's position in an older render_ui call
+ * (`sequence` is 1-based over the input's blocks).
  */
 export function withVisualHtml(blocks: UIBlock[], input: unknown): UIBlock[] {
-  const inputBlocks =
-    input && typeof input === "object" && Array.isArray((input as { blocks?: unknown }).blocks)
-      ? ((input as { blocks: unknown[] }).blocks)
-      : [];
+  const raw = (input && typeof input === "object" ? input : {}) as { blocks?: unknown; widget_code?: unknown };
+  const inputBlocks = Array.isArray(raw.blocks) ? (raw.blocks as unknown[]) : [];
   return blocks.map((b) => {
     if (b.type !== "visual" || typeof b.html === "string") return b;
+    if (typeof raw.widget_code === "string") return { ...b, html: raw.widget_code };
     const source = inputBlocks[b.sequence - 1] as { type?: unknown; html?: unknown } | undefined;
     return source?.type === "visual" && typeof source.html === "string" ? { ...b, html: source.html } : b;
   });

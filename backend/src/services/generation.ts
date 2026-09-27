@@ -66,7 +66,6 @@ import {
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
-import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
@@ -90,9 +89,9 @@ import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { ChatToolExecutor } from '../tools/chatExecutor.js';
-import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS } from '../tools/definitions.js';
+import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS, UI_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
-import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
+import { AskUserInputExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
@@ -124,7 +123,8 @@ export type StreamEvent =
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
-  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
+  /** `files`: what present_files gave the user, so the client shows (and opens) them at once. */
+  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string; files?: PresentedFileDto[] }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'ui_block'; block: UIBlock }
   /**
@@ -136,6 +136,22 @@ export type StreamEvent =
   | { type: 'debug'; trace: RuntimeDebugTrace }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string; effort?: ReasoningEffort }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
+
+export interface PresentedFileDto {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  downloadUrl: string;
+}
+
+/** The files a successful present_files result holds, without their storage keys. */
+export function presentedFiles(name: string, result: ToolResult): PresentedFileDto[] | undefined {
+  if (name !== 'present_files' || !result.ok) return undefined;
+  const json = result.content.find((c) => c.type === 'json') as { data?: { persistedFiles?: unknown } } | undefined;
+  const files = Array.isArray(json?.data?.persistedFiles) ? (json.data.persistedFiles as PresentedFileDto[]) : [];
+  return files.map(({ attachmentId, filename, mimeType, sizeBytes, downloadUrl }) => ({ attachmentId, filename, mimeType, sizeBytes, downloadUrl }));
+}
 
 export interface ModelInfo {
   requested: string;
@@ -614,29 +630,6 @@ export class GenerationService {
         ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
         : undefined;
 
-    const pendingArtifactEvents: StreamEvent[] = [];
-    const artifactToolExecutor = this.cfg.ENABLE_TOOL_USE
-      ? new ArtifactToolExecutor(
-          this.db,
-          {
-            userId: input.userId,
-            projectId: project?.id ?? null,
-            chatId: input.chatId,
-            assistantMessageId: input.messageId,
-          },
-          this.cfg.ARTIFACT_MAX_CONTENT_BYTES,
-          (art) => {
-            pendingArtifactEvents.push({
-              type: 'artifact_created',
-              artifactId: art.artifactId,
-              title: art.title,
-              kind: art.kind,
-              version: art.version,
-            });
-          },
-        )
-      : undefined;
-
     const webSearchAdapter = buildWebSearchAdapter(this.cfg);
     const webToolExecutor = webEnabled
       ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService(), webSearchAdapter)
@@ -667,20 +660,16 @@ export class GenerationService {
               block,
             });
           },
+          webSearchAdapter,
         )
       : undefined;
 
     const toolMap = new Map<string, ToolExecutor>();
     if (this.cfg.ENABLE_TOOL_USE) {
-      toolMap.set('ask_user_options', new AskUserOptionsExecutor());
+      toolMap.set('ask_user_input_v0', new AskUserInputExecutor());
     }
     if (uiToolExecutor) {
-      toolMap.set('render_ui', uiToolExecutor);
-    }
-    if (artifactToolExecutor) {
-      toolMap.set('create_artifact', artifactToolExecutor);
-      toolMap.set('read_artifact', artifactToolExecutor);
-      toolMap.set('update_artifact', artifactToolExecutor);
+      for (const d of UI_TOOL_DEFINITIONS) toolMap.set(d.name, uiToolExecutor);
     }
     if (webToolExecutor) {
       for (const name of ['web_search', 'web_fetch', 'image_search']) toolMap.set(name, webToolExecutor);
@@ -846,7 +835,7 @@ export class GenerationService {
             break;
 
           case 'tool_input_partial': {
-            if (event.name !== 'render_ui') break;
+            if (event.name !== 'show_widget') break;
             // A call's index restarts each response; the calls already made keep the id unique.
             for (const draft of visualDrafts(event.input, `${String(toolsCalled.length + event.index)}`)) {
               const sent = draftSent.get(draft.draftId) ?? 0;
@@ -873,12 +862,14 @@ export class GenerationService {
 
           case 'tool_result': {
             const preview = toolResultPreview(event.result, this.cfg.TOOL_RESULT_PREVIEW_CHARS);
+            const files = presentedFiles(event.name, event.result);
             yield {
               type: 'tool_result',
               toolCallId: event.toolCallId,
               name: event.name,
               ok: event.result.ok,
               preview,
+              ...(files?.length ? { files } : {}),
             };
             await this.persistToolCall(
               input.messageId,
@@ -889,9 +880,6 @@ export class GenerationService {
               eventOrdinal++,
               pendingSignatures.get(event.toolCallId),
             );
-            while (pendingArtifactEvents.length > 0) {
-              yield pendingArtifactEvents.shift()!;
-            }
             while (pendingUiEvents.length > 0) {
               yield pendingUiEvents.shift()!;
             }
@@ -1861,7 +1849,7 @@ export class GenerationService {
     // 5. Mode directive
     const modeDirective =
       input.mode === 'research'
-        ? 'Conduct deep, rigorous research using web search and web fetch. Answer with a comprehensive, well-structured research report complete with citations directly in the chat text stream. Do NOT call create_artifact unless the user explicitly commanded creating an artifact or saving to an artifact. If live web research fails or search providers are unavailable, state plainly: "Live web research could not be completed at this time due to search provider unavailability."'
+        ? 'Conduct deep, rigorous research using web search and web fetch. Answer with a comprehensive, well-structured research report complete with citations directly in the chat text stream. Do not put the report in a file unless the user asked for one. If live web research fails or search providers are unavailable, state plainly: "Live web research could not be completed at this time due to search provider unavailability."'
         : input.mode === 'search'
           ? 'Answer using the web search results available to you. Cite the sources you actually ' +
             'used. Do not invent citations, and say plainly when the evidence does not settle ' +
@@ -2202,15 +2190,10 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export { asc };
 
-/** The visual blocks of a render_ui call being written, with the HTML written so far. */
+/** A show_widget call being written: its code so far, titled by its first loading message. */
 export function visualDrafts(input: Record<string, unknown>, callKey: string): { draftId: string; title: string; html: string }[] {
-  const blocks = Array.isArray(input.blocks) ? (input.blocks as unknown[]) : [];
-  const out: { draftId: string; title: string; html: string }[] = [];
-  blocks.forEach((b, i) => {
-    if (!b || typeof b !== 'object') return;
-    const block = b as Record<string, unknown>;
-    if (block.type !== 'visual' || typeof block.html !== 'string') return;
-    out.push({ draftId: `${callKey}:${String(i)}`, title: typeof block.title === 'string' ? block.title : '', html: block.html });
-  });
-  return out;
+  if (typeof input.widget_code !== 'string') return [];
+  const loading = Array.isArray(input.loading_messages) ? input.loading_messages.find((m) => typeof m === 'string') : undefined;
+  const title = typeof loading === 'string' ? loading : typeof input.title === 'string' ? input.title : '';
+  return [{ draftId: `${callKey}:0`, title, html: input.widget_code }];
 }

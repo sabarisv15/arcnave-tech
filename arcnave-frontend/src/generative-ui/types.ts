@@ -193,8 +193,9 @@ export interface DashboardBlock extends BaseBlock {
   filters?: DashboardFilter[];
 }
 
-/** Model-written HTML, drawn only in SandboxFrame (ADR-0035). `html` comes from the render_ui
- *  call input on reload, since the stored result carries only `htmlBytes`. */
+/** Model-written HTML, drawn only in SandboxFrame (ADR-0035). `html` comes from the call input
+ *  (show_widget's `widget_code`, or an older render_ui block) on reload, since the stored result
+ *  carries only `htmlBytes`. */
 export interface VisualBlock {
   blockId: string;
   sequence: number;
@@ -204,7 +205,18 @@ export interface VisualBlock {
   htmlBytes?: number;
 }
 
+/** A display card (ADR-0048), drawn natively from the call's arguments; `data.photos`, when the
+ *  server found any, holds one list per product or place. */
+export interface DisplayBlock {
+  blockId: string;
+  sequence: number;
+  type: 'display';
+  tool: string;
+  data: Record<string, unknown>;
+}
+
 export type UIBlock =
+  | DisplayBlock
   | TextBlock
   | TableBlock
   | MetricBlock

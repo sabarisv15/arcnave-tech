@@ -22,16 +22,16 @@ describe('toolLoopPolicy', () => {
   });
 
   it('identifies terminal tools', () => {
-    expect(isTerminalTool('ask_user_options')).toBe(true);
+    expect(isTerminalTool('ask_user_input_v0')).toBe(true);
     expect(isTerminalTool('run_python')).toBe(false);
     expect(isTerminalTool('web_search')).toBe(false);
-    expect(TERMINAL_TOOLS.has('ask_user_options')).toBe(true);
+    expect(TERMINAL_TOOLS.has('ask_user_input_v0')).toBe(true);
   });
 
   it('detects terminal tool calls in an array', () => {
     expect(hasTerminalToolCall([{ name: 'run_python' }, { name: 'search_tools' }])).toBe(false);
-    expect(hasTerminalToolCall([{ name: 'ask_user_options' }])).toBe(true);
-    expect(hasTerminalToolCall([{ name: 'run_python' }, { name: 'ask_user_options' }])).toBe(true);
+    expect(hasTerminalToolCall([{ name: 'ask_user_input_v0' }])).toBe(true);
+    expect(hasTerminalToolCall([{ name: 'run_python' }, { name: 'ask_user_input_v0' }])).toBe(true);
     expect(hasTerminalToolCall([])).toBe(false);
   });
 });

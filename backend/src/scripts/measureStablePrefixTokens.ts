@@ -7,9 +7,7 @@ import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { GoogleGenAI } from '@google/genai';
 import { loadConfig } from '../config.js';
 import {
-  CREATE_ARTIFACT,
-  READ_ARTIFACT,
-  UPDATE_ARTIFACT,
+  ASK_USER_INPUT,
   SEARCH_PROJECT_FILES,
   READ_PROJECT_FILE,
   WEB_SEARCH,
@@ -24,14 +22,12 @@ import { toGeminiFunctionDeclaration } from '../providers/gemini.js';
 const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
   {
     name: 'chat_core',
-    tools: [CREATE_ARTIFACT, READ_ARTIFACT, UPDATE_ARTIFACT],
+    tools: [ASK_USER_INPUT],
   },
   {
     name: 'project',
     tools: [
-      CREATE_ARTIFACT,
-      READ_ARTIFACT,
-      UPDATE_ARTIFACT,
+      ASK_USER_INPUT,
       SEARCH_PROJECT_FILES,
       READ_PROJECT_FILE,
     ],
@@ -39,9 +35,7 @@ const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
   {
     name: 'research',
     tools: [
-      CREATE_ARTIFACT,
-      READ_ARTIFACT,
-      UPDATE_ARTIFACT,
+      ASK_USER_INPUT,
       SEARCH_PROJECT_FILES,
       READ_PROJECT_FILE,
       WEB_SEARCH,
@@ -52,9 +46,7 @@ const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
   {
     name: 'agent',
     tools: [
-      CREATE_ARTIFACT,
-      READ_ARTIFACT,
-      UPDATE_ARTIFACT,
+      ASK_USER_INPUT,
       SEARCH_PROJECT_FILES,
       READ_PROJECT_FILE,
       WEB_SEARCH,

@@ -446,11 +446,11 @@ export class AnthropicVertexProvider implements Provider {
                 yield { type: 'thinking', text: delta.thinking };
               } else if (delta.type === 'input_json_delta') {
                 // ADR-0037: a visual drawn while written. The SDK's snapshot parses the partial
-                // JSON on each read, so reads are spaced out; only render_ui is shown.
+                // JSON on each read, so reads are spaced out; only show_widget is shown.
                 const content = stream.currentMessage?.content ?? [];
                 const block = content[event.index];
                 const now = Date.now();
-                if (block?.type === 'tool_use' && block.name === 'render_ui' && now - lastPartialAt >= PARTIAL_INPUT_INTERVAL_MS) {
+                if (block?.type === 'tool_use' && block.name === 'show_widget' && now - lastPartialAt >= PARTIAL_INPUT_INTERVAL_MS) {
                   lastPartialAt = now;
                   const input = block.input;
                   if (input && typeof input === 'object') {

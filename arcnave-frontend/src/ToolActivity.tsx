@@ -17,7 +17,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import type { ToolCall } from "./types";
+import { DRAWN_TOOLS, type ToolCall } from "./types";
 
 interface Verb {
   icon: LucideIcon;
@@ -212,7 +212,7 @@ export default function ToolActivity({
   /** Answer text has started to arrive. */
   answering: boolean;
 }) {
-  const visible = calls.filter((c) => !["render_ui", "ask_user_options", "suggest_next_actions"].includes(c.name));
+  const visible = calls.filter((c) => !DRAWN_TOOLS.has(c.name) && c.name !== "suggest_next_actions");
   const live = working && !answering;
   const [open, setOpen] = useState(live);
   useEffect(() => setOpen(live), [live]);

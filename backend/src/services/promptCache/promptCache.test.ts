@@ -51,8 +51,8 @@ describe('Prompt Caching Subsystem', () => {
     });
 
     it('correctly maps recognized tool bundles to canonical bundle names', () => {
-      const chatCoreTools = [toolA, toolB, toolC];
-      expect(identifyBundle(chatCoreTools)).toBe('chat_core');
+      const ask: ToolDefinition = { name: 'ask_user_input_v0', description: '', inputSchema: { type: 'object' } };
+      expect(identifyBundle([ask])).toBe('chat_core');
 
       const customTools = [toolA];
       expect(identifyBundle(customTools)).toBe('custom');
@@ -146,12 +146,12 @@ describe('Prompt Caching Subsystem', () => {
     it('includes the memory and UI policies only when their tool is allowed', () => {
       const none = buildStablePrefix([], []).systemText;
       expect(none).not.toContain('<memory_policy>');
-      expect(none).not.toContain('GENERATIVE UI POLICY');
-      const all = buildStablePrefix([{ name: 'render_ui', description: '', inputSchema: {} } as never], ['memory_read', 'render_ui', 'bash_tool']).systemText;
-      // Allowed but only discoverable: its "You have access" policy stays out.
-      expect(buildStablePrefix([], ['render_ui']).systemText).not.toContain('GENERATIVE UI POLICY');
+      expect(none).not.toContain('<visuals>');
+      const all = buildStablePrefix([{ name: 'show_widget', description: '', inputSchema: {} } as never], ['memory_read', 'show_widget', 'bash_tool']).systemText;
+      // Allowed but not declared: its policy, which names the tool, stays out.
+      expect(buildStablePrefix([], ['show_widget']).systemText).not.toContain('<visuals>');
       expect(all).toContain('<memory_policy>');
-      expect(all).toContain('GENERATIVE UI POLICY');
+      expect(all).toContain('<visuals>');
     });
   });
 
