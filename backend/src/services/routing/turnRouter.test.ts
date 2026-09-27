@@ -24,6 +24,16 @@ describe('routeTurn: flags and infrastructure decide, never wording (ADR-0006, A
     expect(routeTurn(base)).toEqual(routeTurn({ ...base }));
   });
 
+  it('declares the table tools, without a search, when the conversation holds a file (ADR-0046)', () => {
+    const withFile = routeTurn({ ...base, hasAttachments: true, tableExtractionEnabled: true });
+    expect(withFile.exposedTools).toEqual(expect.arrayContaining(['extract_scanned_table_rows', 'analyze_table_rows']));
+    const noFile = routeTurn({ ...base, tableExtractionEnabled: true });
+    expect(noFile.allowedTools).toContain('extract_scanned_table_rows');
+    expect(noFile.exposedTools).not.toContain('extract_scanned_table_rows');
+    const off = routeTurn({ ...base, hasAttachments: true });
+    expect(off.exposedTools).not.toContain('extract_scanned_table_rows');
+  });
+
   it('exposes the fixed core on every turn', () => {
     const decision = routeTurn({ ...base, runPythonEnabled: true });
     expect(decision.exposedTools).toEqual(core(decision));

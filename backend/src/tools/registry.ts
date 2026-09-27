@@ -49,6 +49,9 @@ export const DECLARED_EVERY_TURN: readonly string[] = [
   'read_project_file',
 ];
 
+/** Declared beside DECLARED_EVERY_TURN when the conversation holds a file (ADR-0046). */
+export const DECLARED_WITH_ATTACHMENTS: readonly string[] = ['extract_scanned_table_rows', 'analyze_table_rows'];
+
 export interface ToolContext {
   userId?: string;
   projectId: string | null;

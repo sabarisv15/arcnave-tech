@@ -405,18 +405,18 @@ export class GeminiProvider implements Provider {
           this.cfg.GEMINI_STREAM_TOOL_ARGS &&
           !this.wholeCallModels.has(request.providerModelId) &&
           toolDefs.some((t) => t.name === 'render_ui');
-        const open = (forceAnswer: boolean, stream: boolean) => this.getClient().models.generateContentStream({
+        const open = (forceAnswer: boolean, stream: boolean, withFunctions = useTools) => this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
           config: {
             ...(systemInstruction ? { systemInstruction } : {}),
             maxOutputTokens: request.maxOutputTokens,
-            ...(grounded || codeExecution || useTools
+            ...(grounded || codeExecution || withFunctions
               ? {
                   tools: [
                     ...(grounded ? [{ googleSearch: {} }] : []),
                     ...(codeExecution ? [{ codeExecution: {} }] : []),
-                    ...(useTools
+                    ...(withFunctions
                       ? [{ functionDeclarations: toolDefs.map(toGeminiFunctionDeclaration) }]
                       : []),
                   ],
@@ -452,10 +452,20 @@ export class GeminiProvider implements Provider {
           if (!finalToolRound) {
             this.wholeCallModels.add(request.providerModelId);
             log.warn({ err: String(err), model: request.providerModelId }, 'streamed function-call arguments were rejected; using whole calls for this model');
+            stream = await open(false, false);
           } else {
-            log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
+            // The final round still has to answer. Without function declarations the model has
+            // nothing to call, so that is tried before a plain request, whose call would end the
+            // turn as tool_limit with no answer (handoff 2026-09-27, item 4).
+            log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without function declarations');
+            try {
+              stream = await open(false, false, false);
+            } catch (retryErr) {
+              if (request.signal.aborted || !String(retryErr).includes('INVALID_ARGUMENT')) throw retryErr;
+              log.warn({ err: String(retryErr) }, 'final round without function declarations was rejected; retrying as a plain request');
+              stream = await open(false, false);
+            }
           }
-          stream = await open(false, false);
         }
 
         let roundText = '';

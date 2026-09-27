@@ -326,7 +326,7 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Here is the answer.');
   });
 
-  it('a final round rejected with INVALID_ARGUMENT is retried once without toolConfig', async () => {
+  it('a final round rejected with INVALID_ARGUMENT is retried without function declarations, so it can only answer', async () => {
     const client = new FakeGeminiClient();
     const answer = fakeStream([{ text: 'Answer anyway.' }]);
     client.responses = [fakeStream([{ functionCalls: [{ id: 'c0', name: 'search_project_files', args: {} }] }])];
@@ -344,10 +344,36 @@ describe('GeminiProvider tool-calling loop', () => {
     const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
     const provider = new GeminiProvider(cfg, client as never);
     const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
-    const retried = client.calls[2] as { config: { toolConfig?: unknown } };
+    const retried = client.calls[2] as { config: { toolConfig?: unknown; tools?: unknown } };
     expect(finalAttempts).toBe(2);
     expect(retried.config.toolConfig).toBeUndefined();
+    expect(retried.config.tools).toBeUndefined();
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Answer anyway.');
+  });
+
+  it('when a final round without function declarations is rejected too, it falls back to a plain request', async () => {
+    const client = new FakeGeminiClient();
+    const answer = fakeStream([{ text: 'Plain answer.' }]);
+    client.responses = [fakeStream([{ functionCalls: [{ id: 'c0', name: 'search_project_files', args: {} }] }])];
+    let finalAttempts = 0;
+    const original = client.models.generateContentStream;
+    client.models.generateContentStream = vi.fn(async (req: unknown) => {
+      if (client.calls.length === 0) return original(req);
+      client.calls.push(req);
+      finalAttempts += 1;
+      if (finalAttempts < 3) throw new Error('ApiError: {"status":"INVALID_ARGUMENT"}');
+      return answer;
+    });
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'ok' }] });
+    const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
+    const provider = new GeminiProvider(cfg, client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+    const plain = client.calls[3] as { config: { toolConfig?: unknown; tools?: unknown[] } };
+    expect(finalAttempts).toBe(3);
+    expect(plain.config.toolConfig).toBeUndefined();
+    expect(plain.config.tools).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Plain answer.');
   });
 
   it('stops issuing provider requests once the signal is aborted', async () => {

@@ -10,7 +10,7 @@
  * request (ADR-0032).
  */
 
-import { DECLARED_EVERY_TURN } from '../../tools/registry.js';
+import { DECLARED_EVERY_TURN, DECLARED_WITH_ATTACHMENTS } from '../../tools/registry.js';
 
 /** Flags and infrastructure only. The prompt is deliberately not an input: wording decides nothing. */
 export interface RouteTurnInput {
@@ -127,7 +127,10 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
  */
 function coreTools(input: RouteTurnInput, allowed: string[]): string[] {
   const discovery = input.candidateSkills.length > 0 ? ['search_tools', 'load_skill'] : ['search_tools'];
-  return [...discovery, ...DECLARED_EVERY_TURN.filter((name) => allowed.includes(name))];
+  // A turn with a file in the conversation declares the table tools too: finding them through
+  // search_tools cost rounds a scanned statement then ran out of (ADR-0046).
+  const withFiles = input.hasAttachments ? DECLARED_WITH_ATTACHMENTS : [];
+  return [...discovery, ...[...DECLARED_EVERY_TURN, ...withFiles].filter((name) => allowed.includes(name))];
 }
 
 export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {

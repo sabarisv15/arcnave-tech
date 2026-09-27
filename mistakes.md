@@ -1235,3 +1235,13 @@ practice, not canon.
   reads those types from the file with code. Rule: a skill's claim about how a file reaches the
   model must match the pipeline; check `attachmentContent.ts` before writing one. Verify:
   `officeReadWithCode.integration.test.ts` (ADR-0045).
+
+### 2026-09-27 — The tools a file turn needs most were hidden behind a search
+
+- **Symptom:** a scanned bank statement ended "Answer cut off: it used every tool step this turn
+  allows" after 10+ minutes; Claude did the same PDF in about 8 steps.
+- **Cause:** `extract_scanned_table_rows` / `analyze_table_rows` were deferred; the model spent
+  rounds on OCR in `run_python` and ran `search_tools` only near the limit.
+- **Rule:** a tool the skill tells the model to use first must be declared on the turns that
+  skill is for, not left for discovery. Count the rounds a real task needs against the limit.
+- **Verify:** `turnRouter.test.ts` "declares the table tools … when the conversation holds a file".
