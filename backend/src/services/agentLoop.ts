@@ -43,6 +43,8 @@ import { GoalToolExecutor } from '../tools/goalExecutor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
 import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
+import { isTerminalTool } from '../providers/toolLoopPolicy.js';
+import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
 import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
@@ -288,6 +290,7 @@ export class AgentLoop {
 
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
+    let hitTerminalTool = false;
     try {
       stepLoop: for (let step = 0; step < this.cfg.AGENT_MAX_STEPS; step++) {
         if (timeoutController.signal.aborted || input.signal.aborted) {
@@ -387,6 +390,7 @@ export class AgentLoop {
         );
 
         const baseMap = new Map<string, ToolExecutor>();
+        baseMap.set('ask_user_options', new AskUserOptionsExecutor());
         baseMap.set('create_artifact', artifactToolExecutor);
         baseMap.set('read_artifact', artifactToolExecutor);
         baseMap.set('update_artifact', artifactToolExecutor);
@@ -642,6 +646,9 @@ export class AgentLoop {
               stepCallsCount++;
               pendingToolInputs.set(event.toolCallId, event.input);
               if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
+              if (isTerminalTool(event.name)) {
+                hitTerminalTool = true;
+              }
               yield {
                 type: 'tool_use',
                 toolCallId: event.toolCallId,
@@ -731,6 +738,10 @@ export class AgentLoop {
           break stepLoop;
         }
 
+        if (hitTerminalTool) {
+          break stepLoop;
+        }
+
         // If no tools were called in this step, model produced its final response
         if (stepCallsCount === 0) {
           break stepLoop;
@@ -780,7 +791,7 @@ export class AgentLoop {
     let text = collectedText.join('');
 
     // Guaranteed Final Outcome: synthesize text if agent loop produced tool calls but finished with blank text
-    if (status === 'complete' && text.trim().length === 0) {
+    if (status === 'complete' && text.trim().length === 0 && !hitTerminalTool) {
       if (input.mode === 'research' && collectedSources.length === 0) {
         text = 'Live web research could not be completed at this time due to search provider unavailability.';
         yield { type: 'delta', text };
@@ -814,13 +825,15 @@ export class AgentLoop {
         }
       }
     }
+    const finalFinishReason = status === 'cancelled' ? 'cancelled' : hitTerminalTool ? 'stop' : finishReason;
+
     await this.finalise(input, {
       text,
       sources: collectedSources,
       searchEntryPoint,
       status: status === 'cancelled' ? 'stopped' : 'complete',
       errorCode,
-      finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
+      finishReason: finalFinishReason,
       entry,
       mode: input.mode,
       questions: [],
@@ -839,7 +852,7 @@ export class AgentLoop {
       usage: cumulativeUsage ?? EMPTY_USAGE,
       startedAt,
       status: status === 'cancelled' ? 'cancelled' : 'complete',
-      finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
+      finishReason: finalFinishReason,
     });
 
     if (status === 'complete') {
@@ -847,7 +860,7 @@ export class AgentLoop {
         type: 'done',
         questions: [],
         usage: toUsageDto(cumulativeUsage ?? EMPTY_USAGE, computeCostFor(this.cfg, entry.providerModelId!, cumulativeUsage ?? EMPTY_USAGE)),
-        finishReason,
+        finishReason: finalFinishReason,
       };
     }
     } finally {

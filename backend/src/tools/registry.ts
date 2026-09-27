@@ -22,6 +22,7 @@ import {
   UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
   FILE_OPERATION_TOOL_DEFINITIONS,
+  QUESTION_TOOL_DEFINITIONS,
 } from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 
@@ -32,6 +33,7 @@ import type { ToolDefinition } from '../providers/types.js';
  * work needs on nearly every turn; the rest stay discoverable (ADR-0006, amended by ADR-0022).
  */
 export const DECLARED_EVERY_TURN: readonly string[] = [
+  'ask_user_options',
   'run_python',
   'read_uploaded_file',
   'generate_deliverable',
@@ -125,6 +127,9 @@ export class ProjectToolRegistry implements ToolRegistry {
     if (this.enabled) {
       // Artifact tools (create, read, update) are available across all chats when tool use is on.
       tools.push(...ARTIFACT_TOOL_DEFINITIONS);
+
+      // Question options tool across all chats when tool use is on (ADR-0034).
+      tools.push(...QUESTION_TOOL_DEFINITIONS);
 
       // Upload file reading is available across all chats when tool use is on.
       tools.push(...UPLOAD_TOOL_DEFINITIONS);

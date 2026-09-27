@@ -52,6 +52,7 @@ import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
+import QuestionOptions, { extractAskUserOptions } from "./QuestionOptions";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -445,7 +446,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
 
 function Conversation() {
   const { id } = useParams();
-  const { chats, projects, messages, transcript, openChat, activeRun } =
+  const { chats, projects, messages, transcript, openChat, activeRun, send } =
     useWorkspace();
   const chat = chats.find((c) => c.id === id);
   const state = id ? transcript[id] : undefined;
@@ -587,6 +588,21 @@ function Conversation() {
         </button>
       )}
       <div className="conversation-composer">
+        {!isRunning && extractAskUserOptions(last) && (
+          <QuestionOptions
+            data={extractAskUserOptions(last)!}
+            disabled={!!activeRun}
+            onSubmit={(replyText) =>
+              void send(
+                replyText,
+                last?.mode ?? "chat",
+                [],
+                chat?.id ?? id!,
+                chat?.projectId ?? undefined,
+              )
+            }
+          />
+        )}
         <Composer
           key={id}
           chatId={id!}
@@ -642,10 +658,10 @@ function ResponseActivity({ message: m }: { message: Message }) {
   const latestResearchEvent = m.events?.at(-1);
   const activeTool = [...(m.toolCalls ?? [])]
     .reverse()
-    .find((call) => call.ok === undefined && call.name !== "render_ui");
+    .find((call) => call.ok === undefined && call.name !== "render_ui" && call.name !== "ask_user_options");
   const latestTool = [...(m.toolCalls ?? [])]
     .reverse()
-    .find((call) => call.name !== "render_ui");
+    .find((call) => call.name !== "render_ui" && call.name !== "ask_user_options");
   const activity = activeTool
     ? { label: toolActivity(activeTool.name, true), detail: "Tool is running" }
     : latestResearchEvent && latestResearchEvent.stage !== "complete"
@@ -822,7 +838,7 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
+      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui" && c.name !== "ask_user_options") && (
         <ResponseActivity message={m} />
       )}
       {m.segments && m.segments.length > 0 ? (

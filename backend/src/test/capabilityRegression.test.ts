@@ -14,21 +14,24 @@ import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 
 describe('Capability Regression Suite', () => {
-  describe('1. 15-Tool Surface & Truthful Registry', () => {
-    it('accurately exposes all 15 tools with all gates enabled', () => {
+  describe('1. 16-Tool Surface & Truthful Registry', () => {
+    it('accurately exposes all 16 tools with all gates enabled', () => {
       const reg = new ProjectToolRegistry(true, true, true, true, true);
       const tools = reg.getAvailableTools({
         projectId: 'p1',
         activeGoalId: 'g1',
         allowPython: true,
       });
-      expect(tools.length).toBe(15);
+      expect(tools.length).toBe(16);
       const names = tools.map((t: { name: string }) => t.name);
 
       // Core CRUD
       expect(names).toContain('create_artifact');
       expect(names).toContain('read_artifact');
       expect(names).toContain('update_artifact');
+
+      // Interactive options (ADR-0034)
+      expect(names).toContain('ask_user_options');
 
       // Information access
       expect(names).toContain('read_uploaded_file');

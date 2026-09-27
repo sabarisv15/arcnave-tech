@@ -62,6 +62,7 @@ import {
   INSPECT_PPTX_STRUCTURE,
   REORDER_PPTX_SLIDES,
   EDIT_PPTX_SLIDE_TEXT,
+  ASK_USER_OPTIONS,
 } from './definitions.js';
 import type { ToolContext } from './registry.js';
 
@@ -383,7 +384,7 @@ export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
     isAuthorized: (ctx) => Boolean(ctx.projectId),
   },
 
-  // 11. Generative UI (DEFERRED: discovered via search_tools)
+  // 11. Generative UI & Interactive Options
   {
     name: 'render_ui',
     category: 'ui',
@@ -392,6 +393,16 @@ export const TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = [
     definition: RENDER_UI,
     isInitialCore: false,
     isFeatureEnabled: (cfg, flags) => Boolean(cfg.ENABLE_TOOL_USE && flags.generativeUiEnabled),
+    isAuthorized: () => true,
+  },
+  {
+    name: 'ask_user_options',
+    category: 'ui',
+    shortDescription: 'Shows clickable question options (single, multi, rank) for the user to choose from.',
+    keywords: ['ask', 'options', 'question', 'choice', 'clarify', 'single', 'multi', 'rank'],
+    definition: ASK_USER_OPTIONS,
+    isInitialCore: true,
+    isFeatureEnabled: (cfg) => cfg.ENABLE_TOOL_USE,
     isAuthorized: () => true,
   },
 

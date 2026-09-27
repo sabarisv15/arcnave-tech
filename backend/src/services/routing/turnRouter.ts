@@ -83,6 +83,7 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
   allowed.add('create_artifact');
   allowed.add('read_artifact');
   allowed.add('update_artifact');
+  allowed.add('ask_user_options');
 
   // File operations (inspection & manipulation for PDF, XLSX, DOCX, PPTX)
   allowed.add('inspectPdf');
