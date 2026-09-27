@@ -36,6 +36,7 @@ import { modelRoutes } from './routes/models.js';
 import { preferenceRoutes } from './routes/preferences.js';
 import { projectRoutes } from './routes/projects.js';
 import { skillRoutes } from './routes/skills.js';
+import { styleRoutes } from './routes/styles.js';
 import { usageRoutes } from './routes/usage.js';
 import type { AppInstance } from './types.js';
 
@@ -118,6 +119,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
         { name: 'artifacts', description: 'Artifacts and version history' },
         { name: 'usage', description: 'Token accounting and limits' },
         { name: 'preferences', description: 'User preferences' },
+        { name: 'styles', description: 'Response styles (presets and custom)' },
       ],
     },
     transform: jsonSchemaTransform,
@@ -190,6 +192,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       await scope.register(fileRoutes);
       await scope.register(skillRoutes);
       await scope.register(memoryRoutes);
+      await scope.register(styleRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );

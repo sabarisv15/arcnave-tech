@@ -273,6 +273,7 @@ export interface Preferences {
   reducedMotion: boolean;
   defaultMode: Mode;
   saveHistory: boolean;
+  styleId: string;
   version: number;
 }
 
@@ -500,6 +501,7 @@ export function toPreferences(dto: PreferencesDto): Preferences {
       ? (dto.defaultMode as Mode)
       : "chat",
     saveHistory: dto.saveHistory,
+    styleId: dto.styleId ?? "normal",
     version: dto.version,
   };
 }

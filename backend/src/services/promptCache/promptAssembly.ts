@@ -85,6 +85,12 @@ export function assemblePrompt(
     );
   }
 
+  if (dynamicSuffix.styleInstructions?.trim()) {
+    dynamicParts.push(
+      `<style_instructions>\n${dynamicSuffix.styleInstructions.trim()}\n</style_instructions>`,
+    );
+  }
+
   if (dynamicSuffix.relevantMemory?.trim()) {
     dynamicParts.push(
       `<memory>\nWhat you remember about this user from earlier conversations, by topic. Use it where it helps; do not recite it.\n${dynamicSuffix.relevantMemory.trim()}\n</memory>`,

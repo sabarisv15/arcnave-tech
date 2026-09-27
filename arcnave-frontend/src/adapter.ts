@@ -93,6 +93,8 @@ export interface GenerateRequest {
   attachmentIds?: string[];
   /** Re-run an existing assistant message instead of appending a new pair. */
   retryMessageId?: string;
+  /** Optional response style override (preset key or custom style UUID). */
+  styleId?: string;
 }
 
 /**
@@ -123,6 +125,7 @@ export async function* generate(
         attachmentIds: req.attachmentIds ?? [],
         ...(req.effort ? { effort: req.effort } : {}),
         ...(req.retryMessageId ? { retryMessageId: req.retryMessageId } : {}),
+        ...(req.styleId ? { styleId: req.styleId } : {}),
       }),
       signal,
     });

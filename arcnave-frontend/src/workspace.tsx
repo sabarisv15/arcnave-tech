@@ -141,6 +141,7 @@ const defaultPreferences: Preferences = {
   reducedMotion: false,
   defaultMode: "chat",
   saveHistory: true,
+  styleId: "normal",
   version: 0,
 };
 
@@ -427,6 +428,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               model: preferences.modelAlias,
               ...(preferences.effort ? { effort: preferences.effort } : {}),
               attachmentIds: options.attachmentIds,
+              styleId: preferences.styleId,
               ...(options.retryMessageId
                 ? { retryMessageId: options.retryMessageId }
                 : {}),
@@ -659,6 +661,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [
       preferences.modelAlias,
       preferences.effort,
+      preferences.styleId,
       patchMessage,
       pollGenerating,
       loadTranscript,

@@ -478,6 +478,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           /** Gemini's code-execution sandbox. See ADR-0004; unavailable on other providers. */
           codeExecution: z.boolean().default(false),
           effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+          /** Optional response style override (preset key or custom style UUID). */
+          styleId: z.string().max(64).optional(),
         }),
       },
       config: {
@@ -494,7 +496,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       if (activeRuns.has(chat.id)) throw new ApiError('run_in_progress');
 
-      const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution, effort } =
+      const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution, effort, styleId } =
         request.body;
 
       // --- create or reuse the assistant row ----------------------------
@@ -556,6 +558,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             attachments: turnAttachments,
             codeExecution,
             effort,
+            styleId,
             signal: controller.signal,
           })) {
             run.publish(event);

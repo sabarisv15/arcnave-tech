@@ -1165,4 +1165,11 @@ practice, not canon.
 - **2026-09-26 (WP-04)** — No new heading (at the cap). Two issues found during implementation and live browser verification:
   - Parallel worktrees collided on `TEST_DATABASE_URL`: `D:\new` had already applied migration `0016` at timestamp `1791000000000` to `arcnave_test`, so Drizzle silently skipped running `D:\arcnave-wp04`'s `0016` migration on the same timestamp, failing on `signUp` with `column "effort" of relation "preferences" does not exist`. Rule: isolate test databases across concurrent worktree branches (`TEST_DATABASE_URL=..._wp04`).
   - `updatePreferences` in `workspace.tsx` was resetting `modelAlias` back to `"Auto"` whenever any preference was saved because `toDto` returned `modelAlias: AUTO_ALIAS`. Caught by the live browser acceptance test; fixed by preserving `patch.modelAlias ?? curr.modelAlias` in frontend state.
+- **2026-09-26 (WP-05)** — No new heading (at the 40-entry cap). Two catches during WP-05:
+  (1) `resolveStyle` and `GET /styles/:id` accept both preset keys (`concise`) and custom style
+  UUIDs; querying a Postgres `uuid` column with an unknown non-UUID string throws 500 `22P02`
+  unless guarded by a UUID regex before the query (`style_not_found` 404).
+  (2) On Windows git worktrees, a directory junction for `node_modules` causes Vite/Vitest to
+  resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
+  (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
 

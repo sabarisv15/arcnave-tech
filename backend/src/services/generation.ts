@@ -108,6 +108,7 @@ import type { Retriever } from './retrieval.js';
 import { formatContext, formatWholeFiles, projectFileTexts } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
+import { resolveStyle } from './styles.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -261,11 +262,14 @@ export interface GenerateInput {
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
   codeExecution: boolean;
   effort?: ReasoningEffort;
+  /** Optional style override for this turn (preset name or custom style UUID). */
+  styleId?: string;
   signal: AbortSignal;
 }
 
 export interface PreferencesRow {
   instructions: string;
+  styleId?: string;
   maxOutputTokens: number;
   dailyTokenBudget: number | null;
   monthlyTokenBudget: number | null;
@@ -1496,6 +1500,7 @@ export class GenerationService {
     const [row] = await this.db
       .select({
         instructions: preferencesTable.instructions,
+        styleId: preferencesTable.styleId,
         maxOutputTokens: preferencesTable.maxOutputTokens,
         dailyTokenBudget: preferencesTable.dailyTokenBudget,
         monthlyTokenBudget: preferencesTable.monthlyTokenBudget,
@@ -2064,12 +2069,18 @@ export class GenerationService {
             'the question.'
           : undefined;
 
-    // 6. Assemble prompt separating stable prefix from dynamic suffix
+    // 6. Style instructions (WP-05 / ADR-0033)
+    const effectiveStyleId = input.styleId ?? prefs.styleId ?? 'normal';
+    const resolvedStyle = await resolveStyle(this.db, input.userId, effectiveStyleId);
+    const styleInstructions = resolvedStyle.instructions.trim() || undefined;
+
+    // 7. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
       currentDate: currentDateLine(new Date(), prefs.timezone),
       runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
+      styleInstructions,
       relevantMemory: relevantMemoryText || undefined,
       compactionSummary: compactionText || undefined,
       retrievedContext: retrievedContextText,
