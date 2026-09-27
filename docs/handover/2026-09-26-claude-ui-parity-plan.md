@@ -42,18 +42,23 @@
 | WP-05 | 18 | Styles (presets + custom) | 2 | yes | [x] |
 | WP-06 | 3 | Clickable question options (single, multi, rank) | 2 | yes | [x] |
 | WP-07 | 4 | Select text in an answer or document and ask about it | 2 | no | [x] |
-| WP-08 | 15 | Incognito chats | 2 | yes | [ ] |
+| WP-08 | 15 | Incognito chats | 2 | yes | future |
 | WP-09 | 14 | Branch switcher `< 1/2 >` on edited prompts | 2 | yes | [ ] |
 | WP-10 | 1, 8, 9 | Custom visuals in chat; interactive and SVG artifacts (sandbox) | 3 | yes | [x] |
 | WP-11 | 13 | Word, Excel and PowerPoint previews | 4 | no | [ ] |
 | WP-12 | 11, 16 | Public share links for chats and artifacts | 4 | yes | [ ] |
 | WP-13 | 21, 22 | Memory import/export; full data export; account deletion | 4 | yes | [ ] |
-| WP-14 | 25 | Connectors (remote MCP) | 5 | yes | [ ] |
-| WP-15 | 26 | Skills settings: browse, turn off, add custom skills | 5 | yes | [ ] |
+| WP-14 | 25 | Connectors (remote MCP) | 5 | yes | future |
+| WP-15 | 26 | Skills settings: browse, turn off, add custom skills | 5 | yes | future |
 | WP-16 | 10 | Docs, Slides and Design artifact types | 5 | yes | [ ] |
-| WP-17 | 12 | Save a created file to Google Drive | 5 | yes | [ ] |
+| WP-17 | 12 | Save a created file to Google Drive | 5 | yes | future |
 | WP-18 | 27 | Voice dictation (then voice mode) | 5 | yes | [ ] |
-| WP-19 | 23, 24 | Break reminders, quiet hours, monthly recap | 5 | no | [ ] |
+| WP-19 | 23, 24 | Break reminders, quiet hours, monthly recap | 5 | no | future |
+
+**Scope (user, 2026-09-27):** the remaining work is WP-09, WP-11, WP-12, WP-13, WP-16 and
+WP-18, in that order. WP-08, WP-14, WP-15, WP-17 and WP-19 are **future scope**: not planned
+now, and not to be started without a new decision from the user. Their sections stay below as
+the design for when they are picked up.
 
 Gap numbers refer to the comparison table given to the user on 2026-09-26. Phases run in order;
 WPs inside one phase are independent unless a WP says otherwise.
@@ -249,6 +254,8 @@ WPs inside one phase are independent unless a WP says otherwise.
 
 ## WP-08 — Incognito chats
 
+> **Future scope (2026-09-27).** Not planned now; do not start without the user's decision.
+
 - Gap: 15. Branch: `feat/wp-08-incognito`. Depends on: none. **ADR required** (retention).
 - **Claude (Help Center, "Use incognito chats"):**
   - not saved to chat history and not found by chat search;
@@ -442,6 +449,8 @@ WPs inside one phase are independent unless a WP says otherwise.
 
 ## WP-14 — Connectors (remote MCP)
 
+> **Future scope (2026-09-27).** Not planned now; do not start without the user's decision.
+
 - Gap: 25. Branch: `feat/wp-14-connectors`. Depends on: none. **ADR required**. Split into
   sub-WPs after the ADR; do not implement in one conversation.
 - **Claude:** remote MCP connectors (for example Drive, Slack, Asana) that the model can call,
@@ -460,6 +469,8 @@ WPs inside one phase are independent unless a WP says otherwise.
     - d: permissions and the UI for tool calls.
 
 ## WP-15 — Skills settings
+
+> **Future scope (2026-09-27).** Not planned now; do not start without the user's decision.
 
 - Gap: 26. Branch: `feat/wp-15-skills-settings`. Depends on: none. **ADR required**.
 - **Claude:** browse skills, turn them on or off, and upload custom ones.
@@ -488,6 +499,8 @@ WPs inside one phase are independent unless a WP says otherwise.
 
 ## WP-17 — Save to Google Drive
 
+> **Future scope (2026-09-27).** Not planned now; do not start without the user's decision.
+
 - Gap: 12. **ADR required**. Needs a Google OAuth client, which the user creates in GCP; the
   agent never creates or stores its secret. Use the `drive.file` scope only. Add "Save to Drive"
   on download cards; the backend uploads the bytes with the user's token.
@@ -501,6 +514,8 @@ WPs inside one phase are independent unless a WP says otherwise.
 - **Phase 2:** full voice mode via Vertex speech, in a later ADR.
 
 ## WP-19 — Break reminders, quiet hours, monthly recap
+
+> **Future scope (2026-09-27).** Not planned now; do not start without the user's decision.
 
 - Gaps: 23, 24. Branch: `feat/wp-19-reflect`. Depends on: WP-08 (recap excludes incognito).
 - Preferences:

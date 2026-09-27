@@ -1,5 +1,11 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): UI-parity scope narrowed by the user.** Remaining, in order: WP-09
+> (branch switcher), WP-11 (Office previews), WP-12 (share links), WP-13 (data controls),
+> WP-16 (Docs/Slides types), WP-18 (voice). WP-08, WP-14, WP-15, WP-17 and WP-19 are future scope
+> and are not started without a new decision. None of the remaining WPs depends on them.
+> PR #27 (WP-03 to WP-07 + WP-10) is merged to main; live checks pending by the user.
+>
 > **2026-09-27 (latest): WP-03 to WP-07 and WP-10 merged on `integration/ui-parity`, reviewed against Claude, not live.**
 > - Migrations: 0016 `artifact_kind_svg` (WP-10), 0017 `effort_and_styles` (WP-04 + WP-05, regenerated
 >   in one file, `when` 1791100000000). The branches' own 0016 files were dropped.
