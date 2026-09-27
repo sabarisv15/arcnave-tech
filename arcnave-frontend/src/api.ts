@@ -176,6 +176,14 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "This version cannot be exported to that format",
     detail: "Its content has none of the structure that format needs.",
   },
+  share_not_found: {
+    title: "This link is not available",
+    detail: "It may have been turned off by the person who shared it, or it was never valid.",
+  },
+  share_empty: {
+    title: "Nothing to share yet",
+    detail: "Share the conversation once it has a finished reply.",
+  },
   preview_unsupported: {
     title: "No preview for this file",
     detail: "Download it to open it in its own application.",
@@ -790,7 +798,49 @@ export interface StylesListDto {
 
 /* -------------------------------------------------------------------------- endpoints */
 
+export interface ShareLinkDto {
+  id: string;
+  token: string;
+  path: string;
+  targetType: "chat" | "artifact";
+  targetId: string;
+  title: string;
+  snapshotAt: string | null;
+  createdAt: string | null;
+}
+
+export interface SharedArtifactDto {
+  title: string;
+  kind: string;
+  content: string;
+}
+
+export type PublicShareDto =
+  | {
+      type: "chat";
+      title: string;
+      sharedAt: string | null;
+      messages: {
+        role: "user" | "assistant";
+        text: string;
+        createdAt: string | null;
+        sources: { id: number; title: string; url: string; domain: string }[];
+        uiBlocks: unknown[];
+        artifact: SharedArtifactDto | null;
+      }[];
+    }
+  | { type: "artifact"; title: string; sharedAt: string | null; artifact: SharedArtifactDto & { version: number } };
+
 export const api = {
+  /** Public links to snapshots (ADR-0039). */
+  share: {
+    chat: (id: string) => post<ShareLinkDto>(`/chats/${id}/share`),
+    artifact: (id: string) => post<ShareLinkDto>(`/artifacts/${id}/share`),
+    list: (query?: { targetType?: "chat" | "artifact"; targetId?: string }) =>
+      get<{ items: ShareLinkDto[] }>("/share-links", query),
+    revoke: (id: string) => del(`/share-links/${id}`),
+    read: (token: string) => get<PublicShareDto>(`/public/share/${encodeURIComponent(token)}`),
+  },
   auth: {
     me: () => get<{ user: User | null }>("/auth/me", undefined, undefined),
     /** Quiet: a signed-out visitor is the expected case, not a session that just ended. */

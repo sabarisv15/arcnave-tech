@@ -6601,3 +6601,129 @@ select:focus-visible {
 .sheet-note {
   margin: 6px 0 0;
 }
+
+/* WP-12: public links and the shared page. */
+.share-divider {
+  margin: 18px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.public-link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.public-link-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.public-link-row {
+  display: flex;
+  gap: 8px;
+}
+.public-link-row .input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.artifact-share {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.setting-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.shared-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shared-links li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.shared-links li a {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.shared-page {
+  min-height: 100vh;
+  background: var(--bg, var(--surface));
+  color: var(--ink);
+}
+.shared-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.shared-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+.shared-main {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+.shared-banner {
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.shared-title {
+  font-size: 26px;
+  font-weight: 500;
+  margin: 18px 0 20px;
+}
+.shared-artifact {
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.shared-artifact > header {
+  padding: 8px 14px;
+  font-weight: 500;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+}
+.shared-artifact-body {
+  padding: 12px 16px;
+}
+.shared-missing {
+  text-align: center;
+  padding: 80px 0;
+  color: var(--muted);
+}
+.shared-missing h1 {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 500;
+}
+.button.danger {
+  color: var(--danger);
+}

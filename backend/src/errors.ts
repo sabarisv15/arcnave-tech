@@ -131,6 +131,17 @@ export const ERROR_CATALOG = {
     detail: 'Its content has none of the structure that format needs.',
   },
 
+  share_not_found: {
+    status: 404,
+    title: 'This link is not available',
+    detail: 'It may have been turned off by the person who shared it, or it was never valid.',
+  },
+  share_empty: {
+    status: 422,
+    title: 'Nothing to share yet',
+    detail: 'Share the conversation once it has a finished reply.',
+  },
+
   preview_unsupported: {
     status: 422,
     title: 'No preview for this file',

@@ -453,6 +453,37 @@ export const sandboxWorkspaces = pgTable(
   (t) => [index('ix_sandbox_workspaces_chat').on(t.chatId), index('ix_sandbox_workspaces_last_run').on(t.lastRunAt)],
 );
 
+/**
+ * A public link to a snapshot of a chat or an artifact (ADR-0039). The token is the only thing
+ * that opens it: 32 random bytes, never derived from an id. `snapshotSeq` is the last message
+ * seq shown for a chat, or the artifact version shown; later work stays private until the owner
+ * updates the link. A revoked link is kept, so the owner's list can say when it was turned off.
+ */
+export const shareLinks = pgTable(
+  'share_links',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: varchar('token', { length: 64 }).notNull(),
+    targetType: varchar('target_type', { length: 16 }).notNull(),
+    /** Not a foreign key: the target's own delete revokes the link (see the routes). */
+    targetId: uuid('target_id').notNull(),
+    snapshotSeq: integer('snapshot_seq').notNull(),
+    /** When the snapshot was last taken; artifacts in a shared chat are shown as of this. */
+    snapshotAt: timestamp('snapshot_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('uq_share_token').on(t.token),
+    index('ix_share_links_user').on(t.userId),
+    index('ix_share_links_target').on(t.targetType, t.targetId),
+    check('ck_share_target_type', sql`${t.targetType} in ('chat','artifact')`),
+  ],
+);
+
 /* -------------------------------------------------------------------------- artifacts */
 
 export const artifacts = pgTable(

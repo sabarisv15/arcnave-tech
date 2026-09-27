@@ -171,7 +171,7 @@ describe('versions of an edited prompt', () => {
     const first = await newChat();
     await say(first, 'Read this');
     await say(first, 'Now summarise');
-    const [userRow] = await ctx.db.select().from(messages).where(eq(messages.chatId, first)).limit(1);
+    const [userRow] = await ctx.db.select().from(messages).where(eq(messages.chatId, first)).orderBy(messages.seq).limit(1);
     await ctx.db.insert(attachments).values({
       userId: user.id,
       messageId: userRow!.id,

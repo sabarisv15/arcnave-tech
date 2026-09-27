@@ -349,6 +349,8 @@ const envSchema = z.object({
   RATE_LIMIT_GENERATE_PER_MINUTE: int(20),
   RATE_LIMIT_WRITE_PER_MINUTE: int(120),
   RATE_LIMIT_AUTH_PER_MINUTE: int(10),
+  /** Anonymous reads of shared links, per IP (ADR-0039). */
+  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: int(60),
 
   // --- Pricing ------------------------------------------------------------
   /**

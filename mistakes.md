@@ -817,6 +817,13 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-27** — No new heading (WP-12). I re-stamped a generated migration with
+  `sed 's/"when": 17904[0-9]*/…/'`, and the pattern also matched 0010's stamp. The test
+  database then tried to create 0010's table again. The rule from the 2026-09-25 entry stands:
+  change a journal entry by its `tag`, never by a pattern on `when`. Fix it with a JSON edit
+  keyed on the tag, then read `git diff` of the journal. Also, WP-09's own test picked "the
+  user message" with `limit(1)` and no `orderBy`, and failed once the table was busier. A test
+  that means "the first row" must order by the column that makes it first.
 - **2026-09-27** — No new heading (WP-11). The plan named a PowerPoint renderer by reputation;
   `pptx-preview` rendered a fixture deck but drew an empty frame for the decks ArcNave itself
   generates, with no error. Rule: try a rendering library on this app's own output before

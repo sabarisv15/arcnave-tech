@@ -21,7 +21,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { ApiError, api } from "./api";
-import type { LimitsDto, MemoryItemDto, UsageSummaryDto } from "./api";
+import type { LimitsDto, MemoryItemDto, ShareLinkDto, UsageSummaryDto } from "./api";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
 import { Modal } from "./ui";
@@ -1008,6 +1008,66 @@ function Privacy() {
           Discard
         </button>
       </div>
+      <SharedLinks />
     </>
+  );
+}
+
+/** Every public link this account has made, each with a way to turn it off (ADR-0039). */
+function SharedLinks() {
+  const { toast } = useWorkspace();
+  const [links, setLinks] = useState<ShareLinkDto[] | null>(null);
+  useEffect(() => {
+    api.share
+      .list()
+      .then((r) => setLinks(r.items))
+      .catch(() => setLinks([]));
+  }, []);
+  return (
+    <div className="setting-row setting-row-stack">
+      <div>
+        <strong>Shared links</strong>
+        <p>
+          Anyone with one of these links can view its snapshot without an
+          account. Turning a link off stops it opening at once, but cannot
+          remove copies someone already made.
+        </p>
+      </div>
+      {links === null ? (
+        <p className="loading-line">
+          <Loader2 size={14} className="spin" /> Loading…
+        </p>
+      ) : links.length === 0 ? (
+        <p className="field-help">You have not shared anything.</p>
+      ) : (
+        <ul className="shared-links">
+          {links.map((l) => (
+            <li key={l.id}>
+              <a href={l.path} target="_blank" rel="noreferrer">
+                {l.title}
+              </a>
+              <span className="field-help">
+                {l.targetType === "chat" ? "Chat" : "Artifact"} ·{" "}
+                {l.snapshotAt ? new Date(l.snapshotAt).toLocaleDateString() : ""}
+              </span>
+              <button
+                className="button"
+                onClick={() =>
+                  void api.share
+                    .revoke(l.id)
+                    .then(() => {
+                      setLinks((all) => (all ?? []).filter((x) => x.id !== l.id));
+                      toast("Link turned off");
+                    })
+                    .catch(() => toast("That link could not be turned off."))
+                }
+              >
+                Stop sharing
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

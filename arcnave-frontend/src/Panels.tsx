@@ -18,6 +18,7 @@ import {
   Search,
   Telescope,
   X,
+  Share2,
 } from "lucide-react";
 import { ApiError, api, url } from "./api";
 import type { ArtifactVersionDto } from "./api";
@@ -38,6 +39,7 @@ import {
 } from "./storage";
 import { shouldRefreshArtifactOnUpdate } from "./selection";
 import { OfficeFrame, SheetPreview } from "./FilePreviews";
+import { PublicLink } from "./ShareLink";
 import { officeKind } from "./officePreview";
 
 export function useMobile(query = "(max-width: 1050px)") {
@@ -440,6 +442,7 @@ export function ArtifactPanel({ id }: { id: string }) {
   const [versions, setVersions] = useState<ArtifactVersionDto[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [tab, setTab] = useState<"preview" | "edit">("preview");
+  const [sharing, setSharing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -624,6 +627,9 @@ export function ArtifactPanel({ id }: { id: string }) {
           </button>
         </div>
         <span className="spacer" />
+        <IconButton label="Share artifact" onClick={() => setSharing((v) => !v)}>
+          <Share2 size={16} />
+        </IconButton>
         <IconButton label="Copy artifact" onClick={() => void copy()}>
           <Copy size={16} />
         </IconButton>
@@ -699,6 +705,11 @@ export function ArtifactPanel({ id }: { id: string }) {
           </select>
         )}
       </div>
+      {sharing && (
+        <div className="artifact-share">
+          <PublicLink target={{ type: "artifact", id }} />
+        </div>
+      )}
       {viewingOld && (
         <div className="edit-notice">
           Viewing version {readVersion} of {currentVersion}.

@@ -1,5 +1,19 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-12 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Public share links for chats and artifacts ([ADR-0039](../decisions/0039-public-share-links.md)):
+> - The Share dialog creates, copies, updates ("Update to now") and stops a link. The artifact
+>   panel has the same control, and Settings > Data & privacy lists every live link.
+> - `/s/{token}` opens without an account, read only, `noindex`.
+> - The public payload is an allow-list: text, citations, rendered visuals and artifacts. No
+>   files, tool data, thinking, memory, usage or owner details.
+> - Migration 0019 `share_links` (`when` 1791300000000). New codes: `share_not_found`,
+>   `share_empty`.
+> - Checked in Chromium: share, open in a separate context, stop sharing, reload shows
+>   "This link is not available".
+> - **Deploy note:** `/v1/public/share/*` must be reachable without a session on Cloud Run
+>   (it is: auth is per-route).
+>
 > **2026-09-27 (latest): WP-11 done on `claude/tools-skills-architecture-jyxa61`, not live.**
 > Office files open in the file panel before download, from attachments and from created-file
 > cards (the card is now clickable, and the panel can expand):

@@ -44,6 +44,7 @@ import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import Composer, { AttachmentChip } from "./Composer";
 import Settings from "./Settings";
+import { PublicLink } from "./ShareLink";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
@@ -97,7 +98,21 @@ class ErrorBoundary extends Component<
   }
 }
 
+const SharedPage = lazy(() => import("./SharedPage"));
+
 export default function App() {
+  const location = useLocation();
+  // A shared link opens without an account (ADR-0039), so it is served before the session gate.
+  if (location.pathname.startsWith("/s/"))
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/s/:token" element={<SharedPage />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
+    );
   return (
     <ErrorBoundary>
       <SessionProvider>
@@ -1263,9 +1278,11 @@ function ShareButton({ chatId }: { chatId: string }) {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Take this conversation with you"
-        description="Conversations are private to your account. Export a copy to share one."
+        title="Share this conversation"
+        description="A link shows a snapshot of the chat as it is now. Messages you send later stay private until you update it."
       >
+        {open && <PublicLink target={{ type: "chat", id: chatId }} />}
+        <p className="share-divider">Or keep a copy</p>
         <div className="share-options">
           <button
             className="button"
@@ -1288,7 +1305,7 @@ function ShareButton({ chatId }: { chatId: string }) {
             <Copy size={17} />
             Copy conversation
           </button>
-          <button className="button primary" onClick={() => exportChat(chat)}>
+          <button className="button" onClick={() => exportChat(chat)}>
             <Download size={17} />
             Download Markdown
           </button>
@@ -1297,3 +1314,4 @@ function ShareButton({ chatId }: { chatId: string }) {
     </>
   );
 }
+

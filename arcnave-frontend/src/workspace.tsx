@@ -137,10 +137,24 @@ interface Context {
   /** Marks the quote with this timestamp as used, so no later composer pastes it again. */
   consumeQuote: (timestamp: number) => void;
   artifactUpdateEvent: { artifactId?: string; timestamp: number } | null;
+  /** Set only on a shared snapshot's page, where nothing belongs to the viewer. */
+  readOnly?: boolean;
 }
 
 const C = createContext<Context>(null!);
 export const useWorkspace = () => useContext(C);
+
+/**
+ * The workspace a shared snapshot's page gives what it renders (ADR-0039): there is no account
+ * behind it, so nothing can be saved or sent, and components that offer to hide the offer.
+ */
+export function ReadOnlyWorkspace({ children, toast }: { children: ReactNode; toast: (text: string) => void }) {
+  const value = useMemo(
+    () => ({ readOnly: true, toast, saveVisualAsArtifact: () => undefined }) as unknown as Context,
+    [toast],
+  );
+  return <C.Provider value={value}>{children}</C.Provider>;
+}
 
 const defaultPreferences: Preferences = {
   theme: "system",
