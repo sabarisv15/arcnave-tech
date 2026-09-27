@@ -1,6 +1,9 @@
 # ArcNave — current checkpoint
 
-> **2026-09-27 (latest): tools and skills match the reference one for one, on `claude/happy-maxwell-1h7hmx`, not live.**
+> **2026-09-27 (latest): tools and skills match the reference one for one; merged in PR #32 (`ca8599c`) and deployed.**
+> Main's Cloud Build for `ca8599c` succeeded (reported by the owner; this session had no GCP
+> access to see the revision). The Cloudflare frontend build also succeeded. Live behaviour is
+> not yet checked.
 > [ADR-0047](../decisions/0047-tools-and-skills-match-the-reference.md), checked against the
 > Opus 5.5, Sonnet 5 and Fable 5.1 app prompts.
 > - The computer: `bash_tool`, `view`, `create_file`, `str_replace`, `present_files` replace
@@ -15,8 +18,8 @@
 >   URLs already in the conversation.
 > - Removed as ours: visual QA pass, analytics policy, regex memory distiller.
 > - Backend typecheck clean, **917/917 tests**; frontend build and **178/178 tests**.
-> - Not run: a live turn with Gemini on the new tools, and the KVB + Federal check
->   (48 / 277 / 325). Both must pass before deployment, which needs the owner's approval.
+> - Next: a live turn on the new tools (a skill read with view, a file given with
+>   present_files, memory, image_search), and the KVB + Federal check (48 / 277 / 325).
 
 > **2026-09-27: tools and skills cut to the reference, on `claude/happy-maxwell-1h7hmx`, not live.**
 > [ADR-0046](../decisions/0046-tools-and-skills-cut-to-the-reference.md). Clean-up step only;
