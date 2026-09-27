@@ -49,7 +49,7 @@ import {
   toUsage,
 } from "./types";
 import type { Panel } from "./types";
-import { adoptServerId, appendSegment } from "./types";
+import { adoptServerId, appendSegment, applyVisualDraft } from "./types";
 
 type TranscriptState = "loading" | "ready" | "missing" | "failed";
 
@@ -110,6 +110,8 @@ interface Context {
   branch: (chatId: string, throughMessageId?: string) => void;
   exportChat: (chat: Chat) => void;
   saveResponseAsArtifact: (chatId: string, messageId: string) => void;
+  /** Keeps a visual from a reply as an artifact (ADR-0035): `svg` for an SVG root, else `webpage`. */
+  saveVisualAsArtifact: (visual: { title: string; html: string; kind: "svg" | "webpage"; chatId?: string }) => void;
   updatePreferences: (patch: Partial<Preferences>) => void;
   /**
    * Re-read preferences.
@@ -490,9 +492,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 },
               ],
             }));
+          if (event.type === "ui_draft")
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              status: "generating",
+              visualDrafts: applyVisualDraft(m.visualDrafts, event),
+            }));
           if (event.type === "tool_result")
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              // The finished visual follows as a checked ui_block; the draft goes now either way.
+              ...(event.name === "render_ui" ? { visualDrafts: undefined } : {}),
               toolCalls: (m.toolCalls ?? []).map((t) =>
                 t.toolCallId === event.toolCallId
                   ? { ...t, ok: event.ok, preview: event.preview }
@@ -545,6 +555,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             outcome = "complete";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              visualDrafts: undefined,
               status: "complete",
               questions: event.questions,
               usage: toUsage(event.usage),
@@ -555,6 +566,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             outcome = "error";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              visualDrafts: undefined,
               status: "error",
               error: event.code,
               errorTitle: event.title,
@@ -986,6 +998,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [messages, chats, patchMessage, toast, report],
   );
 
+  const saveVisualAsArtifact: Context["saveVisualAsArtifact"] = useCallback(
+    ({ title, html, kind, chatId }) => {
+      void api.artifacts
+        .create({ title: title.slice(0, 80) || "Visual", kind, content: html, chatId: chatId ?? null })
+        .then((created) => {
+          setArtifacts((list) => [toArtifact(created), ...list]);
+          setPanel({ kind: "artifact", id: created.id });
+          toast("Saved as an artifact");
+        })
+        .catch((error) => report(error, "The artifact could not be created."));
+    },
+    [toast, report],
+  );
+
   /* ------------------------------------------------------------------ preferences */
 
   const updatePreferences: Context["updatePreferences"] = useCallback(
@@ -1034,6 +1060,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       branch,
       exportChat,
       saveResponseAsArtifact,
+      saveVisualAsArtifact,
       updatePreferences,
       refreshPreferences,
       refreshChats,
@@ -1069,6 +1096,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       branch,
       exportChat,
       saveResponseAsArtifact,
+      saveVisualAsArtifact,
       updatePreferences,
       refreshPreferences,
       refreshChats,

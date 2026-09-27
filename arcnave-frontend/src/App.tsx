@@ -50,6 +50,7 @@ import type { Message, MessageUsage, Mode, ToolCall } from "./types";
 import { extractToolCardData, type DeliverableData, type ImageData } from "./toolCards";
 import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
+import { VisualDraft } from "./generative-ui/blocks/VisualDraft";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage, MarkdownErrorBoundary } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
@@ -873,8 +874,9 @@ function MessageView({
         </>
       )}
       {m.uiBlocks && m.uiBlocks.length > 0 && (
-        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />
+        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} chatId={chatId} />
       )}
+      {m.status === "generating" && m.visualDrafts?.map((d) => <VisualDraft key={d.id} draft={d} />)}
       {(() => {
         if (!m.toolCalls?.length) return null;
         const { deliverables, images } = extractToolCardData(m.toolCalls);

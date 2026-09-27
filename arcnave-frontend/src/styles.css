@@ -1,36 +1,6 @@
-@font-face {
-  font-family: "Anthropic Sans";
-  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cc27851ad-DDVos-BJ.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 300 800;
-  font-display: swap;
-  font-feature-settings: "dlig" 0;
-}
-@font-face {
-  font-family: "Anthropic Sans";
-  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c9d3a3a49-CJtkx3-S.woff2") format("woff2");
-  font-style: italic;
-  font-weight: 300 800;
-  font-display: swap;
-  font-feature-settings: "dlig" 0;
-}
-@font-face {
-  font-family: "Anthropic Serif";
-  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c66fc489e-2VcCjn5t.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 300 800;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Anthropic Serif";
-  src: url("https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cc410af59-Dcb-9NUS.woff2") format("woff2");
-  font-style: italic;
-  font-weight: 300 800;
-  font-display: swap;
-}
 :root {
   font-family:
-    "Anthropic Sans",
+    "Inter Variable",
     system-ui,
     "Segoe UI",
     Roboto,
@@ -218,7 +188,7 @@ p {
   margin: 0 8px 24px;
 }
 .brand {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-size: 34px;
   letter-spacing: -1.7px;
   line-height: 1;
@@ -360,7 +330,7 @@ p {
   margin: 22px 0 13px;
 }
 .home h1 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-weight: 400;
   font-size: 42px;
   line-height: 1.2;
@@ -1374,7 +1344,7 @@ textarea {
   margin: 0 0 11px;
 }
 .markdown h1 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-size: 34px;
   font-weight: 400;
   line-height: 1.25;
@@ -1667,7 +1637,7 @@ textarea {
   top: -2px;
   justify-content: center;
   align-items: center;
-  font-family: "Anthropic Sans", system-ui, "Segoe UI", sans-serif;
+  font-family: "Inter Variable", system-ui, "Segoe UI", sans-serif;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 10px;
@@ -1809,7 +1779,7 @@ textarea {
   border: 2px solid var(--surface);
   border-radius: 50%;
   font-style: normal;
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-size: 11px;
   background: #e4ebe3;
   color: #526653;
@@ -2039,7 +2009,7 @@ textarea {
   margin-bottom: 12px;
 }
 .page-heading h1 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-size: 37px;
   font-weight: 400;
   line-height: 1.25;
@@ -2378,20 +2348,20 @@ textarea {
   background: transparent;
 }
 .artifact-card-preview {
+  position: relative;
   height: 210px;
-  padding: 28px 30px;
   background: #f1f0ed;
   border-bottom: 1px solid var(--line);
   overflow: hidden;
 }
-.artifact-card-preview p {
+.artifact-card-placeholder p {
   font-size: 9px;
   letter-spacing: 1.6px;
   color: #7d817f;
   margin-bottom: 20px;
 }
-.artifact-card-preview h3 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+.artifact-card-placeholder h3 {
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-weight: 400;
   font-size: 24px;
   line-height: 1.3;
@@ -2399,24 +2369,89 @@ textarea {
   color: #48514f;
   margin-bottom: 20px;
 }
-.artifact-card-preview > span {
+.artifact-card-placeholder > span {
   display: block;
   height: 3px;
   background: #dcded8;
   margin-bottom: 9px;
   width: 90%;
 }
-.artifact-card-preview > span:last-child {
+.artifact-card-placeholder > span:last-child {
   width: 60%;
 }
 .artifact-card-preview.preview-blue {
   background: #e9eef1;
 }
-.artifact-card-preview code {
+.artifact-card-placeholder code {
   font-size: 12px;
   line-height: 1.8;
   display: block;
   margin-top: 20px;
+}
+.artifact-card-placeholder {
+  padding: 28px 30px;
+}
+/* Thumbnails are the artifact drawn small: a page is laid out at twice the card's size
+   and scaled down, so it wraps as it would in the panel rather than in a 300px box. */
+.artifact-thumb {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.artifact-thumb-frame {
+  width: 200%;
+  height: 200%;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.artifact-thumb-frame.is-image {
+  width: 100%;
+  height: 100%;
+  transform: none;
+}
+.artifact-thumb-frame .sandbox-frame,
+.artifact-thumb-frame iframe {
+  width: 100%;
+  height: 100%;
+}
+.artifact-thumb-frame iframe {
+  background: var(--surface);
+}
+.artifact-thumb-doc,
+.artifact-thumb-code {
+  width: 200%;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+  margin: 0;
+  padding: 36px 44px;
+  color: var(--ink);
+}
+.artifact-thumb-doc {
+  background: var(--surface);
+  min-height: 200%;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.artifact-thumb-doc h1,
+.artifact-thumb-doc h2,
+.artifact-thumb-doc h3 {
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  margin: 0 0 12px;
+}
+.artifact-thumb-doc p,
+.artifact-thumb-doc ul,
+.artifact-thumb-doc ol {
+  margin: 0 0 12px;
+}
+.artifact-thumb-code {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  background: var(--surface);
+  min-height: 200%;
 }
 .artifact-card-info {
   padding: 18px 20px 20px;
@@ -2651,7 +2686,7 @@ textarea {
   margin-bottom: 16px;
 }
 .research-callout h3 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-size: 24px;
   font-weight: 400;
   letter-spacing: -0.4px;
@@ -3284,13 +3319,13 @@ textarea {
 [data-theme="dark"] .artifact-card-preview {
   background: #30332f;
 }
-[data-theme="dark"] .artifact-card-preview h3 {
+[data-theme="dark"] .artifact-card-placeholder h3 {
   color: #cbd4cc;
 }
-[data-theme="dark"] .artifact-card-preview p {
+[data-theme="dark"] .artifact-card-placeholder p {
   color: #a8b0aa;
 }
-[data-theme="dark"] .artifact-card-preview > span {
+[data-theme="dark"] .artifact-card-placeholder > span {
   background: #4a5249;
 }
 [data-theme="dark"] .artifact-card-preview.preview-blue {
@@ -3304,12 +3339,12 @@ textarea {
   color: #bad1e0;
 }
 [data-font="serif"] .assistant-message > .markdown {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-size: 18px;
   line-height: 1.8;
 }
 [data-font="serif"] .assistant-message .markdown h2 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-weight: 600;
 }
 [data-font="readable"] .assistant-message > .markdown {
@@ -3327,7 +3362,7 @@ textarea {
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
-  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 [data-motion="reduced"] *,
 [data-motion="reduced"] *::before,
@@ -4083,7 +4118,7 @@ textarea {
 
 /* Claude-inspired workspace pass: quiet sans UI and editorial type only for display moments. */
 :root {
-  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 body,
@@ -4096,7 +4131,7 @@ select,
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
-  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 [data-font="readable"] .assistant-message > .markdown,
 [data-font="readable"] .assistant-message > .markdown h1,
@@ -4110,7 +4145,7 @@ select,
 .auth-brand,
 .auth-headline h1,
 .auth-art-copy h2 {
-  font-family: "Anthropic Serif", Georgia, "Times New Roman", serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
 }
 
 .brand {
@@ -4337,14 +4372,14 @@ select:focus-visible {
 }
 
 .markdown h1 {
-  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 30px;
   font-weight: 600;
   margin: 10px 0 16px;
 }
 
 .markdown h2 {
-  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 19px;
   font-weight: 600;
   margin: 14px 0 6px;
@@ -5700,3 +5735,125 @@ select:focus-visible {
 .thinking-text p { margin: 0 0 8px; }
 .thinking-text strong { display: block; margin: 6px 0 4px; color: var(--ink); font-weight: 600; }
 .thinking-block .tool-activity-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Sandboxed model HTML: inline visuals and webpage/svg artifacts (ADR-0035) */
+.sandbox-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.sandbox-frame iframe {
+  width: 100%;
+  border: 0;
+  flex: 1;
+  background: var(--surface);
+}
+.sandbox-frame-note {
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+/* An inline visual sits in the reply like the text around it: no box of its own, and its
+   document is transparent, so ArcNave's page shows through in either theme. */
+.ui-visual {
+  margin: 16px 0;
+}
+.ui-visual-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (hover: hover) {
+  .ui-visual:not(.ui-visual-full) .ui-visual-actions {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .ui-visual:hover .ui-visual-actions,
+  .ui-visual:focus-within .ui-visual-actions {
+    opacity: 1;
+  }
+}
+.ui-visual .sandbox-frame iframe {
+  background: transparent;
+}
+/* Inline, the frame takes the height its document reports; flex: 1 would size it from its
+   150px default instead and cut the visual off. */
+.ui-visual:not(.ui-visual-full) .sandbox-frame iframe {
+  flex: 0 0 auto;
+}
+.ui-visual-title {
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-visual-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.ui-visual-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ui-visual-actions button:hover,
+.ui-visual-actions button:focus-visible {
+  border-color: var(--line);
+  color: var(--ink);
+}
+.ui-visual .sandbox-frame iframe {
+  min-height: 80px;
+}
+.ui-visual-full {
+  position: fixed;
+  inset: 16px;
+  z-index: 1000;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 16px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgb(0 0 0 / 0.3);
+}
+.ui-visual-full .sandbox-frame {
+  flex: 1;
+}
+.ui-visual-drawing {
+  color: var(--muted);
+  animation: ui-visual-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ui-visual-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-visual-drawing {
+    animation: none;
+  }
+}
+.ui-visual-missing p {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}

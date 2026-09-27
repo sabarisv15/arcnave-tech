@@ -312,3 +312,46 @@ describe('UI Validator & Normalizer (Phase 6)', () => {
     expect(clean).not.toContain('javascript:');
   });
 });
+
+describe('visual blocks (ADR-0035)', () => {
+  const visual = (html: string) => ({ type: 'visual', title: 'Compound interest', html });
+
+  it('accepts a visual with scripts and keeps its HTML for the client', () => {
+    const html = '<input type="range" id="r"><script>r.oninput=()=>{}</script>';
+    const result = validateAndNormalizeUI({ blocks: [visual(html)] });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.blocks[0]).toMatchObject({ type: 'visual', html });
+  });
+
+  it('counts the HTML limit in UTF-8 bytes, with a stable code', () => {
+    // 70,000 characters but 210,000 bytes: a character count would let it through.
+    const result = validateAndNormalizeUI({ blocks: [visual('அ'.repeat(70_000))] });
+    expect(result).toMatchObject({ ok: false, code: 'visual_too_large' });
+  });
+
+  it('takes a visual at the limit', () => {
+    expect(validateAndNormalizeUI({ blocks: [visual('a'.repeat(200_000))] }, 100_000).ok).toBe(true);
+  });
+
+  it('does not count visual HTML against the response cap, but counts everything else', () => {
+    expect(validateAndNormalizeUI({ blocks: [visual('a'.repeat(150_000))] }, 100_000).ok).toBe(true);
+    const big = { type: 'text', text: 'b'.repeat(15_000) };
+    expect(validateAndNormalizeUI({ blocks: [visual('<p>x</p>'), big] }, 10_000).ok).toBe(false);
+  });
+
+  it('allows at most two visuals per response', () => {
+    const result = validateAndNormalizeUI({ blocks: [visual('<p>1</p>'), visual('<p>2</p>'), visual('<p>3</p>')] });
+    expect(result).toMatchObject({ ok: false, code: 'visual_limit' });
+  });
+
+  it('rejects a visual inside a dashboard', () => {
+    const result = validateAndNormalizeUI({
+      blocks: [{ type: 'dashboard', title: 'D', layout: '1col', blocks: [visual('<p>x</p>')] }],
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('still rejects scripts in every other block', () => {
+    expect(validateAndNormalizeUI({ blocks: [{ type: 'text', text: '<script>alert(1)</script>' }] }).ok).toBe(false);
+  });
+});

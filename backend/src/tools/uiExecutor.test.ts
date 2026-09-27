@@ -152,3 +152,36 @@ describe('UIToolExecutor (render_ui Tool Execution)', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('render_ui visual blocks (ADR-0035)', () => {
+  const authorizer = {
+    filterAuthorizedUI: vi.fn(async (res: UIResponseV1) => res),
+  } as unknown as UIAuthorizer;
+  const ctx = { userId: '00000000-0000-0000-0000-000000000001', chatId: '00000000-0000-0000-0000-000000000002' };
+
+  it('streams the HTML to the client but sends the model only its size', async () => {
+    const onBlock = vi.fn();
+    const html = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
+    const executor = new UIToolExecutor(authorizer, ctx, 100_000, onBlock);
+    const result = await executor.execute(
+      { id: 'c1', name: 'render_ui', input: { blocks: [{ type: 'visual', title: 'Dot', html }] } },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect((onBlock.mock.calls[0]![0] as UIBlock & { html?: string }).html).toBe(html);
+    const sent = (result.content[0] as { type: 'json'; data: UIResponseV1 }).data.blocks[0]!;
+    expect(sent).toMatchObject({ type: 'visual', title: 'Dot', htmlBytes: Buffer.byteLength(html) });
+    expect(JSON.stringify(result.content)).not.toContain('<circle');
+  });
+
+  it('fails an oversized visual with its code in the result', async () => {
+    const executor = new UIToolExecutor(authorizer, ctx, 100_000);
+    const result = await executor.execute(
+      { id: 'c2', name: 'render_ui', input: { blocks: [{ type: 'visual', title: 'Big', html: 'a'.repeat(200_001) }] } },
+      new AbortController().signal,
+    );
+    expect(result.ok).toBe(false);
+    expect((result.content[0] as { type: 'text'; text: string }).text).toContain('(visual_too_large)');
+  });
+});

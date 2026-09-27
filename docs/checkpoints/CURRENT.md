@@ -1,5 +1,47 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): visuals drawn while written (ADR-0037), same branch, not live.**
+> - Gemini asks for `streamFunctionCallArguments` when `render_ui` is declared;
+>   `StreamedCallAssembler` rebuilds the call. On `INVALID_ARGUMENT` it falls back to whole calls
+>   for that model. Kill switch: `GEMINI_STREAM_TOOL_ARGS=false`.
+> - Claude reports `render_ui` input from the SDK snapshot; `eager_input_streaming` is not set yet.
+> - SSE `ui_draft` sends only new characters; `SandboxFrame draft` redraws markup without reloading
+>   the frame, and scripts wait for the finished block.
+> - **Not yet run against a real Vertex model.** First live check: ask for a visual and watch
+>   it fill in; look for "streamed function-call arguments were rejected" in the logs.
+>
+> **2026-09-27: visuals inherit ArcNave's theme (ADR-0036), same branch `feat/wp-10-visual-sandbox`, not live.**
+> - The sandbox document now carries ArcNave's light/dark tokens, `:where()` base styles, and
+>   layout/SVG classes; the theme follows ArcNave by message, without reloading the frame.
+> - Chart.js picks up theme colours; `window.arcnave.colors()` and `onThemeChange` exist.
+> - `GENERATIVE_UI_POLICY_V1` has a compact visual design guide in our own words.
+> - Fixed: inline frames were stuck at 150px (`flex: 1` beat `height`).
+> - Artifact library cards show the artifact itself (`ArtifactThumbnail.tsx`), read lazily.
+> - Anthropic's brand fonts removed; Inter and Source Serif 4 (OFL) are bundled.
+> - Verified in Chromium in both themes; tests frontend 111, backend 976.
+>
+> **2026-09-26: WP-10 sandboxed visuals (ADR-0035), on branch `feat/wp-10-visual-sandbox`, not live.**
+> - `render_ui` has a `visual` block: model-written HTML with scripts, at most 200,000 bytes and
+>   2 per response. Over the limit, the tool fails with `visual_too_large` or `visual_limit`.
+>   The model's tool result carries `htmlBytes`, not the HTML; the client restores it from the
+>   call input on reload.
+> - `SandboxFrame.tsx` is the only place model HTML runs: `sandbox="allow-scripts"`, never
+>   same-origin, with ArcNave's CSP first. It accepts only resize and prompt messages from its own
+>   frame, and resets on self-navigation. A visual's prompt goes to the composer; it is not sent.
+> - Webpage artifacts now run scripts in the same frame. New artifact kind `svg` (migration
+>   0016, hand-stamped `when` 1791000000000).
+> - Verified in real Chromium against the local stack:
+>   - the slider works;
+>   - `fetch` and images are blocked by the CSP; cookie, storage, popup and top navigation are
+>     blocked by the sandbox;
+>   - the prompt reaches the composer;
+>   - a link click is reset with "Navigation blocked";
+>   - the SVG and webpage artifacts render.
+> - Tests: backend 976, frontend 101.
+> - Migration clash: WP-04 and WP-05 also add a migration 0016. Whichever merges second deletes
+>   its own and re-runs `npm run db:generate`, then re-stamps `when` above the latest.
+>
+> **2026-09-26 (latest): WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
 > **2026-09-26 (latest): WP-03 (Keyboard shortcuts and readable font — Gaps 17 and 20) completed on branch `feat/wp-03-shortcuts-font`.**
 > - Worktree: `d:/arcnave-wp03` on branch `feat/wp-03-shortcuts-font`.
 > - Shortcuts: Added `Ctrl/Cmd + Shift + O` (new conversation) and `Ctrl/Cmd + Shift + C` (copy last complete assistant answer, with toast feedback). Retained `Ctrl/Cmd + K`, `Ctrl/Cmd + P`, and `Ctrl/Cmd + ,`. Noted browser conflicts (DevTools inspect on `Ctrl+Shift+C`, bookmarks on `Ctrl+Shift+O`) in Settings -> Keyboard shortcuts.

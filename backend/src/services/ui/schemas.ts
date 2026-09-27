@@ -254,6 +254,18 @@ export const dashboardBlockSchema = z.object({
   filters: z.array(dashboardFilterSchema).max(5).optional(),
 });
 
+/**
+ * Model-written HTML for the client's sandbox (ADR-0035). Unlike every other block it may hold
+ * scripts: it never reaches ArcNave's page, only an `allow-scripts` iframe with a CSP. Its size
+ * is checked in bytes by the validator (VISUAL_MAX_HTML_BYTES), not here.
+ */
+export const visualBlockSchema = z.object({
+  ...baseBlockSchema,
+  type: z.literal('visual'),
+  title: safeString(200),
+  html: z.string().min(1),
+});
+
 /* -------------------------------------------------------------------------- Union & Response */
 
 export const uiBlockSchema: z.ZodType<UIBlock> = z.discriminatedUnion('type', [
@@ -267,6 +279,7 @@ export const uiBlockSchema: z.ZodType<UIBlock> = z.discriminatedUnion('type', [
   cardsBlockSchema,
   sourcesBlockSchema,
   dashboardBlockSchema,
+  visualBlockSchema,
 ]);
 
 export const uiResponseV1Schema: z.ZodType<UIResponseV1> = z.object({
@@ -303,11 +316,17 @@ export function getProviderSafeUISchema(): Record<string, unknown> {
                 'cards',
                 'sources',
                 'dashboard',
+                'visual',
               ],
               description: 'The discriminator type of the UI block.',
             },
             title: { type: 'string', description: 'Optional title heading for the block.' },
             text: { type: 'string', description: 'Markdown content (for text blocks).' },
+            html: {
+              type: 'string',
+              description:
+                'For visual blocks only: a self-contained HTML document (inline CSS and JS; libraries only from cdnjs.cloudflare.com or cdn.jsdelivr.net; no network requests; fonts and images as data: URIs). At most 200,000 bytes.',
+            },
             columns: {
               type: 'array',
               description: 'Table column specifications with key, label, valueType, and align.',

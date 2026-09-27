@@ -18,7 +18,13 @@ export interface ValidationFailure {
   ok: false;
   fallbackText: string;
   error: string;
+  /** Stable code for failures a caller acts on, e.g. `visual_too_large`. */
+  code?: string;
 }
+
+/** Per visual block (ADR-0035). Its HTML is counted here, not in the response's own byte cap. */
+export const VISUAL_MAX_HTML_BYTES = 200_000;
+export const VISUAL_MAX_PER_RESPONSE = 2;
 
 export type ValidationResult = ValidationSuccess | ValidationFailure;
 
@@ -80,8 +86,35 @@ export function validateAndNormalizeUI(input: unknown, maxBytes: number = 100_00
     };
   }
 
+  // Visuals carry their own HTML cap; the response cap below counts everything else.
+  const visuals = raw.blocks.filter(
+    (b): b is Record<string, unknown> => !!b && typeof b === 'object' && (b as Record<string, unknown>)['type'] === 'visual',
+  );
+  if (visuals.length > VISUAL_MAX_PER_RESPONSE) {
+    return {
+      ok: false,
+      code: 'visual_limit',
+      fallbackText: 'The visual could not be drawn.',
+      error: `visual_limit: ${visuals.length} visual blocks; at most ${VISUAL_MAX_PER_RESPONSE} per response.`,
+    };
+  }
+  for (const v of visuals) {
+    const bytes = typeof v['html'] === 'string' ? Buffer.byteLength(v['html'], 'utf8') : 0;
+    if (bytes > VISUAL_MAX_HTML_BYTES) {
+      return {
+        ok: false,
+        code: 'visual_too_large',
+        fallbackText: 'The visual could not be drawn because its HTML is too large.',
+        error: `visual_too_large: visual HTML is ${bytes} bytes; the limit is ${VISUAL_MAX_HTML_BYTES}.`,
+      };
+    }
+  }
+
   // Pre-serialization byte limit check
-  const serialized = JSON.stringify(input);
+  const serialized = JSON.stringify({
+    ...raw,
+    blocks: raw.blocks.map((b) => (visuals.includes(b as Record<string, unknown>) ? { ...(b as object), html: '' } : b)),
+  });
   if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
     return {
       ok: false,

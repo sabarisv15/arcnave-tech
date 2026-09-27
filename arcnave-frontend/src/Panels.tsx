@@ -26,6 +26,7 @@ import { EmptyState, IconButton } from "./ui";
 import { Markdown } from "./Content";
 import { rehypePluginsWithDetection } from "./markdownPlugins";
 import { languageFromFilename } from "./codeLanguage";
+import { SandboxFrame } from "./SandboxFrame";
 import type { Attachment, Source } from "./types";
 import {
   canPreviewText,
@@ -439,7 +440,6 @@ function ArtifactPanel({ id }: { id: string }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [failedPreview, setFailedPreview] = useState(false);
   const draftKey = `artifact-draft:${id}`;
 
   const load = useCallback(
@@ -636,9 +636,9 @@ function ArtifactPanel({ id }: { id: string }) {
               download(
                 content,
                 `${meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact"}.${
-                  kind === "webpage" ? "html" : kind === "code" ? "js" : "md"
+                  kind === "webpage" ? "html" : kind === "svg" ? "svg" : kind === "code" ? "js" : "md"
                 }`,
-                kind === "webpage" ? "text/html" : "text/plain",
+                kind === "webpage" ? "text/html" : kind === "svg" ? "image/svg+xml" : "text/plain",
               )
             }
           >
@@ -685,7 +685,7 @@ function ArtifactPanel({ id }: { id: string }) {
         </div>
       )}
       <div
-        className={`artifact-content ${kind === "webpage" && tab === "preview" ? "web-preview" : ""}`}
+        className={`artifact-content ${(kind === "webpage" || kind === "svg") && tab === "preview" ? "web-preview" : ""}`}
       >
         {tab === "edit" ? (
           <>
@@ -724,30 +724,10 @@ function ArtifactPanel({ id }: { id: string }) {
               </button>
             </div>
           </>
-        ) : kind === "webpage" ? (
-          failedPreview ? (
-            <EmptyState
-              icon={<Code2 />}
-              title="Preview could not load"
-              description="The source is still available in Edit."
-              action={
-                <button
-                  className="button"
-                  onClick={() => setFailedPreview(false)}
-                >
-                  Retry preview
-                </button>
-              }
-            />
-          ) : (
-            <iframe
-              title={`${meta?.title ?? "Artifact"} preview`}
-              sandbox=""
-              referrerPolicy="no-referrer"
-              srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">${content}`}
-              onError={() => setFailedPreview(true)}
-            />
-          )
+        ) : kind === "webpage" || kind === "svg" ? (
+          // Scripts in a webpage run, under the same sandbox as an inline visual (ADR-0035). An
+          // SVG is drawn in it too, never inline in ArcNave's own page.
+          <SandboxFrame html={content} title={`${meta?.title ?? "Artifact"} preview`} layout="page" />
         ) : kind === "code" ? (
           <Markdown
             text={

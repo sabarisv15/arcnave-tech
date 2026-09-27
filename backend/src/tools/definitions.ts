@@ -332,8 +332,8 @@ export const CREATE_ARTIFACT: ToolDefinition = {
       },
       kind: {
         type: 'string',
-        enum: ['document', 'code', 'webpage'],
-        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), or 'webpage' (HTML). Defaults to 'document'.",
+        enum: ['document', 'code', 'webpage', 'svg'],
+        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network, and gets the same theme tokens, element styles and chart library options as a render_ui visual), or 'svg' (an SVG image). Defaults to 'document'.",
       },
       content: {
         type: 'string',
@@ -724,6 +724,10 @@ export const RENDER_UI: ToolDefinition = {
     'structured presentation significantly improves clarity (e.g. comparing options, ' +
     'plotting time-series or categorical data, displaying KPI metrics with deltas/trends, ' +
     'showing project timelines, or laying out multi-step processes or interactive dashboards). ' +
+    "A 'visual' block holds your own self-contained HTML (with CSS and JavaScript) for a diagram, chart or small " +
+    'interactive explanation that text and the other blocks cannot show, such as a slider that changes a curve. ' +
+    'It runs in a sandbox with no network: no fetch, forms, popups or external images; libraries only from ' +
+    'cdnjs.cloudflare.com or cdn.jsdelivr.net. window.arcnave.prompt(text) suggests a follow-up for the user to send. ' +
     'Do not call this for simple conversational text or greetings.',
   inputSchema: getProviderSafeUISchema(),
 };

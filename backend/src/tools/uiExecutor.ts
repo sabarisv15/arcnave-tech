@@ -29,7 +29,7 @@ export class UIToolExecutor implements ToolExecutor {
         content: [
           {
             type: 'text',
-            text: `UI rendering validation failed: ${result.error}. Safe fallback displayed:\n${result.fallbackText}`,
+            text: `UI rendering validation failed${result.code ? ` (${result.code})` : ''}: ${result.error}. Safe fallback displayed:\n${result.fallbackText}`,
           },
         ],
       };
@@ -50,9 +50,25 @@ export class UIToolExecutor implements ToolExecutor {
       content: [
         {
           type: 'json',
-          data: authorizedResponse,
+          data: withoutVisualHtml(authorizedResponse),
         },
       ],
     };
   }
+}
+
+/**
+ * The result the model gets back, and history replays: a visual's HTML is already in the
+ * model's own call, so the result carries only its size (ADR-0035). The client restores the
+ * HTML from the call input by `sequence` on reload.
+ */
+export function withoutVisualHtml(response: UIResponseV1): UIResponseV1 {
+  return {
+    ...response,
+    blocks: response.blocks.map((b) =>
+      b.type === 'visual' && typeof b.html === 'string'
+        ? { blockId: b.blockId, sequence: b.sequence, type: b.type, title: b.title, htmlBytes: Buffer.byteLength(b.html, 'utf8') }
+        : b,
+    ),
+  };
 }

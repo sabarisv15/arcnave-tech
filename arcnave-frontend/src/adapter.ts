@@ -66,6 +66,8 @@ export type StreamEvent =
       version: number;
     }
   | { type: "ui_block"; block: UIBlock }
+  /** A visual while the model writes it (ADR-0037): `text` continues the draft from `from`. */
+  | { type: "ui_draft"; draftId: string; title: string; from: number; text: string }
   | { type: "debug"; trace: RuntimeDebugTrace }
   | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
   | {

@@ -37,7 +37,7 @@ const createSchema = z.object({
     .trim()
     .min(1, 'Title must not be empty')
     .max(200, 'Title must not exceed 200 characters'),
-  kind: z.enum(['document', 'code', 'webpage']).default('document'),
+  kind: z.enum(['document', 'code', 'webpage', 'svg']).default('document'),
   content: z.string().min(1, 'Content must not be empty'),
 });
 

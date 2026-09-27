@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { COMPOSE_EVENT } from "./generative-ui/blocks/VisualBlock";
 import {
   ArrowUp,
   ChevronDown,
@@ -194,6 +195,19 @@ export default function Composer({
   useEffect(() => {
     if (initialMode) setMode(initialMode);
   }, [initialMode]);
+  // A visual's suggested follow-up lands here for the user to send (ADR-0035). Only the live
+  // conversation's composer takes it.
+  useEffect(() => {
+    if (!chatId) return;
+    const onCompose = (event: Event) => {
+      const suggested = (event as CustomEvent<{ text?: unknown }>).detail?.text;
+      if (typeof suggested !== "string" || !suggested) return;
+      setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${suggested}` : suggested));
+      textarea.current?.focus();
+    };
+    window.addEventListener(COMPOSE_EVENT, onCompose);
+    return () => window.removeEventListener(COMPOSE_EVENT, onCompose);
+  }, [chatId]);
   useEffect(() => {
     if (artifactIntent) setArtifact(true);
   }, [artifactIntent]);
