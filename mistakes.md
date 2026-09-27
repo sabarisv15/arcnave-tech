@@ -1255,3 +1255,8 @@ practice, not canon.
   the router does not know `ENABLE_TOOL_USE`, so with tool use off it still queried memory
   (13 chat tests failed with CONNECTION_ENDED). Rule: gate prompt text on the tools actually
   declared on the request. Verify: `chats.integration.test.ts` passes whole, not only one test.
+- **2026-09-27 (merge claim)** — No new heading (at the cap). Before merging PR #32 I told the
+  owner "backend is not deployed by this merge", from the Cloudflare entry alone; CURRENT.md
+  also records that main's Cloud Build trigger deploys the backend. The session had no GCP
+  credentials to check which happened. Rule: before a merge to main, read CURRENT.md for every
+  trigger on main and name each one to the owner; say "unverified" when it cannot be checked.
