@@ -1205,7 +1205,7 @@ practice, not canon.
   resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
   (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
 
-- **2026-09-27 (Claude-aligned PDF reading)** — No new heading (at the 40-entry cap). Two catches:
+- **2026-09-27 (PDF reading split)** — No new heading (at the 40-entry cap). Two catches:
   (1) A skill and a tool description gave opposite orders: the pdf skill said to use
   `extract_scanned_table_rows` only *without* run_python, the tool said to call it first because
   run_python cannot read a scanned page. Live, with run_python on, Gemini followed the skill, read

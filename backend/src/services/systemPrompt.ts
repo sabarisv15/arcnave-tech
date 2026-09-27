@@ -63,8 +63,8 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
   `<tool_use>\n\n` +
     `Answer directly when tools are unnecessary. Use a tool when it materially improves correctness or the task needs current information, file access, project retrieval, computation, verification, or creating a file. Prefer the most direct tool, and do not re-fetch what is already reliable in context.\n\n` +
     `Run independent calls together; keep dependent ones in order. Read each important result before deciding the next step: a call that was accepted has not necessarily succeeded.\n\n` +
-    // Opus 5.5's claude.ai prompt carries this one sentence rather than a verification section:
-    // a figure read off a page by eye went out as fact (172 entries for 277, 2026-09-27).
+    // One scoped sentence rather than a verification section (ADR-0044): a figure read off a
+    // page by eye went out as fact (172 entries for 277, 2026-09-27).
     `A few lookups to scope a question are fine, but do not estimate figures in prose. When the answer is an exact figure taken from a file or data (a count, a total, every row or entry), get the data into a tool result or file and compute the figure with a tool. A summary, or a question one visible passage answers, needs no computation.\n\n` +
     `Before your first tool call, say in one sentence what you are about to do, in the user's language. While working, give a brief update only when you find something important or change direction.\n\n` +
     `When a tool fails:\n1. read the actual error;\n2. decide whether the input or approach should change;\n3. retry only when there is a reason it could now succeed;\n4. switch approaches when the same failure repeats;\n5. carry on with independent work.\n\n` +

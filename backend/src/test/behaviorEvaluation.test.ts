@@ -171,7 +171,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('own them and work to fix them');
     });
 
-    it('Eval 11b2: Exact figures are computed, not estimated, as in Opus 5.5\'s prompt', () => {
+    it('Eval 11b2: Exact figures are computed, not estimated (ADR-0044)', () => {
       expect(masterPrompt).toContain('do not estimate figures in prose');
       expect(masterPrompt).toContain('compute the figure with a tool');
       // Scoped to exact figures: a summary still needs no computation (mistakes.md, 2026-09-26).
@@ -179,9 +179,13 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('an exact count or total over a file is not such a question');
     });
 
-    it('Eval 11b3: A building skill is loaded once the material is in hand, as in Opus 5.5\'s prompt', () => {
+    it('Eval 11b3: A building skill is loaded once the material is in hand (ADR-0044)', () => {
       expect(masterPrompt).toContain('load a skill that builds a file after the material is in hand');
       expect(masterPrompt).toContain('load a skill that helps gather or read the material');
+    });
+
+    it('Eval 11b4: The prompt names no other assistant as what ArcNave is or follows (ADR-0044)', () => {
+      expect(masterPrompt).not.toMatch(/\b(claude|opus|anthropic)\b/i);
     });
 
     it('Eval 11c: Current user language and script take priority, including Tanglish', () => {

@@ -105,6 +105,12 @@ describe('skill content matches the code', () => {
     for (const phrase of STALE) expect(text).not.toContain(phrase);
   });
 
+  it.each(skills)('$dir: names no other assistant as what ArcNave is or follows (ADR-0044)', ({ text }) => {
+    // The reserved-word rule for skill names is the one place these words may appear.
+    const prose = text.replace(/^.*must not contain.*$|^.*"anthropic" or "claude".*$/gim, '');
+    expect(prose).not.toMatch(/\b(claude|opus|anthropic)\b/i);
+  });
+
   it.each(skills)('$dir: description says when to use it', ({ dir }) => {
     const description = service.getSkill(dir)?.description ?? '';
     expect(description).toMatch(/\bUse (when|whenever|for)\b|Applied automatically/);

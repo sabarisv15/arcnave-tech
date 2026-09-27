@@ -33,7 +33,7 @@ describe('SkillService', () => {
     expect(names).toContain('python-sandbox-patterns');
   });
 
-  it('splits PDF reading from PDF building, as Claude\'s pdf and pdf-reading skills do', () => {
+  it('splits PDF reading from PDF building', () => {
     const reading = service.getSkill('pdf-reading', []);
     expect(reading).not.toBeNull();
     // Reading needs no tool to be offered: a PDF can arrive in a turn with nothing else enabled.

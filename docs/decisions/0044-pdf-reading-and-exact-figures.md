@@ -1,4 +1,4 @@
-# ADR-0044: PDF reading and exact figures follow Claude Opus 5.5
+# ADR-0044: PDF reading is its own skill, and exact figures are computed
 
 - Status: accepted. Tested locally (typecheck, full suite); not deployed.
 - Date: 2026-09-27
@@ -14,33 +14,34 @@ KVB + Federal statement. With run_python on, the pdf skill told the model to rea
 first. The model followed the skill, used all 16 tool rounds, then stated 172 Federal entries
 (the document has 277) and credit subtotals its own rows did not add up to.
 
-Compared with Claude:
+ArcNave is its own product; the reference assistant it is compared against is a design input,
+not something it names or imitates to users. Three gaps against that reference:
 
-- Opus 5.5's claude.ai prompt has no verification section, but it has one sentence: Claude
-  "doesn't … estimate figures in prose; it gets the data into files and computes." ArcNave's
-  prompt had neither.
-- Opus 5.5 reads a building skill after gathering the material: "Opened first, the skill's
-  instructions pull the work toward layouts … and the result is a polished file with thin
-  content." ArcNave's prompt said load the skill first.
-- Claude keeps `pdf` (create, merge, split, fill) and `pdf-reading` (inventory, text
-  extraction, rasterizing, tables; "Data-Heavy: use pdfplumber for tables") as separate skills.
-  ArcNave had one.
+- The reference prompt has no verification section, but it has one sentence against
+  estimating figures in prose: the data goes into files and is computed. ArcNave's prompt had
+  neither.
+- The reference reads a building skill after gathering the material, because a skill opened
+  first pulls the work toward layout while there is nothing to put in it. ArcNave's prompt said
+  load the skill first.
+- The reference keeps building PDFs and reading PDFs as separate skills, with tables read by
+  `pdfplumber` when there is a text layer. ArcNave had one skill.
 
 ## Decision
 
-1. The static prompt carries the Opus 5.5 sentence, scoped to exact figures from a file or
-   data; summaries still need no computation. It names no tool, so it holds whatever the turn
-   allows.
+1. The static prompt carries one sentence against estimating figures in prose, scoped to exact
+   figures from a file or data; summaries still need no computation. It names no tool, so it
+   holds whatever the turn allows.
 2. The skills section says: a skill that gathers or reads material is loaded before that work;
    a skill that builds a file is loaded once the material is in hand.
 3. `pdf-reading` is a new skill with no required tools. It routes by page type: text layer →
    `pdfplumber`; scanned → `extract_scanned_table_rows` (found with `search_tools`), whether or
    not run_python is on. `pdf` keeps creating, changing and converting PDFs. The two table
    scripts stay under `skills/pdf/scripts/`, because the tools run them from there.
+4. Model-facing text (prompt, skills, tool descriptions) names no other assistant or model
+   family as what ArcNave is or follows. The skill-creator skill's "same as …" line was removed.
 
 Not done here: sending `.xlsx`/`.docx` to the model as files to read with code instead of
-inline text, as Claude does. That changes the attachment pipeline and ADR-0004/0011 and needs
-its own decision.
+inline text. That changes the attachment pipeline and ADR-0004/0011 and needs its own decision.
 
 ## Consequences
 

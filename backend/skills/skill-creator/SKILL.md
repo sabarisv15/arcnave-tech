@@ -41,7 +41,7 @@ metadata:
 ---
 ```
 
-Field rules (the same as Claude's Agent Skills; a skill that breaks one is not loaded):
+Field rules (a skill that breaks one is not loaded):
 
 - `name`: at most 64 characters; lowercase letters, numbers and hyphens only; must not contain
   "anthropic" or "claude"; must equal the skill's directory name.
