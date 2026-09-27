@@ -207,6 +207,12 @@ export type ProviderEvent =
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown; thoughtSignature?: string }
   | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
+  /**
+   * ADR-0037: a call's arguments so far, while the model is still writing them. `index` is the
+   * call's place in this response. `input` is live and changes after the event: read it at once.
+   * Nothing runs on it; the call runs from its `tool_use` once complete.
+   */
+  | { type: 'tool_input_partial'; index: number; name: string; input: Record<string, unknown> }
   /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
   | { type: 'refusal'; category: string | null; explanation: string | null }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };

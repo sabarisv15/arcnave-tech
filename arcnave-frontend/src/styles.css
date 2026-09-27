@@ -5822,6 +5822,20 @@ select:focus-visible {
 .ui-visual-full .sandbox-frame {
   flex: 1;
 }
+.ui-visual-drawing {
+  color: var(--muted);
+  animation: ui-visual-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ui-visual-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-visual-drawing {
+    animation: none;
+  }
+}
 .ui-visual-missing p {
   margin: 0;
   padding: 12px 14px;

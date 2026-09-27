@@ -388,3 +388,44 @@ describe('AnthropicVertexProvider timeouts (ADR-0024)', () => {
     expect((client.calls[0] as { output_config?: unknown }).output_config).toEqual({ effort: 'xhigh' });
   });
 });
+
+describe('AnthropicVertexProvider partial tool input (ADR-0037)', () => {
+  it('reports a render_ui call while it streams, from the SDK snapshot, and no other tool', async () => {
+    // The SDK's MessageStream keeps `currentMessage` up to date before each event is read.
+    const snapshots = [
+      [{ type: 'tool_use', id: 's', name: 'search_project_files', input: { query: 'x' } }],
+      [
+        { type: 'tool_use', id: 's', name: 'search_project_files', input: { query: 'x' } },
+        { type: 'tool_use', id: 'v', name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg>' }] } },
+      ],
+    ];
+    const events = [
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"x"}' } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"blocks":[' } },
+    ];
+    let current: unknown[] = [];
+    const stream = {
+      get currentMessage() {
+        return { content: current };
+      },
+      [Symbol.asyncIterator]() {
+        let i = 0;
+        return {
+          next: () => {
+            if (i >= events.length) return Promise.resolve({ value: undefined, done: true });
+            current = snapshots[i]!;
+            return Promise.resolve({ value: events[i++]!, done: false });
+          },
+        };
+      },
+      finalMessage: () => Promise.resolve({ content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' }),
+    };
+    const client = new FakeAnthropicClient();
+    client.responses = [stream as never];
+    const provider = new AnthropicVertexProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const out = await collect(provider.stream(baseRequest()));
+    expect(out.filter((e) => e.type === 'tool_input_partial')).toEqual([
+      { type: 'tool_input_partial', index: 1, name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg>' }] } },
+    ]);
+  });
+});

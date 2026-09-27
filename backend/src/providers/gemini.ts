@@ -4,6 +4,7 @@
  * Deliberately not the legacy Vertex generative modules: those were removed on 2026-06-24.
  * See docs/backend-research.md section 1.
  */
+import { StreamedCallAssembler } from './streamedCall.js';
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Content, FunctionDeclaration, Part, Blob as GeminiBlob } from '@google/genai';
 
@@ -258,6 +259,8 @@ export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage 
 export class GeminiProvider implements Provider {
   readonly name = 'google';
   private client: Pick<GoogleGenAI, 'models'> | undefined;
+  // Models Vertex refused `streamFunctionCallArguments` for; they get whole calls from then on.
+  private readonly wholeCallModels = new Set<string>();
 
   constructor(
     private readonly cfg: Config,
@@ -382,7 +385,14 @@ export class GeminiProvider implements Provider {
           ? `${request.systemInstruction ? `${request.systemInstruction}\n\n` : ''}${FINAL_ROUND_NOTE}`
           : request.systemInstruction;
         if (lastPromptTokens >= editing.triggerTokens) contents = clearOldFunctionResponses(contents, editing);
-        const open = (forceAnswer: boolean) => this.getClient().models.generateContentStream({
+        // Arguments stream while written only when a call can show them (a render_ui visual)
+        // and the model takes the option; everything else is unchanged (ADR-0037).
+        const streamArgs =
+          useTools &&
+          this.cfg.GEMINI_STREAM_TOOL_ARGS &&
+          !this.wholeCallModels.has(request.providerModelId) &&
+          toolDefs.some((t) => t.name === 'render_ui');
+        const open = (forceAnswer: boolean, stream: boolean) => this.getClient().models.generateContentStream({
           model: request.providerModelId,
           contents,
           config: {
@@ -399,7 +409,11 @@ export class GeminiProvider implements Provider {
                   ],
                 }
               : {}),
-            ...(forceAnswer ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } } : {}),
+            ...(forceAnswer
+              ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } }
+              : stream
+                ? { toolConfig: { functionCallingConfig: { streamFunctionCallArguments: true } } }
+                : {}),
             // Thought summaries, shown to the user as Claude shows its thinking (audit B8). They
             // arrive as parts marked `thought`, which `chunk.text` leaves out of the answer.
             thinkingConfig: {
@@ -415,24 +429,25 @@ export class GeminiProvider implements Provider {
 
         let stream: Awaited<ReturnType<typeof open>>;
         try {
-          stream = await open(finalToolRound);
+          stream = await open(finalToolRound, streamArgs && !finalToolRound);
         } catch (err) {
-          // Switching calls off is the one thing this round does differently. If Vertex rejects
-          // it, the round still runs as before rather than failing the whole turn; a call made
-          // then is not run (below).
-          if (!finalToolRound || request.signal.aborted || !String(err).includes('INVALID_ARGUMENT')) throw err;
-          log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
-          stream = await open(false);
+          // Switching calls off, or streaming their arguments, is the one thing this round asks
+          // for beyond the plain request. If Vertex rejects it, the round runs as a plain request
+          // rather than failing the whole turn; a call made on the final round is not run (below).
+          const asked = finalToolRound || streamArgs;
+          if (!asked || request.signal.aborted || !String(err).includes('INVALID_ARGUMENT')) throw err;
+          if (!finalToolRound) {
+            this.wholeCallModels.add(request.providerModelId);
+            log.warn({ err: String(err), model: request.providerModelId }, 'streamed function-call arguments were rejected; using whole calls for this model');
+          } else {
+            log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
+          }
+          stream = await open(false, false);
         }
 
         let roundText = '';
         let roundUsage = EMPTY_USAGE;
-        const roundCalls: {
-          id?: string;
-          name: string;
-          args: Record<string, unknown>;
-          thoughtSignature?: string;
-        }[] = [];
+        const assembler = new StreamedCallAssembler();
 
         for await (const chunk of stream) {
           if (request.signal.aborted) {
@@ -462,22 +477,16 @@ export class GeminiProvider implements Provider {
           // `FunctionCall` object itself — `chunk.functionCalls` is a flattening getter that
           // drops it. Gemini requires the signature to be echoed back unchanged on the
           // continuation turn's functionCall part or it 400s ("Function call is missing a
-          // thought_signature"); read it from the underlying parts, in the same order
-          // `functionCalls` derives them, so it survives into the next round's request.
-          const functionCallParts =
-            chunk.candidates?.[0]?.content?.parts?.filter((p) => p.functionCall) ?? [];
-          (chunk.functionCalls ?? []).forEach((fc, i) => {
-            if (fc.name) {
-              roundCalls.push({
-                ...(fc.id ? { id: fc.id } : {}),
-                name: fc.name,
-                args: fc.args ?? {},
-                ...(functionCallParts[i]?.thoughtSignature
-                  ? { thoughtSignature: functionCallParts[i]!.thoughtSignature }
-                  : {}),
-              });
-            }
-          });
+          // thought_signature"), so calls are read from the parts themselves. The assembler also
+          // rebuilds a call whose arguments arrive in pieces (ADR-0037).
+          const callParts = chunk.candidates?.[0]?.content?.parts?.filter((p) => p.functionCall) ?? [];
+          // `functionCalls` is derived from the parts; it is read only when a chunk has no parts.
+          const parts = callParts.length > 0 ? callParts : (chunk.functionCalls ?? []).map((functionCall) => ({ functionCall }));
+          for (const part of parts) {
+            if (!assembler.accept(part)) continue;
+            const partial = assembler.partial;
+            if (partial) yield { type: 'tool_input_partial', index: partial.index, name: partial.name, input: partial.args };
+          }
 
           const chunkUsage = usageFrom(chunk.usageMetadata);
           // Within one response Gemini's usage is cumulative: the last value is the round's.
@@ -492,6 +501,8 @@ export class GeminiProvider implements Provider {
         }
         usage = addRequestUsage(usage, roundUsage);
         if (roundUsage.lastRequest) lastPromptTokens = roundUsage.lastRequest.inputTokens;
+        assembler.close();
+        const roundCalls = assembler.calls;
 
         if (!useTools || roundCalls.length === 0) break;
         // A call on the final round is not run: there is no round left to answer after it.

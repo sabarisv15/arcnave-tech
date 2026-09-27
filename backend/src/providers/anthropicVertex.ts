@@ -34,6 +34,9 @@ const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 /** The tool version string is part of the API contract, not a date to be freshened casually. */
 const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as const;
 
+/** How often a call's partial input is parsed and reported while it streams (ADR-0037). */
+const PARTIAL_INPUT_INTERVAL_MS = 120;
+
 export function toAnthropicTool(def: ToolDefinition): Anthropic.Tool {
   return {
     name: def.name,
@@ -406,6 +409,7 @@ export class AnthropicVertexProvider implements Provider {
         );
 
         let roundUsage = EMPTY_USAGE;
+        let lastPartialAt = 0;
         for await (const event of stream) {
           if (request.signal.aborted) {
             usage = addRequestUsage(usage, requestUsage(roundUsage));
@@ -418,6 +422,20 @@ export class AnthropicVertexProvider implements Provider {
                 yield { type: 'delta', text: delta.text };
               } else if (delta.type === 'thinking_delta' && delta.thinking) {
                 yield { type: 'thinking', text: delta.thinking };
+              } else if (delta.type === 'input_json_delta') {
+                // ADR-0037: a visual drawn while written. The SDK's snapshot parses the partial
+                // JSON on each read, so reads are spaced out; only render_ui is shown.
+                const content = stream.currentMessage?.content ?? [];
+                const block = content[event.index];
+                const now = Date.now();
+                if (block?.type === 'tool_use' && block.name === 'render_ui' && now - lastPartialAt >= PARTIAL_INPUT_INTERVAL_MS) {
+                  lastPartialAt = now;
+                  const input = block.input;
+                  if (input && typeof input === 'object') {
+                    const index = content.slice(0, event.index).filter((b) => b.type === 'tool_use').length;
+                    yield { type: 'tool_input_partial', index, name: block.name, input: input as Record<string, unknown> };
+                  }
+                }
               }
               break;
             }

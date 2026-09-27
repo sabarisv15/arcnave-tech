@@ -37,3 +37,17 @@ describe("visual blocks", () => {
     expect(withVisualHtml(stored, {})[1]).not.toHaveProperty("html");
   });
 });
+
+describe("visual drafts (ADR-0037)", () => {
+  it("appends pieces in order, restarts at 0, and drops a piece that does not continue", async () => {
+    const { applyVisualDraft } = await import("../types");
+    let d = applyVisualDraft(undefined, { draftId: "0:1", title: "", from: 0, text: "<svg>" });
+    d = applyVisualDraft(d, { draftId: "0:1", title: "Curve", from: 5, text: "<path/>" });
+    expect(d).toEqual([{ id: "0:1", title: "Curve", html: "<svg><path/>" }]);
+    expect(applyVisualDraft(d, { draftId: "0:1", title: "Curve", from: 3, text: "x" })).toBe(d);
+    expect(applyVisualDraft(d, { draftId: "9:9", title: "", from: 4, text: "x" })).toBe(d);
+    d = applyVisualDraft(d, { draftId: "1:0", title: "B", from: 0, text: "<p>" });
+    expect(d.map((x) => x.id)).toEqual(["0:1", "1:0"]);
+    expect(applyVisualDraft(d, { draftId: "0:1", title: "Curve", from: 0, text: "<g>" })[0]!.html).toBe("<g>");
+  });
+});

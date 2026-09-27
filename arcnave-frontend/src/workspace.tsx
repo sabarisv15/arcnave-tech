@@ -49,7 +49,7 @@ import {
   toUsage,
 } from "./types";
 import type { Panel } from "./types";
-import { adoptServerId, appendSegment } from "./types";
+import { adoptServerId, appendSegment, applyVisualDraft } from "./types";
 
 type TranscriptState = "loading" | "ready" | "missing" | "failed";
 
@@ -491,9 +491,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 },
               ],
             }));
+          if (event.type === "ui_draft")
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              status: "generating",
+              visualDrafts: applyVisualDraft(m.visualDrafts, event),
+            }));
           if (event.type === "tool_result")
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              // The finished visual follows as a checked ui_block; the draft goes now either way.
+              ...(event.name === "render_ui" ? { visualDrafts: undefined } : {}),
               toolCalls: (m.toolCalls ?? []).map((t) =>
                 t.toolCallId === event.toolCallId
                   ? { ...t, ok: event.ok, preview: event.preview }
@@ -546,6 +554,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             outcome = "complete";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              visualDrafts: undefined,
               status: "complete",
               questions: event.questions,
               usage: toUsage(event.usage),
@@ -556,6 +565,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             outcome = "error";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              visualDrafts: undefined,
               status: "error",
               error: event.code,
               errorTitle: event.title,

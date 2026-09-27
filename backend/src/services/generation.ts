@@ -13,6 +13,7 @@
  * - **Cancellation still writes a usage row.** A run that streamed 800 tokens before the user
  *   pressed stop cost those tokens; dropping the record would understate real spend.
  */
+import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
 import { usesWarmSandbox } from '../tools/catalog.js';
@@ -129,6 +130,12 @@ export type StreamEvent =
   | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'ui_block'; block: UIBlock }
+  /**
+   * ADR-0037: a visual's HTML while the model is still writing it. `text` continues the draft
+   * `draftId` from character `from`. Drafts are shown, never kept: the checked block replaces
+   * them when the call completes.
+   */
+  | { type: 'ui_draft'; draftId: string; title: string; from: number; text: string }
   | { type: 'debug'; trace: RuntimeDebugTrace }
   | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
@@ -968,6 +975,8 @@ export class GenerationService {
     // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
     const pendingSignatures = new Map<string, string>();
     const toolsCalled: string[] = [];
+    // Characters of each visual draft already sent, by draft id.
+    const draftSent = new Map<string, number>();
 
     try {
       const stream = this.streamWithRetry(provider.stream.bind(provider), request);
@@ -1019,6 +1028,19 @@ export class GenerationService {
               ...(event.output ? { output: event.output } : {}),
             };
             break;
+
+          case 'tool_input_partial': {
+            if (event.name !== 'render_ui') break;
+            // A call's index restarts each response; the calls already made keep the id unique.
+            for (const draft of visualDrafts(event.input, `${String(toolsCalled.length + event.index)}`)) {
+              const sent = draftSent.get(draft.draftId) ?? 0;
+              const html = draft.html.slice(0, VISUAL_MAX_HTML_BYTES);
+              if (html.length <= sent) continue;
+              draftSent.set(draft.draftId, html.length);
+              yield { type: 'ui_draft', draftId: draft.draftId, title: draft.title, from: sent, text: html.slice(sent) };
+            }
+            break;
+          }
 
           case 'tool_use': {
             toolsCalled.push(event.name);
@@ -2371,3 +2393,16 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export { asc };
+
+/** The visual blocks of a render_ui call being written, with the HTML written so far. */
+export function visualDrafts(input: Record<string, unknown>, callKey: string): { draftId: string; title: string; html: string }[] {
+  const blocks = Array.isArray(input.blocks) ? (input.blocks as unknown[]) : [];
+  const out: { draftId: string; title: string; html: string }[] = [];
+  blocks.forEach((b, i) => {
+    if (!b || typeof b !== 'object') return;
+    const block = b as Record<string, unknown>;
+    if (block.type !== 'visual' || typeof block.html !== 'string') return;
+    out.push({ draftId: `${callKey}:${String(i)}`, title: typeof block.title === 'string' ? block.title : '', html: block.html });
+  });
+  return out;
+}

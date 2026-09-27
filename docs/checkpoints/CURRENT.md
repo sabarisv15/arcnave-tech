@@ -1,6 +1,16 @@
 # ArcNave — current checkpoint
 
-> **2026-09-27 (latest): visuals inherit ArcNave's theme (ADR-0036), same branch `feat/wp-10-visual-sandbox`, not live.**
+> **2026-09-27 (latest): visuals drawn while written (ADR-0037), same branch, not live.**
+> - Gemini asks for `streamFunctionCallArguments` when `render_ui` is declared;
+>   `StreamedCallAssembler` rebuilds the call. On `INVALID_ARGUMENT` it falls back to whole calls
+>   for that model. Kill switch: `GEMINI_STREAM_TOOL_ARGS=false`.
+> - Claude reports `render_ui` input from the SDK snapshot; `eager_input_streaming` is not set yet.
+> - SSE `ui_draft` sends only new characters; `SandboxFrame draft` redraws markup without reloading
+>   the frame, and scripts wait for the finished block.
+> - **Not yet run against a real Vertex model.** First live check: ask for a visual and watch
+>   it fill in; look for "streamed function-call arguments were rejected" in the logs.
+>
+> **2026-09-27: visuals inherit ArcNave's theme (ADR-0036), same branch `feat/wp-10-visual-sandbox`, not live.**
 > - The sandbox document now carries ArcNave's light/dark tokens, `:where()` base styles, and
 >   layout/SVG classes; the theme follows ArcNave by message, without reloading the frame.
 > - Chart.js picks up theme colours; `window.arcnave.colors()` and `onThemeChange` exist.

@@ -202,7 +202,13 @@ describe('GeminiProvider tool-calling loop', () => {
           candidates: [
             {
               content: {
-                parts: [{ functionCall: { id: 'c1' }, thoughtSignature: 'opaque-signature-abc' }],
+                // The same object `functionCalls` flattens to: the SDK derives the getter from these parts.
+                parts: [
+                  {
+                    functionCall: { id: 'c1', name: 'search_project_files', args: { query: 'cooling' } },
+                    thoughtSignature: 'opaque-signature-abc',
+                  },
+                ],
               },
             },
           ],
@@ -445,5 +451,89 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     expect(outputs).toHaveLength(8);
     expect(outputs.slice(0, 5).every((o) => typeof o === 'string' && o.includes('cleared'))).toBe(true);
     expect(outputs.slice(5)).toEqual(['hit', 'hit', 'hit']);
+  });
+});
+
+describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
+  const RENDER_UI = { name: 'render_ui', description: 'Renders UI.', inputSchema: { type: 'object', properties: {} } };
+  const part = (functionCall: unknown) => ({ candidates: [{ content: { parts: [{ functionCall }] } }] });
+  const configOf = (req: unknown) => (req as { config: { toolConfig?: { functionCallingConfig?: Record<string, unknown> } } }).config;
+
+  it('asks for streamed arguments only when render_ui is declared', async () => {
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    for (const [tools, expected] of [
+      [[RENDER_UI, SEARCH_TOOL], { streamFunctionCallArguments: true }],
+      [[SEARCH_TOOL], undefined],
+    ] as const) {
+      const client = new FakeGeminiClient();
+      client.responses = [fakeStream([{ text: 'ok' }])];
+      const provider = new GeminiProvider(cfg, client as never);
+      await collect(provider.stream(baseRequest({ tools: [...tools], toolExecutor: new ScriptedExecutor() })));
+      expect(configOf(client.calls[0]).toolConfig?.functionCallingConfig).toEqual(expected);
+    }
+  });
+
+  it('reports a visual while it is written and runs the call once it is complete', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [
+      fakeStream([
+        part({ id: 'v1', name: 'render_ui', willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.blocks[0].type', stringValue: 'visual' }], willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.blocks[0].html', stringValue: '<svg>', willContinue: true }], willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.blocks[0].html', stringValue: '</svg>' }], willContinue: true }),
+        part({}),
+      ]),
+      fakeStream([{ text: 'Here it is.' }]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('render_ui', { toolCallId: 'v1', ok: true, content: [{ type: 'text', text: 'rendered' }] });
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const seen: string[] = [];
+    for await (const e of provider.stream(baseRequest({ tools: [RENDER_UI], toolExecutor: executor }))) {
+      // The input is live: what an event shows must be read when it arrives.
+      if (e.type === 'tool_input_partial') seen.push(JSON.stringify(e.input));
+      if (e.type === 'tool_use') seen.push(`use ${JSON.stringify(e.input)}`);
+    }
+    expect(seen).toEqual([
+      '{"blocks":[{"type":"visual"}]}',
+      '{"blocks":[{"type":"visual","html":"<svg>"}]}',
+      '{"blocks":[{"type":"visual","html":"<svg></svg>"}]}',
+      'use {"blocks":[{"type":"visual","html":"<svg></svg>"}]}',
+    ]);
+    expect(executor.calls).toEqual([{ id: 'v1', name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg></svg>' }] } }]);
+  });
+
+  it('falls back to whole calls for a model that rejects the option, and does not ask again', async () => {
+    const client = new FakeGeminiClient();
+    let first = true;
+    client.models.generateContentStream.mockImplementation(async (req: unknown) => {
+      client.calls.push(req);
+      if (first) {
+        first = false;
+        throw new Error('400 INVALID_ARGUMENT: stream_function_call_arguments is not supported');
+      }
+      const next = client.responses.shift();
+      if (!next) throw new Error('no scripted response left');
+      return next;
+    });
+    client.responses = [
+      fakeStream([{ functionCalls: [{ id: 'c1', name: 'search_project_files', args: { query: 'x' } }] }]),
+      fakeStream([{ text: 'done' }]),
+    ];
+    const executor = new ScriptedExecutor();
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [RENDER_UI, SEARCH_TOOL], toolExecutor: executor })));
+    expect(events.some((e) => e.type === 'delta')).toBe(true);
+    expect(configOf(client.calls[0]).toolConfig?.functionCallingConfig).toEqual({ streamFunctionCallArguments: true });
+    expect(configOf(client.calls[1]).toolConfig).toBeUndefined();
+    expect(configOf(client.calls[2]).toolConfig).toBeUndefined();
+  });
+
+  it('can be switched off by configuration', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [fakeStream([{ text: 'ok' }])];
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', GEMINI_STREAM_TOOL_ARGS: 'false' }), client as never);
+    await collect(provider.stream(baseRequest({ tools: [RENDER_UI], toolExecutor: new ScriptedExecutor() })));
+    expect(configOf(client.calls[0]).toolConfig).toBeUndefined();
   });
 });

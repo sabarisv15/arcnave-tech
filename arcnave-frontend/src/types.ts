@@ -151,6 +151,8 @@ export interface Message {
   events?: ResearchEvent[];
   toolCalls?: ToolCall[];
   uiBlocks?: UIBlock[];
+  /** Visuals the model is still writing (ADR-0037); shown while streaming, never stored. */
+  visualDrafts?: VisualDraft[];
   codeBlocks?: { code?: string; language?: string; output?: string }[];
   researchStage?: ResearchStage;
   questions?: string[];
@@ -497,4 +499,29 @@ export function withVisualHtml(blocks: UIBlock[], input: unknown): UIBlock[] {
     const source = inputBlocks[b.sequence - 1] as { type?: unknown; html?: unknown } | undefined;
     return source?.type === "visual" && typeof source.html === "string" ? { ...b, html: source.html } : b;
   });
+}
+
+export interface VisualDraft {
+  id: string;
+  title: string;
+  html: string;
+}
+
+/**
+ * Adds one `ui_draft` piece. A piece that starts at 0 begins the draft again (a retried
+ * request); one that does not continue exactly where the draft ends is dropped rather than
+ * spliced in the wrong place.
+ */
+export function applyVisualDraft(
+  drafts: VisualDraft[] | undefined,
+  piece: { draftId: string; title: string; from: number; text: string },
+): VisualDraft[] {
+  const all = drafts ?? [];
+  const existing = all.find((d) => d.id === piece.draftId);
+  if (piece.from === 0) {
+    const fresh = { id: piece.draftId, title: piece.title, html: piece.text };
+    return existing ? all.map((d) => (d.id === piece.draftId ? fresh : d)) : [...all, fresh];
+  }
+  if (!existing || existing.html.length !== piece.from) return all;
+  return all.map((d) => (d.id === piece.draftId ? { ...d, title: piece.title || d.title, html: d.html + piece.text } : d));
 }

@@ -126,6 +126,34 @@ describe("theme (ADR-0036)", () => {
   });
 });
 
+describe("drafts (ADR-0037)", () => {
+  it("keeps one empty document and sends the growing markup to it, at most every 100ms", async () => {
+    vi.useFakeTimers();
+    try {
+      await render(<SandboxFrame html="<svg>" title="t" draft />);
+      const frame = frameOf();
+      expect(frame.getAttribute("srcdoc")).toBe(buildSrcDoc(""));
+      const post = vi.spyOn(frame.contentWindow!, "postMessage");
+      await render(<SandboxFrame html="<svg><path/>" title="t" draft />);
+      await render(<SandboxFrame html="<svg><path/><path/>" title="t" draft />);
+      expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: "arcnave:draft" }), "*");
+      await act(async () => vi.advanceTimersByTime(100));
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(post).toHaveBeenCalledWith({ type: "arcnave:draft", html: "<svg><path/><path/>" }, "*");
+      // Still the same document: a growing draft never reloads the frame.
+      expect(frameOf()).toBe(frame);
+      expect(frame.getAttribute("srcdoc")).toBe(buildSrcDoc(""));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets the frame take a draft only from its parent, and draw it as markup", () => {
+    const bridge = buildSrcDoc("");
+    expect(bridge).toContain('if(e.source!==p||!e.data)return;if(e.data.type==="arcnave:draft"){if(document.body)document.body.innerHTML=');
+  });
+});
+
 describe("frame messages", () => {
   it("accepts only resize and prompt, within their limits", () => {
     expect(readFrameMessage({ type: "arcnave:resize", height: 5 })).toEqual({ type: "arcnave:resize", height: MIN_HEIGHT });

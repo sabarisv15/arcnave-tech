@@ -154,6 +154,8 @@ const envSchema = z.object({
    * Vertex — see ADR-0004 — so this only ever grows Gemini's capability set, never Claude's.
    */
   ENABLE_GEMINI_CODE_EXECUTION: bool(false),
+  /** ADR-0037: ask Vertex to stream function-call arguments so a visual draws while written. */
+  GEMINI_STREAM_TOOL_ARGS: bool(true),
 
   /**
    * Master gate for the item-9 tool-calling loop. Off by default: a deployment gains nothing
