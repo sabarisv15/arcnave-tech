@@ -1293,6 +1293,25 @@ textarea {
 .user-message:focus-within .user-actions {
   opacity: 1;
 }
+/* Versions of an edited prompt (ADR-0038): the switcher stays in view, the rest on hover. */
+.user-actions:has(.version-switcher) {
+  opacity: 1;
+}
+.user-message:not(:hover):not(:focus-within) .user-actions > :not(.version-switcher) {
+  visibility: hidden;
+}
+.version-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.version-count {
+  min-width: 34px;
+  text-align: center;
+}
 .assistant-message {
   padding: 0 0 14px;
   min-width: 0;
@@ -6457,4 +6476,454 @@ select:focus-visible {
   margin-left: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* WP-11: a created file's card opens its preview; the panel draws Office files. */
+.deliverable-card-open {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.deliverable-card-open:hover .deliverable-card-title {
+  text-decoration: underline;
+}
+.office-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 480px;
+}
+.office-preview iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 480px;
+  border: 0;
+  border-radius: 8px;
+  background: #f3f3f1;
+}
+.office-preview iframe.is-hidden {
+  display: none;
+}
+.office-preview-status {
+  padding: 8px 0;
+}
+.sheet-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.sheet-grid {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  background: var(--surface);
+}
+.sheet-grid table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-grid th,
+.sheet-grid td {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: center;
+}
+.sheet-grid tbody th {
+  position: sticky;
+  left: 0;
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: right;
+  min-width: 36px;
+}
+.sheet-grid .sheet-corner {
+  left: 0;
+  z-index: 2;
+}
+.sheet-grid td.num {
+  text-align: right;
+}
+.sheet-grid td.err {
+  color: var(--danger);
+}
+.sheet-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  padding: 4px;
+}
+.sheet-tabs button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sheet-tabs button.active {
+  background: var(--soft);
+  color: var(--ink);
+  font-weight: 500;
+}
+.sheet-note {
+  margin: 6px 0 0;
+}
+
+/* WP-12: public links and the shared page. */
+.share-divider {
+  margin: 18px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.public-link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.public-link-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.public-link-row {
+  display: flex;
+  gap: 8px;
+}
+.public-link-row .input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.artifact-share {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.setting-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.shared-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shared-links li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.shared-links li a {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.shared-page {
+  min-height: 100vh;
+  background: var(--bg, var(--surface));
+  color: var(--ink);
+}
+.shared-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.shared-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+.shared-main {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+.shared-banner {
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.shared-title {
+  font-size: 26px;
+  font-weight: 500;
+  margin: 18px 0 20px;
+}
+.shared-artifact {
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.shared-artifact > header {
+  padding: 8px 14px;
+  font-weight: 500;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+}
+.shared-artifact-body {
+  padding: 12px 16px;
+}
+.shared-missing {
+  text-align: center;
+  padding: 80px 0;
+  color: var(--muted);
+}
+.shared-missing h1 {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 500;
+}
+.button.danger {
+  color: var(--danger);
+}
+
+/* WP-13: memory import. */
+.import-steps {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13.5px;
+}
+.import-steps textarea {
+  width: 100%;
+  margin-top: 6px;
+}
+.import-request {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--soft);
+}
+.import-request p {
+  flex: 1;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* WP-16: slides artifacts. The canvas is 960 × 540 and scaled to its box. */
+.slides-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.slides-stage {
+  outline: none;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.slides-stage:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.slides-stage.is-presenting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  border-radius: 0;
+  cursor: pointer;
+}
+.slides-stage.is-presenting .slide-fit {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.slide-fit {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+.slide-scale {
+  transform-origin: 0 0;
+}
+.slides-stage.is-presenting .slide-scale {
+  transform-origin: center;
+  flex: none;
+}
+.slide-canvas {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 52px 68px;
+  background: #fff;
+  color: #1f2328;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  overflow: hidden;
+}
+.slide-canvas .slide-title {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #16202a;
+}
+.slide-canvas .slide-body .markdown {
+  font-size: 24px;
+  line-height: 1.45;
+  color: #2c333a;
+}
+.slide-canvas .slide-body .markdown li + li {
+  margin-top: 6px;
+}
+.slide-canvas .slide-body .markdown table {
+  font-size: 20px;
+}
+.slide-canvas.is-cover {
+  justify-content: center;
+  padding: 80px 96px;
+  background: linear-gradient(135deg, #f4f6f8, #e6ecf2);
+}
+.slide-canvas.is-cover .slide-title {
+  font-size: 56px;
+}
+.slides-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.slides-controls .button.active {
+  background: var(--soft);
+}
+.slides-count {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+  text-align: center;
+}
+.slides-notes {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--soft);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+}
+.slides-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.slides-thumb {
+  position: relative;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.slides-thumb.active {
+  border-color: var(--accent);
+}
+.slides-thumb-number {
+  position: absolute;
+  left: 4px;
+  bottom: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.slides-empty {
+  padding: 16px 0;
+}
+.artifact-thumb-slides {
+  padding: 10px;
+}
+.artifact-thumb-slides .slide-fit {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* WP-18: dictation. */
+.dictation-group {
+  display: inline-flex;
+  align-items: center;
+}
+.dictation-language {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.dictation-language:hover {
+  background: var(--hover);
+}
+.dictation-button.is-listening {
+  color: var(--danger);
+  animation: dictation-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dictation-pulse {
+  50% {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+}
+:root[data-motion="reduced"] .dictation-button.is-listening {
+  animation: none;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }

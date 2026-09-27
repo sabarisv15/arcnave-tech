@@ -61,7 +61,7 @@ async function svgToPng(svg: string): Promise<Blob> {
 }
 
 export function VisualBlock({ block, chatId }: { block: VisualBlockType; chatId?: string }) {
-  const { saveVisualAsArtifact, toast } = useWorkspace();
+  const { saveVisualAsArtifact, toast, readOnly } = useWorkspace();
   const [full, setFull] = useState(false);
   const html = block.html ?? '';
   const svg = isSvgRoot(html);
@@ -127,16 +127,18 @@ export function VisualBlock({ block, chatId }: { block: VisualBlockType; chatId?
             <Download size={13} aria-hidden="true" />
             <span>HTML</span>
           </button>
-          <button
-            type="button"
-            onClick={() => saveVisualAsArtifact({ title: block.title, html, kind: svg ? 'svg' : 'webpage', chatId })}
-            aria-label="Save as artifact"
-          >
-            <Save size={13} aria-hidden="true" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => saveVisualAsArtifact({ title: block.title, html, kind: svg ? 'svg' : 'webpage', chatId })}
+              aria-label="Save as artifact"
+            >
+              <Save size={13} aria-hidden="true" />
+            </button>
+          )}
         </span>
       </figcaption>
-      <SandboxFrame html={html} title={block.title} autoHeight={!full} onPrompt={onPrompt} />
+      <SandboxFrame html={html} title={block.title} autoHeight={!full} onPrompt={readOnly ? undefined : onPrompt} />
     </figure>
   );
 }

@@ -25,6 +25,14 @@ import { processUpload, readingFor, UploadRejected } from '../services/attachmen
 import { checkUpload, generateStorageKey, safeDownloadName, UploadTooLarge } from '../services/storage.js';
 import type { AppInstance } from '../types.js';
 import { iso, uuidParam } from './helpers.js';
+import {
+  isWorkbook,
+  PREVIEW_MAX_BYTES,
+  PREVIEW_MAX_COLUMNS,
+  PREVIEW_MAX_ROWS,
+  readSheets,
+  sheetPreviewSchema,
+} from './sheetPreview.js';
 
 function isNativelyViewable(mimeType: string): boolean {
   return mimeType === 'application/pdf' || mimeType.startsWith('image/');
@@ -349,6 +357,29 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         .header('X-Content-Type-Options', 'nosniff')
         // Streamed: a file can be hundreds of megabytes.
         .send(storage.openRead(file.storageKey));
+    },
+  );
+
+  typed.get(
+    '/files/:id/preview',
+    {
+      schema: {
+        tags: ['projects'],
+        summary: 'A spreadsheet attachment as sheets of typed cells, for the preview panel',
+        description: `Every sheet's first ${PREVIEW_MAX_ROWS} rows and ${PREVIEW_MAX_COLUMNS} columns. Only .xlsx.`,
+        params: uuidParam,
+        response: { 200: sheetPreviewSchema },
+      },
+    },
+    async (request) => {
+      const { storage } = request.services;
+      const file = await loadAttachment(request, request.params.id);
+      if (file.status === 'uploading') throw notFound('file');
+      if (!isWorkbook(file.mimeType, file.filename)) throw new ApiError('preview_unsupported');
+      if (file.sizeBytes > PREVIEW_MAX_BYTES) {
+        throw new ApiError('preview_unsupported', { detail: 'This workbook is too large to preview. Download it instead.' });
+      }
+      return { sheets: await readSheets(await storage.get(file.storageKey)) };
     },
   );
 

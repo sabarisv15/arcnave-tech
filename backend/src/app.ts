@@ -37,6 +37,8 @@ import { preferenceRoutes } from './routes/preferences.js';
 import { projectRoutes } from './routes/projects.js';
 import { skillRoutes } from './routes/skills.js';
 import { styleRoutes } from './routes/styles.js';
+import { shareRoutes } from './routes/share.js';
+import { accountRoutes } from './routes/account.js';
 import { usageRoutes } from './routes/usage.js';
 import type { AppInstance } from './types.js';
 
@@ -120,6 +122,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
         { name: 'usage', description: 'Token accounting and limits' },
         { name: 'preferences', description: 'User preferences' },
         { name: 'styles', description: 'Response styles (presets and custom)' },
+        { name: 'share', description: 'Public links to chat and artifact snapshots' },
       ],
     },
     transform: jsonSchemaTransform,
@@ -193,6 +196,8 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       await scope.register(skillRoutes);
       await scope.register(memoryRoutes);
       await scope.register(styleRoutes);
+      await scope.register(shareRoutes);
+      await scope.register(accountRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );

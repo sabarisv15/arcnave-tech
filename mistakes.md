@@ -547,21 +547,6 @@ failure mode of this pattern, not a sign it is working.
   text file, asks a question with the attachment, then asks a follow-up with no attachment;
   asserts the provider's second request still contains the file's text.
 
-### 2026-09-21 — A legacy transcript field crashed the whole workspace
-
-- **Symptom:** Opening a chat after an `.xlsx` analysis could replace the workspace with the
-  error boundary: `Cannot read properties of undefined (reading 'map')`, even though the
-  response had been saved.
-- **Cause:** `toMessage` treated transcript evidence collections (`sources`, `events`,
-  `toolCalls`, `attachments`, and `questions`) as always-present arrays. A persisted/returned
-  message missing any one of those fields threw while mapping the transcript, and the uncaught
-  render error took down the entire chat view.
-- **Rule:** **Normalize optional wire collections at the DTO boundary before rendering.** A
-  missing collection means no data was supplied; it must not be allowed to crash unrelated,
-  saved transcript content.
-- **Verify:** `arcnave-frontend/src/types.test.ts` covers a legacy message with every optional
-  collection absent; `npm test` and `npm run build` pass.
-
 ### 2026-09-24 — A phase passed locally on a warm process sandbox and failed on cold Cloud Run Jobs
 
 - **Symptom:** Phase 3 table extraction passed every local test, then failed live on the real
@@ -795,6 +780,19 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** In Chromium against the local stack, `.ui-visual iframe` has `offsetHeight`
   equal to the height its document reports (571 for 571 in the ADR-0036 check).
 
+### 2026-09-27 — A correlated subquery in a select list compared a column with itself
+
+- **Symptom:** Every chat's `lastSeq` came back as -1, so no prompt had versions, though the
+  chats plainly had messages.
+- **Cause:** Inside `db.select({ ... })`, drizzle renders a `${table.column}` in a `sql` field
+  unqualified (`"id"`, not `"chats"."id"`). In `(select max(seq) from messages where chat_id =
+  ${chats.id})`, the bare `"id"` resolved to the inner table's own `messages.id`. The same
+  interpolation in a `where` clause is qualified, which is why it looked safe.
+- **Rule:** **In a `sql` expression used as a select field, never interpolate a column of the
+  outer query into a subquery.** Alias the inner table and write the outer column out in full
+  (`"chats"."id"`).
+- **Verify:** `chatVersions.integration.test.ts` fails when the subquery compares the wrong id.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -819,6 +817,22 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-27** — No new heading (WP-12). I re-stamped a generated migration with
+  `sed 's/"when": 17904[0-9]*/…/'`, and the pattern also matched 0010's stamp. The test
+  database then tried to create 0010's table again. The rule from the 2026-09-25 entry stands:
+  change a journal entry by its `tag`, never by a pattern on `when`. Fix it with a JSON edit
+  keyed on the tag, then read `git diff` of the journal. Also, WP-09's own test picked "the
+  user message" with `limit(1)` and no `orderBy`, and failed once the table was busier. A test
+  that means "the first row" must order by the column that makes it first.
+- **2026-09-27** — No new heading (WP-11). The plan named a PowerPoint renderer by reputation;
+  `pptx-preview` rendered a fixture deck but drew an empty frame for the decks ArcNave itself
+  generates, with no error. Rule: try a rendering library on this app's own output before
+  building on it. The check was a Playwright page loading the library against `gen.pptx`.
+- **2026-09-27** — Added the select-list subquery entry (WP-09). Retired "A legacy transcript
+  field crashed the whole workspace": `types.test.ts` ("does not crash when a legacy transcript
+  omits optional evidence arrays") fails if it regresses (pruning criterion 1). Also, not an
+  entry: the frontend's `API_BASE` defaulted to the production API even under `vite` dev, so a
+  local browser check silently talked to production; it now defaults to `/v1` in dev. **40 entries.**
 - **2026-09-27** — No new heading (at the cap). Merging WP-03 to WP-07 into one branch, I
   resolved conflicts by keeping both sides. In `styles.css` that split one rule's body from its
   selector, and the build failed with "Unclosed block"; in `CURRENT.md` it duplicated entries.

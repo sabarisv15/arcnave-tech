@@ -684,6 +684,9 @@
                           "id": {
                             "type": "string"
                           },
+                          "familyId": {
+                            "type": "string"
+                          },
                           "title": {
                             "type": "string"
                           },
@@ -708,6 +711,7 @@
                         },
                         "required": [
                           "id",
+                          "familyId",
                           "title",
                           "projectId",
                           "pinned",
@@ -775,6 +779,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "familyId": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -799,6 +806,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -841,6 +849,9 @@
                   "type": "object",
                   "properties": {
                     "id": {
+                      "type": "string"
+                    },
+                    "familyId": {
                       "type": "string"
                     },
                     "title": {
@@ -1194,6 +1205,39 @@
                               "additionalProperties": false
                             }
                           },
+                          "versions": {
+                            "nullable": true,
+                            "type": "object",
+                            "properties": {
+                              "index": {
+                                "type": "number"
+                              },
+                              "versions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "chatId": {
+                                      "type": "string"
+                                    },
+                                    "createdAt": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "chatId",
+                                    "createdAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "index",
+                              "versions"
+                            ],
+                            "additionalProperties": false
+                          },
                           "usage": {
                             "nullable": true,
                             "type": "object",
@@ -1258,6 +1302,7 @@
                           "events",
                           "toolCalls",
                           "attachments",
+                          "versions",
                           "usage"
                         ],
                         "additionalProperties": false
@@ -1364,6 +1409,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -1439,6 +1485,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "familyId": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -1463,6 +1512,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -1478,7 +1528,7 @@
         }
       },
       "delete": {
-        "summary": "Soft-delete a chat",
+        "summary": "Soft-delete a chat with all its versions",
         "tags": [
           "chats"
         ],
@@ -1514,10 +1564,11 @@
     },
     "/chats/{id}/branch": {
       "post": {
-        "summary": "Copy a chat, optionally truncated after a given message",
+        "summary": "Copy a chat: up to a message, or as a new version of an edited prompt",
         "tags": [
           "chats"
         ],
+        "description": "With `throughMessageId`, a separate chat holding the history through that message. With `editSeq`, a new version of the same conversation (ADR-0038): the history before the prompt at that seq, which the next generate replaces.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1529,6 +1580,11 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "editSeq": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 }
               }
@@ -1558,6 +1614,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "familyId": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -1582,6 +1641,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -3273,7 +3333,8 @@
                 "document",
                 "code",
                 "webpage",
-                "svg"
+                "svg",
+                "slides"
               ]
             },
             "in": "query",
@@ -3389,7 +3450,8 @@
                       "document",
                       "code",
                       "webpage",
-                      "svg"
+                      "svg",
+                      "slides"
                     ]
                   },
                   "content": {
@@ -3600,7 +3662,8 @@
                       "document",
                       "code",
                       "webpage",
-                      "svg"
+                      "svg",
+                      "slides"
                     ]
                   },
                   "projectId": {
@@ -4089,6 +4152,133 @@
                     "format",
                     "sizeBytes",
                     "filename"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/artifacts/{id}/versions/{version}/preview": {
+      "get": {
+        "summary": "A spreadsheet version as sheets of typed cells, for the preview panel",
+        "tags": [
+          "artifacts"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "version",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sheets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "boolean"
+                                      }
+                                    ],
+                                    "nullable": true
+                                  },
+                                  "type": {
+                                    "nullable": true,
+                                    "type": "string",
+                                    "enum": [
+                                      "number",
+                                      "string",
+                                      "boolean",
+                                      "date",
+                                      "error"
+                                    ]
+                                  },
+                                  "numFmt": {
+                                    "type": "string"
+                                  },
+                                  "formula": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "type"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "rowCount": {
+                            "type": "number"
+                          },
+                          "columnCount": {
+                            "type": "number"
+                          },
+                          "truncatedRows": {
+                            "type": "boolean"
+                          },
+                          "truncatedColumns": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "rows",
+                          "rowCount",
+                          "columnCount",
+                          "truncatedRows",
+                          "truncatedColumns"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "sheets"
                   ],
                   "additionalProperties": false
                 }
@@ -5704,6 +5894,124 @@
         }
       }
     },
+    "/files/{id}/preview": {
+      "get": {
+        "summary": "A spreadsheet attachment as sheets of typed cells, for the preview panel",
+        "tags": [
+          "projects"
+        ],
+        "description": "Every sheet's first 200 rows and 50 columns. Only .xlsx.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sheets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "boolean"
+                                      }
+                                    ],
+                                    "nullable": true
+                                  },
+                                  "type": {
+                                    "nullable": true,
+                                    "type": "string",
+                                    "enum": [
+                                      "number",
+                                      "string",
+                                      "boolean",
+                                      "date",
+                                      "error"
+                                    ]
+                                  },
+                                  "numFmt": {
+                                    "type": "string"
+                                  },
+                                  "formula": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "type"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "rowCount": {
+                            "type": "number"
+                          },
+                          "columnCount": {
+                            "type": "number"
+                          },
+                          "truncatedRows": {
+                            "type": "boolean"
+                          },
+                          "truncatedColumns": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "rows",
+                          "rowCount",
+                          "columnCount",
+                          "truncatedRows",
+                          "truncatedColumns"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "sheets"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/files/cleanup": {
       "post": {
         "summary": "Discard your own uploads that were never attached to a message",
@@ -6395,6 +6703,206 @@
         }
       }
     },
+    "/memory/export": {
+      "get": {
+        "summary": "Every memory, as JSON that import reads back",
+        "tags": [
+          "memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "exportedAt": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "content": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 20000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "preference",
+                              "workflow",
+                              "fact",
+                              "constraint"
+                            ]
+                          },
+                          "isStanding": {
+                            "type": "boolean"
+                          },
+                          "projectId": {
+                            "nullable": true,
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "content",
+                          "projectId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "exportedAt",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/import": {
+      "post": {
+        "summary": "Add memories from an export, or from text with one memory per line",
+        "tags": [
+          "memory"
+        ],
+        "description": "Give `text` (for example what another assistant lists when asked what it remembers) or `data` (an ArcNave memory export). A memory already held, by topic or by wording, is skipped, never replaced.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200000
+                      }
+                    },
+                    "required": [
+                      "text"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "enum": [
+                              1
+                            ]
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "content": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 20000
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "preference",
+                                    "workflow",
+                                    "fact",
+                                    "constraint"
+                                  ]
+                                },
+                                "isStanding": {
+                                  "type": "boolean"
+                                },
+                                "projectId": {
+                                  "nullable": true,
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "content"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "version",
+                          "items"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "data"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "added": {
+                      "type": "number"
+                    },
+                    "skipped": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "added",
+                    "skipped"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/styles": {
       "get": {
         "summary": "List available style presets and user custom styles",
@@ -6831,6 +7339,595 @@
           }
         }
       }
+    },
+    "/public/share/{token}": {
+      "get": {
+        "summary": "Read a shared snapshot. No sign-in.",
+        "tags": [
+          "share"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 64
+            },
+            "in": "path",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "chat"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "sharedAt": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "messages": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "role": {
+                                "type": "string",
+                                "enum": [
+                                  "user",
+                                  "assistant"
+                                ]
+                              },
+                              "text": {
+                                "type": "string"
+                              },
+                              "createdAt": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "sources": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "number"
+                                    },
+                                    "title": {
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    },
+                                    "domain": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "title",
+                                    "url",
+                                    "domain"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "uiBlocks": {
+                                "type": "array",
+                                "items": {}
+                              },
+                              "artifact": {
+                                "nullable": true,
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "kind": {
+                                    "type": "string"
+                                  },
+                                  "content": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "kind",
+                                  "content"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "role",
+                              "text",
+                              "createdAt",
+                              "sources",
+                              "uiBlocks",
+                              "artifact"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "sharedAt",
+                        "messages"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "artifact"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "sharedAt": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "artifact": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string"
+                            },
+                            "content": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "kind",
+                            "content",
+                            "version"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "sharedAt",
+                        "artifact"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/share": {
+      "post": {
+        "summary": "Share a chat by public link, or update the snapshot of its link",
+        "tags": [
+          "share"
+        ],
+        "description": "The link shows the chat up to its last finished reply. Messages sent later stay private until this is called again.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "targetType": {
+                      "type": "string",
+                      "enum": [
+                        "chat",
+                        "artifact"
+                      ]
+                    },
+                    "targetId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "snapshotAt": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "token",
+                    "path",
+                    "targetType",
+                    "targetId",
+                    "title",
+                    "snapshotAt",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/artifacts/{id}/share": {
+      "post": {
+        "summary": "Share an artifact by public link, or update its link to the current version",
+        "tags": [
+          "share"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "targetType": {
+                      "type": "string",
+                      "enum": [
+                        "chat",
+                        "artifact"
+                      ]
+                    },
+                    "targetId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "snapshotAt": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "token",
+                    "path",
+                    "targetType",
+                    "targetId",
+                    "title",
+                    "snapshotAt",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/share-links": {
+      "get": {
+        "summary": "The links this account has shared and not turned off",
+        "tags": [
+          "share"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "chat",
+                "artifact"
+              ]
+            },
+            "in": "query",
+            "name": "targetType",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "query",
+            "name": "targetId",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "token": {
+                            "type": "string"
+                          },
+                          "path": {
+                            "type": "string"
+                          },
+                          "targetType": {
+                            "type": "string",
+                            "enum": [
+                              "chat",
+                              "artifact"
+                            ]
+                          },
+                          "targetId": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "snapshotAt": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "nullable": true,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "token",
+                          "path",
+                          "targetType",
+                          "targetId",
+                          "title",
+                          "snapshotAt",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/share-links/{id}": {
+      "delete": {
+        "summary": "Turn a link off. It stops opening at once.",
+        "tags": [
+          "share"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/export": {
+      "post": {
+        "summary": "Build a zip of everything this account holds",
+        "tags": [
+          "auth"
+        ],
+        "description": "The download link works for 24 hours, and only for the signed-in owner.",
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "downloadPath": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "expiresAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "downloadPath",
+                    "sizeBytes",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/exports/{id}/download": {
+      "get": {
+        "summary": "Download an export while its link is valid",
+        "tags": [
+          "auth"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/account": {
+      "delete": {
+        "summary": "Delete this account and everything it holds",
+        "tags": [
+          "auth"
+        ],
+        "description": "Needs the current password. Stored files go first, then every row; the session ends. It cannot be undone.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "servers": [
@@ -6874,6 +7971,10 @@
     {
       "name": "styles",
       "description": "Response styles (presets and custom)"
+    },
+    {
+      "name": "share",
+      "description": "Public links to chat and artifact snapshots"
     }
   ]
 }

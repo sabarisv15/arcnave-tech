@@ -20,6 +20,7 @@ import {
 import { ApiError, api } from "./api";
 import type { ModelsDto, StyleDto, StylePresetDto } from "./api";
 import type { Attachment, Message, Mode, ReasoningEffort } from "./types";
+import { DictationButton } from "./Dictation";
 import {
   REASONING_EFFORT_LADDER,
   resolveEffortForModel,
@@ -571,8 +572,8 @@ export default function Composer({
     <div className="composer-wrap">
       {edit && edit.chatId === chatId && (
         <div className="edit-notice">
-          Sending this continues in a new branch; the original conversation
-          stays as it is.
+          Sending this makes a new version of the conversation from here. The
+          current one stays, and you can switch back to it.
           <button
             onClick={() => {
               setEdit(null);
@@ -799,6 +800,7 @@ export default function Composer({
             items={styleItems}
           />
           <div className="spacer" />
+          <DictationButton text={text} setText={setText} onError={toast} disabled={!!ownRun} />
           <Dropdown
             label="Model selection"
             side="top"

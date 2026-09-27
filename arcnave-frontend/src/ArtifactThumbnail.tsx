@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { api } from "./api";
 import { remarkPlugins } from "./markdownPlugins";
 import { SandboxFrame } from "./SandboxFrame";
+import { SlideThumbnail } from "./SlidesView";
 import type { Artifact } from "./types";
 
 // A version's content never changes, so one read per version is enough for the whole session.
@@ -69,6 +70,12 @@ export function ArtifactThumbnail({ artifact, fallback }: { artifact: Artifact; 
       body = (
         <div className={`artifact-thumb-frame ${artifact.kind === "svg" ? "is-image" : ""}`}>
           <SandboxFrame html={html} title={`${artifact.title} thumbnail`} layout="page" />
+        </div>
+      );
+    } else if (artifact.kind === "slides") {
+      body = (
+        <div className="artifact-thumb-slides">
+          <SlideThumbnail markdown={content} />
         </div>
       );
     } else if (artifact.kind === "document") {

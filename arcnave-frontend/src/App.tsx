@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   Link,
@@ -13,6 +13,7 @@ import {
   ArrowDown,
   ArrowUpRight,
   Check,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Download,
@@ -43,6 +44,7 @@ import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import Composer, { AttachmentChip } from "./Composer";
 import Settings from "./Settings";
+import { PublicLink } from "./ShareLink";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
@@ -96,7 +98,21 @@ class ErrorBoundary extends Component<
   }
 }
 
+const SharedPage = lazy(() => import("./SharedPage"));
+
 export default function App() {
+  const location = useLocation();
+  // A shared link opens without an account (ADR-0039), so it is served before the session gate.
+  if (location.pathname.startsWith("/s/"))
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/s/:token" element={<SharedPage />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
+    );
   return (
     <ErrorBoundary>
       <SessionProvider>
@@ -448,7 +464,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
 
 function Conversation() {
   const { id } = useParams();
-  const { chats, projects, messages, transcript, openChat, activeRun, send } =
+  const { chats, projects, messages, transcript, openChat, activeRun, send, versionAnchor } =
     useWorkspace();
   const chat = chats.find((c) => c.id === id);
   const state = id ? transcript[id] : undefined;
@@ -467,7 +483,17 @@ function Conversation() {
   useEffect(() => {
     if (id) openChat(id);
   }, [id, openChat]);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // After a version switch the prompt stays where it was on screen (ADR-0038).
+    if (versionAnchor && versionAnchor.chatId === id) {
+      const row = scroll.current?.querySelector(`.user-message[data-seq="${versionAnchor.seq}"]`);
+      if (row && scroll.current) {
+        scroll.current.scrollTop += row.getBoundingClientRect().top - versionAnchor.offset;
+        const el = scroll.current;
+        setNearBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+        return;
+      }
+    }
     if (!isRunning) {
       setNearBottom(true);
       bottom.current?.scrollIntoView();
@@ -747,6 +773,7 @@ function MessageView({
     retry,
     activeRun,
     branch,
+    switchVersion,
     setEdit,
     feedback,
     saveResponseAsArtifact,
@@ -788,9 +815,17 @@ function MessageView({
     }
   };
 
+  const showVersion = (index: number) => {
+    const target = m.versions?.chatIds[index];
+    if (!target) return;
+    // Hold the prompt where it is on screen, so the switch reads as the text changing in place.
+    const row = document.querySelector(`.user-message[data-seq="${m.seq}"]`);
+    switchVersion(chatId, target, m.seq, row ? row.getBoundingClientRect().top : 0);
+  };
+
   if (m.role === "user")
     return (
-      <div className="user-message" ref={turnAnchorRef}>
+      <div className="user-message" ref={turnAnchorRef} data-seq={m.seq}>
         <div className="user-bubble">
           {m.attachments?.length ? (
             <div className="attachments">
@@ -812,6 +847,27 @@ function MessageView({
           >
             <Pencil size={14} />
           </IconButton>
+          {m.versions && (
+            <div className="version-switcher" role="group" aria-label="Versions of this prompt">
+              <IconButton
+                label="Previous version"
+                disabled={!!activeRun || m.versions.index === 0}
+                onClick={() => showVersion(m.versions!.index - 1)}
+              >
+                <ChevronLeft size={14} />
+              </IconButton>
+              <span className="version-count" aria-live="polite">
+                {m.versions.index + 1} / {m.versions.chatIds.length}
+              </span>
+              <IconButton
+                label="Next version"
+                disabled={!!activeRun || m.versions.index === m.versions.chatIds.length - 1}
+                onClick={() => showVersion(m.versions!.index + 1)}
+              >
+                <ChevronRight size={14} />
+              </IconButton>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1099,16 +1155,36 @@ function DeliverableCard({ item }: { item: DeliverableData }) {
 
   return (
     <div className="deliverable-card" role="region" aria-label={`Deliverable: ${item.filename}`}>
-      <div className="deliverable-card-icon">
-        <FileText size={24} />
-        <span className="deliverable-card-badge">{formatUpper}</span>
-      </div>
-      <div className="deliverable-card-info">
-        <strong className="deliverable-card-title">{item.title || item.filename}</strong>
-        <span className="deliverable-card-meta">
-          {item.filename} • {Math.round((item.sizeBytes || 0) / 1024)} KB
-        </span>
-      </div>
+      {/* Opening a created file shows it before it is downloaded, as Claude's file cards do (WP-11). */}
+      <button
+        type="button"
+        className="deliverable-card-open"
+        title={`Preview ${item.filename}`}
+        onClick={() =>
+          setPanel({
+            kind: "file",
+            file: {
+              id: item.attachmentId,
+              name: item.filename,
+              size: item.sizeBytes,
+              type: item.mimeType,
+              status: "ready",
+              downloadUrl: api.files.downloadUrl(item.attachmentId),
+            },
+          })
+        }
+      >
+        <div className="deliverable-card-icon">
+          <FileText size={24} />
+          <span className="deliverable-card-badge">{formatUpper}</span>
+        </div>
+        <div className="deliverable-card-info">
+          <strong className="deliverable-card-title">{item.title || item.filename}</strong>
+          <span className="deliverable-card-meta">
+            {item.filename} • {Math.round((item.sizeBytes || 0) / 1024)} KB
+          </span>
+        </div>
+      </button>
       <div className="deliverable-card-actions">
         {item.artifactId && (
           <button
@@ -1202,9 +1278,11 @@ function ShareButton({ chatId }: { chatId: string }) {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Take this conversation with you"
-        description="Conversations are private to your account. Export a copy to share one."
+        title="Share this conversation"
+        description="A link shows a snapshot of the chat as it is now. Messages you send later stay private until you update it."
       >
+        {open && <PublicLink target={{ type: "chat", id: chatId }} />}
+        <p className="share-divider">Or keep a copy</p>
         <div className="share-options">
           <button
             className="button"
@@ -1227,7 +1305,7 @@ function ShareButton({ chatId }: { chatId: string }) {
             <Copy size={17} />
             Copy conversation
           </button>
-          <button className="button primary" onClick={() => exportChat(chat)}>
+          <button className="button" onClick={() => exportChat(chat)}>
             <Download size={17} />
             Download Markdown
           </button>
@@ -1236,3 +1314,4 @@ function ShareButton({ chatId }: { chatId: string }) {
     </>
   );
 }
+

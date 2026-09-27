@@ -751,9 +751,9 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
                     <span />
                     <span />
                   </>
-                ) : a.kind === "webpage" || a.kind === "svg" ? (
+                ) : a.kind === "webpage" || a.kind === "svg" || a.kind === "slides" ? (
                   <>
-                    <p>{a.kind === "svg" ? "IMAGE" : "WEBPAGE"}</p>
+                    <p>{a.kind === "svg" ? "IMAGE" : a.kind === "slides" ? "SLIDES" : "WEBPAGE"}</p>
                     <h3>{a.title}</h3>
                   </>
                 ) : (
@@ -850,7 +850,7 @@ export function ArtifactsPage() {
       </div>
       <div className="list-toolbar">
         <div className="segmented">
-          {["All", "document", "code", "webpage", "svg"].map((f) => (
+          {["All", "document", "slides", "code", "webpage", "svg"].map((f) => (
             <button
               key={f}
               className={filter === f ? "active" : ""}

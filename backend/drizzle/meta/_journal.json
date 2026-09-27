@@ -127,6 +127,34 @@
       "when": 1791100000000,
       "tag": "0017_effort_and_styles",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791200000000,
+      "tag": "0018_chat_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791300000000,
+      "tag": "0019_share_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791400000000,
+      "tag": "0020_account_exports",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0021_artifact_kind_slides",
+      "breakpoints": true
     }
   ]
 }

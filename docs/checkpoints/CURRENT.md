@@ -1,5 +1,81 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-18 phase 1 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Voice dictation in the composer ([ADR-0042](../decisions/0042-voice-dictation.md)):
+> - The browser's speech recognition, with a mic at the right of the composer.
+> - The first use asks the language (English (India), Tamil, English (US), Hindi); the choice
+>   is remembered in the browser.
+> - The text is added to what was typed; nothing is sent until the user sends it.
+> - There is no mic where the browser has no recogniser.
+> - Voice mode (spoken replies) is phase 2.
+> - **All six scoped WPs (09, 11, 12, 13, 16, 18) are done on this branch.**
+>
+> **2026-09-27 (latest): WP-16 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> A `slides` artifact kind ([ADR-0041](../decisions/0041-slides-artifacts.md)):
+> - The content is Markdown with one `#`/`##` heading per slide, the same rule the PowerPoint
+>   export uses.
+> - The panel shows a deck: a 16:9 stage, a filmstrip, arrow keys, speaker notes, full-screen
+>   Present, print to PDF, and a PowerPoint download. Cards show the first slide.
+> - The model is told a deck with no file format named is a slides artifact.
+> - Docs stay the single-author `document` kind; Design is deferred.
+> - Migration 0021 `artifact_kind_slides` (`when` 1791500000000). Checked in Chromium.
+>
+> **2026-09-27 (latest): WP-13 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Data controls ([ADR-0040](../decisions/0040-data-export-and-account-deletion.md)):
+> - Memory import: paste what another assistant lists, one per line, or an ArcNave export.
+>   Memory export is JSON.
+> - Data export: a zip with a 24-hour download link.
+> - Account deletion: password plus a typed phrase. It removes every stored object under the
+>   user's keys (`ObjectStorage.deleteOwned`), then every row by cascade.
+> - Migration 0020 `account_exports` (`when` 1791400000000). New codes: `password_incorrect`,
+>   `export_expired`. `fflate` is now a declared backend dependency.
+> - Checked in Chromium: import, export download, delete; the next login gets 401.
+> - **Deploy note:** `deleteOwned` on GCS lists the owner's shard prefix. The runtime service
+>   account needs `storage.objects.list` on the bucket; check before relying on deletion live.
+>
+> **2026-09-27 (latest): WP-12 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Public share links for chats and artifacts ([ADR-0039](../decisions/0039-public-share-links.md)):
+> - The Share dialog creates, copies, updates ("Update to now") and stops a link. The artifact
+>   panel has the same control, and Settings > Data & privacy lists every live link.
+> - `/s/{token}` opens without an account, read only, `noindex`.
+> - The public payload is an allow-list: text, citations, rendered visuals and artifacts. No
+>   files, tool data, thinking, memory, usage or owner details.
+> - Migration 0019 `share_links` (`when` 1791300000000). New codes: `share_not_found`,
+>   `share_empty`.
+> - Checked in Chromium: share, open in a separate context, stop sharing, reload shows
+>   "This link is not available".
+> - **Deploy note:** `/v1/public/share/*` must be reachable without a session on Cloud Run
+>   (it is: auth is per-route).
+>
+> **2026-09-27 (latest): WP-11 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Office files open in the file panel before download, from attachments and from created-file
+> cards (the card is now clickable, and the panel can expand):
+> - Word: `docx-preview`, loaded on demand.
+> - PowerPoint: drawn by `arcnave-frontend/src/officePreview.ts` (shapes, text, pictures, tables
+>   at their positions). `pptx-preview` was tried and drew nothing for ArcNave's own decks.
+>   Charts, effects and grouped-shape offsets are not drawn.
+> - Excel: `GET /files/{id}/preview` and `GET /artifacts/{id}/versions/{v}/preview` return every
+>   sheet's first 200 rows × 50 columns as typed cells, with a truncation flag; the panel shows
+>   sheet tabs and a grid. Code `preview_unsupported` (422) for other files, corrupt workbooks
+>   and files over 25 MB.
+> - Word and PowerPoint draw into a frame with `sandbox="allow-same-origin"` and no scripts, so
+>   a file's styles and links cannot reach the app. LibreOffice is only in the sandbox image, so
+>   the server does not convert for previews.
+>
+> **2026-09-27 (latest): WP-09 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Editing a prompt now makes another version of the same chat ([ADR-0038](../decisions/0038-edited-prompts-make-versions.md)):
+> `< i / n >` on the prompt switches versions, the sidebar keeps one row, delete removes every
+> version, and a version carries the earlier turns' files, tool calls and sources. Migration 0018
+> `chat_versions` (`when` 1791200000000). Local dev now calls the local API (`/v1`), never
+> production. Backend 1049 tests, frontend 164, build clean; checked in Chromium (1/3, 2/3, 3/3,
+> reload keeps one row).
+>
+> **2026-09-27 (latest): UI-parity scope narrowed by the user.** Remaining, in order: WP-09
+> (branch switcher), WP-11 (Office previews), WP-12 (share links), WP-13 (data controls),
+> WP-16 (Docs/Slides types), WP-18 (voice). WP-08, WP-14, WP-15, WP-17 and WP-19 are future scope
+> and are not started without a new decision. None of the remaining WPs depends on them.
+> PR #27 (WP-03 to WP-07 + WP-10) is merged to main; live checks pending by the user.
+>
 > **2026-09-27 (latest): WP-03 to WP-07 and WP-10 merged on `integration/ui-parity`, reviewed against Claude, not live.**
 > - Migrations: 0016 `artifact_kind_svg` (WP-10), 0017 `effort_and_styles` (WP-04 + WP-05, regenerated
 >   in one file, `when` 1791100000000). The branches' own 0016 files were dropped.

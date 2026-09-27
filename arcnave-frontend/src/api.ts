@@ -28,7 +28,9 @@
  * production-ready posture. Revisit before this has real multi-browser traffic.
  */
 export const API_BASE: string =
-  import.meta.env.VITE_API_BASE ?? "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1";
+  import.meta.env.VITE_API_BASE ??
+  // The dev server proxies `/v1` to the local API; a local session must never reach production.
+  (import.meta.env.DEV ? "/v1" : "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1");
 
 /* -------------------------------------------------------------------------- errors */
 
@@ -173,6 +175,26 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
   export_unsupported: {
     title: "This version cannot be exported to that format",
     detail: "Its content has none of the structure that format needs.",
+  },
+  password_incorrect: {
+    title: "That password is not right",
+    detail: "Enter the password you sign in with to confirm.",
+  },
+  export_expired: {
+    title: "This export has expired",
+    detail: "Export links last 24 hours. Ask for a new export in Settings.",
+  },
+  share_not_found: {
+    title: "This link is not available",
+    detail: "It may have been turned off by the person who shared it, or it was never valid.",
+  },
+  share_empty: {
+    title: "Nothing to share yet",
+    detail: "Share the conversation once it has a finished reply.",
+  },
+  preview_unsupported: {
+    title: "No preview for this file",
+    detail: "Download it to open it in its own application.",
   },
   forbidden: {
     title: "Not permitted",
@@ -474,10 +496,30 @@ export interface MessageDto {
   toolCalls: ToolCallDto[];
   attachments: MessageAttachmentDto[];
   usage: UsageDto | null;
+  versions?: { index: number; versions: { chatId: string; createdAt: string }[] } | null;
+}
+
+export interface SheetPreviewCellDto {
+  value: string | number | boolean | null;
+  type: "number" | "string" | "boolean" | "date" | "error" | null;
+  numFmt?: string;
+  formula?: string;
+}
+
+export interface SheetPreviewDto {
+  sheets: {
+    name: string;
+    rows: SheetPreviewCellDto[][];
+    rowCount: number;
+    columnCount: number;
+    truncatedRows: boolean;
+    truncatedColumns: boolean;
+  }[];
 }
 
 export interface ChatDto {
   id: string;
+  familyId?: string;
   title: string;
   projectId: string | null;
   pinned: boolean;
@@ -764,7 +806,55 @@ export interface StylesListDto {
 
 /* -------------------------------------------------------------------------- endpoints */
 
+export interface MemoryExportDto {
+  version: 1;
+  exportedAt?: string;
+  items: { key: string; content: string; kind?: string; isStanding?: boolean; projectId?: string | null }[];
+}
+
+export interface ShareLinkDto {
+  id: string;
+  token: string;
+  path: string;
+  targetType: "chat" | "artifact";
+  targetId: string;
+  title: string;
+  snapshotAt: string | null;
+  createdAt: string | null;
+}
+
+export interface SharedArtifactDto {
+  title: string;
+  kind: string;
+  content: string;
+}
+
+export type PublicShareDto =
+  | {
+      type: "chat";
+      title: string;
+      sharedAt: string | null;
+      messages: {
+        role: "user" | "assistant";
+        text: string;
+        createdAt: string | null;
+        sources: { id: number; title: string; url: string; domain: string }[];
+        uiBlocks: unknown[];
+        artifact: SharedArtifactDto | null;
+      }[];
+    }
+  | { type: "artifact"; title: string; sharedAt: string | null; artifact: SharedArtifactDto & { version: number } };
+
 export const api = {
+  /** Public links to snapshots (ADR-0039). */
+  share: {
+    chat: (id: string) => post<ShareLinkDto>(`/chats/${id}/share`),
+    artifact: (id: string) => post<ShareLinkDto>(`/artifacts/${id}/share`),
+    list: (query?: { targetType?: "chat" | "artifact"; targetId?: string }) =>
+      get<{ items: ShareLinkDto[] }>("/share-links", query),
+    revoke: (id: string) => del(`/share-links/${id}`),
+    read: (token: string) => get<PublicShareDto>(`/public/share/${encodeURIComponent(token)}`),
+  },
   auth: {
     me: () => get<{ user: User | null }>("/auth/me", undefined, undefined),
     /** Quiet: a signed-out visitor is the expected case, not a session that just ended. */
@@ -808,6 +898,8 @@ export const api = {
       },
     ) => patch<ChatDto>(`/chats/${id}`, body),
     remove: (id: string) => del(`/chats/${id}`),
+    edit: (id: string, editSeq: number) =>
+      post<ChatDto>(`/chats/${id}/branch`, { editSeq }),
     branch: (id: string, throughMessageId?: string) =>
       post<ChatDto>(
         `/chats/${id}/branch`,
@@ -942,6 +1034,9 @@ export const api = {
     read: (id: string) => get<AttachmentDto>(`/files/${id}`),
     remove: (id: string) => del(`/files/${id}`),
     downloadUrl: (id: string) => url(`/files/${id}/download`),
+    /** A spreadsheet's sheets as typed cells (WP-11). */
+    preview: (id: string, signal?: AbortSignal) =>
+      get<SheetPreviewDto>(`/files/${id}/preview`, undefined, signal),
     cleanup: () => post<{ deleted: number }>("/files/cleanup", {}),
   },
 
@@ -979,6 +1074,15 @@ export const api = {
     delete: (id: string) => del(`/memory/${id}`),
     clearProject: (projectId: string) => del(`/memory/project/${projectId}`),
     clearAll: () => del("/memory/all"),
+    /** ArcNave's own JSON, which `import` reads back (ADR-0040). */
+    export: () => get<MemoryExportDto>("/memory/export"),
+    import: (body: { text: string } | { data: MemoryExportDto }) =>
+      post<{ added: number; skipped: number }>("/memory/import", body),
+  },
+  account: {
+    export: () =>
+      post<{ id: string; downloadPath: string; sizeBytes: number; expiresAt: string | null }>("/account/export"),
+    delete: (password: string) => request<void>("DELETE", "/account", { body: { password } }),
   },
 
   styles: {

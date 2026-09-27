@@ -211,6 +211,8 @@ export interface Message {
   usage?: MessageUsage;
   /** The provider's stop reason as stored, e.g. "MAX_TOKENS" when the answer hit its limit. */
   finishReason?: string;
+  /** Other versions of an edited prompt (ADR-0038): `chatId` opens each one. */
+  versions?: { index: number; chatIds: string[] };
 }
 
 /**
@@ -227,6 +229,8 @@ export function cutOffReason(finishReason: string | undefined): "output_limit" |
 
 export interface Chat {
   id: string;
+  /** The conversation this chat is a version of (ADR-0038); its own id when never edited. */
+  familyId: string;
   title: string;
   projectId: string | null;
   pinned: boolean;
@@ -265,7 +269,7 @@ export interface SavedSource {
 export interface Artifact {
   id: string;
   title: string;
-  kind: "document" | "code" | "webpage" | "svg";
+  kind: "document" | "code" | "webpage" | "svg" | "slides";
   projectId: string | null;
   chatId: string | null;
   /** Which version the artifact currently points at. */
@@ -439,12 +443,16 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.createdAt ? { createdAt: dto.createdAt } : {}),
     ...(dto.usage ? { usage: toUsage(dto.usage) } : {}),
     ...(dto.finishReason ? { finishReason: dto.finishReason } : {}),
+    ...(dto.versions && dto.versions.versions.length > 1
+      ? { versions: { index: dto.versions.index, chatIds: dto.versions.versions.map((v) => v.chatId) } }
+      : {}),
   };
 }
 
 export function toChat(dto: ChatDto): Chat {
   return {
     id: dto.id,
+    familyId: dto.familyId ?? dto.id,
     title: dto.title,
     projectId: dto.projectId,
     pinned: dto.pinned,
@@ -483,7 +491,7 @@ export function toArtifact(dto: ArtifactDto): Artifact {
   return {
     id: dto.id,
     title: dto.title,
-    kind: (dto.kind === "code" || dto.kind === "webpage" || dto.kind === "svg"
+    kind: (dto.kind === "code" || dto.kind === "webpage" || dto.kind === "svg" || dto.kind === "slides"
       ? dto.kind
       : "document") as Artifact["kind"],
     projectId: dto.projectId,

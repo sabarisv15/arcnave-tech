@@ -1,0 +1,3 @@
+# Shared snapshots must not be indexed (ADR-0039). Cloudflare applies these to static-asset responses.
+/s/*
+  X-Robots-Tag: noindex, nofollow

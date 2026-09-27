@@ -30,6 +30,8 @@ import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { AttachmentRef } from '../providers/types.js';
+import type { DbLike } from '../db/client.js';
+import { versionsAt, type MessageVersions } from '../services/chatVersions.js';
 import { toAttachmentRef } from '../services/attachments/attachmentRef.js';
 import { FILE_LIMITS } from '../services/attachments/processUpload.js';
 import type { Run } from '../services/runHub.js';
@@ -122,6 +124,13 @@ const messageSchema = z.object({
   events: z.array(eventSchema),
   toolCalls: z.array(toolCallSchema),
   attachments: z.array(attachmentSchema),
+  /** Other versions of this prompt, made by editing it (ADR-0038); null when there are none. */
+  versions: z
+    .object({
+      index: z.number(),
+      versions: z.array(z.object({ chatId: z.string(), createdAt: z.string() })),
+    })
+    .nullable(),
   usage: z
     .object({
       inputTokens: z.number(),
@@ -163,6 +172,8 @@ const goalSchema = z.object({
 
 const chatSchema = z.object({
   id: z.string(),
+  /** The conversation this chat is a version of; equal to `id` for one never edited. */
+  familyId: z.string(),
   title: z.string(),
   projectId: z.string().nullable(),
   pinned: z.boolean(),
@@ -201,6 +212,14 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       const filters = [eq(chats.userId, user.id), isNull(chats.deletedAt)];
       if (projectId) filters.push(eq(chats.projectId, projectId));
       if (q?.trim()) filters.push(sql`${chats.title} ilike ${'%' + q.trim() + '%'}`);
+      // One row per conversation: of its versions, the one used last (ADR-0038).
+      filters.push(sql`not exists (
+        select 1 from chats newer
+        where newer.user_id = ${chats.userId}
+          and newer.deleted_at is null
+          and coalesce(newer.root_chat_id, newer.id) = coalesce(${chats.rootChatId}, ${chats.id})
+          and (newer.updated_at > ${chats.updatedAt}
+               or (newer.updated_at = ${chats.updatedAt} and newer.id > ${chats.id})))`);
       if (decoded) {
         // Keyset pagination: strictly older, or same timestamp with a smaller id.
         filters.push(
@@ -320,9 +339,15 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         };
       }
 
+      const transcript = await loadMessages(request, chat.id);
+      const versions = await loadVersions(
+        request,
+        chat,
+        transcript.filter((m) => m.role === 'user').map((m) => m.seq),
+      );
       return {
         ...toChatDto(chat),
-        messages: await loadMessages(request, chat.id),
+        messages: transcript.map((m) => ({ ...m, versions: versions.get(m.seq) ?? null })),
         activeGoal,
       };
     },
@@ -364,6 +389,24 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         .set(patch)
         .where(eq(chats.id, chat.id))
         .returning();
+      // Versions are one conversation: its name, pin and project are shared.
+      const shared: Record<string, unknown> = {};
+      for (const key of ['title', 'pinned', 'projectId'] as const) {
+        if (key in patch) shared[key] = patch[key];
+      }
+      if (Object.keys(shared).length > 0) {
+        const family = chat.rootChatId ?? chat.id;
+        await db
+          .update(chats)
+          .set(shared)
+          .where(
+            and(
+              eq(chats.userId, chat.userId),
+              sql`${chats.id} <> ${chat.id}`,
+              or(eq(chats.id, family), eq(chats.rootChatId, family)),
+            ),
+          );
+      }
       return toChatDto(updated!);
     },
   );
@@ -375,7 +418,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     {
       schema: {
         tags: ['chats'],
-        summary: 'Soft-delete a chat',
+        summary: 'Soft-delete a chat with all its versions',
         params: uuidParam,
         response: { 204: z.null() },
       },
@@ -383,9 +426,25 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     async (request, reply) => {
       const { db, activeRuns } = request.services;
       const chat = await loadChat(request, request.params.id);
+      // A conversation is deleted with all its versions (ADR-0038), as one row in the list is
+      // one conversation.
+      const familyId = chat.rootChatId ?? chat.id;
+      const family = await db
+        .select({ id: chats.id })
+        .from(chats)
+        .where(
+          and(
+            eq(chats.userId, chat.userId),
+            isNull(chats.deletedAt),
+            or(eq(chats.id, familyId), eq(chats.rootChatId, familyId)),
+          ),
+        );
       // Stop any run first, so it does not keep writing to a chat the user just deleted.
-      activeRuns.get(chat.id)?.abort();
-      await db.update(chats).set({ deletedAt: new Date() }).where(eq(chats.id, chat.id));
+      for (const member of family) activeRuns.get(member.id)?.abort();
+      await db
+        .update(chats)
+        .set({ deletedAt: new Date() })
+        .where(inArray(chats.id, family.map((m) => m.id)));
       return reply.status(204).send(null);
     },
   );
@@ -397,9 +456,20 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     {
       schema: {
         tags: ['chats'],
-        summary: 'Copy a chat, optionally truncated after a given message',
+        summary: 'Copy a chat: up to a message, or as a new version of an edited prompt',
+        description:
+          'With `throughMessageId`, a separate chat holding the history through that message. ' +
+          'With `editSeq`, a new version of the same conversation (ADR-0038): the history before ' +
+          'the prompt at that seq, which the next generate replaces.',
         params: uuidParam,
-        body: z.object({ throughMessageId: z.string().uuid().optional() }),
+        body: z
+          .object({
+            throughMessageId: z.string().uuid().optional(),
+            editSeq: z.number().int().min(0).optional(),
+          })
+          .refine((b) => b.throughMessageId === undefined || b.editSeq === undefined, {
+            message: 'Give throughMessageId or editSeq, not both.',
+          }),
         response: { 201: chatSchema },
       },
     },
@@ -407,6 +477,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       const user = currentUser(request);
       const { db } = request.services;
       const chat = await loadChat(request, request.params.id);
+      const { throughMessageId, editSeq } = request.body;
 
       const history = await db
         .select()
@@ -415,43 +486,40 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         .orderBy(asc(messages.seq));
 
       let kept = history;
-      if (request.body.throughMessageId) {
-        const index = history.findIndex((m) => m.id === request.body.throughMessageId);
+      if (throughMessageId) {
+        const index = history.findIndex((m) => m.id === throughMessageId);
         if (index === -1) throw notFound('message');
         kept = history.slice(0, index + 1);
+      } else if (editSeq !== undefined) {
+        if (!history.some((m) => m.seq === editSeq && m.role === 'user')) throw notFound('message');
+        kept = history.filter((m) => m.seq < editSeq);
       }
 
-      const [branch] = await db
-        .insert(chats)
-        .values({
-          userId: user.id,
-          title: `${chat.title} · branch`.slice(0, 200),
-          projectId: chat.projectId,
-        })
-        .returning();
-
-      if (kept.length > 0) {
-        await db.insert(messages).values(
-          kept.map((m, index) => ({
-            chatId: branch!.id,
-            userId: user.id,
-            seq: index,
-            role: m.role,
-            text: m.text,
-            mode: m.mode,
-            // An in-flight message copies as 'stopped': the branch has no run behind it.
-            status: m.status === 'generating' || m.status === 'submitting' ? 'stopped' : m.status,
-            questions: m.questions,
-            modelAlias: m.modelAlias,
-            effort: m.effort,
-            provider: m.provider,
-            providerModelId: m.providerModelId,
-            finishReason: m.finishReason,
-            completedAt: m.completedAt,
-          })),
-        );
-      }
-      return reply.status(201).send(toChatDto(branch!));
+      const branch = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(chats)
+          .values(
+            editSeq !== undefined
+              ? {
+                  userId: user.id,
+                  title: chat.title,
+                  projectId: chat.projectId,
+                  pinned: chat.pinned,
+                  parentChatId: chat.id,
+                  rootChatId: chat.rootChatId ?? chat.id,
+                  forkSeq: editSeq,
+                }
+              : {
+                  userId: user.id,
+                  title: `${chat.title} · branch`.slice(0, 200),
+                  projectId: chat.projectId,
+                },
+          )
+          .returning();
+        await copyMessages(tx, kept, created!.id, user.id);
+        return created!;
+      });
+      return reply.status(201).send(toChatDto(branch));
     },
   );
 
@@ -679,6 +747,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 /* -------------------------------------------------------------------------- helpers */
 
 type ChatRow = typeof chats.$inferSelect;
+type MessageRow = typeof messages.$inferSelect;
 
 /**
  * Writes one run's frames to this connection: the buffered ones after `after`, then live ones
@@ -739,6 +808,7 @@ async function streamRun(
 
 function toChatDto(row: ChatRow): {
   id: string;
+  familyId: string;
   title: string;
   projectId: string | null;
   pinned: boolean;
@@ -748,6 +818,7 @@ function toChatDto(row: ChatRow): {
 } {
   return {
     id: row.id,
+    familyId: row.rootChatId ?? row.id,
     title: row.title,
     projectId: row.projectId,
     pinned: row.pinned,
@@ -882,7 +953,94 @@ async function loadMessages(
     })),
     // Usage is attached by the usage route when asked for; the transcript stays lean.
     usage: null,
+    versions: null,
   }));
+}
+
+/** The versions of each prompt at `seqs`, from the chats in `chat`'s family (ADR-0038). */
+async function loadVersions(
+  request: { services: AppInstance['services'] },
+  chat: ChatRow,
+  seqs: number[],
+): Promise<Map<number, MessageVersions>> {
+  const { db } = request.services;
+  const familyId = chat.rootChatId ?? chat.id;
+  const family = await db
+    .select({
+      id: chats.id,
+      parentChatId: chats.parentChatId,
+      forkSeq: chats.forkSeq,
+      createdAt: chats.createdAt,
+      updatedAt: chats.updatedAt,
+      deletedAt: chats.deletedAt,
+      // Spelled out: inside a select list drizzle writes columns unqualified, and a bare "id" in
+      // the subquery would mean the message's.
+      lastSeq: sql<number>`coalesce((select max(m.seq) from messages m where m.chat_id = "chats"."id"), -1)`,
+    })
+    .from(chats)
+    .where(and(eq(chats.userId, chat.userId), or(eq(chats.id, familyId), eq(chats.rootChatId, familyId))));
+  if (family.length < 2) return new Map();
+  const current = family.find((c) => c.id === chat.id);
+  if (!current) return new Map();
+  return versionsAt(current, family.map((c) => ({ ...c, lastSeq: Number(c.lastSeq) })), seqs);
+}
+
+/**
+ * Copies messages into another chat with everything shown with them: sources, progress, tool
+ * calls and attachments. An attachment row is copied, not its bytes; retention deletes the bytes
+ * only when no row outside the purged chat still names them.
+ */
+async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, userId: string): Promise<void> {
+  if (rows.length === 0) return;
+  const inserted = await tx
+    .insert(messages)
+    .values(
+      rows.map((m) => ({
+        chatId,
+        userId,
+        seq: m.seq,
+        role: m.role,
+        text: m.text,
+        mode: m.mode,
+        // An in-flight message copies as 'stopped': the copy has no run behind it.
+        status: m.status === 'generating' || m.status === 'submitting' ? 'stopped' : m.status,
+        errorCode: m.errorCode,
+        researchStage: m.researchStage,
+        questions: m.questions,
+        feedback: m.feedback,
+        modelAlias: m.modelAlias,
+        effort: m.effort,
+        provider: m.provider,
+        providerModelId: m.providerModelId,
+        finishReason: m.finishReason,
+        artifactId: m.artifactId,
+        searchEntryPoint: m.searchEntryPoint,
+        thinking: m.thinking,
+        segments: m.segments,
+        createdAt: m.createdAt,
+        completedAt: m.completedAt,
+      })),
+    )
+    .returning({ id: messages.id, seq: messages.seq });
+  const idFor = new Map<string, string>();
+  const bySeq = new Map(inserted.map((r) => [r.seq, r.id]));
+  for (const m of rows) idFor.set(m.id, bySeq.get(m.seq)!);
+  const ids = rows.map((m) => m.id);
+
+  const [sources, events, calls, files] = await Promise.all([
+    tx.select().from(messageSources).where(inArray(messageSources.messageId, ids)),
+    tx.select().from(researchEvents).where(inArray(researchEvents.messageId, ids)),
+    tx.select().from(toolCallsTable).where(inArray(toolCallsTable.messageId, ids)),
+    tx.select().from(attachmentsTable).where(inArray(attachmentsTable.messageId, ids)),
+  ]);
+  const fresh = <T extends { id: string; messageId: string | null }>(r: T) => {
+    const { id: _id, ...rest } = r;
+    return { ...rest, messageId: idFor.get(r.messageId!)! };
+  };
+  if (sources.length) await tx.insert(messageSources).values(sources.map(fresh));
+  if (events.length) await tx.insert(researchEvents).values(events.map(fresh));
+  if (calls.length) await tx.insert(toolCallsTable).values(calls.map(fresh));
+  if (files.length) await tx.insert(attachmentsTable).values(files.map(fresh));
 }
 
 /** Append the user turn plus an empty assistant row, returning the assistant message id. */

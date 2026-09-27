@@ -33,10 +33,11 @@ import {
   paginationQuery,
   uuidParam,
 } from './helpers.js';
+import { PREVIEW_MAX_BYTES, readSheets, sheetPreviewSchema } from './sheetPreview.js';
 
 const MAX_CONTENT_CHARS = 400_000;
 
-const kindSchema = z.enum(['document', 'code', 'webpage', 'svg']);
+const kindSchema = z.enum(['document', 'code', 'webpage', 'svg', 'slides']);
 const formatSchema = z.enum(['xlsx', 'docx', 'pptx']);
 
 const artifactSchema = z.object({
@@ -415,6 +416,29 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
         sizeBytes: bytes.length,
         filename: `${safeDownloadName(artifact.title)}.${format}`,
       });
+    },
+  );
+
+  typed.get(
+    '/artifacts/:id/versions/:version/preview',
+    {
+      schema: {
+        tags: ['artifacts'],
+        summary: 'A spreadsheet version as sheets of typed cells, for the preview panel',
+        params: uuidParam.extend({ version: z.coerce.number().int().min(1) }),
+        response: { 200: sheetPreviewSchema },
+      },
+    },
+    async (request) => {
+      const { storage } = request.services;
+      const artifact = await loadArtifact(request, request.params.id);
+      const row = await loadVersionRow(request, artifact.id, request.params.version);
+      if (row.format !== 'xlsx' || !row.storageKey) throw new ApiError('preview_unsupported');
+      const data = await storage.get(row.storageKey);
+      if (data.length > PREVIEW_MAX_BYTES) {
+        throw new ApiError('preview_unsupported', { detail: 'This workbook is too large to preview. Download it instead.' });
+      }
+      return { sheets: await readSheets(data) };
     },
   );
 

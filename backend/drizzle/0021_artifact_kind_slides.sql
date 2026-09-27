@@ -1,0 +1,2 @@
+ALTER TABLE "artifacts" DROP CONSTRAINT "ck_artifact_kind";--> statement-breakpoint
+ALTER TABLE "artifacts" ADD CONSTRAINT "ck_artifact_kind" CHECK ("artifacts"."kind" in ('document','code','webpage','svg','slides'));

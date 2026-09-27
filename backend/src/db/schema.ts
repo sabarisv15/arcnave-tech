@@ -24,6 +24,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -234,6 +235,16 @@ export const chats = pgTable(
     title: varchar('title', { length: 200 }).notNull(),
     pinned: boolean('pinned').notNull().default(false),
     version: integer('version').notNull().default(1),
+    /**
+     * Versions (ADR-0038). Editing a prompt copies the conversation before it into a new chat;
+     * that chat is another version of the same conversation, not a new one. `rootChatId` names
+     * the family (null on the chat that started it) and is not a foreign key, so purging one
+     * member never splits the family. `forkSeq` is the seq of the edited prompt: from there on
+     * this chat's messages are its own, before it they are copies of `parentChatId`'s.
+     */
+    parentChatId: uuid('parent_chat_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
+    rootChatId: uuid('root_chat_id'),
+    forkSeq: integer('fork_seq'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -241,6 +252,7 @@ export const chats = pgTable(
   (t) => [
     index('ix_chats_user_updated').on(t.userId, t.updatedAt),
     index('ix_chats_project').on(t.projectId),
+    index('ix_chats_root').on(t.rootChatId),
   ],
 );
 
@@ -441,6 +453,56 @@ export const sandboxWorkspaces = pgTable(
   (t) => [index('ix_sandbox_workspaces_chat').on(t.chatId), index('ix_sandbox_workspaces_last_run').on(t.lastRunAt)],
 );
 
+/**
+ * A public link to a snapshot of a chat or an artifact (ADR-0039). The token is the only thing
+ * that opens it: 32 random bytes, never derived from an id. `snapshotSeq` is the last message
+ * seq shown for a chat, or the artifact version shown; later work stays private until the owner
+ * updates the link. A revoked link is kept, so the owner's list can say when it was turned off.
+ */
+export const shareLinks = pgTable(
+  'share_links',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: varchar('token', { length: 64 }).notNull(),
+    targetType: varchar('target_type', { length: 16 }).notNull(),
+    /** Not a foreign key: the target's own delete revokes the link (see the routes). */
+    targetId: uuid('target_id').notNull(),
+    snapshotSeq: integer('snapshot_seq').notNull(),
+    /** When the snapshot was last taken; artifacts in a shared chat are shown as of this. */
+    snapshotAt: timestamp('snapshot_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('uq_share_token').on(t.token),
+    index('ix_share_links_user').on(t.userId),
+    index('ix_share_links_target').on(t.targetType, t.targetId),
+    check('ck_share_target_type', sql`${t.targetType} in ('chat','artifact')`),
+  ],
+);
+
+/**
+ * A data export the owner asked for (ADR-0040). The zip is stored under the owner's keys, so
+ * account deletion removes it with everything else; retention removes it once it expires.
+ */
+export const accountExports = pgTable(
+  'account_exports',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    storageKey: varchar('storage_key', { length: 300 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('ix_account_exports_user').on(t.userId), index('ix_account_exports_expires').on(t.expiresAt)],
+);
+
 /* -------------------------------------------------------------------------- artifacts */
 
 export const artifacts = pgTable(
@@ -462,7 +524,7 @@ export const artifacts = pgTable(
   (t) => [
     index('ix_artifacts_user').on(t.userId),
     index('ix_artifacts_project').on(t.projectId),
-    check('ck_artifact_kind', sql`${t.kind} in ('document','code','webpage','svg')`),
+    check('ck_artifact_kind', sql`${t.kind} in ('document','code','webpage','svg','slides')`),
   ],
 );
 

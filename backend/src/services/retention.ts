@@ -18,7 +18,7 @@
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
-import { attachments, chats, messages, sandboxWorkspaces } from '../db/schema.js';
+import { attachments, chats, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
 import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
 import type { ObjectStorage } from './storage.js';
 
@@ -67,7 +67,17 @@ export async function sweepRetention(
         .select({ storageKey: attachments.storageKey })
         .from(attachments)
         .innerJoin(messages, eq(messages.id, attachments.messageId))
-        .where(and(eq(messages.chatId, chat.id), isNull(attachments.projectFileId)));
+        .where(
+          and(
+            eq(messages.chatId, chat.id),
+            isNull(attachments.projectFileId),
+            // A version of this chat (ADR-0038) holds a copy of the row naming the same bytes.
+            sql`not exists (
+              select 1 from attachments other
+              join messages om on om.id = other.message_id
+              where other.storage_key = ${attachments.storageKey} and om.chat_id <> ${chat.id})`,
+          ),
+        );
       // Bytes first, rows second: a failed object delete keeps the row, so the next sweep
       // retries it instead of leaving bytes nothing points to.
       if (!(await deleteObjects(storage, files.map((f) => f.storageKey), log))) continue;
@@ -104,6 +114,16 @@ export async function sweepRetention(
       if (!(await deleteCheckpoint(storage, w.manifestKey, log))) continue;
       await tx.delete(sandboxWorkspaces).where(eq(sandboxWorkspaces.workspaceId, w.ws));
       checkpointsPurged++;
+    }
+
+    // A data export's link lasts 24 hours (ADR-0040); its zip goes when the link does.
+    const expired = await tx
+      .select({ id: accountExports.id, storageKey: accountExports.storageKey })
+      .from(accountExports)
+      .where(lt(accountExports.expiresAt, now))
+      .limit(CHATS_PER_SWEEP);
+    for (const e of expired) {
+      if (await deleteObjects(storage, [e.storageKey], log)) await tx.delete(accountExports).where(eq(accountExports.id, e.id));
     }
 
     return { chatsPurged, uploadsPurged: removable.length, checkpointsPurged, skipped: false };

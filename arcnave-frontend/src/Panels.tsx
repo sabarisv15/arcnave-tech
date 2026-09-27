@@ -18,6 +18,7 @@ import {
   Search,
   Telescope,
   X,
+  Share2,
 } from "lucide-react";
 import { ApiError, api, url } from "./api";
 import type { ArtifactVersionDto } from "./api";
@@ -37,6 +38,10 @@ import {
   writeLocal,
 } from "./storage";
 import { shouldRefreshArtifactOnUpdate } from "./selection";
+import { OfficeFrame, SheetPreview } from "./FilePreviews";
+import { PublicLink } from "./ShareLink";
+import { SlidesView } from "./SlidesView";
+import { officeKind } from "./officePreview";
 
 export function useMobile(query = "(max-width: 1050px)") {
   const [mobile, setMobile] = useState(() => matchMedia(query).matches);
@@ -86,9 +91,9 @@ export default function ContextPanel() {
       <header className="panel-header">
         <h2>{title}</h2>
         <div className="spacer" />
-        {panel.kind === "artifact" && !overlay && (
+        {(panel.kind === "artifact" || panel.kind === "file") && !overlay && (
           <IconButton
-            label={expanded ? "Restore panel size" : "Expand artifact"}
+            label={expanded ? "Restore panel size" : panel.kind === "file" ? "Expand preview" : "Expand artifact"}
             onClick={() => setExpanded(!expanded)}
           >
             <Expand size={16} />
@@ -438,6 +443,7 @@ export function ArtifactPanel({ id }: { id: string }) {
   const [versions, setVersions] = useState<ArtifactVersionDto[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [tab, setTab] = useState<"preview" | "edit">("preview");
+  const [sharing, setSharing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -622,6 +628,9 @@ export function ArtifactPanel({ id }: { id: string }) {
           </button>
         </div>
         <span className="spacer" />
+        <IconButton label="Share artifact" onClick={() => setSharing((v) => !v)}>
+          <Share2 size={16} />
+        </IconButton>
         <IconButton label="Copy artifact" onClick={() => void copy()}>
           <Copy size={16} />
         </IconButton>
@@ -649,6 +658,17 @@ export function ArtifactPanel({ id }: { id: string }) {
           >
             <ArrowDownToLine size={14} />
             {exporting ? "Exporting…" : "Word (.docx)"}
+          </button>
+        ) : kind === "slides" ? (
+          <button
+            type="button"
+            className="button button-subtle"
+            disabled={exporting}
+            onClick={() => exportAs("pptx")}
+            title="Download as PowerPoint (.pptx)"
+          >
+            <ArrowDownToLine size={14} />
+            {exporting ? "Exporting…" : "PowerPoint"}
           </button>
         ) : (
           <IconButton
@@ -697,6 +717,11 @@ export function ArtifactPanel({ id }: { id: string }) {
           </select>
         )}
       </div>
+      {sharing && (
+        <div className="artifact-share">
+          <PublicLink target={{ type: "artifact", id }} />
+        </div>
+      )}
       {viewingOld && (
         <div className="edit-notice">
           Viewing version {readVersion} of {currentVersion}.
@@ -760,6 +785,8 @@ export function ArtifactPanel({ id }: { id: string }) {
               </button>
             </div>
           </>
+        ) : kind === "slides" ? (
+          <SlidesView markdown={content} title={meta?.title ?? "Slides"} />
         ) : kind === "webpage" || kind === "svg" ? (
           // Scripts in a webpage run, under the same sandbox as an inline visual (ADR-0035). An
           // SVG is drawn in it too, never inline in ArcNave's own page.
@@ -822,7 +849,9 @@ function FilePanel({ file }: { file: Attachment }) {
     blob?: Blob;
     text?: string;
     url?: string;
+    bytes?: ArrayBuffer;
   }>({ status: "loading" });
+  const office = officeKind(file.name, file.type);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -841,7 +870,9 @@ function FilePanel({ file }: { file: Attachment }) {
           ? await blob.slice(0, 200000).text()
           : undefined;
         url = URL.createObjectURL(blob);
-        if (!canceled) setState({ status: "ready", blob, text, url });
+        // Word and PowerPoint are drawn from their bytes (WP-11); Excel is read by the server.
+        const bytes = office === "docx" || office === "pptx" ? await blob.arrayBuffer() : undefined;
+        if (!canceled) setState({ status: "ready", blob, text, url, bytes });
       })
       .catch(() => {
         if (!canceled) setState({ status: "error" });
@@ -850,7 +881,7 @@ function FilePanel({ file }: { file: Attachment }) {
       canceled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [file, attempt]);
+  }, [file, attempt, office]);
 
   if (state.status === "loading")
     return (
@@ -890,6 +921,10 @@ function FilePanel({ file }: { file: Attachment }) {
       <div className="panel-scroll file-content">
         {file.type.startsWith("image/") ? (
           <img alt={file.name} src={state.url} />
+        ) : (office === "docx" || office === "pptx") && state.bytes ? (
+          <OfficeFrame kind={office} bytes={state.bytes} name={file.name} />
+        ) : office === "xlsx" ? (
+          <SheetPreview fileId={file.id} />
         ) : state.text !== undefined ? (
           <>
             <pre>{state.text}</pre>
