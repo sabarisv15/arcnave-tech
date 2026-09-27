@@ -1,7 +1,7 @@
 ---
 name: frontend-design
-version: 1.0.0
-description: "Use when building a web page, an interactive tool, a UI component or a visual in HTML (a webpage artifact, a render_ui visual, or an .html/.jsx file), or reshaping an existing one. Gives it a deliberate look: layout, type, colour and states, rather than template defaults."
+version: 1.1.0
+description: "Use when building a web page, an interactive tool or a UI component as a file (an .html or .jsx artifact, a page or component in output/), or reshaping an existing one. Gives it a deliberate look: layout, type, colour and states, rather than template defaults. For an inline show_widget visual, read_me's rules come first."
 category: artifact
 scope: builtin
 requires:
@@ -12,6 +12,13 @@ metadata:
 ---
 
 # Front-end design
+
+## Where this applies
+
+This skill is for files: an HTML page or React component the user gets as an artifact. An inline
+visual drawn with show_widget follows read_me instead: the chat's theme variables, a transparent
+background, no colours of its own. A React artifact is styled with Tailwind utility classes; the
+colour, type and spacing choices below still decide which classes to use.
 
 ## Decide the look before writing code
 

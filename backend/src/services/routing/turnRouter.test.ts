@@ -17,7 +17,7 @@ describe('routeTurn: flags and infrastructure decide, never wording (ADR-0006, A
   });
 
   it('adds each capability only when its flag is on', () => {
-    const on = routeTurn({ hasProject: true, codeEnabled: true, webEnabled: true, memoryEnabled: true, generativeUiEnabled: true });
+    const on = routeTurn({ hasProject: true, codeEnabled: true, webEnabled: true, searchProviderLive: true, memoryEnabled: true, generativeUiEnabled: true });
     for (const tool of [
       'bash_tool',
       'view',
@@ -42,6 +42,15 @@ describe('routeTurn: flags and infrastructure decide, never wording (ADR-0006, A
     for (const tool of ['bash_tool', 'web_search', 'memory_read', 'conversation_search', 'search_project_files', 'show_widget', 'chart_display_v0']) {
       expect(off.allowedTools).not.toContain(tool);
     }
+  });
+
+  it('allows one web search, and no search tool without a live provider (ADR-0048)', () => {
+    const web = (o: Partial<RouteTurnInput>) => routeTurn({ ...base, webEnabled: true, ...o }).allowedTools.filter((t) => /web_|image_/.test(t)).sort();
+    expect(web({})).toEqual(['web_fetch']);
+    expect(web({ builtInSearch: true })).toEqual(['web_fetch']);
+    expect(web({ searchProviderLive: true })).toEqual(['image_search', 'web_fetch', 'web_search']);
+    expect(web({ searchProviderLive: true, builtInSearch: true })).toEqual(['image_search', 'web_fetch']);
+    expect(routeTurn({ ...base, searchProviderLive: true }).allowedTools).not.toContain('web_fetch');
   });
 
   it('never allows a discovery or skill-loading tool', () => {

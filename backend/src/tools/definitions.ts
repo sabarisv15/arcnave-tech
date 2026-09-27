@@ -156,7 +156,8 @@ export function codeToolDefinitions(persistent: boolean): ToolDefinition[] {
     {
       name: 'present_files',
       description:
-        'Gives files to the user as downloads. Use it for every file the user should get, after it is ' +
+        'Gives files to the user as file cards; a Markdown, HTML, React (.jsx), Mermaid, SVG or PDF file also ' +
+        'opens beside the chat as an artifact. Use it for every file the user should get, after it is ' +
         'created; not for intermediate files you only read yourself. A file outside output/ is copied ' +
         'there first. Put the file the user should open first at the front of the list.',
       inputSchema: {
@@ -198,8 +199,8 @@ export const WEB_FETCH: ToolDefinition = {
   name: 'web_fetch',
   description:
     'Fetches the readable text of a web page. Only a URL that already appears in this conversation can be ' +
-    'fetched: one the user gave, or one a web_search or web_fetch returned. A URL recalled from memory or made ' +
-    'by editing a seen URL is refused; search for the page and fetch the link it returns. Pages behind a login ' +
+    'fetched: one the user gave, or one a search or fetch result in this conversation returned. A URL recalled ' +
+    'from memory or made by editing a seen URL is refused. Pages behind a login ' +
     'cannot be read. The URL must include https://.',
   inputSchema: {
     type: 'object',

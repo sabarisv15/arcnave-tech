@@ -1276,3 +1276,12 @@ practice, not canon.
   Chromium before shipping it (jsDelivr is blocked in this sandbox: mirror the npm tarballs and
   serve them locally). Verify: the harness in ADR-0048's session showed n=2→3, 3 bars, the icon,
   and Tailwind padding; `displayCards.test.tsx` checks the loader's inputs.
+- **2026-09-27 (prompt audit, ADR-0048)** — No new heading (at the cap). Two found by reading
+  the assembled prompt against the declared tools. (1) `web_search` was declared beside the
+  model's built-in search, which on Anthropic is a server tool also named `web_search`: a 400
+  ("Tool names must be unique"). Without a live provider the same tool returned a placeholder
+  link. Rule: a tool is declared only when something real answers it, and never under a name a
+  provider already uses. Verify: `promptToolParity.integration.test.ts` "declares one web
+  search". (2) I wrote into the prompt that web_fetch can open "a source cited in an earlier
+  reply"; history does not carry source URLs, so it cannot. Rule: every capability sentence in
+  the prompt is traced to the code path that makes it true before it is written.

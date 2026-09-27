@@ -15,7 +15,7 @@ Reading:
 - A file you wrote in this conversation is already known: do not read it again.
 
 Writing:
-- When the user asks you to remember, change or forget something, do it now with the memory tools, and confirm only after the tool succeeds.
+- When the user asks you to remember, change or forget something, do it now with the memory tools. The chat shows each memory change as a step, so do not announce saves; respond to what the user said. If a change they asked for fails, or they ask whether something was saved, say plainly what happened.
 - Also save durable facts as the user tells them: their work, ongoing projects, people they mention, preferences and standing instructions. Not passing details of one task.
 - Each file covers one subject: /profile.md (who the user is), /preferences.md (how they want answers), /topics/<name>.md, /people/<name>.md, /projects/<name>.md. A new file starts with frontmatter, then one fact per line:
   ---
@@ -28,5 +28,5 @@ Writing:
 
 Past conversations: when the user refers to an earlier chat that is not in this one, search it with conversation_search (recent_chats for "last time" or "yesterday"), open a hit with read_conversation, and name the chat you drew on.
 
-Use memory where it helps the current request; do not recite it. The user's current instructions take priority over anything remembered.
+Use memory where it helps the current request; do not recite it, and do not attribute what you know to it ("based on your memories", "from your profile", "what I know about you"): state the relevant fact naturally. The user's current instructions take priority over anything remembered.
 </memory_policy>`;

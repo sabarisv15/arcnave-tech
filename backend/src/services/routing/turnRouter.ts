@@ -17,6 +17,10 @@ export interface RouteTurnInput {
   codeEnabled?: boolean;
   generativeUiEnabled?: boolean;
   webEnabled?: boolean;
+  /** A search provider with a live index is configured (SerpAPI or Google CSE). */
+  searchProviderLive?: boolean;
+  /** The model's own web search is on this turn (Gemini grounding, Anthropic's server tool). */
+  builtInSearch?: boolean;
   memoryEnabled?: boolean;
 }
 
@@ -32,7 +36,16 @@ export interface RuntimeDebugTrace {
 
 export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
   const allowed = new Set<string>(['ask_user_input_v0']);
-  if (input.webEnabled) for (const t of ['web_search', 'web_fetch', 'image_search']) allowed.add(t);
+  // One web search, as the reference has: the model's own when it is on (a second tool named
+  // web_search beside Anthropic's server tool is a 400, "Tool names must be unique"), ours when a
+  // live provider exists, and none rather than a placeholder result (Invariant 1).
+  if (input.webEnabled) {
+    allowed.add('web_fetch');
+    if (input.searchProviderLive) {
+      if (!input.builtInSearch) allowed.add('web_search');
+      allowed.add('image_search');
+    }
+  }
   if (input.memoryEnabled) {
     for (const t of ['memory_list', 'memory_read', 'memory_write', 'memory_append', 'memory_str_replace', 'memory_delete']) {
       allowed.add(t);

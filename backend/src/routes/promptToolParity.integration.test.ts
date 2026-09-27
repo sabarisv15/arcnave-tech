@@ -61,6 +61,21 @@ const CONFIGS: Record<string, Record<string, string>> = {
   'with web': { ENABLE_TOOL_USE: 'true', ENABLE_SKILLS: 'true', ENABLE_WEB: 'true' },
   'with memory': { ENABLE_TOOL_USE: 'true', ENABLE_SKILLS: 'true', ENABLE_MEMORY: 'true' },
   'with generative UI': { ENABLE_TOOL_USE: 'true', ENABLE_SKILLS: 'true', ENABLE_GENERATIVE_UI: 'true' },
+  'everything on': {
+    ENABLE_TOOL_USE: 'true',
+    ENABLE_SKILLS: 'true',
+    ENABLE_WEB: 'true',
+    ENABLE_MEMORY: 'true',
+    ENABLE_GENERATIVE_UI: 'true',
+    ENABLE_RUN_PYTHON: 'true',
+  },
+  'everything on, live search, no built-in search': {
+    ENABLE_TOOL_USE: 'true',
+    ENABLE_SKILLS: 'true',
+    ENABLE_WEB: 'true',
+    ENABLE_RUN_PYTHON: 'true',
+    SERPAPI_API_KEY: 'test-key',
+  },
 };
 
 describe('the system prompt names only tools the turn allows', () => {
@@ -86,6 +101,35 @@ describe('the system prompt names only tools the turn allows', () => {
       expect(promised.filter((name) => !declared.has(name))).toEqual([]);
     });
   }
+
+  it('declares one web search: the built-in one when it is on, never a placeholder (ADR-0048)', async () => {
+    // Built-in search on, no search provider: no web_search function (Anthropic rejects two tools
+    // named web_search) and no image_search (nothing could answer it).
+    ctx = await createTestApp(CONFIGS['with web']!);
+    let t = await turn(ctx, 'hi');
+    expect(t.grounded).toBe(true);
+    expect([...t.declared]).toContain('web_fetch');
+    expect([...t.declared]).not.toContain('web_search');
+    expect([...t.declared]).not.toContain('image_search');
+    expect(t.system).toContain('the built-in search\'s results are not links you can fetch');
+    await ctx.close();
+
+    // Built-in search on and a live provider: images come from the provider, search stays built in.
+    ctx = await createTestApp({ ...CONFIGS['with web']!, SERPAPI_API_KEY: 'test-key' });
+    t = await turn(ctx, 'hi');
+    expect([...t.declared]).not.toContain('web_search');
+    expect([...t.declared]).toContain('image_search');
+    await ctx.close();
+
+    // No built-in search: the provider's web_search is the search.
+    ctx = await createTestApp(CONFIGS['everything on, live search, no built-in search']!);
+    ctx.provider.grounding = false;
+    t = await turn(ctx, 'hi');
+    expect(t.grounded).toBe(false);
+    expect([...t.declared]).toEqual(expect.arrayContaining(['web_search', 'web_fetch', 'image_search']));
+    expect(t.system).toContain('Use web_search when information is');
+    expect(t.system).not.toContain('not links you can fetch');
+  });
 
   it('does not offer research guidance while web search is off', async () => {
     ctx = await createTestApp(CONFIGS['tools and skills only']!);

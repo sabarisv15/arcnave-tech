@@ -1,6 +1,6 @@
 ---
 name: xlsx
-version: 4.0.0
+version: 4.0.1
 description: "Use whenever a task touches spreadsheet data: any question about an uploaded .xlsx/.xls (read from the file with code), analysing or computing over a .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file."
 category: artifact
 scope: builtin
@@ -60,7 +60,8 @@ workbook from the rows you read.
 ## Charts
 
 For a chart inside the file, use `openpyxl.chart` and save the workbook to `output/`. For a
-chart shown in chat, use `render_ui` when it is available.
+chart shown in chat instead of a file, use `chart_display_v0` for a plain line, bar or scatter chart
+and `show_widget` for anything more, when they are available.
 
 ## Checking the file
 

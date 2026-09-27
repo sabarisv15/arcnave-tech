@@ -514,6 +514,7 @@ export class GenerationService {
     // --- tools this turn may use (ADR-0006, ADR-0047) ---------------------
     const codeEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
+    const webSearchAdapter = buildWebSearchAdapter(this.cfg);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const routingDecision = routeTurn({
@@ -521,6 +522,8 @@ export class GenerationService {
       codeEnabled,
       generativeUiEnabled,
       webEnabled,
+      searchProviderLive: webSearchAdapter.isLive,
+      builtInSearch: grounded,
       memoryEnabled,
     });
     const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, {
@@ -630,7 +633,6 @@ export class GenerationService {
         ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
         : undefined;
 
-    const webSearchAdapter = buildWebSearchAdapter(this.cfg);
     const webToolExecutor = webEnabled
       ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService(), webSearchAdapter)
       : undefined;

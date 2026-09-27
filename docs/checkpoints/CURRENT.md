@@ -12,7 +12,10 @@
 > - 13 display cards (chart, comparison, featured, itinerary, link preview, message compose,
 >   options, places list, product carousel, quiz, recipe, step, translation); photos from the
 >   configured image search. `places_map_display_v0` not built (needs places search and maps).
-> - Backend typecheck clean, **900/900 tests**; frontend typecheck, build and **188/188 tests**.
+> - Prompt audit (same branch): one web search (built-in when on; `web_search` and
+>   `image_search` only with a live provider), narration and memory wording as the app prompt,
+>   artifact edits across turns, skills free of removed tools.
+> - Backend typecheck clean, **904/904 tests**; frontend typecheck, build and **188/188 tests**.
 > - Next: owner's approval to merge and deploy; then a live turn with a card, a visual, a React
 >   artifact, and the question card; and the checks still open from ADR-0047 (KVB + Federal
 >   48 / 277 / 325, memory, image_search).

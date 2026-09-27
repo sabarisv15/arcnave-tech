@@ -56,6 +56,11 @@ const STALE = [
   'run_python',
   'load_skill',
   'read_skill',
+  // Tools replaced by files, ask_user_input_v0 and show_widget (ADR-0048).
+  'render_ui',
+  'create_artifact',
+  'update_artifact',
+  'ask_user_options',
 ];
 
 const skills = readdirSync(path.join(ROOT, 'skills'))

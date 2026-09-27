@@ -79,3 +79,32 @@ including `visualize.md`, the read_me text) and the Claude help centre.
   and `quality.ts` now have no caller but their own tests.
 - `ARTIFACT_MAX_CONTENT_BYTES` is gone with the tool that read it.
 - A React artifact needs cdn.jsdelivr.net reachable from the person's browser.
+
+## Audit of prompt, tools and skills (same day)
+
+The whole prompt a turn gets with every flag on was read against every declared tool and skill.
+Fixed:
+
+- **Two web searches, one of them fake.** With the model's own search on, `web_search` was
+  declared too: beside Anthropic's server tool of the same name that is a 400 ("Tool names must
+  be unique"), and on Gemini it was a second search. Without a live provider it answered with a
+  placeholder link to a Google results page. Now the router declares one search: the built-in
+  one when it is on, `web_search` only with a live provider otherwise; `image_search` only with
+  a live provider. The web guidance names only what is declared, and says that the built-in
+  search's results are not links web_fetch can open.
+- **Narration.** "Before your first tool call, say what you are about to do" (Opus 5 prompting
+  guide) now excepts memory reads, read_me and the choice of a card or visual, as the app prompt
+  does; after the last call the reply states the answer (the app prompt's
+  `reply_after_tool_calls`).
+- **Memory.** Saves are not announced (the chat shows the step) and what is known is not
+  attributed to memory, as the app prompt says; a failed save the user asked for is still said.
+- **Files.** A presented Markdown, HTML, React, Mermaid, SVG or PDF file opens beside the chat:
+  the prompt and `present_files` say so. Code goes in a file past about 20 lines, the artifact
+  threshold (the reference says 10 in one place and 20 in another). An artifact from an earlier
+  turn is in read-only input/, so it is copied to output/ before it is edited.
+- **Skills.** frontend-design no longer names render_ui and says read_me's rules come first for
+  an inline visual; xlsx names chart_display_v0 and show_widget for a chart in chat.
+  `skillContent.test.ts` fails if a skill names any removed tool.
+
+Left as is: on the local process engine the computer says each call starts empty, though files
+do last through a turn there; production runs the warm engine, whose wording is right.
