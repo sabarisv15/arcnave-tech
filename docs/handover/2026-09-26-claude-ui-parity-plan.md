@@ -43,7 +43,7 @@
 | WP-06 | 3 | Clickable question options (single, multi, rank) | 2 | yes | [x] |
 | WP-07 | 4 | Select text in an answer or document and ask about it | 2 | no | [x] |
 | WP-08 | 15 | Incognito chats | 2 | yes | future |
-| WP-09 | 14 | Branch switcher `< 1/2 >` on edited prompts | 2 | yes | [ ] |
+| WP-09 | 14 | Branch switcher `< 1/2 >` on edited prompts | 2 | yes | [x] |
 | WP-10 | 1, 8, 9 | Custom visuals in chat; interactive and SVG artifacts (sandbox) | 3 | yes | [x] |
 | WP-11 | 13 | Word, Excel and PowerPoint previews | 4 | no | [ ] |
 | WP-12 | 11, 16 | Public share links for chats and artifacts | 4 | yes | [ ] |

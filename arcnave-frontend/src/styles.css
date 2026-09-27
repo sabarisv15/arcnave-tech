@@ -1293,6 +1293,25 @@ textarea {
 .user-message:focus-within .user-actions {
   opacity: 1;
 }
+/* Versions of an edited prompt (ADR-0038): the switcher stays in view, the rest on hover. */
+.user-actions:has(.version-switcher) {
+  opacity: 1;
+}
+.user-message:not(:hover):not(:focus-within) .user-actions > :not(.version-switcher) {
+  visibility: hidden;
+}
+.version-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.version-count {
+  min-width: 34px;
+  text-align: center;
+}
 .assistant-message {
   padding: 0 0 14px;
   min-width: 0;

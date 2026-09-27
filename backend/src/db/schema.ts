@@ -24,6 +24,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -234,6 +235,16 @@ export const chats = pgTable(
     title: varchar('title', { length: 200 }).notNull(),
     pinned: boolean('pinned').notNull().default(false),
     version: integer('version').notNull().default(1),
+    /**
+     * Versions (ADR-0038). Editing a prompt copies the conversation before it into a new chat;
+     * that chat is another version of the same conversation, not a new one. `rootChatId` names
+     * the family (null on the chat that started it) and is not a foreign key, so purging one
+     * member never splits the family. `forkSeq` is the seq of the edited prompt: from there on
+     * this chat's messages are its own, before it they are copies of `parentChatId`'s.
+     */
+    parentChatId: uuid('parent_chat_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
+    rootChatId: uuid('root_chat_id'),
+    forkSeq: integer('fork_seq'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -241,6 +252,7 @@ export const chats = pgTable(
   (t) => [
     index('ix_chats_user_updated').on(t.userId, t.updatedAt),
     index('ix_chats_project').on(t.projectId),
+    index('ix_chats_root').on(t.rootChatId),
   ],
 );
 

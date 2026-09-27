@@ -684,6 +684,9 @@
                           "id": {
                             "type": "string"
                           },
+                          "familyId": {
+                            "type": "string"
+                          },
                           "title": {
                             "type": "string"
                           },
@@ -708,6 +711,7 @@
                         },
                         "required": [
                           "id",
+                          "familyId",
                           "title",
                           "projectId",
                           "pinned",
@@ -775,6 +779,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "familyId": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -799,6 +806,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -841,6 +849,9 @@
                   "type": "object",
                   "properties": {
                     "id": {
+                      "type": "string"
+                    },
+                    "familyId": {
                       "type": "string"
                     },
                     "title": {
@@ -1194,6 +1205,39 @@
                               "additionalProperties": false
                             }
                           },
+                          "versions": {
+                            "nullable": true,
+                            "type": "object",
+                            "properties": {
+                              "index": {
+                                "type": "number"
+                              },
+                              "versions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "chatId": {
+                                      "type": "string"
+                                    },
+                                    "createdAt": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "chatId",
+                                    "createdAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "index",
+                              "versions"
+                            ],
+                            "additionalProperties": false
+                          },
                           "usage": {
                             "nullable": true,
                             "type": "object",
@@ -1258,6 +1302,7 @@
                           "events",
                           "toolCalls",
                           "attachments",
+                          "versions",
                           "usage"
                         ],
                         "additionalProperties": false
@@ -1364,6 +1409,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -1439,6 +1485,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "familyId": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -1463,6 +1512,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",
@@ -1478,7 +1528,7 @@
         }
       },
       "delete": {
-        "summary": "Soft-delete a chat",
+        "summary": "Soft-delete a chat with all its versions",
         "tags": [
           "chats"
         ],
@@ -1514,10 +1564,11 @@
     },
     "/chats/{id}/branch": {
       "post": {
-        "summary": "Copy a chat, optionally truncated after a given message",
+        "summary": "Copy a chat: up to a message, or as a new version of an edited prompt",
         "tags": [
           "chats"
         ],
+        "description": "With `throughMessageId`, a separate chat holding the history through that message. With `editSeq`, a new version of the same conversation (ADR-0038): the history before the prompt at that seq, which the next generate replaces.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1529,6 +1580,11 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "editSeq": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 }
               }
@@ -1558,6 +1614,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "familyId": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -1582,6 +1641,7 @@
                   },
                   "required": [
                     "id",
+                    "familyId",
                     "title",
                     "projectId",
                     "pinned",

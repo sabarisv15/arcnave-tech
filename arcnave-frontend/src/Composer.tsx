@@ -571,8 +571,8 @@ export default function Composer({
     <div className="composer-wrap">
       {edit && edit.chatId === chatId && (
         <div className="edit-notice">
-          Sending this continues in a new branch; the original conversation
-          stays as it is.
+          Sending this makes a new version of the conversation from here. The
+          current one stays, and you can switch back to it.
           <button
             onClick={() => {
               setEdit(null);

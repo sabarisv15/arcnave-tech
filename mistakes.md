@@ -547,21 +547,6 @@ failure mode of this pattern, not a sign it is working.
   text file, asks a question with the attachment, then asks a follow-up with no attachment;
   asserts the provider's second request still contains the file's text.
 
-### 2026-09-21 — A legacy transcript field crashed the whole workspace
-
-- **Symptom:** Opening a chat after an `.xlsx` analysis could replace the workspace with the
-  error boundary: `Cannot read properties of undefined (reading 'map')`, even though the
-  response had been saved.
-- **Cause:** `toMessage` treated transcript evidence collections (`sources`, `events`,
-  `toolCalls`, `attachments`, and `questions`) as always-present arrays. A persisted/returned
-  message missing any one of those fields threw while mapping the transcript, and the uncaught
-  render error took down the entire chat view.
-- **Rule:** **Normalize optional wire collections at the DTO boundary before rendering.** A
-  missing collection means no data was supplied; it must not be allowed to crash unrelated,
-  saved transcript content.
-- **Verify:** `arcnave-frontend/src/types.test.ts` covers a legacy message with every optional
-  collection absent; `npm test` and `npm run build` pass.
-
 ### 2026-09-24 — A phase passed locally on a warm process sandbox and failed on cold Cloud Run Jobs
 
 - **Symptom:** Phase 3 table extraction passed every local test, then failed live on the real
@@ -795,6 +780,19 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** In Chromium against the local stack, `.ui-visual iframe` has `offsetHeight`
   equal to the height its document reports (571 for 571 in the ADR-0036 check).
 
+### 2026-09-27 — A correlated subquery in a select list compared a column with itself
+
+- **Symptom:** Every chat's `lastSeq` came back as -1, so no prompt had versions, though the
+  chats plainly had messages.
+- **Cause:** Inside `db.select({ ... })`, drizzle renders a `${table.column}` in a `sql` field
+  unqualified (`"id"`, not `"chats"."id"`). In `(select max(seq) from messages where chat_id =
+  ${chats.id})`, the bare `"id"` resolved to the inner table's own `messages.id`. The same
+  interpolation in a `where` clause is qualified, which is why it looked safe.
+- **Rule:** **In a `sql` expression used as a select field, never interpolate a column of the
+  outer query into a subquery.** Alias the inner table and write the outer column out in full
+  (`"chats"."id"`).
+- **Verify:** `chatVersions.integration.test.ts` fails when the subquery compares the wrong id.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -819,6 +817,11 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-27** — Added the select-list subquery entry (WP-09). Retired "A legacy transcript
+  field crashed the whole workspace": `types.test.ts` ("does not crash when a legacy transcript
+  omits optional evidence arrays") fails if it regresses (pruning criterion 1). Also, not an
+  entry: the frontend's `API_BASE` defaulted to the production API even under `vite` dev, so a
+  local browser check silently talked to production; it now defaults to `/v1` in dev. **40 entries.**
 - **2026-09-27** — No new heading (at the cap). Merging WP-03 to WP-07 into one branch, I
   resolved conflicts by keeping both sides. In `styles.css` that split one rule's body from its
   selector, and the build failed with "Unclosed block"; in `CURRENT.md` it duplicated entries.

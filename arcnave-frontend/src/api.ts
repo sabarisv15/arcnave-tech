@@ -28,7 +28,9 @@
  * production-ready posture. Revisit before this has real multi-browser traffic.
  */
 export const API_BASE: string =
-  import.meta.env.VITE_API_BASE ?? "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1";
+  import.meta.env.VITE_API_BASE ??
+  // The dev server proxies `/v1` to the local API; a local session must never reach production.
+  (import.meta.env.DEV ? "/v1" : "https://arcnave-sandbox-service-756927892291.asia-south1.run.app/v1");
 
 /* -------------------------------------------------------------------------- errors */
 
@@ -474,10 +476,12 @@ export interface MessageDto {
   toolCalls: ToolCallDto[];
   attachments: MessageAttachmentDto[];
   usage: UsageDto | null;
+  versions?: { index: number; versions: { chatId: string; createdAt: string }[] } | null;
 }
 
 export interface ChatDto {
   id: string;
+  familyId?: string;
   title: string;
   projectId: string | null;
   pinned: boolean;
@@ -808,6 +812,8 @@ export const api = {
       },
     ) => patch<ChatDto>(`/chats/${id}`, body),
     remove: (id: string) => del(`/chats/${id}`),
+    edit: (id: string, editSeq: number) =>
+      post<ChatDto>(`/chats/${id}/branch`, { editSeq }),
     branch: (id: string, throughMessageId?: string) =>
       post<ChatDto>(
         `/chats/${id}/branch`,

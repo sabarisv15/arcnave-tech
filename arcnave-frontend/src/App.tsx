@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   Link,
@@ -13,6 +13,7 @@ import {
   ArrowDown,
   ArrowUpRight,
   Check,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Download,
@@ -448,7 +449,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
 
 function Conversation() {
   const { id } = useParams();
-  const { chats, projects, messages, transcript, openChat, activeRun, send } =
+  const { chats, projects, messages, transcript, openChat, activeRun, send, versionAnchor } =
     useWorkspace();
   const chat = chats.find((c) => c.id === id);
   const state = id ? transcript[id] : undefined;
@@ -467,7 +468,17 @@ function Conversation() {
   useEffect(() => {
     if (id) openChat(id);
   }, [id, openChat]);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // After a version switch the prompt stays where it was on screen (ADR-0038).
+    if (versionAnchor && versionAnchor.chatId === id) {
+      const row = scroll.current?.querySelector(`.user-message[data-seq="${versionAnchor.seq}"]`);
+      if (row && scroll.current) {
+        scroll.current.scrollTop += row.getBoundingClientRect().top - versionAnchor.offset;
+        const el = scroll.current;
+        setNearBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+        return;
+      }
+    }
     if (!isRunning) {
       setNearBottom(true);
       bottom.current?.scrollIntoView();
@@ -747,6 +758,7 @@ function MessageView({
     retry,
     activeRun,
     branch,
+    switchVersion,
     setEdit,
     feedback,
     saveResponseAsArtifact,
@@ -788,9 +800,17 @@ function MessageView({
     }
   };
 
+  const showVersion = (index: number) => {
+    const target = m.versions?.chatIds[index];
+    if (!target) return;
+    // Hold the prompt where it is on screen, so the switch reads as the text changing in place.
+    const row = document.querySelector(`.user-message[data-seq="${m.seq}"]`);
+    switchVersion(chatId, target, m.seq, row ? row.getBoundingClientRect().top : 0);
+  };
+
   if (m.role === "user")
     return (
-      <div className="user-message" ref={turnAnchorRef}>
+      <div className="user-message" ref={turnAnchorRef} data-seq={m.seq}>
         <div className="user-bubble">
           {m.attachments?.length ? (
             <div className="attachments">
@@ -812,6 +832,27 @@ function MessageView({
           >
             <Pencil size={14} />
           </IconButton>
+          {m.versions && (
+            <div className="version-switcher" role="group" aria-label="Versions of this prompt">
+              <IconButton
+                label="Previous version"
+                disabled={!!activeRun || m.versions.index === 0}
+                onClick={() => showVersion(m.versions!.index - 1)}
+              >
+                <ChevronLeft size={14} />
+              </IconButton>
+              <span className="version-count" aria-live="polite">
+                {m.versions.index + 1} / {m.versions.chatIds.length}
+              </span>
+              <IconButton
+                label="Next version"
+                disabled={!!activeRun || m.versions.index === m.versions.chatIds.length - 1}
+                onClick={() => showVersion(m.versions!.index + 1)}
+              >
+                <ChevronRight size={14} />
+              </IconButton>
+            </div>
+          )}
         </div>
       </div>
     );

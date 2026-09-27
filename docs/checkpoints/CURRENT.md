@@ -1,5 +1,13 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-09 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Editing a prompt now makes another version of the same chat ([ADR-0038](../decisions/0038-edited-prompts-make-versions.md)):
+> `< i / n >` on the prompt switches versions, the sidebar keeps one row, delete removes every
+> version, and a version carries the earlier turns' files, tool calls and sources. Migration 0018
+> `chat_versions` (`when` 1791200000000). Local dev now calls the local API (`/v1`), never
+> production. Backend 1049 tests, frontend 164, build clean; checked in Chromium (1/3, 2/3, 3/3,
+> reload keeps one row).
+>
 > **2026-09-27 (latest): UI-parity scope narrowed by the user.** Remaining, in order: WP-09
 > (branch switcher), WP-11 (Office previews), WP-12 (share links), WP-13 (data controls),
 > WP-16 (Docs/Slides types), WP-18 (voice). WP-08, WP-14, WP-15, WP-17 and WP-19 are future scope

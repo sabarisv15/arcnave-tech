@@ -67,7 +67,17 @@ export async function sweepRetention(
         .select({ storageKey: attachments.storageKey })
         .from(attachments)
         .innerJoin(messages, eq(messages.id, attachments.messageId))
-        .where(and(eq(messages.chatId, chat.id), isNull(attachments.projectFileId)));
+        .where(
+          and(
+            eq(messages.chatId, chat.id),
+            isNull(attachments.projectFileId),
+            // A version of this chat (ADR-0038) holds a copy of the row naming the same bytes.
+            sql`not exists (
+              select 1 from attachments other
+              join messages om on om.id = other.message_id
+              where other.storage_key = ${attachments.storageKey} and om.chat_id <> ${chat.id})`,
+          ),
+        );
       // Bytes first, rows second: a failed object delete keeps the row, so the next sweep
       // retries it instead of leaving bytes nothing points to.
       if (!(await deleteObjects(storage, files.map((f) => f.storageKey), log))) continue;

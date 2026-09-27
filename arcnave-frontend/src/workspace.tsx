@@ -9,9 +9,10 @@
  * - **A streaming turn is optimistic, then reconciled.** Local placeholder rows make the reply
  *   appear immediately; when the stream ends the chat is re-read so ids, sequence numbers, and
  *   persisted status come from the server rather than from what the client guessed.
- * - **Editing a prompt branches.** There is no truncate operation, and inventing one by
- *   deleting messages would throw away work. An edit copies the conversation up to the point
- *   before the edited turn and continues there, leaving the original intact.
+ * - **Editing a prompt makes a version.** There is no truncate operation, and inventing one by
+ *   deleting messages would throw away work. An edit copies the conversation before the edited
+ *   turn into another version of the same chat (ADR-0038); the sidebar keeps one row for the
+ *   conversation, and `< i/n >` on the prompt switches between versions.
  */
 import {
   createContext,
@@ -108,6 +109,10 @@ interface Context {
   moveChat: (id: string, projectId: string | null) => void;
   deleteChat: (id: string) => void;
   branch: (chatId: string, throughMessageId?: string) => void;
+  /** Shows another version of a conversation, keeping the prompt at `seq` where it was. */
+  switchVersion: (fromChatId: string, toChatId: string, seq: number, offset: number) => void;
+  /** Where to hold the prompt after a version switch; the conversation view consumes it. */
+  versionAnchor: { chatId: string; seq: number; offset: number } | null;
   exportChat: (chat: Chat) => void;
   saveResponseAsArtifact: (chatId: string, messageId: string) => void;
   /** Keeps a visual from a reply as an artifact (ADR-0035): `svg` for an SVG root, else `webpage`. */
@@ -319,10 +324,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
 
         setMessages((m) => ({ ...m, [id]: mapped }));
+        // A version stands in for its conversation's row (ADR-0038), never beside it.
+        const shown = toChat(detail);
         setChats((list) =>
-          list.some((c) => c.id === id)
-            ? list.map((c) => (c.id === id ? toChat(detail) : c))
-            : [toChat(detail), ...list],
+          list.some((c) => c.id === id || c.familyId === shown.familyId)
+            ? list.map((c) => (c.id === id || c.familyId === shown.familyId ? shown : c))
+            : [shown, ...list],
         );
         setTranscript((t) => ({ ...t, [id]: "ready" }));
 
@@ -771,25 +778,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             // An edit continues from before the turn being replaced, in a copy. Nothing in the
             // original conversation is removed.
             const history = messages[pendingEdit.chatId] ?? [];
-            const index = history.findIndex(
-              (m) => m.id === pendingEdit.messageId,
-            );
-            const previous = index > 0 ? history[index - 1] : undefined;
-            const branched = previous
-              ? await api.chats.branch(pendingEdit.chatId, previous.id)
-              : await api.chats.create({
-                  title: prompt.slice(0, 80),
-                  projectId: projectId ?? null,
-                });
-            targetId = branched.id;
-            setChats((list) => [toChat(branched), ...list]);
-            const detail = await api.chats.read(branched.id);
+            const edited = history.find((m) => m.id === pendingEdit.messageId);
+            if (!edited) throw new Error("edited message not loaded");
+            const version = toChat(await api.chats.edit(pendingEdit.chatId, edited.seq));
+            targetId = version.id;
+            // The new version takes the conversation's one row in the list.
+            setChats((list) => [version, ...list.filter((c) => c.familyId !== version.familyId)]);
+            const detail = await api.chats.read(version.id);
             setMessages((all) => ({
               ...all,
-              [branched.id]: detail.messages.map(toMessage),
+              [version.id]: detail.messages.map(toMessage),
             }));
+            setTranscript((t) => ({ ...t, [version.id]: "ready" }));
             setEdit(null);
-            toast("Continuing in a new branch");
           } else if (!targetId) {
             const created = await api.chats.create({
               title: prompt.slice(0, 80),
@@ -933,7 +934,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       void api.chats
         .remove(id)
         .then(() => {
-          setChats((list) => list.filter((c) => c.id !== id));
+          // The server deletes every version of the conversation (ADR-0038).
+          setChats((list) => {
+            const familyId = list.find((c) => c.id === id)?.familyId ?? id;
+            return list.filter((c) => c.id !== id && c.familyId !== familyId);
+          });
           setMessages((all) => {
             const next = { ...all };
             delete next[id];
@@ -963,6 +968,33 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         .catch((error) =>
           report(error, "The conversation could not be branched."),
         );
+    },
+    [navigate, toast, report],
+  );
+
+  const [versionAnchor, setVersionAnchor] = useState<Context["versionAnchor"]>(null);
+  const switchVersion: Context["switchVersion"] = useCallback(
+    (fromChatId, toChatId, seq, offset) => {
+      if (controller.current) {
+        toast("Stop the current response first.");
+        return;
+      }
+      void (async () => {
+        try {
+          // Read every time: the versions shown on each prompt change as others are added.
+          const detail = await api.chats.read(toChatId);
+          const shown = toChat(detail);
+          setMessages((all) => ({ ...all, [toChatId]: detail.messages.map(toMessage) }));
+          setTranscript((t) => ({ ...t, [toChatId]: "ready" }));
+          setChats((list) =>
+            list.map((c) => (c.id === fromChatId || c.familyId === shown.familyId ? shown : c)),
+          );
+          setVersionAnchor({ chatId: toChatId, seq, offset });
+          navigate(`/chat/${toChatId}`, { replace: true });
+        } catch (error) {
+          report(error, "That version could not be opened.");
+        }
+      })();
     },
     [navigate, toast, report],
   );
@@ -1096,6 +1128,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       moveChat,
       deleteChat,
       branch,
+      switchVersion,
+      versionAnchor,
       exportChat,
       saveResponseAsArtifact,
       saveVisualAsArtifact,
@@ -1136,6 +1170,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       moveChat,
       deleteChat,
       branch,
+      switchVersion,
+      versionAnchor,
       exportChat,
       saveResponseAsArtifact,
       saveVisualAsArtifact,

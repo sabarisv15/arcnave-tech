@@ -89,6 +89,20 @@ describe("message mapping", () => {
     expect(mapped.errorTitle).toBeUndefined();
   });
 
+  it("keeps a prompt's versions, and drops a list of one (ADR-0038)", () => {
+    const versions = {
+      index: 1,
+      versions: [
+        { chatId: "a", createdAt: "2026-09-27T00:00:00Z" },
+        { chatId: "b", createdAt: "2026-09-27T00:01:00Z" },
+      ],
+    };
+    expect(toMessage(message({ versions })).versions).toEqual({ index: 1, chatIds: ["a", "b"] });
+    expect(toMessage(message({ versions: { index: 0, versions: versions.versions.slice(0, 1) } })).versions)
+      .toBeUndefined();
+    expect(toMessage(message({ versions: null })).versions).toBeUndefined();
+  });
+
   it("omits usage entirely when the transcript reports none", () => {
     expect(toMessage(message()).usage).toBeUndefined();
   });
