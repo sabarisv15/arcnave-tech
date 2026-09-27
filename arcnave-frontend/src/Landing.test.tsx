@@ -17,7 +17,7 @@ function show(route = "/") { act(() => root.render(<MemoryRouter initialEntries=
 
 it("exposes product content and real authentication entries without a session", () => {
   show();
-  expect(host.querySelector("main h1")?.textContent).toContain("Campus work.");
+  expect(host.querySelector("main h1")?.textContent).toContain("Campus work,");
   expect(host.querySelector('a[href="/signup"]')).not.toBeNull();
   expect(host.querySelector('a[href="/login"]')).not.toBeNull();
   expect(host.querySelector("form")).toBeNull();

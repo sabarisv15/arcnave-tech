@@ -41,3 +41,7 @@ signup has early-access contact handling. Production has not been changed.
 - Product now explains inputs, assisted work, draft outputs, and campus reviewers separately for NAAC, NBA, and AICTE.
 - How it works includes a concrete IQAC request and source verification before human approval/submission. Official requirements linked; no automatic portal or compliance claims.
 - Local focused public/auth tests pass (7). Browser checks include 899px and 390px widths.
+
+## Visual redesign iteration
+
+Grouped hero into a dark forest-green panel with a lime primary action, compact white preview, and deliberate type hierarchy. Product cards align and expose detailed inputs on demand. How it works uses a numbered four-step grid. Checked desktop, tablet and phone locally. This visual direction is available for review at port 5174; not deployed in this iteration.
