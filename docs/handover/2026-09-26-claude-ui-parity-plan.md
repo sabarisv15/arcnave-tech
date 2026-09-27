@@ -40,15 +40,7 @@
 | WP-03 | 17, 20 | More keyboard shortcuts; a readable (dyslexia-friendly) font | 1 | no | [x] |
 | WP-04 | 19 | Effort control in the composer | 2 | no | [x] |
 | WP-05 | 18 | Styles (presets + custom) | 2 | yes | [x] |
-| WP-01 | 5, 6 | Code block copy button; correct language in code artifacts | 1 | no | [ ] |
-| WP-02 | 2 | Mermaid diagrams in chat and documents | 1 | no | [ ] |
-| WP-03 | 17, 20 | More keyboard shortcuts; a readable (dyslexia-friendly) font | 1 | no | [ ] |
-| WP-04 | 19 | Effort control in the composer | 2 | no | [ ] |
-| WP-05 | 18 | Styles (presets + custom) | 2 | yes | [x] |
 | WP-06 | 3 | Clickable question options (single, multi, rank) | 2 | yes | [x] |
-| WP-05 | 18 | Styles (presets + custom) | 2 | yes | [x] |
-| WP-06 | 3 | Clickable question options (single, multi, rank) | 2 | yes | [x] |
-| WP-07 | 4 | Select text in an answer or document and ask about it | 2 | no | [x] |
 | WP-07 | 4 | Select text in an answer or document and ask about it | 2 | no | [x] |
 | WP-08 | 15 | Incognito chats | 2 | yes | [ ] |
 | WP-09 | 14 | Branch switcher `< 1/2 >` on edited prompts | 2 | yes | [ ] |
