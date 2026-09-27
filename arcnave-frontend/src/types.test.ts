@@ -193,6 +193,17 @@ describe("preferences mapping", () => {
     expect(mapped.theme).toBe("system");
     expect(mapped.defaultMode).toBe("chat");
   });
+
+  it("maps valid effort levels and treats null or unknown values as null", () => {
+    expect(toPreferences(prefs({ effort: "xhigh" })).effort).toBe("xhigh");
+    expect(toPreferences(prefs({ effort: null })).effort).toBeNull();
+    expect(toPreferences(prefs({ effort: "ultra" })).effort).toBeNull();
+  });
+
+  it("maps applied effort on a message when valid", () => {
+    expect(toMessage(message({ effort: "high" })).effort).toBe("high");
+    expect(toMessage(message({ effort: null })).effort).toBeUndefined();
+  });
 });
 
 describe("error copy", () => {

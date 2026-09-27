@@ -16,7 +16,7 @@
  */
 import { ApiError, describeError, errorCopy, url } from "./api";
 import type { SourceDto, UsageDto } from "./api";
-import type { Mode, ResearchEvent } from "./types";
+import type { Mode, ReasoningEffort, ResearchEvent } from "./types";
 import type { UIBlock } from "./generative-ui/types";
 
 export interface ModelInfo {
@@ -67,7 +67,13 @@ export type StreamEvent =
     }
   | { type: "ui_block"; block: UIBlock }
   | { type: "debug"; trace: RuntimeDebugTrace }
-  | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
+  | {
+      type: "done";
+      questions: string[];
+      usage: UsageDto;
+      finishReason: string;
+      effort?: ReasoningEffort | null;
+    }
   | {
       type: "error";
       code: string;
@@ -81,6 +87,7 @@ export interface GenerateRequest {
   mode: Mode;
   /** A model alias from `GET /models`, or `Auto`. */
   model: string;
+  effort?: ReasoningEffort;
   attachmentIds?: string[];
   /** Re-run an existing assistant message instead of appending a new pair. */
   retryMessageId?: string;
@@ -112,6 +119,7 @@ export async function* generate(
         mode: req.mode,
         model: req.model,
         attachmentIds: req.attachmentIds ?? [],
+        ...(req.effort ? { effort: req.effort } : {}),
         ...(req.retryMessageId ? { retryMessageId: req.retryMessageId } : {}),
       }),
       signal,

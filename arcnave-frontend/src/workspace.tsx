@@ -133,6 +133,7 @@ const defaultPreferences: Preferences = {
   theme: "system",
   font: "sans",
   modelAlias: "Auto",
+  effort: null,
   instructions: "",
   enterToSend: true,
   reducedMotion: false,
@@ -421,6 +422,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               prompt: options.prompt,
               mode: options.mode,
               model: preferences.modelAlias,
+              ...(preferences.effort ? { effort: preferences.effort } : {}),
               attachmentIds: options.attachmentIds,
               ...(options.retryMessageId
                 ? { retryMessageId: options.retryMessageId }
@@ -548,6 +550,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               questions: event.questions,
               usage: toUsage(event.usage),
               finishReason: event.finishReason,
+              ...(event.effort ? { effort: event.effort } : {}),
             }));
           }
           if (event.type === "error") {
@@ -642,6 +645,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     },
     [
       preferences.modelAlias,
+      preferences.effort,
       patchMessage,
       pollGenerating,
       loadTranscript,
@@ -993,7 +997,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setPreferences((p) => ({ ...p, ...patch }));
       void api.preferences
         .patch({ ...patch, version: previous.version })
-        .then((saved) => setPreferences(toPreferences(saved)))
+        .then((saved) =>
+          setPreferences((curr) => ({
+            ...toPreferences(saved),
+            modelAlias: patch.modelAlias ?? curr.modelAlias,
+          })),
+        )
         .catch((error) => {
           setPreferences(previous);
           report(error, "That preference could not be saved.");

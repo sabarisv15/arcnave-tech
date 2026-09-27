@@ -1,6 +1,14 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
+> **2026-09-26: WP-04 (Effort control in the composer) complete on branch `feat/wp-04-effort`.**
+> - **Composer effort control:** Reasoning effort dropdown added to composer next to the model menu when the model supports ≥ 2 levels, displaying speed vs. depth tradeoffs (`low`, `medium`, `high`, `xhigh`, `max`).
+> - **Auto effort levels:** Auto resolves to sticky model's supported levels if chat already has an assistant turn, or the safe intersection `['low', 'medium', 'high']` if unknown. Never advertises levels that would be stepped down (CLAUDE.md Invariant 1).
+> - **Step-down visibility & persistence:** If saved preference exceeds what the model supports, shows `"X-High → High on this model"` on both dropdown trigger and menu item. Applied effort is streamed in `done` SSE event, stored in `messages.effort`, and shown in message usage row (`<effort> effort`).
+> - **Schema & Migration:** Migration `0016_lame_mephistopheles.sql` adds `effort varchar(16)` with check constraints to `preferences` and `messages`.
+> - **OpenAPI & Journal:** `docs/openapi.json` regenerated cleanly; `journal.test.ts` passes with linear timestamp `1791000000000`.
+> - **Tests & Verification:** Backend 986 passed, frontend 72 passed, live Chrome browser acceptance verified with 4 screenshots.
+>
+> **2026-09-26: reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
 >   ran 3 commands, made no unrequested file, and every figure matched the PDF.
 > - The reply-language rule is removed, as in Claude's app prompt: the model chooses the

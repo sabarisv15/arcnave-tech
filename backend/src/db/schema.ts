@@ -98,6 +98,7 @@ export const preferences = pgTable(
     timezone: varchar('timezone', { length: 64 }).notNull().default('UTC'),
 
     version: integer('version').notNull().default(1),
+    effort: varchar('effort', { length: 16 }),
     updatedAt: updatedAt(),
   },
   (t) => [
@@ -107,6 +108,10 @@ export const preferences = pgTable(
       'ck_budgets_positive',
       sql`(${t.dailyTokenBudget} is null or ${t.dailyTokenBudget} > 0)
           and (${t.monthlyTokenBudget} is null or ${t.monthlyTokenBudget} > 0)`,
+    ),
+    check(
+      'ck_effort',
+      sql`${t.effort} is null or ${t.effort} in ('low', 'medium', 'high', 'xhigh', 'max')`,
     ),
   ],
 );
@@ -265,6 +270,7 @@ export const messages = pgTable(
     questions: jsonb('questions').$type<string[]>().notNull().default([]),
     feedback: varchar('feedback', { length: 8 }),
     modelAlias: varchar('model_alias', { length: 64 }),
+    effort: varchar('effort', { length: 16 }),
     provider: varchar('provider', { length: 32 }),
     providerModelId: varchar('provider_model_id', { length: 128 }),
     finishReason: varchar('finish_reason', { length: 48 }),
@@ -286,6 +292,10 @@ export const messages = pgTable(
     index('ix_messages_chat').on(t.chatId),
     check('ck_message_role', sql`${t.role} in ('user','assistant')`),
     check('ck_message_feedback', sql`${t.feedback} is null or ${t.feedback} in ('up','down')`),
+    check(
+      'ck_message_effort',
+      sql`${t.effort} is null or ${t.effort} in ('low', 'medium', 'high', 'xhigh', 'max')`,
+    ),
   ],
 );
 

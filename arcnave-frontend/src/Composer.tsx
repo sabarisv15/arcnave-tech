@@ -16,12 +16,131 @@ import {
   PanelsTopLeft,
 } from "lucide-react";
 import { ApiError, api } from "./api";
-import type { Attachment, Mode } from "./types";
-import { toAttachment } from "./types";
+import type { ModelsDto } from "./api";
+import type { Attachment, Message, Mode, ReasoningEffort } from "./types";
+import {
+  REASONING_EFFORT_LADDER,
+  resolveEffortForModel,
+  toAttachment,
+} from "./types";
 import { MAX_ATTACHMENT_BYTES, sizeLabel, validateFile } from "./storage";
 import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
+
+export const EFFORT_COPY: Record<
+  ReasoningEffort,
+  { label: string; description: string }
+> = {
+  low: { label: "Low", description: "Faster responses" },
+  medium: { label: "Medium", description: "Balanced speed and depth" },
+  high: { label: "High", description: "Deeper reasoning" },
+  xhigh: { label: "X-High", description: "Extended deep reasoning" },
+  max: { label: "Max", description: "Maximum reasoning depth" },
+};
+
+/**
+ * Supported effort levels for the active composer model.
+ *
+ * For Auto: when this chat already resolved to a sticky model on an earlier turn, returns that
+ * model's levels. When not known yet, returns only the levels that every Auto candidate
+ * supports, so no level shown in the menu will ever be silently stepped down (Invariant 1).
+ */
+export function getSupportedEfforts(
+  models: ModelsDto | null,
+  selectedModelAlias: string,
+  chatMessages: Message[] = [],
+): ReasoningEffort[] {
+  if (!models) return [];
+  const filterValid = (list: readonly string[] | undefined): ReasoningEffort[] =>
+    (list ?? []).filter((lvl): lvl is ReasoningEffort =>
+      REASONING_EFFORT_LADDER.includes(lvl as ReasoningEffort),
+    );
+
+  if (selectedModelAlias === models.auto.alias || selectedModelAlias === "Auto") {
+    const stickyModelAlias = [...chatMessages]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.modelAlias)?.modelAlias;
+    if (stickyModelAlias) {
+      const stickyModel = models.models.find((m) => m.alias === stickyModelAlias);
+      if (stickyModel) return filterValid(stickyModel.reasoningEfforts);
+    }
+    if (models.auto.reasoningEfforts) {
+      return filterValid(models.auto.reasoningEfforts);
+    }
+    const candidates = models.models.filter(
+      (m) => m.available && (m.reasoningEfforts?.length ?? 0) > 0,
+    );
+    if (!candidates.length) return [];
+    return REASONING_EFFORT_LADDER.filter((lvl) =>
+      candidates.every((c) => c.reasoningEfforts?.includes(lvl)),
+    );
+  }
+
+  const chosen = models.models.find((m) => m.alias === selectedModelAlias);
+  return filterValid(chosen?.reasoningEfforts);
+}
+
+export interface EffortControlState {
+  supported: ReasoningEffort[];
+  requested: ReasoningEffort;
+  applied: ReasoningEffort;
+  steppedDown: boolean;
+  buttonLabel: string;
+  ariaLabel: string;
+  items: Array<{
+    level: ReasoningEffort;
+    label: string;
+    description: string;
+    selected: boolean;
+  }>;
+}
+
+/**
+ * Computes the effort menu state for the composer, or null when the active model exposes
+ * fewer than 2 effort levels. If the saved preference is not supported by the selected model,
+ * surfaces the stepped-down level that will actually apply ("X-High → High on this model").
+ */
+export function describeEffortControl(
+  models: ModelsDto | null,
+  selectedModelAlias: string,
+  savedEffort: ReasoningEffort | null,
+  chatMessages: Message[] = [],
+): EffortControlState | null {
+  const supported = getSupportedEfforts(models, selectedModelAlias, chatMessages);
+  if (supported.length < 2) return null;
+
+  const requested: ReasoningEffort = savedEffort ?? "medium";
+  const applied = resolveEffortForModel(supported, requested) ?? supported[0]!;
+  const steppedDown = savedEffort !== null && savedEffort !== applied;
+
+  const requestedLabel = EFFORT_COPY[requested].label;
+  const appliedLabel = EFFORT_COPY[applied].label;
+  const buttonLabel = steppedDown
+    ? `${requestedLabel} → ${appliedLabel} on this model`
+    : appliedLabel;
+  const ariaLabel = `Effort: ${buttonLabel}`;
+
+  const items = supported.map((level) => ({
+    level,
+    label: EFFORT_COPY[level].label,
+    description:
+      steppedDown && level === applied
+        ? `${requestedLabel} → ${appliedLabel} on this model`
+        : EFFORT_COPY[level].description,
+    selected: level === applied,
+  }));
+
+  return {
+    supported,
+    requested,
+    applied,
+    steppedDown,
+    buttonLabel,
+    ariaLabel,
+    items,
+  };
+}
 
 /**
  * Pastes longer than this become an attached text file. claude.ai does the same past "a few
@@ -340,6 +459,17 @@ export default function Composer({
       : [{ label: "Loading models…", disabled: true }]),
   ];
 
+  const effortControl = useMemo(
+    () =>
+      describeEffortControl(
+        models,
+        preferences.modelAlias,
+        preferences.effort,
+        chatId ? (messages[chatId] ?? []) : [],
+      ),
+    [models, preferences.modelAlias, preferences.effort, chatId, messages],
+  );
+
   return (
     <div className="composer-wrap">
       {edit && edit.chatId === chatId && (
@@ -572,6 +702,28 @@ export default function Composer({
             }
             items={modelItems}
           />
+          {effortControl && (
+            <Dropdown
+              label="Reasoning effort"
+              side="top"
+              align="end"
+              trigger={
+                <button
+                  className="quiet-button effort-button"
+                  aria-label={effortControl.ariaLabel}
+                >
+                  {effortControl.buttonLabel}
+                  <ChevronDown size={13} />
+                </button>
+              }
+              items={effortControl.items.map((item) => ({
+                label: item.label,
+                description: item.description,
+                selected: item.selected,
+                onSelect: () => updatePreferences({ effort: item.level }),
+              }))}
+            />
+          )}
           {ownRun ? (
             <button
               className="send-button"
