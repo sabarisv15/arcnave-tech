@@ -201,6 +201,17 @@ export interface DashboardBlock extends BaseBlock {
   filters?: DashboardFilter[];
 }
 
+/**
+ * Model-written HTML, drawn only inside the client's script-only sandbox (ADR-0035). `html` is
+ * absent in the tool result sent back to the model, which gets `htmlBytes` instead.
+ */
+export interface VisualBlock extends BaseBlock {
+  type: 'visual';
+  title: string;
+  html?: string;
+  htmlBytes?: number;
+}
+
 export type UIBlock =
   | TextBlock
   | TableBlock
@@ -211,7 +222,8 @@ export type UIBlock =
   | StepsBlock
   | CardsBlock
   | SourcesBlock
-  | DashboardBlock;
+  | DashboardBlock
+  | VisualBlock;
 
 export interface UIResponseV1 {
   schemaVersion: 1;

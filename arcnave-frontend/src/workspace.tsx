@@ -23,7 +23,7 @@ import {
   useState,
 } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { attach, generate } from "./adapter";
 import { useSession } from "./session";
@@ -49,7 +49,7 @@ import {
   toUsage,
 } from "./types";
 import type { Panel } from "./types";
-import { adoptServerId, appendSegment } from "./types";
+import { adoptServerId, appendSegment, applyVisualDraft } from "./types";
 
 type TranscriptState = "loading" | "ready" | "missing" | "failed";
 
@@ -110,6 +110,8 @@ interface Context {
   branch: (chatId: string, throughMessageId?: string) => void;
   exportChat: (chat: Chat) => void;
   saveResponseAsArtifact: (chatId: string, messageId: string) => void;
+  /** Keeps a visual from a reply as an artifact (ADR-0035): `svg` for an SVG root, else `webpage`. */
+  saveVisualAsArtifact: (visual: { title: string; html: string; kind: "svg" | "webpage"; chatId?: string }) => void;
   updatePreferences: (patch: Partial<Preferences>) => void;
   /**
    * Re-read preferences.
@@ -124,6 +126,12 @@ interface Context {
   refreshArtifacts: () => Promise<void>;
   edit: { chatId: string; messageId: string; text: string } | null;
   setEdit: Dispatch<SetStateAction<Context["edit"]>>;
+  /** Text for a composer; with `chatId`, only that chat's composer takes it. */
+  quote: { text: string; timestamp: number; chatId?: string } | null;
+  insertQuote: (text: string, chatId?: string) => void;
+  /** Marks the quote with this timestamp as used, so no later composer pastes it again. */
+  consumeQuote: (timestamp: number) => void;
+  artifactUpdateEvent: { artifactId?: string; timestamp: number } | null;
 }
 
 const C = createContext<Context>(null!);
@@ -133,17 +141,20 @@ const defaultPreferences: Preferences = {
   theme: "system",
   font: "sans",
   modelAlias: "Auto",
+  effort: null,
   instructions: "",
   enterToSend: true,
   reducedMotion: false,
   defaultMode: "chat",
   saveHistory: true,
+  styleId: "normal",
   version: 0,
 };
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [chats, setChats] = useState<Chat[]>([]),
     [projects, setProjects] = useState<Project[]>([]),
@@ -158,7 +169,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [settings, setSettings] = useState(false),
     [search, setSearch] = useState(false),
     [activeRun, setActiveRun] = useState<string | null>(null),
-    [edit, setEdit] = useState<Context["edit"]>(null);
+    [edit, setEdit] = useState<Context["edit"]>(null),
+    [quote, setQuote] = useState<Context["quote"]>(null),
+    [artifactUpdateEvent, setArtifactUpdateEvent] = useState<Context["artifactUpdateEvent"]>(null);
+
+  const insertQuote: Context["insertQuote"] = useCallback((text: string, chatId?: string) => {
+    setQuote({ text, timestamp: Date.now(), ...(chatId ? { chatId } : {}) });
+  }, []);
+  const consumeQuote: Context["consumeQuote"] = useCallback((timestamp: number) => {
+    setQuote((q) => (q?.timestamp === timestamp ? null : q));
+  }, []);
+  // A quote for a chat is dropped once the user is somewhere else, so it never reappears later.
+  useEffect(() => {
+    setQuote((q) => (q?.chatId && !location.pathname.startsWith(`/chat/${q.chatId}`) ? null : q));
+  }, [location.pathname]);
 
   const controller = useRef<AbortController | null>(null);
   /** Set once `run` exists, so a transcript load can reattach to a reply still running. */
@@ -253,6 +277,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     // Remembered locally only so the sign-in screen and the next cold start match; the stored
     // preference itself lives on the server.
     writeLocal("theme", preferences.theme);
+    writeLocal("font", preferences.font);
     query.addEventListener("change", apply);
     return () => query.removeEventListener("change", apply);
   }, [preferences.theme, preferences.font, preferences.reducedMotion]);
@@ -421,7 +446,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               prompt: options.prompt,
               mode: options.mode,
               model: preferences.modelAlias,
+              ...(preferences.effort ? { effort: preferences.effort } : {}),
               attachmentIds: options.attachmentIds,
+              styleId: preferences.styleId,
               ...(options.retryMessageId
                 ? { retryMessageId: options.retryMessageId }
                 : {}),
@@ -489,15 +516,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 },
               ],
             }));
-          if (event.type === "tool_result")
+          if (event.type === "ui_draft")
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              status: "generating",
+              visualDrafts: applyVisualDraft(m.visualDrafts, event),
+            }));
+          if (event.type === "tool_result") {
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              // The finished visual follows as a checked ui_block; the draft goes now either way.
+              ...(event.name === "render_ui" ? { visualDrafts: undefined } : {}),
               toolCalls: (m.toolCalls ?? []).map((t) =>
                 t.toolCallId === event.toolCallId
                   ? { ...t, ok: event.ok, preview: event.preview }
                   : t,
               ),
             }));
+            if (event.name === "update_artifact" && event.ok) {
+              setArtifactUpdateEvent({ timestamp: Date.now() });
+            }
+          }
           if (event.type === "artifact_created") {
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
@@ -544,16 +583,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             outcome = "complete";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              visualDrafts: undefined,
               status: "complete",
               questions: event.questions,
               usage: toUsage(event.usage),
               finishReason: event.finishReason,
+              ...(event.effort ? { effort: event.effort } : {}),
             }));
           }
           if (event.type === "error") {
             outcome = "error";
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
+              visualDrafts: undefined,
               status: "error",
               error: event.code,
               errorTitle: event.title,
@@ -642,6 +684,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     },
     [
       preferences.modelAlias,
+      preferences.effort,
+      preferences.styleId,
       patchMessage,
       pollGenerating,
       loadTranscript,
@@ -757,7 +801,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }
 
           navigate(`/chat/${targetId}`);
-          setPanel({ kind: "closed" });
+          setPanel((current) =>
+            current.kind === "artifact" && chatId ? current : { kind: "closed" },
+          );
           startTurn(targetId!, prompt, mode, files, artifact);
         } catch (error) {
           report(error, "The conversation could not be started.");
@@ -985,6 +1031,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [messages, chats, patchMessage, toast, report],
   );
 
+  const saveVisualAsArtifact: Context["saveVisualAsArtifact"] = useCallback(
+    ({ title, html, kind, chatId }) => {
+      void api.artifacts
+        .create({ title: title.slice(0, 80) || "Visual", kind, content: html, chatId: chatId ?? null })
+        .then((created) => {
+          setArtifacts((list) => [toArtifact(created), ...list]);
+          setPanel({ kind: "artifact", id: created.id });
+          toast("Saved as an artifact");
+        })
+        .catch((error) => report(error, "The artifact could not be created."));
+    },
+    [toast, report],
+  );
+
   /* ------------------------------------------------------------------ preferences */
 
   const updatePreferences: Context["updatePreferences"] = useCallback(
@@ -993,7 +1053,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setPreferences((p) => ({ ...p, ...patch }));
       void api.preferences
         .patch({ ...patch, version: previous.version })
-        .then((saved) => setPreferences(toPreferences(saved)))
+        .then((saved) =>
+          setPreferences((curr) => ({
+            ...toPreferences(saved),
+            modelAlias: patch.modelAlias ?? curr.modelAlias,
+          })),
+        )
         .catch((error) => {
           setPreferences(previous);
           report(error, "That preference could not be saved.");
@@ -1033,6 +1098,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       branch,
       exportChat,
       saveResponseAsArtifact,
+      saveVisualAsArtifact,
       updatePreferences,
       refreshPreferences,
       refreshChats,
@@ -1040,6 +1106,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshArtifacts,
       edit,
       setEdit,
+      quote,
+      insertQuote,
+      consumeQuote,
+      artifactUpdateEvent,
     }),
     [
       chats,
@@ -1068,12 +1138,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       branch,
       exportChat,
       saveResponseAsArtifact,
+      saveVisualAsArtifact,
       updatePreferences,
       refreshPreferences,
       refreshChats,
       refreshProjects,
       refreshArtifacts,
       edit,
+      quote,
+      insertQuote,
+      consumeQuote,
+      artifactUpdateEvent,
     ],
   );
 

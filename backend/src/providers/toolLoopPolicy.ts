@@ -17,3 +17,16 @@ export function resolveMaxRounds(toolMaxRounds: number, useTools: boolean): numb
 export function isLastRound(round: number, maxRounds: number): boolean {
   return round === maxRounds - 1;
 }
+
+/** Tools that end the provider round loop immediately after execution (ADR-0034). */
+export const TERMINAL_TOOLS = new Set<string>(['ask_user_options']);
+
+export function isTerminalTool(toolName: string): boolean {
+  return TERMINAL_TOOLS.has(toolName);
+}
+
+/** Returns true if any of the calls in the round is a terminal tool. */
+export function hasTerminalToolCall(toolCalls: ReadonlyArray<{ name: string }>): boolean {
+  return toolCalls.some((c) => isTerminalTool(c.name));
+}
+

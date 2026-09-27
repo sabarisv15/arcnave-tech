@@ -26,6 +26,31 @@ import type {
 
 export type Mode = "chat" | "search" | "research";
 
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export const REASONING_EFFORT_LADDER: readonly ReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+/**
+ * The effort level that will actually apply on a model: the requested level, or the highest
+ * level below it that the model accepts. Undefined when the model exposes no effort levels.
+ */
+export function resolveEffortForModel(
+  supported: readonly string[],
+  requested: ReasoningEffort,
+): ReasoningEffort | undefined {
+  for (let i = REASONING_EFFORT_LADDER.indexOf(requested); i >= 0; i -= 1) {
+    const candidate = REASONING_EFFORT_LADDER[i]!;
+    if (supported.includes(candidate)) return candidate;
+  }
+  return supported[0] as ReasoningEffort | undefined;
+}
+
 export type RunStatus =
   "idle" | "submitting" | "generating" | "stopped" | "complete" | "error";
 
@@ -104,6 +129,17 @@ export interface ToolCall {
   at?: string | null;
 }
 
+export interface AskUserOptionItem {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserOptionsInput {
+  question: string;
+  kind: "single" | "multi" | "rank";
+  options: AskUserOptionItem[];
+}
+
 export interface MessageUsage {
   inputTokens: number;
   outputTokens: number;
@@ -151,6 +187,8 @@ export interface Message {
   events?: ResearchEvent[];
   toolCalls?: ToolCall[];
   uiBlocks?: UIBlock[];
+  /** Visuals the model is still writing (ADR-0037); shown while streaming, never stored. */
+  visualDrafts?: VisualDraft[];
   codeBlocks?: { code?: string; language?: string; output?: string }[];
   researchStage?: ResearchStage;
   questions?: string[];
@@ -163,6 +201,7 @@ export interface Message {
   errorTitle?: string;
   errorDetail?: string;
   modelAlias?: string;
+  effort?: ReasoningEffort;
   providerModelId?: string;
   /** The model's thought summary, shown collapsed above the answer. */
   thinking?: string;
@@ -226,7 +265,7 @@ export interface SavedSource {
 export interface Artifact {
   id: string;
   title: string;
-  kind: "document" | "code" | "webpage";
+  kind: "document" | "code" | "webpage" | "svg";
   projectId: string | null;
   chatId: string | null;
   /** Which version the artifact currently points at. */
@@ -237,13 +276,15 @@ export interface Artifact {
 
 export interface Preferences {
   theme: "light" | "dark" | "system";
-  font: "sans" | "serif";
+  font: "sans" | "system" | "dyslexic";
   modelAlias: string;
+  effort: ReasoningEffort | null;
   instructions: string;
   enterToSend: boolean;
   reducedMotion: boolean;
   defaultMode: Mode;
   saveHistory: boolean;
+  styleId: string;
   version: number;
 }
 
@@ -356,7 +397,7 @@ export function toMessage(dto: MessageDto): Message {
     if (jsonContent && typeof jsonContent.data === "object" && jsonContent.data !== null) {
       const dataObj = jsonContent.data as { blocks?: UIBlock[] };
       if (Array.isArray(dataObj.blocks)) {
-        uiBlocks = dataObj.blocks;
+        uiBlocks = withVisualHtml(dataObj.blocks, renderCall.input);
       }
     } else if (
       typeof renderCall.input === "object" &&
@@ -389,6 +430,9 @@ export function toMessage(dto: MessageDto): Message {
       : {}),
     ...(dto.errorCode ? { error: dto.errorCode } : {}),
     ...(dto.modelAlias ? { modelAlias: dto.modelAlias } : {}),
+    ...(dto.effort && REASONING_EFFORT_LADDER.includes(dto.effort as ReasoningEffort)
+      ? { effort: dto.effort as ReasoningEffort }
+      : {}),
     ...(dto.providerModelId ? { providerModelId: dto.providerModelId } : {}),
     ...(dto.thinking ? { thinking: dto.thinking } : {}),
     ...(dto.segments && dto.segments.length > 0 ? { segments: dto.segments } : {}),
@@ -439,9 +483,9 @@ export function toArtifact(dto: ArtifactDto): Artifact {
   return {
     id: dto.id,
     title: dto.title,
-    kind: (dto.kind === "code" || dto.kind === "webpage"
+    kind: (dto.kind === "code" || dto.kind === "webpage" || dto.kind === "svg"
       ? dto.kind
-      : "document") as "document" | "code" | "webpage",
+      : "document") as Artifact["kind"],
     projectId: dto.projectId,
     chatId: dto.chatId,
     currentVersion: dto.currentVersion,
@@ -453,8 +497,13 @@ export function toArtifact(dto: ArtifactDto): Artifact {
 export function toPreferences(dto: PreferencesDto): Preferences {
   return {
     theme: dto.theme === "light" || dto.theme === "dark" ? dto.theme : "system",
-    font: dto.font === "serif" ? "serif" : "sans",
+    // "serif" was an older option; chat text already showed it as the default font.
+    font: dto.font === "system" || dto.font === "dyslexic" ? dto.font : "sans",
     modelAlias: dto.modelAlias,
+    effort:
+      dto.effort && REASONING_EFFORT_LADDER.includes(dto.effort as ReasoningEffort)
+        ? (dto.effort as ReasoningEffort)
+        : null,
     instructions: dto.instructions,
     enterToSend: dto.enterToSend,
     reducedMotion: dto.reducedMotion,
@@ -464,6 +513,7 @@ export function toPreferences(dto: PreferencesDto): Preferences {
       ? (dto.defaultMode as Mode)
       : "chat",
     saveHistory: dto.saveHistory,
+    styleId: dto.styleId ?? "normal",
     version: dto.version,
   };
 }
@@ -481,4 +531,45 @@ export function adoptServerId(
 ): (messages: Message[]) => Message[] {
   return (messages) =>
     messages.map((m) => (m.id === placeholderId ? { ...m, ...patch, id: realId } : m));
+}
+
+/**
+ * The stored render_ui result carries a visual's size, not its HTML (ADR-0035): the HTML is in
+ * the call's input, at the block's position (`sequence` is 1-based over the input's blocks).
+ */
+export function withVisualHtml(blocks: UIBlock[], input: unknown): UIBlock[] {
+  const inputBlocks =
+    input && typeof input === "object" && Array.isArray((input as { blocks?: unknown }).blocks)
+      ? ((input as { blocks: unknown[] }).blocks)
+      : [];
+  return blocks.map((b) => {
+    if (b.type !== "visual" || typeof b.html === "string") return b;
+    const source = inputBlocks[b.sequence - 1] as { type?: unknown; html?: unknown } | undefined;
+    return source?.type === "visual" && typeof source.html === "string" ? { ...b, html: source.html } : b;
+  });
+}
+
+export interface VisualDraft {
+  id: string;
+  title: string;
+  html: string;
+}
+
+/**
+ * Adds one `ui_draft` piece. A piece that starts at 0 begins the draft again (a retried
+ * request); one that does not continue exactly where the draft ends is dropped rather than
+ * spliced in the wrong place.
+ */
+export function applyVisualDraft(
+  drafts: VisualDraft[] | undefined,
+  piece: { draftId: string; title: string; from: number; text: string },
+): VisualDraft[] {
+  const all = drafts ?? [];
+  const existing = all.find((d) => d.id === piece.draftId);
+  if (piece.from === 0) {
+    const fresh = { id: piece.draftId, title: piece.title, html: piece.text };
+    return existing ? all.map((d) => (d.id === piece.draftId ? fresh : d)) : [...all, fresh];
+  }
+  if (!existing || existing.html.length !== piece.from) return all;
+  return all.map((d) => (d.id === piece.draftId ? { ...d, title: piece.title || d.title, html: d.html + piece.text } : d));
 }

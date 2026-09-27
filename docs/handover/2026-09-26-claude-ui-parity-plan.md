@@ -37,14 +37,14 @@
 | WP-00 | 7 | Ship the LaTeX fix and language-rule removal | 0 | no | [x] |
 | WP-01 | 5, 6 | Code block copy button; correct language in code artifacts | 1 | no | [x] |
 | WP-02 | 2 | Mermaid diagrams in chat and documents | 1 | no | [x] |
-| WP-03 | 17, 20 | More keyboard shortcuts; a readable (dyslexia-friendly) font | 1 | no | [ ] |
-| WP-04 | 19 | Effort control in the composer | 2 | no | [ ] |
-| WP-05 | 18 | Styles (presets + custom) | 2 | yes | [ ] |
-| WP-06 | 3 | Clickable question options (single, multi, rank) | 2 | yes | [ ] |
-| WP-07 | 4 | Select text in an answer or document and ask about it | 2 | no | [ ] |
+| WP-03 | 17, 20 | More keyboard shortcuts; a readable (dyslexia-friendly) font | 1 | no | [x] |
+| WP-04 | 19 | Effort control in the composer | 2 | no | [x] |
+| WP-05 | 18 | Styles (presets + custom) | 2 | yes | [x] |
+| WP-06 | 3 | Clickable question options (single, multi, rank) | 2 | yes | [x] |
+| WP-07 | 4 | Select text in an answer or document and ask about it | 2 | no | [x] |
 | WP-08 | 15 | Incognito chats | 2 | yes | [ ] |
 | WP-09 | 14 | Branch switcher `< 1/2 >` on edited prompts | 2 | yes | [ ] |
-| WP-10 | 1, 8, 9 | Custom visuals in chat; interactive and SVG artifacts (sandbox) | 3 | yes | [ ] |
+| WP-10 | 1, 8, 9 | Custom visuals in chat; interactive and SVG artifacts (sandbox) | 3 | yes | [x] |
 | WP-11 | 13 | Word, Excel and PowerPoint previews | 4 | no | [ ] |
 | WP-12 | 11, 16 | Public share links for chats and artifacts | 4 | yes | [ ] |
 | WP-13 | 21, 22 | Memory import/export; full data export; account deletion | 4 | yes | [ ] |

@@ -196,6 +196,18 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     detail:
       "Try again. If it keeps failing, the storage backend may be unavailable.",
   },
+  style_not_found: {
+    title: "Style not found",
+    detail: "That style does not exist, or you do not have access to it.",
+  },
+  style_too_long: {
+    title: "Style instructions too long",
+    detail: "Style instructions cannot exceed 4000 characters.",
+  },
+  sample_too_long: {
+    title: "Writing sample too long",
+    detail: "Each writing sample cannot exceed 10000 characters.",
+  },
   internal_error: {
     title: "Something went wrong",
     detail: "An unexpected error occurred. The request ID helps trace it.",
@@ -365,6 +377,7 @@ export interface ModelDto {
   supportsGrounding: boolean;
   contextWindow: number | null;
   providerModelId: string | null;
+  reasoningEfforts?: string[];
 }
 
 export interface ModelsDto {
@@ -373,10 +386,15 @@ export interface ModelsDto {
     description: string;
     available: boolean;
     detail: string;
+    reasoningEfforts?: string[];
   };
   models: ModelDto[];
+  /** The effort a turn uses when none is chosen; the menu marks it (stepped down) as Default. */
+  defaultEffort?: ReasoningEffortDto;
   capabilities: { groundedSearch: boolean; detail: string };
 }
+
+export type ReasoningEffortDto = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface SourceDto {
   id: number;
@@ -442,6 +460,7 @@ export interface MessageDto {
   questions: string[];
   feedback: string | null;
   modelAlias: string | null;
+  effort?: string | null;
   providerModelId: string | null;
   finishReason: string | null;
   artifactId: string | null;
@@ -610,12 +629,14 @@ export interface PreferencesDto {
   theme: string;
   font: string;
   modelAlias: string;
+  effort?: string | null;
   instructions: string;
   enterToSend: boolean;
   reducedMotion: boolean;
   defaultMode: string;
   sourceScope: string;
   saveHistory: boolean;
+  styleId?: string;
   maxOutputTokens: number;
   dailyTokenBudget: number | null;
   monthlyTokenBudget: number | null;
@@ -718,6 +739,29 @@ export interface MemoryListDto {
   total: number;
 }
 
+export interface StylePresetDto {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+}
+
+export interface StyleDto {
+  id: string;
+  userId: string | null;
+  name: string;
+  instructions: string;
+  isPreset: boolean;
+  version: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface StylesListDto {
+  presets: StylePresetDto[];
+  items: StyleDto[];
+}
+
 /* -------------------------------------------------------------------------- endpoints */
 
 export const api = {
@@ -736,7 +780,8 @@ export const api = {
   },
 
   models: {
-    list: (probe = false) => get<ModelsDto>("/models", { probe }),
+    list: (probe = false, chatId?: string) =>
+      get<ModelsDto>("/models", { probe, ...(chatId ? { chatId } : {}) }),
     refresh: () => post<void>("/models/refresh"),
   },
 
@@ -934,6 +979,20 @@ export const api = {
     delete: (id: string) => del(`/memory/${id}`),
     clearProject: (projectId: string) => del(`/memory/project/${projectId}`),
     clearAll: () => del("/memory/all"),
+  },
+
+  styles: {
+    list: () => get<StylesListDto>("/styles"),
+    get: (id: string) => get<StyleDto>(`/styles/${id}`),
+    create: (body: { name: string; instructions: string }) =>
+      post<StyleDto>("/styles", body),
+    update: (
+      id: string,
+      body: { name?: string; instructions?: string; version?: number },
+    ) => patch<StyleDto>(`/styles/${id}`, body),
+    delete: (id: string) => del(`/styles/${id}`),
+    summarize: (samples: string[]) =>
+      post<{ instructions: string }>("/styles/summarize", { samples }),
   },
 
   url,

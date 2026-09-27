@@ -25,6 +25,7 @@ export interface DynamicSuffix {
   runtimeCapabilities?: string;
   standingPreferences?: string;
   projectInstructions?: string;
+  styleInstructions?: string;
   relevantMemory?: string;
   compactionSummary?: string;
   attachmentManifest?: string;

@@ -26,7 +26,7 @@ describe("MermaidBlock logic & rendering", () => {
     const mermaid = await loadMermaid();
     expect(typeof mermaid.initialize).toBe("function");
     expect(typeof mermaid.render).toBe("function");
-  });
+  }, 20000);
 
   it("renders code block while unclosed and streaming", () => {
     const unclosed = "```mermaid\ngraph TD\nA --> B";

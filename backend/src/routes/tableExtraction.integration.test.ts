@@ -165,9 +165,10 @@ describe('scanned table extraction, end to end (Phase 3 acceptance)', () => {
     visionCalls.length = 0;
     await generate({ prompt: PROMPT, attachmentIds: [fileId] });
 
-    // The model starts with discovery and the every-turn file tools (ADR-0022); the table tools
+    // The model starts with discovery, the question-options tool (ADR-0034) and the every-turn
+    // file tools (ADR-0022); the table tools
     // are reachable through search, run_python is not allowed here.
-    expect(exposed).toEqual(['search_tools', 'load_skill', 'read_uploaded_file', 'generate_deliverable', 'save_memory', 'search_chats', 'forget_memory']);
+    expect(exposed).toEqual(['search_tools', 'load_skill', 'ask_user_options', 'read_uploaded_file', 'generate_deliverable', 'save_memory', 'search_chats', 'forget_memory']);
     expect(trace.map((t) => t.name)).toEqual([
       'load_skill',
       'search_tools',

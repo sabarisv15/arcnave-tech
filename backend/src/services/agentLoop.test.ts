@@ -474,4 +474,101 @@ describe('AgentLoop Service', () => {
     expect((skillLoadedEv?.data as any)?.skill).toBe('pptx');
     expect((skillLoadedEv?.data as any)?.mode).toBe('guidance_only');
   });
+
+  it('stops immediately at a terminal tool (ask_user_options) without running further steps or synthesizing text', async () => {
+    const { chatId, messageId } = await createChatAndMessage();
+
+    const scripted = new ScriptedProvider([
+      [
+        {
+          type: 'tool_use',
+          toolCallId: 'c-options-1',
+          name: 'ask_user_options',
+          input: {
+            question: 'Which database do you prefer?',
+            kind: 'single',
+            options: [
+              { label: 'PostgreSQL' },
+              { label: 'SQLite' },
+            ],
+          },
+        },
+        {
+          type: 'completed',
+          usage: { inputTokens: 50, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true },
+          finishReason: 'tool_use',
+        },
+      ],
+      [
+        { type: 'delta', text: 'Should never run this second round' },
+        {
+          type: 'completed',
+          usage: { inputTokens: 50, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true },
+          finishReason: 'stop',
+        },
+      ],
+    ]);
+
+    const registry = new ModelRegistry(ctx.cfg, { google: scripted });
+    const usage = new UsageService(ctx.db, ctx.cfg);
+    const retriever = new LexicalRetriever();
+    const storage = buildStorage(ctx.cfg);
+
+    const agentLoop = new AgentLoop(ctx.db, ctx.cfg, registry, usage, retriever, storage);
+
+    const input: GenerateInput = {
+      userId,
+      requestId: 'req-terminal-tool-test',
+      chatId,
+      messageId,
+      prompt: 'Pick a database',
+      mode: 'research',
+      modelAlias: 'gemini-2.5-flash',
+      projectId: null,
+      hasAttachments: false,
+      attachments: [],
+      codeExecution: false,
+      signal: new AbortController().signal,
+    };
+
+    const events = [];
+    for await (const event of agentLoop.stream(input, {
+      entry: dummyEntry,
+      provider: scripted,
+      maxOutputTokens: 2048,
+      prefs: { instructions: '', maxOutputTokens: 2048, dailyTokenBudget: null, monthlyTokenBudget: null, warnThresholdPct: 80, routingPreference: 'balanced', timezone: 'UTC' },
+      project: null,
+      history: [],
+      systemInstruction: 'You are an autonomous research agent.',
+      startedAt: new Date(),
+      releaseReservation: async () => {},
+      grounded: false,
+      codeExecution: false,
+    })) {
+      events.push(event);
+    }
+
+    const toolUse = events.find((e) => e.type === 'tool_use');
+    expect(toolUse).toBeDefined();
+    expect((toolUse as any).name).toBe('ask_user_options');
+
+    const toolResult = events.find((e) => e.type === 'tool_result');
+    expect(toolResult).toBeDefined();
+    expect((toolResult as any).name).toBe('ask_user_options');
+    expect((toolResult as any).ok).toBe(true);
+
+    // No text synthesis or subsequent rounds should be emitted
+    const deltas = events.filter((e) => e.type === 'delta');
+    expect(deltas.length).toBe(0);
+
+    const doneEvent = events.find((e) => e.type === 'done');
+    expect(doneEvent).toBeDefined();
+    expect((doneEvent as any).finishReason).toBe('stop');
+
+    const [persistedMsg] = await ctx.db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId));
+    expect(persistedMsg?.finishReason).toBe('stop');
+  });
 });

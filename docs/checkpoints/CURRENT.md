@@ -1,6 +1,64 @@
 # ArcNave — current checkpoint
 
-> **2026-09-26 (latest): WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
+> **2026-09-27 (latest): WP-03 to WP-07 and WP-10 merged on `integration/ui-parity`, reviewed against Claude, not live.**
+> - Migrations: 0016 `artifact_kind_svg` (WP-10), 0017 `effort_and_styles` (WP-04 + WP-05, regenerated
+>   in one file, `when` 1791100000000). The branches' own 0016 files were dropped.
+> - Review fixes: `/models?chatId` reads only the caller's chat; the Auto effort list no longer
+>   names a model; deleting the active style resets the preference to Normal; a quote is pasted
+>   once; an artifact edit request joins the next message instead of sending (as Claude's does);
+>   effort moved into the model menu with the default marked; chat font options are Default,
+>   Match system and Dyslexic friendly (OpenDyslexic, OFL); the WP-03 lockfile's missing
+>   integrity hashes restored.
+>
+> **2026-09-27: visuals drawn while written (ADR-0037), same branch, not live.**
+> - Gemini asks for `streamFunctionCallArguments` when `render_ui` is declared;
+>   `StreamedCallAssembler` rebuilds the call. On `INVALID_ARGUMENT` it falls back to whole calls
+>   for that model. Kill switch: `GEMINI_STREAM_TOOL_ARGS=false`.
+> - Claude reports `render_ui` input from the SDK snapshot; `eager_input_streaming` is not set yet.
+> - SSE `ui_draft` sends only new characters; `SandboxFrame draft` redraws markup without reloading
+>   the frame, and scripts wait for the finished block.
+> - **Not yet run against a real Vertex model.** First live check: ask for a visual and watch
+>   it fill in; look for "streamed function-call arguments were rejected" in the logs.
+>
+> **2026-09-27: visuals inherit ArcNave's theme (ADR-0036), same branch `feat/wp-10-visual-sandbox`, not live.**
+> - The sandbox document now carries ArcNave's light/dark tokens, `:where()` base styles, and
+>   layout/SVG classes; the theme follows ArcNave by message, without reloading the frame.
+> - Chart.js picks up theme colours; `window.arcnave.colors()` and `onThemeChange` exist.
+> - `GENERATIVE_UI_POLICY_V1` has a compact visual design guide in our own words.
+> - Fixed: inline frames were stuck at 150px (`flex: 1` beat `height`).
+> - Artifact library cards show the artifact itself (`ArtifactThumbnail.tsx`), read lazily.
+> - Anthropic's brand fonts removed; Inter and Source Serif 4 (OFL) are bundled.
+> - Verified in Chromium in both themes; tests frontend 111, backend 976.
+>
+> **2026-09-26: WP-10 sandboxed visuals (ADR-0035), on branch `feat/wp-10-visual-sandbox`, not live.**
+> - `render_ui` has a `visual` block: model-written HTML with scripts, at most 200,000 bytes and
+>   2 per response. Over the limit, the tool fails with `visual_too_large` or `visual_limit`.
+>   The model's tool result carries `htmlBytes`, not the HTML; the client restores it from the
+>   call input on reload.
+> - `SandboxFrame.tsx` is the only place model HTML runs: `sandbox="allow-scripts"`, never
+>   same-origin, with ArcNave's CSP first. It accepts only resize and prompt messages from its own
+>   frame, and resets on self-navigation. A visual's prompt goes to the composer; it is not sent.
+> - Webpage artifacts now run scripts in the same frame. New artifact kind `svg` (migration
+>   0016, hand-stamped `when` 1791000000000).
+> - Verified in real Chromium against the local stack:
+>   - the slider works;
+>   - `fetch` and images are blocked by the CSP; cookie, storage, popup and top navigation are
+>     blocked by the sandbox;
+>   - the prompt reaches the composer;
+>   - a link click is reset with "Navigation blocked";
+>   - the SVG and webpage artifacts render.
+> - Tests: backend 976, frontend 101.
+> - Migration clash: WP-04 and WP-05 also add a migration 0016. Whichever merges second deletes
+>   its own and re-runs `npm run db:generate`, then re-stamps `when` above the latest.
+>
+> **2026-09-26 (latest): WP-03 (Keyboard shortcuts and readable font — Gaps 17 and 20) completed on branch `feat/wp-03-shortcuts-font`.**
+> - Worktree: `d:/arcnave-wp03` on branch `feat/wp-03-shortcuts-font`.
+> - Shortcuts: Added `Ctrl/Cmd + Shift + O` (new conversation) and `Ctrl/Cmd + Shift + C` (copy last complete assistant answer, with toast feedback). Retained `Ctrl/Cmd + K`, `Ctrl/Cmd + P`, and `Ctrl/Cmd + ,`. Noted browser conflicts (DevTools inspect on `Ctrl+Shift+C`, bookmarks on `Ctrl+Shift+O`) in Settings -> Keyboard shortcuts.
+> - Font: Added self-hosted Atkinson Hyperlegible font via `@fontsource/atkinson-hyperlegible`. Labeled as "Readable (Atkinson Hyperlegible)" in Settings -> Appearance. Applied `data-font="readable"` mirroring both existing serif rule blocks with identical selectors.
+> - Backend: Restricted `PATCH /preferences` font enum to `['sans', 'serif', 'readable']` with typed `validation_error` (HTTP 422). Removed unused `mono` from PATCH enum while GET returns `z.string()`. Regenerated `docs/openapi.json`.
+> - Tests & artifacts: Frontend tests clean (77/77 passing across 9 files), backend preferences integration tests clean (5/5 passing), backend typecheck clean, frontend build clean (local font assets emitted), and full browser acceptance walkthrough recorded with 7 screenshots.
+>
+> **2026-09-26: WP-01 + WP-02 review fixes (hook crash, language detection, verified clipboard, theme re-render) complete.**
 > - Fixed blocker hook crash in `CodeBlock.tsx`: made `pre` a thin hookless dispatcher rendering either `<PlainCodeBlock>` or lazy `<MermaidBlock>`, eliminating "Rendered fewer hooks than expected" during streaming fence transitions (```` ```m ```` -> ```` ```mer ```` -> ```` ```mermaid ````).
 > - Added `MarkdownErrorBoundary` around every message's Markdown so any rendering error recovers to displaying raw source without blanking the application.
 > - Added `MarkdownStreaming.test.tsx` using `jsdom` (added to devDependencies), `createRoot`, and `act()` verifying sequential streaming fence transitions and error boundary fallback.
@@ -30,6 +88,44 @@
 > - Acceptance verified in browser against local stack (Python and SQL snippets copy test, `x.py` code artifact syntax highlighting).
 >
 > Tests: backend 964, frontend 75. Branch: `feat/wp-01-code-blocks`.
+> **2026-09-26: WP-04 (Effort control in the composer) complete on branch `feat/wp-04-effort`.**
+> - **Composer effort control:** Reasoning effort dropdown added to composer next to the model menu when the model supports ≥ 2 levels, displaying speed vs. depth tradeoffs (`low`, `medium`, `high`, `xhigh`, `max`).
+> - **Auto effort levels:** Auto resolves to sticky model's supported levels if chat already has an assistant turn, or the safe intersection `['low', 'medium', 'high']` if unknown. Never advertises levels that would be stepped down (CLAUDE.md Invariant 1).
+> - **Step-down visibility & persistence:** If saved preference exceeds what the model supports, shows `"X-High → High on this model"` on both dropdown trigger and menu item. Applied effort is streamed in `done` SSE event, stored in `messages.effort`, and shown in message usage row (`<effort> effort`).
+> - **Schema & Migration:** Migration `0016_lame_mephistopheles.sql` adds `effort varchar(16)` with check constraints to `preferences` and `messages`.
+> - **OpenAPI & Journal:** `docs/openapi.json` regenerated cleanly; `journal.test.ts` passes with linear timestamp `1791000000000`.
+> - **Tests & Verification:** Backend 986 passed, frontend 72 passed, live Chrome browser acceptance verified with 4 screenshots.
+>
+> **2026-09-26 (WP-05): Response styles — presets and custom styles (ADR-0033).**
+> - Implemented 4 built-in presets (`normal`, `concise`, `explanatory`, `formal`) and user-owned custom styles in `styles` table (migration `0016_bizarre_khan`, `preferences.styleId`).
+> - Placed `<style_instructions>` in the dynamic runtime suffix (`promptAssembly.ts`), keeping `buildStablePrefix` 100% byte-identical across style changes.
+> - Added `/styles` CRUD routes and `POST /styles/summarize` (1–3 writing samples capped at 10,000 chars with `sample_too_long` 422, token budget reservation, and exact usage recording).
+> - Added "Use style" menu in `Composer.tsx` and `StylesModal.tsx` (instructions & writing samples tabs).
+>
+> **2026-09-27 (latest): WP-06 (Clickable question options — single, multi, rank) complete on `feat/wp-06-ask-options`.**
+> - ADR-0034 accepted (`docs/decisions/0034-turn-ending-options-tool.md`): terminal tool `ask_user_options` ends the provider loop and AgentLoop with `{ status: 'shown' }`.
+> - Tool definition in `backend/src/tools/definitions.ts`: `{ question, kind: 'single'|'multi'|'rank', options: [{ label, description? }] }` (2–6 options). Tool description instructs model not to repeat question in text reply.
+> - Policy: `isTerminalTool` in `backend/src/providers/toolLoopPolicy.ts` ends turns immediately without another model round; Research `AgentLoop` stops upon terminal tool.
+> - Adapters & Replay: Gemini and Anthropic Vertex adapters cleanly replay `ask_user_options` and `{ status: 'shown' }` in turn history on subsequent user turns without error.
+> - Frontend: `QuestionOptions.tsx` renders interactive options above `<Composer />` with question prompt displayed prominently. Supports single-click selection, multi-select checkboxes, and rank ordering. Composer remains active for typing; sending any reply dismisses options.
+> - Hidden from activity: `ask_user_options` filtered out from `ToolActivity` and `ResponseActivity` spinner.
+> - Verified: `npx tsc --noEmit` clean on both backend and frontend; all 11 WP-06 backend test files pass (155 tests); 9 frontend test files pass (73 tests); local browser acceptance verified in headless Chrome with 3 screenshots captured.
+
+> **2026-09-27 (latest): WP-07 — Select text and ask about it implemented and verified.**
+> - "Ask about this" floating button appears on selecting text in assistant messages, inserting
+>   formatted blockquote (`> ...\n\n`) into the composer and focusing it.
+> - "Change this" floating button appears on selecting text inside document artifacts (preview tab),
+>   opening an inline input ("What should change?") without sending immediately. On Enter, it sends
+>   a targeted prompt with surrounding context and artifact version targeting `update_artifact`.
+> - Artifact panel refreshes automatically on `tool_result` (`name: 'update_artifact' && ok`), while
+>   preserving unsaved drafts in the Edit tab and displaying "New version available" banner instead.
+> - Both buttons hidden during streaming (`activeRun` truthy) and dismissed on Escape, scroll, or clearing selection.
+> - Verified with unit tests (`selection.test.ts`, 20 tests) and end-to-end browser acceptance checks with screenshots.
+>
+> Tests: backend 964, frontend 86.
+>
+> UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
+> packages (27 gaps against the Claude app). WP-07 completed on `feat/wp-07-selection-ask`.
 >
 > **2026-09-26: reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
@@ -39,11 +135,15 @@
 > - The chat now typesets `$$…$$` with KaTeX (`remark-math` + `rehype-katex`,
 >   `arcnave-frontend/src/markdownPlugins.ts`), as Claude's app does. A single `$` stays text.
 >
-> Tests: backend 964, frontend 66.
+> Tests: backend 969, frontend 91.
+>
+> UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
+> packages (27 gaps against the Claude app). WP-00, WP-01, WP-02, and WP-03 completed.
+> Tests: backend 984, frontend 71.
 >
 > UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
 > packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
-> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-01 and WP-02 complete.
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-05 done.
 >
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode

@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { WorkspaceProvider, useWorkspace } from "./workspace";
 import { SessionProvider, useSession } from "./session";
+import { handleAppKeyDown } from "./shortcuts";
 import Auth from "./Auth";
 import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
@@ -45,13 +46,16 @@ import Settings from "./Settings";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
-import type { Message, MessageUsage, Mode, ToolCall } from "./types";
+import type { Message, MessageUsage, Mode, ReasoningEffort, ToolCall } from "./types";
 import { extractToolCardData, type DeliverableData, type ImageData } from "./toolCards";
 import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
+import { VisualDraft } from "./generative-ui/blocks/VisualDraft";
 import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage, MarkdownErrorBoundary } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
+import QuestionOptions, { extractAskUserOptions } from "./QuestionOptions";
+import SelectionFloatingButton from "./SelectionFloatingButton";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -134,6 +138,8 @@ function Shell() {
     setSearch,
     setSettings,
     activeRun,
+    messages,
+    toast,
   } = useWorkspace();
   const [collapsed, setCollapsed] = useState(
       () => readLocal("sidebar") === "collapsed",
@@ -148,23 +154,19 @@ function Shell() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        navigate("/");
-        setPanel({ kind: "closed" });
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
-        e.preventDefault();
-        setSearch(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        setSettings(true);
-      }
+      handleAppKeyDown(e, {
+        navigate,
+        setPanel,
+        setSearch,
+        setSettings,
+        toast,
+        activeChatId: activeChat?.id,
+        messages,
+      });
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [navigate, setPanel, setSearch, setSettings]);
+  }, [navigate, setPanel, setSearch, setSettings, toast, activeChat?.id, messages]);
 
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine);
@@ -306,6 +308,7 @@ function Shell() {
       )}
       <Settings />
       <SearchDialog />
+      <SelectionFloatingButton />
       {toastText && (
         <div className="toast" role="status">
           <Check size={16} />
@@ -445,7 +448,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
 
 function Conversation() {
   const { id } = useParams();
-  const { chats, projects, messages, transcript, openChat, activeRun } =
+  const { chats, projects, messages, transcript, openChat, activeRun, send } =
     useWorkspace();
   const chat = chats.find((c) => c.id === id);
   const state = id ? transcript[id] : undefined;
@@ -587,6 +590,21 @@ function Conversation() {
         </button>
       )}
       <div className="conversation-composer">
+        {!isRunning && extractAskUserOptions(last) && (
+          <QuestionOptions
+            data={extractAskUserOptions(last)!}
+            disabled={!!activeRun}
+            onSubmit={(replyText) =>
+              void send(
+                replyText,
+                last?.mode ?? "chat",
+                [],
+                chat?.id ?? id!,
+                chat?.projectId ?? undefined,
+              )
+            }
+          />
+        )}
         <Composer
           key={id}
           chatId={id!}
@@ -642,10 +660,10 @@ function ResponseActivity({ message: m }: { message: Message }) {
   const latestResearchEvent = m.events?.at(-1);
   const activeTool = [...(m.toolCalls ?? [])]
     .reverse()
-    .find((call) => call.ok === undefined && call.name !== "render_ui");
+    .find((call) => call.ok === undefined && call.name !== "render_ui" && call.name !== "ask_user_options");
   const latestTool = [...(m.toolCalls ?? [])]
     .reverse()
-    .find((call) => call.name !== "render_ui");
+    .find((call) => call.name !== "render_ui" && call.name !== "ask_user_options");
   const activity = activeTool
     ? { label: toolActivity(activeTool.name, true), detail: "Tool is running" }
     : latestResearchEvent && latestResearchEvent.stage !== "complete"
@@ -671,7 +689,15 @@ function ResponseActivity({ message: m }: { message: Message }) {
   );
 }
 
-function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: string | null }) {
+function UsageRow({
+  usage,
+  createdAt,
+  effort,
+}: {
+  usage: MessageUsage;
+  createdAt?: string | null;
+  effort?: ReasoningEffort | null;
+}) {
   const formattedDate = createdAt
     ? new Intl.DateTimeFormat(undefined, {
         dateStyle: "medium",
@@ -681,6 +707,7 @@ function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: strin
   return (
     <p className="message-usage">
       {formattedDate && <span className="message-date">{formattedDate}</span>}
+      {effort && <span>{effort} effort</span>}
       {usage.exact ? (
         <>
           <span>{tokens(usage.inputTokens)} in</span>
@@ -822,7 +849,7 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui") && (
+      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => c.name !== "render_ui" && c.name !== "ask_user_options") && (
         <ResponseActivity message={m} />
       )}
       {m.segments && m.segments.length > 0 ? (
@@ -874,8 +901,9 @@ function MessageView({
         </>
       )}
       {m.uiBlocks && m.uiBlocks.length > 0 && (
-        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} />
+        <GenerativeUIRenderer blocks={m.uiBlocks} onAction={handleAction} chatId={chatId} />
       )}
+      {m.status === "generating" && m.visualDrafts?.map((d) => <VisualDraft key={d.id} draft={d} />)}
       {(() => {
         if (!m.toolCalls?.length) return null;
         const { deliverables, images } = extractToolCardData(m.toolCalls);
@@ -1050,7 +1078,9 @@ function MessageView({
           {copied && <span className="copy-label">Copied</span>}
         </div>
       )}
-      {usage && !loading && <UsageRow usage={usage} createdAt={m.createdAt} />}
+      {usage && !loading && (
+        <UsageRow usage={usage} createdAt={m.createdAt} effort={m.effort} />
+      )}
       {m.questions && m.status === "complete" && m.questions.length > 0 && (
         <div className="related-questions">
           <p className="eyebrow">KEEP EXPLORING</p>

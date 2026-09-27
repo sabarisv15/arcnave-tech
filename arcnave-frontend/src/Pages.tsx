@@ -24,6 +24,7 @@ import { Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import type { Artifact, Attachment, Project, SavedSource } from "./types";
 import { toProjectFile, toSavedSource } from "./types";
 import { ChatMenu } from "./Navigation";
+import { ArtifactThumbnail } from "./ArtifactThumbnail";
 import Composer, { AttachmentChip } from "./Composer";
 import { validateFile } from "./storage";
 
@@ -738,30 +739,37 @@ function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
         <div
           className={`artifact-card-preview ${a.kind === "webpage" ? "preview-blue" : ""}`}
         >
-          {a.kind === "document" ? (
-            <>
-              <p>DOCUMENT</p>
-              <h3>{a.title}</h3>
-              <span />
-              <span />
-              <span />
-            </>
-          ) : a.kind === "webpage" ? (
-            <>
-              <p>WEBPAGE</p>
-              <h3>{a.title}</h3>
-            </>
-          ) : (
-            <>
-              <Code2 size={28} />
-              <code>{a.title}</code>
-            </>
-          )}
+          <ArtifactThumbnail
+            artifact={a}
+            fallback={
+              <div className="artifact-card-placeholder">
+                {a.kind === "document" ? (
+                  <>
+                    <p>DOCUMENT</p>
+                    <h3>{a.title}</h3>
+                    <span />
+                    <span />
+                    <span />
+                  </>
+                ) : a.kind === "webpage" || a.kind === "svg" ? (
+                  <>
+                    <p>{a.kind === "svg" ? "IMAGE" : "WEBPAGE"}</p>
+                    <h3>{a.title}</h3>
+                  </>
+                ) : (
+                  <>
+                    <Code2 size={28} />
+                    <code>{a.title}</code>
+                  </>
+                )}
+              </div>
+            }
+          />
         </div>
         <div className="artifact-card-info">
           <strong>{a.title}</strong>
           <small>
-            {a.kind} · version {a.currentVersion}
+            {a.kind === "svg" ? "SVG" : a.kind} · version {a.currentVersion}
           </small>
           {(sourceChat || sourceProject) && (
             <div className="artifact-provenance" style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.75rem', opacity: 0.8 }}>
@@ -842,14 +850,14 @@ export function ArtifactsPage() {
       </div>
       <div className="list-toolbar">
         <div className="segmented">
-          {["All", "document", "code", "webpage"].map((f) => (
+          {["All", "document", "code", "webpage", "svg"].map((f) => (
             <button
               key={f}
               className={filter === f ? "active" : ""}
               aria-pressed={filter === f}
               onClick={() => setFilter(f)}
             >
-              {f === "All" ? f : f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === "All" ? f : f === "svg" ? "SVG" : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
         </div>

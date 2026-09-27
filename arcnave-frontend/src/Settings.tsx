@@ -176,8 +176,9 @@ export default function Settings() {
                     })
                   }
                 >
-                  <option value="sans">Sans serif</option>
-                  <option value="serif">Serif</option>
+                  <option value="sans">Default</option>
+                  <option value="system">Match system</option>
+                  <option value="dyslexic">Dyslexic friendly</option>
                 </select>
               </div>
               {toggle(
@@ -195,8 +196,9 @@ export default function Settings() {
           {category === "Keyboard shortcuts" && (
             <div className="shortcuts">
               {[
-                ["New conversation", "Ctrl / ⌘ + K"],
+                ["New conversation", "Ctrl / ⌘ + Shift + O or Ctrl / ⌘ + K"],
                 ["Search conversations", "Ctrl / ⌘ + P"],
+                ["Copy last answer", "Ctrl / ⌘ + Shift + C"],
                 ["Open settings", "Ctrl / ⌘ + ,"],
                 ["Close an overlay", "Esc"],
                 ["Send a message", "Enter"],
@@ -209,6 +211,9 @@ export default function Settings() {
                   <kbd>{key}</kbd>
                 </div>
               ))}
+              <p className="section-description" style={{ marginTop: "16px" }}>
+                Note: In some browsers, Ctrl + Shift + C may open Developer Tools, or Ctrl + Shift + O may open Bookmarks.
+              </p>
             </div>
           )}
         </section>

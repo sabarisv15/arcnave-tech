@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { COMPOSE_EVENT } from "./generative-ui/blocks/VisualBlock";
 import {
   ArrowUp,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   Loader2,
   MessageCircleMore,
   Paperclip,
+  PenLine,
   Plus,
   Square,
   Telescope,
@@ -16,12 +18,137 @@ import {
   PanelsTopLeft,
 } from "lucide-react";
 import { ApiError, api } from "./api";
-import type { Attachment, Mode } from "./types";
-import { toAttachment } from "./types";
+import type { ModelsDto, StyleDto, StylePresetDto } from "./api";
+import type { Attachment, Message, Mode, ReasoningEffort } from "./types";
+import {
+  REASONING_EFFORT_LADDER,
+  resolveEffortForModel,
+  toAttachment,
+} from "./types";
 import { MAX_ATTACHMENT_BYTES, sizeLabel, validateFile } from "./storage";
 import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
+import StylesModal, { BUILTIN_STYLE_PRESETS } from "./StylesModal";
+
+export const EFFORT_COPY: Record<
+  ReasoningEffort,
+  { label: string; description: string }
+> = {
+  low: { label: "Low", description: "Faster responses" },
+  medium: { label: "Medium", description: "Balanced speed and depth" },
+  high: { label: "High", description: "Deeper reasoning" },
+  xhigh: { label: "X-High", description: "Extended deep reasoning" },
+  max: { label: "Max", description: "Maximum reasoning depth" },
+};
+
+/**
+ * Supported effort levels for the active composer model.
+ *
+ * For Auto: when this chat already resolved to a sticky model on an earlier turn, returns that
+ * model's levels. When not known yet, returns only the levels that every Auto candidate
+ * supports, so no level shown in the menu will ever be silently stepped down (Invariant 1).
+ */
+export function getSupportedEfforts(
+  models: ModelsDto | null,
+  selectedModelAlias: string,
+  chatMessages: Message[] = [],
+): ReasoningEffort[] {
+  if (!models) return [];
+  const filterValid = (list: readonly string[] | undefined): ReasoningEffort[] =>
+    (list ?? []).filter((lvl): lvl is ReasoningEffort =>
+      REASONING_EFFORT_LADDER.includes(lvl as ReasoningEffort),
+    );
+
+  if (selectedModelAlias === models.auto.alias || selectedModelAlias === "Auto") {
+    const stickyModelAlias = [...chatMessages]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.modelAlias)?.modelAlias;
+    if (stickyModelAlias) {
+      const stickyModel = models.models.find((m) => m.alias === stickyModelAlias);
+      if (stickyModel) return filterValid(stickyModel.reasoningEfforts);
+    }
+    if (models.auto.reasoningEfforts) {
+      return filterValid(models.auto.reasoningEfforts);
+    }
+    const candidates = models.models.filter(
+      (m) => m.available && (m.reasoningEfforts?.length ?? 0) > 0,
+    );
+    if (!candidates.length) return [];
+    return REASONING_EFFORT_LADDER.filter((lvl) =>
+      candidates.every((c) => c.reasoningEfforts?.includes(lvl)),
+    );
+  }
+
+  const chosen = models.models.find((m) => m.alias === selectedModelAlias);
+  return filterValid(chosen?.reasoningEfforts);
+}
+
+export interface EffortControlState {
+  supported: ReasoningEffort[];
+  requested: ReasoningEffort;
+  applied: ReasoningEffort;
+  defaultLevel: ReasoningEffort;
+  steppedDown: boolean;
+  buttonLabel: string;
+  ariaLabel: string;
+  items: Array<{
+    level: ReasoningEffort;
+    label: string;
+    description: string;
+    selected: boolean;
+  }>;
+}
+
+/**
+ * Computes the effort menu state for the composer, or null when the active model exposes
+ * fewer than 2 effort levels. If the saved preference is not supported by the selected model,
+ * surfaces the stepped-down level that will actually apply ("X-High → High on this model").
+ */
+export function describeEffortControl(
+  models: ModelsDto | null,
+  selectedModelAlias: string,
+  savedEffort: ReasoningEffort | null,
+  chatMessages: Message[] = [],
+): EffortControlState | null {
+  const supported = getSupportedEfforts(models, selectedModelAlias, chatMessages);
+  if (supported.length < 2) return null;
+
+  // The same default the server uses when no effort is chosen, stepped down the same way.
+  const defaultLevel = resolveEffortForModel(supported, models?.defaultEffort ?? "medium") ?? supported[0]!;
+  const requested: ReasoningEffort = savedEffort ?? defaultLevel;
+  const applied = resolveEffortForModel(supported, requested) ?? supported[0]!;
+  const steppedDown = savedEffort !== null && savedEffort !== applied;
+
+  const requestedLabel = EFFORT_COPY[requested].label;
+  const appliedLabel = EFFORT_COPY[applied].label;
+  const buttonLabel = steppedDown
+    ? `${requestedLabel} → ${appliedLabel} on this model`
+    : appliedLabel;
+  const ariaLabel = `Effort: ${buttonLabel}`;
+
+  const items = supported.map((level) => ({
+    level,
+    // Each model's recommended level is marked "Default", as Claude's menu marks it.
+    label: level === defaultLevel ? `${EFFORT_COPY[level].label} · Default` : EFFORT_COPY[level].label,
+    description:
+      steppedDown && level === applied
+        ? `${requestedLabel} → ${appliedLabel} on this model`
+        : EFFORT_COPY[level].description,
+    selected: level === applied,
+  }));
+
+  return {
+    supported,
+    requested,
+    applied,
+    defaultLevel,
+    steppedDown,
+    buttonLabel,
+    ariaLabel,
+    items,
+  };
+}
 
 /**
  * Pastes longer than this become an attached text file. claude.ai does the same past "a few
@@ -164,13 +291,20 @@ export default function Composer({
     edit,
     setEdit,
     messages,
+    quote,
+    consumeQuote,
   } = useWorkspace();
   const { models } = useSession();
   const [text, setText] = useState(initialPrompt),
     [mode, setMode] = useState<Mode>(initialMode || preferences.defaultMode),
     [files, setFiles] = useState<Attachment[]>([]),
     [dragging, setDragging] = useState(false),
-    [artifact, setArtifact] = useState(artifactIntent);
+    [artifact, setArtifact] = useState(artifactIntent),
+    [stylePresets, setStylePresets] = useState<StylePresetDto[]>(
+      BUILTIN_STYLE_PRESETS,
+    ),
+    [customStyles, setCustomStyles] = useState<StyleDto[]>([]),
+    [stylesModalOpen, setStylesModalOpen] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null),
     input = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -179,12 +313,28 @@ export default function Composer({
   // their room for longer prompts even though they also use the compact prop for placement.
   const inlineReply = compact && Boolean(chatId);
 
+  const refreshStyles = useCallback(async () => {
+    try {
+      const list = await api.styles?.list?.();
+      if (!mounted.current || !list) return;
+      if (Array.isArray(list.presets) && list.presets.length > 0) {
+        setStylePresets(list.presets);
+      }
+      if (Array.isArray(list.items)) {
+        setCustomStyles(list.items);
+      }
+    } catch {
+      /* Built-in presets remain available if the request fails. */
+    }
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
+    void refreshStyles();
     return () => {
       mounted.current = false;
     };
-  }, []);
+  }, [refreshStyles]);
   useEffect(() => {
     if (initialPrompt) {
       setText(initialPrompt);
@@ -194,6 +344,19 @@ export default function Composer({
   useEffect(() => {
     if (initialMode) setMode(initialMode);
   }, [initialMode]);
+  // A visual's suggested follow-up lands here for the user to send (ADR-0035). Only the live
+  // conversation's composer takes it.
+  useEffect(() => {
+    if (!chatId) return;
+    const onCompose = (event: Event) => {
+      const suggested = (event as CustomEvent<{ text?: unknown }>).detail?.text;
+      if (typeof suggested !== "string" || !suggested) return;
+      setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${suggested}` : suggested));
+      textarea.current?.focus();
+    };
+    window.addEventListener(COMPOSE_EVENT, onCompose);
+    return () => window.removeEventListener(COMPOSE_EVENT, onCompose);
+  }, [chatId]);
   useEffect(() => {
     if (artifactIntent) setArtifact(true);
   }, [artifactIntent]);
@@ -203,6 +366,28 @@ export default function Composer({
       textarea.current?.focus();
     }
   }, [edit, chatId]);
+  // Each composer instance pastes a quote once. A quote for one chat stays until it is sent or
+  // the user leaves that chat, because the conversation's composer can remount while the chat
+  // loads and a fresh instance must paste it again. The composer of the page being left does
+  // not take a quote meant for another chat. A quote with no chat is used up when pasted.
+  const takenQuote = useRef<number | null>(null);
+  useEffect(() => {
+    if (quote?.text && takenQuote.current !== quote.timestamp && (!quote.chatId || quote.chatId === chatId)) {
+      takenQuote.current = quote.timestamp;
+      if (!quote.chatId) consumeQuote(quote.timestamp);
+      setText((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed}\n\n${quote.text}` : quote.text;
+      });
+      setTimeout(() => {
+        if (textarea.current) {
+          textarea.current.focus();
+          const len = textarea.current.value.length;
+          textarea.current.setSelectionRange(len, len);
+        }
+      }, 0);
+    }
+  }, [quote, consumeQuote, chatId]);
   useEffect(() => {
     if (textarea.current) {
       textarea.current.style.height = "auto";
@@ -300,6 +485,7 @@ export default function Composer({
       (f) => f.status === "ready" || f.status === "unsupported",
     );
     send(text, mode, ready, chatId, projectId, artifact || artifactIntent);
+    if (quote) consumeQuote(quote.timestamp);
     setText("");
     setFiles([]);
     setArtifact(artifactIntent);
@@ -338,6 +524,47 @@ export default function Composer({
           })),
         ]
       : [{ label: "Loading models…", disabled: true }]),
+  ];
+
+  const effortControl = useMemo(
+    () =>
+      describeEffortControl(
+        models,
+        preferences.modelAlias,
+        preferences.effort,
+        chatId ? (messages[chatId] ?? []) : [],
+      ),
+    [models, preferences.modelAlias, preferences.effort, chatId, messages],
+  );
+  const activeStyleId = preferences.styleId || "normal";
+  const activeStyleName =
+    stylePresets.find((p) => p.id === activeStyleId)?.name ??
+    customStyles.find((s) => s.id === activeStyleId)?.name ??
+    "Normal";
+
+  const styleItems = [
+    ...stylePresets.map((preset) => ({
+      label: preset.name,
+      description: preset.description,
+      selected: activeStyleId === preset.id,
+      onSelect: () => updatePreferences({ styleId: preset.id }),
+    })),
+    ...customStyles.map((style, index) => ({
+      label: style.name,
+      description:
+        style.instructions.length > 72
+          ? `${style.instructions.slice(0, 72)}…`
+          : style.instructions,
+      selected: activeStyleId === style.id,
+      separator: index === 0,
+      onSelect: () => updatePreferences({ styleId: style.id }),
+    })),
+    {
+      label: "Create & edit styles",
+      icon: <PenLine size={15} />,
+      separator: true,
+      onSelect: () => setStylesModalOpen(true),
+    },
   ];
 
   return (
@@ -556,6 +783,21 @@ export default function Composer({
               },
             ]}
           />
+          <Dropdown
+            label="Use style"
+            side="top"
+            trigger={
+              <button
+                className={`quiet-button style-button ${activeStyleId !== "normal" ? "style-active" : ""}`}
+                aria-label={`Use style: ${activeStyleName}`}
+              >
+                <PenLine size={15} />
+                {activeStyleName}
+                <ChevronDown size={13} />
+              </button>
+            }
+            items={styleItems}
+          />
           <div className="spacer" />
           <Dropdown
             label="Model selection"
@@ -564,13 +806,32 @@ export default function Composer({
             trigger={
               <button
                 className="quiet-button model-button"
-                aria-label={`Model: ${preferences.modelAlias}`}
+                aria-label={`Model: ${preferences.modelAlias}${effortControl ? `, ${effortControl.ariaLabel}` : ""}`}
               >
                 {preferences.modelAlias}
+                {/* The effort shows beside the model only when it is not the default. */}
+                {effortControl && (effortControl.steppedDown || effortControl.applied !== effortControl.defaultLevel) && (
+                  <span className="model-effort">{effortControl.buttonLabel}</span>
+                )}
                 <ChevronDown size={13} />
               </button>
             }
-            items={modelItems}
+            items={[
+              ...modelItems,
+              // Effort lives in the model menu, as in Claude's app ("click the model name, then
+              // Effort"): the levels offered are the ones this model accepts.
+              ...(effortControl
+                ? [
+                    { label: "Effort", disabled: true, separator: true },
+                    ...effortControl.items.map((item) => ({
+                      label: item.label,
+                      description: item.description,
+                      selected: item.selected,
+                      onSelect: () => updatePreferences({ effort: item.level }),
+                    })),
+                  ]
+                : []),
+            ]}
           />
           {ownRun ? (
             <button
@@ -611,6 +872,15 @@ export default function Composer({
             : "Files marked with a warning are sent without their text."}
         </p>
       )}
+      <StylesModal
+        open={stylesModalOpen}
+        onClose={() => setStylesModalOpen(false)}
+        presets={stylePresets}
+        customStyles={customStyles}
+        activeStyleId={activeStyleId}
+        onSelectStyle={(styleId) => updatePreferences({ styleId })}
+        onStylesChanged={refreshStyles}
+      />
     </div>
   );
 }

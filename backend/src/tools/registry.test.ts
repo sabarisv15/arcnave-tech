@@ -4,6 +4,7 @@ import {
   ARTIFACT_TOOL_DEFINITIONS,
   GOAL_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
+  QUESTION_TOOL_DEFINITIONS,
   RUN_PYTHON,
   RUN_PYTHON_WARM,
   SKILL_TOOL_DEFINITIONS,
@@ -20,18 +21,20 @@ describe('ProjectToolRegistry', () => {
     expect(registry.getAvailableTools({ projectId: 'p1' })).toEqual([]);
   });
 
-  it('returns artifact and upload tools when enabled even if there is no project', () => {
+  it('returns artifact, question, and upload tools when enabled even if there is no project', () => {
     const registry = new ProjectToolRegistry(true);
     expect(registry.getAvailableTools({ projectId: null })).toEqual([
       ...ARTIFACT_TOOL_DEFINITIONS,
+      ...QUESTION_TOOL_DEFINITIONS,
       ...UPLOAD_TOOL_DEFINITIONS,
     ]);
   });
 
-  it('returns artifact, upload, and project tools when enabled and project is present', () => {
+  it('returns artifact, question, upload, and project tools when enabled and project is present', () => {
     const registry = new ProjectToolRegistry(true);
     expect(registry.getAvailableTools({ projectId: 'p1' })).toEqual([
       ...ARTIFACT_TOOL_DEFINITIONS,
+      ...QUESTION_TOOL_DEFINITIONS,
       ...UPLOAD_TOOL_DEFINITIONS,
       ...PROJECT_TOOL_DEFINITIONS,
     ]);
@@ -47,6 +50,7 @@ describe('ProjectToolRegistry', () => {
     expect(registry.getAvailableTools({ projectId: null })).not.toContainEqual(RUN_PYTHON);
     expect(registry.getAvailableTools({ projectId: null, allowPython: true })).toEqual([
       ...ARTIFACT_TOOL_DEFINITIONS,
+      ...QUESTION_TOOL_DEFINITIONS,
       ...UPLOAD_TOOL_DEFINITIONS,
       RUN_PYTHON,
     ]);
@@ -63,43 +67,46 @@ describe('ProjectToolRegistry', () => {
     it('verifies exact tool counts and definitions in production baseline (TOOL_USE=true, PYTHON=true, SKILLS=false, AGENT=false, WEB=false)', () => {
       const registry = new ProjectToolRegistry(true, true, false, false, false);
 
-      // Without project: 3 artifact + 1 upload + 1 python = 5 tools
+      // Without project: 3 artifact + 1 question + 1 upload + 1 python = 6 tools
       const noProj = registry.getAvailableTools({ projectId: null, allowPython: true });
       expect(noProj.map((t) => t.name)).toEqual([
         'create_artifact',
         'read_artifact',
         'update_artifact',
+        'ask_user_options',
         'read_uploaded_file',
         'run_python',
       ]);
-      expect(noProj.length).toBe(5);
+      expect(noProj.length).toBe(6);
 
-      // With project: 3 artifact + 1 upload + 1 python + 2 project = 7 tools
+      // With project: 3 artifact + 1 question + 1 upload + 1 python + 2 project = 8 tools
       const withProj = registry.getAvailableTools({ projectId: 'p1', allowPython: true });
       expect(withProj.map((t) => t.name)).toEqual([
         'create_artifact',
         'read_artifact',
         'update_artifact',
+        'ask_user_options',
         'read_uploaded_file',
         'run_python',
         'search_project_files',
         'read_project_file',
       ]);
-      expect(withProj.length).toBe(7);
+      expect(withProj.length).toBe(8);
     });
 
-    it('verifies all 15 defined tools are enabled with all flags active and active goal', () => {
+    it('verifies all 16 defined tools are enabled with all flags active and active goal', () => {
       const allEnabledRegistry = new ProjectToolRegistry(true, true, true, true, true);
       const tools = allEnabledRegistry.getAvailableTools({
         projectId: 'p1',
         activeGoalId: 'g1',
         allowPython: true,
       });
-      expect(tools.length).toBe(15);
+      expect(tools.length).toBe(16);
       expect(tools.map((t) => t.name)).toEqual([
         'create_artifact',
         'read_artifact',
         'update_artifact',
+        'ask_user_options',
         'read_uploaded_file',
         'web_search',
         'web_fetch',

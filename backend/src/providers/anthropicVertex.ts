@@ -24,7 +24,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
-import { isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
@@ -33,6 +33,9 @@ const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 /** The tool version string is part of the API contract, not a date to be freshened casually. */
 const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as const;
+
+/** How often a call's partial input is parsed and reported while it streams (ADR-0037). */
+const PARTIAL_INPUT_INTERVAL_MS = 120;
 
 export function toAnthropicTool(def: ToolDefinition): Anthropic.Tool {
   return {
@@ -253,14 +256,14 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
     const asText = calls.length > 0 && replay.length === 0 ? calls.map(toolCallAsText).join('\n\n') : '';
     const text = [asText, turn.text.trim() !== '' ? turn.text : ''].filter(Boolean).join('\n\n');
     const blocks = attachmentBlocks(turn.attachments);
-    const last: Message = blocks.length === 0
-      ? { role: turn.role, content: text }
-      : { role: turn.role, content: [...blocks, ...(text ? [{ type: 'text' as const, text }] : [])] };
-    return [...replay, last];
+    const last: Message | undefined =
+      blocks.length > 0 || text
+        ? blocks.length === 0
+          ? { role: turn.role, content: text }
+          : { role: turn.role, content: [...blocks, ...(text ? [{ type: 'text' as const, text }] : [])] }
+        : undefined;
+    return last ? [...replay, last] : replay;
   });
-
-  // The API requires the sequence to start with a user turn.
-  while (messages.length > 0 && messages[0]!.role !== 'user') messages.shift();
 
   const currentBlocks = attachmentBlocks(request.attachments);
   if (currentBlocks.length === 0) {
@@ -269,8 +272,30 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
     messages.push({ role: 'user', content: [...currentBlocks, { type: 'text', text: request.prompt }] });
   }
 
-  if (messages.length > 1) {
-    const cached = messages[messages.length - 2]!;
+  // Merge consecutive same-role messages so roles strictly alternate (e.g. after a terminal tool result)
+  const normalized: Message[] = [];
+  for (const m of messages) {
+    if (typeof m.content === 'string') {
+      if (!m.content) continue;
+    } else if (m.content.length === 0) {
+      continue;
+    }
+
+    const prev = normalized.at(-1);
+    if (prev && prev.role === m.role) {
+      const prevBlocks = typeof prev.content === 'string' ? [{ type: 'text' as const, text: prev.content }] : prev.content;
+      const curBlocks = typeof m.content === 'string' ? [{ type: 'text' as const, text: m.content }] : m.content;
+      prev.content = [...prevBlocks, ...curBlocks];
+    } else {
+      normalized.push({ role: m.role, content: m.content });
+    }
+  }
+
+  // The API requires the sequence to start with a user turn.
+  while (normalized.length > 0 && normalized[0]!.role !== 'user') normalized.shift();
+
+  if (normalized.length > 1) {
+    const cached = normalized[normalized.length - 2]!;
     if (typeof cached.content === 'string') {
       cached.content = [{ type: 'text', text: cached.content, cache_control: { type: 'ephemeral' } }];
     } else if (cached.content.length > 0) {
@@ -278,7 +303,7 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
     }
   }
 
-  return messages as Anthropic.MessageParam[];
+  return normalized as Anthropic.MessageParam[];
 }
 
 export class AnthropicVertexProvider implements Provider {
@@ -406,6 +431,7 @@ export class AnthropicVertexProvider implements Provider {
         );
 
         let roundUsage = EMPTY_USAGE;
+        let lastPartialAt = 0;
         for await (const event of stream) {
           if (request.signal.aborted) {
             usage = addRequestUsage(usage, requestUsage(roundUsage));
@@ -418,6 +444,20 @@ export class AnthropicVertexProvider implements Provider {
                 yield { type: 'delta', text: delta.text };
               } else if (delta.type === 'thinking_delta' && delta.thinking) {
                 yield { type: 'thinking', text: delta.thinking };
+              } else if (delta.type === 'input_json_delta') {
+                // ADR-0037: a visual drawn while written. The SDK's snapshot parses the partial
+                // JSON on each read, so reads are spaced out; only render_ui is shown.
+                const content = stream.currentMessage?.content ?? [];
+                const block = content[event.index];
+                const now = Date.now();
+                if (block?.type === 'tool_use' && block.name === 'render_ui' && now - lastPartialAt >= PARTIAL_INPUT_INTERVAL_MS) {
+                  lastPartialAt = now;
+                  const input = block.input;
+                  if (input && typeof input === 'object') {
+                    const index = content.slice(0, event.index).filter((b) => b.type === 'tool_use').length;
+                    yield { type: 'tool_input_partial', index, name: block.name, input: input as Record<string, unknown> };
+                  }
+                }
               }
               break;
             }
@@ -492,6 +532,11 @@ export class AnthropicVertexProvider implements Provider {
           }
         }
         messages = [...messages, { role: 'user', content: resultBlocks }];
+
+        if (hasTerminalToolCall(toolUseBlocks)) {
+          finishReason = 'stop';
+          break;
+        }
 
         if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }

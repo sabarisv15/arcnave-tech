@@ -10,6 +10,7 @@ import { StepsBlock } from './blocks/StepsBlock';
 import { CardsBlock } from './blocks/CardsBlock';
 import { SourcesBlock } from './blocks/SourcesBlock';
 import { DashboardBlock } from './blocks/DashboardBlock';
+import { VisualBlock } from './blocks/VisualBlock';
 
 export class BlockErrorBoundary extends Component<
   { blockType: string; children: ReactNode },
@@ -55,12 +56,15 @@ export interface GenerativeUIRendererProps {
   blocks?: UIBlock[];
   response?: UIResponseV1 | null;
   onAction?: (action: SafeAction) => void;
+  /** The chat a visual belongs to, for "Save as artifact". */
+  chatId?: string;
 }
 
 export function GenerativeUIRenderer({
   blocks = [],
   response,
   onAction,
+  chatId,
 }: GenerativeUIRendererProps) {
   const activeBlocks = useMemo(() => {
     const raw = response ? response.blocks : blocks;
@@ -107,6 +111,8 @@ export function GenerativeUIRenderer({
               return <SourcesBlock block={block} />;
             case 'dashboard':
               return <DashboardBlock block={block} />;
+            case 'visual':
+              return <VisualBlock block={block} chatId={chatId} />;
             default:
               return null;
           }

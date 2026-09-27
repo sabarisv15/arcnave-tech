@@ -5,9 +5,12 @@
  * so an alias that is unavailable here is unavailable in the UI, with the reason shown rather
  * than the option silently disappearing.
  */
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
+import { chats, messages } from '../db/schema.js';
+import { getModelCapability } from '../providers/capabilitiesTable.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { AppInstance } from '../types.js';
 
@@ -27,6 +30,7 @@ const modelSchema = z.object({
    * publisher identifier, not a credential.
    */
   providerModelId: z.string().nullable(),
+  reasoningEfforts: z.array(z.string()),
 });
 
 export async function modelRoutes(app: AppInstance): Promise<void> {
@@ -48,6 +52,7 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
             .optional()
             .default('true')
             .transform((v) => v === 'true'),
+          chatId: z.string().uuid().optional(),
         }),
         response: {
           200: z.object({
@@ -56,8 +61,14 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
               description: z.string(),
               available: z.boolean(),
               detail: z.string(),
+              reasoningEfforts: z.array(z.string()),
             }),
             models: z.array(modelSchema),
+            /**
+             * The effort a turn uses when the user has not chosen one, before it is stepped down
+             * to the nearest level the model supports. The menu marks that level "Default".
+             */
+            defaultEffort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
             capabilities: z.object({
               groundedSearch: z.boolean(),
               detail: z.string(),
@@ -67,7 +78,7 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
       },
     },
     async (request) => {
-      const { registry, cfg } = request.services;
+      const { registry, cfg, db } = request.services;
       const statuses = await registry.allStatuses({ probe: request.query.probe });
 
       const models = statuses.map((s) => ({
@@ -81,6 +92,7 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
         supportsGrounding: s.entry.supportsGrounding,
         contextWindow: s.entry.contextWindow,
         providerModelId: s.entry.providerModelId ?? null,
+        reasoningEfforts: [...getModelCapability(s.entry.alias).reasoningEfforts],
       }));
 
       const anyAvailable = models.some((m) => m.available);
@@ -88,6 +100,44 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
         cfg.ENABLE_GOOGLE_SEARCH_GROUNDING || cfg.ENABLE_ANTHROPIC_WEB_SEARCH;
       const groundedSearch =
         groundingEnabled && statuses.some((s) => s.available && s.entry.supportsGrounding);
+
+      // For Auto: list the levels of the model Auto resolves to for this chat.
+      // When that is not known yet, list only the levels that every Auto candidate supports.
+      // Never show a level that will be silently stepped down (Invariant 1).
+      let autoEfforts: string[] = [];
+      // Only the signed-in owner's chat can say which model it is on; anyone else's chatId is
+      // treated as no chat, so this route never reveals another user's chat.
+      if (request.query.chatId && request.user) {
+        const [lastMsg] = await db
+          .select({ modelAlias: messages.modelAlias })
+          .from(messages)
+          .innerJoin(chats, eq(chats.id, messages.chatId))
+          .where(
+            and(
+              eq(messages.chatId, request.query.chatId),
+              eq(chats.userId, request.user.id),
+              isNotNull(messages.modelAlias),
+            ),
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(1);
+        if (lastMsg?.modelAlias) {
+          autoEfforts = [...getModelCapability(lastMsg.modelAlias).reasoningEfforts];
+        }
+      }
+      if (autoEfforts.length === 0) {
+        // A model that takes no effort level has nothing to step down, so it does not narrow
+        // the list; every model that takes one must support a level for it to be offered.
+        const candidateEfforts = statuses
+          .filter((s) => s.available)
+          .map((s) => getModelCapability(s.entry.alias).reasoningEfforts)
+          .filter((efforts) => efforts.length > 0);
+        if (candidateEfforts.length > 0) {
+          autoEfforts = (['low', 'medium', 'high', 'xhigh', 'max'] as const).filter((level) =>
+            candidateEfforts.every((efforts) => efforts.includes(level)),
+          );
+        }
+      }
 
       return {
         auto: {
@@ -97,8 +147,10 @@ export async function modelRoutes(app: AppInstance): Promise<void> {
           detail: anyAvailable
             ? 'Routes by mode, attachments, context size, and your routing preference.'
             : 'No model is configured, so Auto has nothing to route to.',
+          reasoningEfforts: autoEfforts,
         },
         models,
+        defaultEffort: cfg.REASONING_EFFORT,
         capabilities: {
           groundedSearch,
           detail: groundedSearch

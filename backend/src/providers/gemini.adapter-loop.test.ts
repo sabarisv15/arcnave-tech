@@ -202,7 +202,13 @@ describe('GeminiProvider tool-calling loop', () => {
           candidates: [
             {
               content: {
-                parts: [{ functionCall: { id: 'c1' }, thoughtSignature: 'opaque-signature-abc' }],
+                // The same object `functionCalls` flattens to: the SDK derives the getter from these parts.
+                parts: [
+                  {
+                    functionCall: { id: 'c1', name: 'search_project_files', args: { query: 'cooling' } },
+                    thoughtSignature: 'opaque-signature-abc',
+                  },
+                ],
               },
             },
           ],
@@ -367,6 +373,117 @@ describe('GeminiProvider tool-calling loop', () => {
     ).rejects.toThrow();
     expect(client.calls).toHaveLength(1);
   });
+
+  it('ends the turn after ask_user_options and replays its {status:"shown"} result cleanly on the next user turn', async () => {
+    const ASK_TOOL = {
+      name: 'ask_user_options',
+      description: 'Present clickable options.',
+      inputSchema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
+    };
+    const askInput = {
+      question: 'Which stack should we use?',
+      kind: 'single',
+      options: [{ label: 'React + Fastify' }, { label: 'Next.js' }],
+    };
+    const shownResult: ToolResult = {
+      toolCallId: 'c-ask-1',
+      ok: true,
+      content: [{ type: 'json', data: { status: 'shown' } }],
+    };
+
+    // Turn 1: model calls ask_user_options -> adapter stops after 1 round with finishReason: 'stop'
+    const client1 = new FakeGeminiClient();
+    client1.responses = [
+      fakeStream([
+        {
+          functionCalls: [{ id: 'c-ask-1', name: 'ask_user_options', args: askInput }],
+          usageMetadata: { promptTokenCount: 25, candidatesTokenCount: 12 },
+        },
+      ]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('ask_user_options', shownResult);
+
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    const provider1 = new GeminiProvider(cfg, client1 as never);
+    const turn1Events = await collect(
+      provider1.stream(baseRequest({ prompt: 'Build me a web app', tools: [ASK_TOOL], toolExecutor: executor })),
+    );
+
+    expect(client1.calls).toHaveLength(1);
+    expect(executor.calls).toHaveLength(1);
+    expect(turn1Events.find((e) => e.type === 'tool_use')).toMatchObject({
+      type: 'tool_use',
+      toolCallId: 'c-ask-1',
+      name: 'ask_user_options',
+      input: askInput,
+    });
+    expect(turn1Events.find((e) => e.type === 'tool_result')).toMatchObject({
+      type: 'tool_result',
+      toolCallId: 'c-ask-1',
+      name: 'ask_user_options',
+      result: shownResult,
+    });
+    expect(turn1Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'stop' });
+
+    // Turn 2: user clicks "React + Fastify"; history replays the assistant tool call (even with empty text) and {status:'shown'} result
+    const client2 = new FakeGeminiClient();
+    client2.responses = [
+      fakeStream([
+        { text: 'Great choice! Setting up React + Fastify.' },
+        { usageMetadata: { promptTokenCount: 45, candidatesTokenCount: 10 }, candidates: [{ finishReason: 'STOP' }] },
+      ]),
+    ];
+    const provider2 = new GeminiProvider(cfg, client2 as never);
+    const turn2Events = await collect(
+      provider2.stream(
+        baseRequest({
+          prompt: 'React + Fastify',
+          history: [
+            { role: 'user', text: 'Build me a web app' },
+            {
+              role: 'assistant',
+              text: '',
+              toolCalls: [
+                {
+                  id: 'c-ask-1',
+                  name: 'ask_user_options',
+                  input: askInput,
+                  result: shownResult,
+                  thoughtSignature: 'sig-ask-1',
+                },
+              ],
+            },
+          ],
+          tools: [ASK_TOOL],
+          toolExecutor: executor,
+        }),
+      ),
+    );
+
+    expect(client2.calls).toHaveLength(1);
+    const sentContents = (client2.calls[0] as { contents: { role: string; parts: unknown[] }[] }).contents;
+    // Gemini requires strictly alternating user / model / user turns
+    expect(sentContents.map((c) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(sentContents[1]!.parts).toEqual([
+      {
+        functionCall: { id: 'c-ask-1', name: 'ask_user_options', args: askInput },
+        thoughtSignature: 'sig-ask-1',
+      },
+    ]);
+    expect(sentContents[2]!.parts).toEqual([
+      {
+        functionResponse: {
+          id: 'c-ask-1',
+          name: 'ask_user_options',
+          response: { output: { status: 'shown' } },
+        },
+      },
+      { text: 'React + Fastify' },
+    ]);
+    expect(turn2Events.some((e) => e.type === 'delta' && e.text.includes('React + Fastify'))).toBe(true);
+    expect(turn2Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'STOP' });
+  });
 });
 
 describe('GeminiProvider timeouts (ADR-0024)', () => {
@@ -445,5 +562,89 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     expect(outputs).toHaveLength(8);
     expect(outputs.slice(0, 5).every((o) => typeof o === 'string' && o.includes('cleared'))).toBe(true);
     expect(outputs.slice(5)).toEqual(['hit', 'hit', 'hit']);
+  });
+});
+
+describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
+  const RENDER_UI = { name: 'render_ui', description: 'Renders UI.', inputSchema: { type: 'object', properties: {} } };
+  const part = (functionCall: unknown) => ({ candidates: [{ content: { parts: [{ functionCall }] } }] });
+  const configOf = (req: unknown) => (req as { config: { toolConfig?: { functionCallingConfig?: Record<string, unknown> } } }).config;
+
+  it('asks for streamed arguments only when render_ui is declared', async () => {
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    for (const [tools, expected] of [
+      [[RENDER_UI, SEARCH_TOOL], { streamFunctionCallArguments: true }],
+      [[SEARCH_TOOL], undefined],
+    ] as const) {
+      const client = new FakeGeminiClient();
+      client.responses = [fakeStream([{ text: 'ok' }])];
+      const provider = new GeminiProvider(cfg, client as never);
+      await collect(provider.stream(baseRequest({ tools: [...tools], toolExecutor: new ScriptedExecutor() })));
+      expect(configOf(client.calls[0]).toolConfig?.functionCallingConfig).toEqual(expected);
+    }
+  });
+
+  it('reports a visual while it is written and runs the call once it is complete', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [
+      fakeStream([
+        part({ id: 'v1', name: 'render_ui', willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.blocks[0].type', stringValue: 'visual' }], willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.blocks[0].html', stringValue: '<svg>', willContinue: true }], willContinue: true }),
+        part({ partialArgs: [{ jsonPath: '$.blocks[0].html', stringValue: '</svg>' }], willContinue: true }),
+        part({}),
+      ]),
+      fakeStream([{ text: 'Here it is.' }]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('render_ui', { toolCallId: 'v1', ok: true, content: [{ type: 'text', text: 'rendered' }] });
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const seen: string[] = [];
+    for await (const e of provider.stream(baseRequest({ tools: [RENDER_UI], toolExecutor: executor }))) {
+      // The input is live: what an event shows must be read when it arrives.
+      if (e.type === 'tool_input_partial') seen.push(JSON.stringify(e.input));
+      if (e.type === 'tool_use') seen.push(`use ${JSON.stringify(e.input)}`);
+    }
+    expect(seen).toEqual([
+      '{"blocks":[{"type":"visual"}]}',
+      '{"blocks":[{"type":"visual","html":"<svg>"}]}',
+      '{"blocks":[{"type":"visual","html":"<svg></svg>"}]}',
+      'use {"blocks":[{"type":"visual","html":"<svg></svg>"}]}',
+    ]);
+    expect(executor.calls).toEqual([{ id: 'v1', name: 'render_ui', input: { blocks: [{ type: 'visual', html: '<svg></svg>' }] } }]);
+  });
+
+  it('falls back to whole calls for a model that rejects the option, and does not ask again', async () => {
+    const client = new FakeGeminiClient();
+    let first = true;
+    client.models.generateContentStream.mockImplementation(async (req: unknown) => {
+      client.calls.push(req);
+      if (first) {
+        first = false;
+        throw new Error('400 INVALID_ARGUMENT: stream_function_call_arguments is not supported');
+      }
+      const next = client.responses.shift();
+      if (!next) throw new Error('no scripted response left');
+      return next;
+    });
+    client.responses = [
+      fakeStream([{ functionCalls: [{ id: 'c1', name: 'search_project_files', args: { query: 'x' } }] }]),
+      fakeStream([{ text: 'done' }]),
+    ];
+    const executor = new ScriptedExecutor();
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [RENDER_UI, SEARCH_TOOL], toolExecutor: executor })));
+    expect(events.some((e) => e.type === 'delta')).toBe(true);
+    expect(configOf(client.calls[0]).toolConfig?.functionCallingConfig).toEqual({ streamFunctionCallArguments: true });
+    expect(configOf(client.calls[1]).toolConfig).toBeUndefined();
+    expect(configOf(client.calls[2]).toolConfig).toBeUndefined();
+  });
+
+  it('can be switched off by configuration', async () => {
+    const client = new FakeGeminiClient();
+    client.responses = [fakeStream([{ text: 'ok' }])];
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', GEMINI_STREAM_TOOL_ARGS: 'false' }), client as never);
+    await collect(provider.stream(baseRequest({ tools: [RENDER_UI], toolExecutor: new ScriptedExecutor() })));
+    expect(configOf(client.calls[0]).toolConfig).toBeUndefined();
   });
 });

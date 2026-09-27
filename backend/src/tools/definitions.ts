@@ -332,8 +332,8 @@ export const CREATE_ARTIFACT: ToolDefinition = {
       },
       kind: {
         type: 'string',
-        enum: ['document', 'code', 'webpage'],
-        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), or 'webpage' (HTML). Defaults to 'document'.",
+        enum: ['document', 'code', 'webpage', 'svg'],
+        description: "The kind of artifact: 'document' (Markdown text/reports), 'code' (source files/scripts), 'webpage' (a self-contained HTML page or small interactive tool; it runs in a sandbox with no network, and gets the same theme tokens, element styles and chart library options as a render_ui visual), or 'svg' (an SVG image). Defaults to 'document'.",
       },
       content: {
         type: 'string',
@@ -724,6 +724,10 @@ export const RENDER_UI: ToolDefinition = {
     'structured presentation significantly improves clarity (e.g. comparing options, ' +
     'plotting time-series or categorical data, displaying KPI metrics with deltas/trends, ' +
     'showing project timelines, or laying out multi-step processes or interactive dashboards). ' +
+    "A 'visual' block holds your own self-contained HTML (with CSS and JavaScript) for a diagram, chart or small " +
+    'interactive explanation that text and the other blocks cannot show, such as a slider that changes a curve. ' +
+    'It runs in a sandbox with no network: no fetch, forms, popups or external images; libraries only from ' +
+    'cdnjs.cloudflare.com or cdn.jsdelivr.net. window.arcnave.prompt(text) suggests a follow-up for the user to send. ' +
     'Do not call this for simple conversational text or greetings.',
   inputSchema: getProviderSafeUISchema(),
 };
@@ -1197,6 +1201,58 @@ export const FILE_OPERATION_TOOL_DEFINITIONS: ToolDefinition[] = [
   REORDER_PPTX_SLIDES,
   EDIT_PPTX_SLIDE_TEXT,
 ];
+
+/* -------------------------------------------------------------------------- Question Options (WP-06) */
+
+export const ASK_USER_OPTIONS: ToolDefinition = {
+  name: 'ask_user_options',
+  description:
+    'Presents clickable options (multiple choice, multi-select, or ranking) to the user at the bottom of the chat. ' +
+    'Use this only when the answer is one of a few known options, and at most once per turn. ' +
+    'Calling this tool ends the turn so the user can make their selection. ' +
+    'The question will be displayed prominently above the options in the UI, so do not repeat the question in your text reply.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      question: {
+        type: 'string',
+        description: 'The prompt or question to show above the options.',
+      },
+      kind: {
+        type: 'string',
+        enum: ['single', 'multi', 'rank'],
+        description:
+          '"single" for single-choice buttons (one click responds), "multi" for multi-select checkboxes, "rank" for ordering choices.',
+      },
+      options: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+              description: 'The display text for this option.',
+            },
+            description: {
+              type: 'string',
+              description: 'Optional supporting explanation or detail for this option.',
+            },
+          },
+          required: ['label'],
+          additionalProperties: false,
+        },
+        minItems: 2,
+        maxItems: 6,
+        description: 'Between 2 and 6 options to present.',
+      },
+    },
+    required: ['question', 'kind', 'options'],
+    additionalProperties: false,
+  },
+};
+
+export const QUESTION_TOOL_DEFINITIONS: ToolDefinition[] = [ASK_USER_OPTIONS];
+
 
 
 

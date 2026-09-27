@@ -193,6 +193,17 @@ export interface DashboardBlock extends BaseBlock {
   filters?: DashboardFilter[];
 }
 
+/** Model-written HTML, drawn only in SandboxFrame (ADR-0035). `html` comes from the render_ui
+ *  call input on reload, since the stored result carries only `htmlBytes`. */
+export interface VisualBlock {
+  blockId: string;
+  sequence: number;
+  type: 'visual';
+  title: string;
+  html?: string;
+  htmlBytes?: number;
+}
+
 export type UIBlock =
   | TextBlock
   | TableBlock
@@ -203,7 +214,8 @@ export type UIBlock =
   | StepsBlock
   | CardsBlock
   | SourcesBlock
-  | DashboardBlock;
+  | DashboardBlock
+  | VisualBlock;
 
 export interface UIResponseV1 {
   schemaVersion: 1;

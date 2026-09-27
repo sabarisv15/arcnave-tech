@@ -88,6 +88,7 @@ export const preferences = pgTable(
     defaultMode: varchar('default_mode', { length: 16 }).notNull().default('chat'),
     sourceScope: varchar('source_scope', { length: 32 }).notNull().default('All sources'),
     saveHistory: boolean('save_history').notNull().default(true),
+    styleId: varchar('style_id', { length: 64 }).notNull().default('normal'),
 
     // Usage & limits
     maxOutputTokens: integer('max_output_tokens').notNull().default(64000),
@@ -98,6 +99,7 @@ export const preferences = pgTable(
     timezone: varchar('timezone', { length: 64 }).notNull().default('UTC'),
 
     version: integer('version').notNull().default(1),
+    effort: varchar('effort', { length: 16 }),
     updatedAt: updatedAt(),
   },
   (t) => [
@@ -107,6 +109,10 @@ export const preferences = pgTable(
       'ck_budgets_positive',
       sql`(${t.dailyTokenBudget} is null or ${t.dailyTokenBudget} > 0)
           and (${t.monthlyTokenBudget} is null or ${t.monthlyTokenBudget} > 0)`,
+    ),
+    check(
+      'ck_effort',
+      sql`${t.effort} is null or ${t.effort} in ('low', 'medium', 'high', 'xhigh', 'max')`,
     ),
   ],
 );
@@ -265,6 +271,7 @@ export const messages = pgTable(
     questions: jsonb('questions').$type<string[]>().notNull().default([]),
     feedback: varchar('feedback', { length: 8 }),
     modelAlias: varchar('model_alias', { length: 64 }),
+    effort: varchar('effort', { length: 16 }),
     provider: varchar('provider', { length: 32 }),
     providerModelId: varchar('provider_model_id', { length: 128 }),
     finishReason: varchar('finish_reason', { length: 48 }),
@@ -286,6 +293,10 @@ export const messages = pgTable(
     index('ix_messages_chat').on(t.chatId),
     check('ck_message_role', sql`${t.role} in ('user','assistant')`),
     check('ck_message_feedback', sql`${t.feedback} is null or ${t.feedback} in ('up','down')`),
+    check(
+      'ck_message_effort',
+      sql`${t.effort} is null or ${t.effort} in ('low', 'medium', 'high', 'xhigh', 'max')`,
+    ),
   ],
 );
 
@@ -451,7 +462,7 @@ export const artifacts = pgTable(
   (t) => [
     index('ix_artifacts_user').on(t.userId),
     index('ix_artifacts_project').on(t.projectId),
-    check('ck_artifact_kind', sql`${t.kind} in ('document','code','webpage')`),
+    check('ck_artifact_kind', sql`${t.kind} in ('document','code','webpage','svg')`),
   ],
 );
 
@@ -727,12 +738,38 @@ export const conversationCompactions = pgTable(
   ],
 );
 
+/* -------------------------------------------------------------------------- styles */
+
+export const styles = pgTable(
+  'styles',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 60 }).notNull(),
+    instructions: text('instructions').notNull(),
+    version: integer('version').notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('ix_styles_user').on(t.userId),
+    check('ck_style_instructions_len', sql`length(${t.instructions}) <= 4000`),
+  ],
+);
+
 /* -------------------------------------------------------------------------- relations */
 
 export const usersRelations = relations(users, ({ one, many }) => ({
   preferences: one(preferences, { fields: [users.id], references: [preferences.userId] }),
   chats: many(chats),
   projects: many(projects),
+  styles: many(styles),
+}));
+
+export const stylesRelations = relations(styles, ({ one }) => ({
+  user: one(users, { fields: [styles.userId], references: [users.id] }),
 }));
 
 export const projectsRelations = relations(projects, ({ many }) => ({
@@ -835,4 +872,6 @@ export type NewMemoryItem = typeof memoryItems.$inferInsert;
 export type ConversationCompaction = typeof conversationCompactions.$inferSelect;
 export type NewConversationCompaction = typeof conversationCompactions.$inferInsert;
 export type SandboxWorkspace = typeof sandboxWorkspaces.$inferSelect;
+export type Style = typeof styles.$inferSelect;
+export type NewStyle = typeof styles.$inferInsert;
 

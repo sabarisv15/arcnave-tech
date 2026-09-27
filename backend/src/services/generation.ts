@@ -13,6 +13,7 @@
  * - **Cancellation still writes a usage row.** A run that streamed 800 tokens before the user
  *   pressed stop cost those tokens; dropping the record would understate real spend.
  */
+import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
 import { usesWarmSandbox } from '../tools/catalog.js';
@@ -47,6 +48,7 @@ import type {
   ProviderUsage,
   ToolDefinition,
   ToolExecutor,
+  ReasoningEffort,
   ToolResult,
   Turn,
 } from '../providers/types.js';
@@ -95,6 +97,7 @@ import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
+import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
@@ -106,6 +109,7 @@ import type { Retriever } from './retrieval.js';
 import { formatContext, formatWholeFiles, projectFileTexts } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
+import { resolveStyle } from './styles.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -129,8 +133,14 @@ export type StreamEvent =
   | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'ui_block'; block: UIBlock }
+  /**
+   * ADR-0037: a visual's HTML while the model is still writing it. `text` continues the draft
+   * `draftId` from character `from`. Drafts are shown, never kept: the checked block replaces
+   * them when the call completes.
+   */
+  | { type: 'ui_draft'; draftId: string; title: string; from: number; text: string }
   | { type: 'debug'; trace: RuntimeDebugTrace }
-  | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
+  | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string; effort?: ReasoningEffort }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
 export interface ModelInfo {
@@ -252,17 +262,22 @@ export interface GenerateInput {
   attachments: AttachmentRef[];
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
   codeExecution: boolean;
+  effort?: ReasoningEffort;
+  /** Optional style override for this turn (preset name or custom style UUID). */
+  styleId?: string;
   signal: AbortSignal;
 }
 
 export interface PreferencesRow {
   instructions: string;
+  styleId?: string;
   maxOutputTokens: number;
   dailyTokenBudget: number | null;
   monthlyTokenBudget: number | null;
   warnThresholdPct: number;
   routingPreference: string;
   timezone: string;
+  effort?: ReasoningEffort | null;
 }
 
 /* -------------------------------------------------------------------------- service */
@@ -645,8 +660,11 @@ export class GenerationService {
       this.cfg.MAX_OUTPUT_TOKENS_CEILING,
       modelSpec.maxOutputTokens ?? Number.POSITIVE_INFINITY,
     );
-    const reasoningEffort = effortFor(modelSpec, this.cfg.REASONING_EFFORT);
+    const requestedEffort =
+      input.effort ?? (prefs.effort as ReasoningEffort | undefined) ?? this.cfg.REASONING_EFFORT;
+    const reasoningEffort = effortFor(modelSpec, requestedEffort);
     timing.note('effort', reasoningEffort ?? null);
+    if (input.effort) timing.note('requestedEffort', input.effort);
 
     // --- reserve budget ---------------------------------------------------
     // The reservation is the worst case for this request; it is released as soon as the real
@@ -776,6 +794,9 @@ export class GenerationService {
       : undefined;
 
     const toolMap = new Map<string, ToolExecutor>();
+    if (this.cfg.ENABLE_TOOL_USE) {
+      toolMap.set('ask_user_options', new AskUserOptionsExecutor());
+    }
     if (uiToolExecutor) {
       toolMap.set('render_ui', uiToolExecutor);
     }
@@ -968,6 +989,8 @@ export class GenerationService {
     // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
     const pendingSignatures = new Map<string, string>();
     const toolsCalled: string[] = [];
+    // Characters of each visual draft already sent, by draft id.
+    const draftSent = new Map<string, number>();
 
     try {
       const stream = this.streamWithRetry(provider.stream.bind(provider), request);
@@ -1019,6 +1042,19 @@ export class GenerationService {
               ...(event.output ? { output: event.output } : {}),
             };
             break;
+
+          case 'tool_input_partial': {
+            if (event.name !== 'render_ui') break;
+            // A call's index restarts each response; the calls already made keep the id unique.
+            for (const draft of visualDrafts(event.input, `${String(toolsCalled.length + event.index)}`)) {
+              const sent = draftSent.get(draft.draftId) ?? 0;
+              const html = draft.html.slice(0, VISUAL_MAX_HTML_BYTES);
+              if (html.length <= sent) continue;
+              draftSent.set(draft.draftId, html.length);
+              yield { type: 'ui_draft', draftId: draft.draftId, title: draft.title, from: sent, text: html.slice(sent) };
+            }
+            break;
+          }
 
           case 'tool_use': {
             toolsCalled.push(event.name);
@@ -1108,6 +1144,7 @@ export class GenerationService {
           finishReason: null,
           entry,
           mode: input.mode,
+          effort: reasoningEffort,
         });
         await releaseReservation();
         await this.usage.record({
@@ -1195,6 +1232,7 @@ export class GenerationService {
       entry,
       mode: input.mode,
       questions,
+      effort: reasoningEffort,
     });
 
     await this.usage.record({
@@ -1244,6 +1282,7 @@ export class GenerationService {
         questions,
         usage: toUsageDto(usage, computeCostFor(this.cfg, entry.providerModelId!, usage)),
         finishReason,
+        ...(reasoningEffort ? { effort: reasoningEffort } : {}),
       };
     }
     } finally {
@@ -1465,18 +1504,23 @@ export class GenerationService {
     const [row] = await this.db
       .select({
         instructions: preferencesTable.instructions,
+        styleId: preferencesTable.styleId,
         maxOutputTokens: preferencesTable.maxOutputTokens,
         dailyTokenBudget: preferencesTable.dailyTokenBudget,
         monthlyTokenBudget: preferencesTable.monthlyTokenBudget,
         warnThresholdPct: preferencesTable.warnThresholdPct,
         routingPreference: preferencesTable.routingPreference,
         timezone: preferencesTable.timezone,
+        effort: preferencesTable.effort,
       })
       .from(preferencesTable)
       .where(eq(preferencesTable.userId, userId))
       .limit(1);
     if (!row) throw new ApiError('internal_error', { detail: 'Preferences are missing.' });
-    return row;
+    return {
+      ...row,
+      effort: (row.effort as ReasoningEffort | null) ?? null,
+    };
   }
 
   private async loadProject(
@@ -2029,12 +2073,18 @@ export class GenerationService {
             'the question.'
           : undefined;
 
-    // 6. Assemble prompt separating stable prefix from dynamic suffix
+    // 6. Style instructions (WP-05 / ADR-0033)
+    const effectiveStyleId = input.styleId ?? prefs.styleId ?? 'normal';
+    const resolvedStyle = await resolveStyle(this.db, input.userId, effectiveStyleId);
+    const styleInstructions = resolvedStyle.instructions.trim() || undefined;
+
+    // 7. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
       currentDate: currentDateLine(new Date(), prefs.timezone),
       runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
+      styleInstructions,
       relevantMemory: relevantMemoryText || undefined,
       compactionSummary: compactionText || undefined,
       retrievedContext: retrievedContextText,
@@ -2123,6 +2173,7 @@ export class GenerationService {
       questions?: string[];
       thinking?: string;
       segments?: MessageSegment[];
+      effort?: ReasoningEffort;
     },
   ): Promise<void> {
     const researchStage =
@@ -2147,6 +2198,7 @@ export class GenerationService {
         researchStage,
         questions: result.questions ?? [],
         modelAlias: result.entry.alias,
+        effort: result.effort ?? null,
         provider: result.entry.provider,
         providerModelId: result.entry.providerModelId ?? null,
         finishReason: result.finishReason,
@@ -2371,3 +2423,16 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export { asc };
+
+/** The visual blocks of a render_ui call being written, with the HTML written so far. */
+export function visualDrafts(input: Record<string, unknown>, callKey: string): { draftId: string; title: string; html: string }[] {
+  const blocks = Array.isArray(input.blocks) ? (input.blocks as unknown[]) : [];
+  const out: { draftId: string; title: string; html: string }[] = [];
+  blocks.forEach((b, i) => {
+    if (!b || typeof b !== 'object') return;
+    const block = b as Record<string, unknown>;
+    if (block.type !== 'visual' || typeof block.html !== 'string') return;
+    out.push({ draftId: `${callKey}:${String(i)}`, title: typeof block.title === 'string' ? block.title : '', html: block.html });
+  });
+  return out;
+}

@@ -66,9 +66,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [models, setModels] = useState<ModelsDto | null>(null);
 
   useEffect(() => {
-    applyTheme(readLocal("theme") ?? "system");
+    applyTheme(readLocal("theme") ?? "system", readLocal("font") ?? "sans");
     const query = matchMedia("(prefers-color-scheme: dark)");
-    const reapply = () => applyTheme(readLocal("theme") ?? "system");
+    const reapply = () =>
+      applyTheme(readLocal("theme") ?? "system", readLocal("font") ?? "sans");
     query.addEventListener("change", reapply);
     return () => query.removeEventListener("change", reapply);
   }, []);

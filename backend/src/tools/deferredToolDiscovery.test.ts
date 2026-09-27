@@ -43,6 +43,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       expect(initialNames).toEqual([
         'search_tools',
         'load_skill',
+        'ask_user_options',
         'read_uploaded_file',
         'generate_deliverable',
         // Memory is saved as the user chats (ADR-0025), so its tools are in hand.
@@ -83,6 +84,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
         'get_goal',
         'update_goal',
         'get_context_remaining',
+        'ask_user_options',
         'read_uploaded_file',
         'generate_deliverable',
         'save_memory',
@@ -237,6 +239,7 @@ describe('Batch 1: Deferred Tool Discovery Architecture', () => {
       expect(availableTools.map((t) => t.name)).toEqual([
         'search_tools',
         'load_skill',
+        'ask_user_options',
         'read_uploaded_file',
         'generate_deliverable',
         'save_memory',
