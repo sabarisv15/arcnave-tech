@@ -717,11 +717,11 @@ export default function Composer({
                 aria-label={`Mode: ${mode === "chat" ? "Chat" : mode === "search" ? "Search" : "Research"}`}
               >
                 {modeIcon}
-                {mode === "chat"
+                <span className="composer-control-label">{mode === "chat"
                   ? "Chat"
                   : mode === "search"
                     ? "Search"
-                    : "Research"}
+                    : "Research"}</span>
                 <ChevronDown size={13} />
               </button>
             }
@@ -764,7 +764,7 @@ export default function Composer({
                 aria-label={`Use style: ${activeStyleName}`}
               >
                 <PenLine size={15} />
-                {activeStyleName}
+                <span className="composer-control-label">{activeStyleName}</span>
                 <ChevronDown size={13} />
               </button>
             }
@@ -781,7 +781,7 @@ export default function Composer({
                 className="quiet-button model-button"
                 aria-label={`Model: ${preferences.modelAlias}${effortControl ? `, ${effortControl.ariaLabel}` : ""}`}
               >
-                {preferences.modelAlias}
+                <span className="composer-model-label">{preferences.modelAlias}</span>
                 {/* The effort shows beside the model only when it is not the default. */}
                 {effortControl && (effortControl.steppedDown || effortControl.applied !== effortControl.defaultLevel) && (
                   <span className="model-effort">{effortControl.buttonLabel}</span>

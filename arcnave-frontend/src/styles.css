@@ -6962,3 +6962,24 @@ select:focus-visible {
   animation: none;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
+
+/* Keep every composer action reachable at phone widths, including long model names. */
+@media (max-width: 760px) {
+  .composer .composer-toolbar { gap: 4px; }
+  .composer-toolbar > button { flex-shrink: 0; }
+  .composer-toolbar .mode-button,
+  .composer-toolbar .style-button {
+    width: 32px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .composer-toolbar .composer-control-label,
+  .composer-toolbar .mode-button > svg:last-child,
+  .composer-toolbar .style-button > svg:last-child { display: none; }
+  .composer-toolbar .model-button { min-width: 0; max-width: 140px; flex-shrink: 1; }
+  .composer-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .composer-toolbar .model-button > svg { flex-shrink: 0; }
+  .composer-toolbar .model-effort { display: none; }
+  .composer-toolbar .spacer { min-width: 0; }
+}
