@@ -36,6 +36,7 @@ import {
   sizeLabel,
   writeLocal,
 } from "./storage";
+import { shouldRefreshArtifactOnUpdate } from "./selection";
 
 export function useMobile(query = "(max-width: 1050px)") {
   const [mobile, setMobile] = useState(() => matchMedia(query).matches);
@@ -427,8 +428,8 @@ function ResearchPanel() {
  * The unsaved draft is kept in this browser only. It is not a version until it is saved, and
  * the footer says so rather than implying it synced.
  */
-function ArtifactPanel({ id }: { id: string }) {
-  const { artifacts, refreshArtifacts, toast } = useWorkspace();
+export function ArtifactPanel({ id }: { id: string }) {
+  const { artifacts, refreshArtifacts, toast, artifactUpdateEvent } = useWorkspace();
   const meta = artifacts.find((a) => a.id === id);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [content, setContent] = useState("");
@@ -440,6 +441,8 @@ function ArtifactPanel({ id }: { id: string }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  const lastHandledUpdate = useRef<number | null>(null);
   const draftKey = `artifact-draft:${id}`;
 
   const load = useCallback(
@@ -471,6 +474,24 @@ function ArtifactPanel({ id }: { id: string }) {
       setTab("edit");
     }
   }, [load, draftKey]);
+
+  useEffect(() => {
+    if (!artifactUpdateEvent || artifactUpdateEvent.timestamp === lastHandledUpdate.current) {
+      return;
+    }
+    if (artifactUpdateEvent.artifactId && artifactUpdateEvent.artifactId !== id) {
+      return;
+    }
+    lastHandledUpdate.current = artifactUpdateEvent.timestamp;
+
+    if (shouldRefreshArtifactOnUpdate(tab, draft, content)) {
+      setNewVersionAvailable(false);
+      void load();
+      void refreshArtifacts();
+    } else {
+      setNewVersionAvailable(true);
+    }
+  }, [artifactUpdateEvent, id, tab, draft, content, load, refreshArtifacts]);
 
   if (state === "loading")
     return (
@@ -681,6 +702,21 @@ function ArtifactPanel({ id }: { id: string }) {
           Viewing version {readVersion} of {currentVersion}.
           <button onClick={restore} disabled={saving}>
             Restore this version
+          </button>
+        </div>
+      )}
+      {newVersionAvailable && (
+        <div className="edit-notice update-notice" role="status">
+          <span>New version available</span>
+          <button
+            type="button"
+            onClick={() => {
+              setNewVersionAvailable(false);
+              void load();
+              void refreshArtifacts();
+            }}
+          >
+            Load latest version
           </button>
         </div>
       )}

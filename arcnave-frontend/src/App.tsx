@@ -55,6 +55,7 @@ import type { SafeAction } from "./generative-ui/types";
 import { AuthenticatedImage, MarkdownErrorBoundary } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
 import QuestionOptions, { extractAskUserOptions } from "./QuestionOptions";
+import SelectionFloatingButton from "./SelectionFloatingButton";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -307,6 +308,7 @@ function Shell() {
       )}
       <Settings />
       <SearchDialog />
+      <SelectionFloatingButton />
       {toastText && (
         <div className="toast" role="status">
           <Check size={16} />
