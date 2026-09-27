@@ -20,6 +20,7 @@ import {
 import { ApiError, api } from "./api";
 import type { ModelsDto, StyleDto, StylePresetDto } from "./api";
 import type { Attachment, Message, Mode, ReasoningEffort } from "./types";
+import { DictationButton } from "./Dictation";
 import {
   REASONING_EFFORT_LADDER,
   resolveEffortForModel,
@@ -799,6 +800,7 @@ export default function Composer({
             items={styleItems}
           />
           <div className="spacer" />
+          <DictationButton text={text} setText={setText} onError={toast} disabled={!!ownRun} />
           <Dropdown
             label="Model selection"
             side="top"

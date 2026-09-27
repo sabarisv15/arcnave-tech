@@ -6894,3 +6894,36 @@ select:focus-visible {
   border-radius: 4px;
   box-shadow: 0 0 0 1px var(--line);
 }
+
+/* WP-18: dictation. */
+.dictation-group {
+  display: inline-flex;
+  align-items: center;
+}
+.dictation-language {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.dictation-language:hover {
+  background: var(--hover);
+}
+.dictation-button.is-listening {
+  color: var(--danger);
+  animation: dictation-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dictation-pulse {
+  50% {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+}
+:root[data-motion="reduced"] .dictation-button.is-listening {
+  animation: none;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}

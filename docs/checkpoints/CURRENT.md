@@ -1,5 +1,15 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): WP-18 phase 1 done on `claude/tools-skills-architecture-jyxa61`, not live.**
+> Voice dictation in the composer ([ADR-0042](../decisions/0042-voice-dictation.md)):
+> - The browser's speech recognition, with a mic at the right of the composer.
+> - The first use asks the language (English (India), Tamil, English (US), Hindi); the choice
+>   is remembered in the browser.
+> - The text is added to what was typed; nothing is sent until the user sends it.
+> - There is no mic where the browser has no recogniser.
+> - Voice mode (spoken replies) is phase 2.
+> - **All six scoped WPs (09, 11, 12, 13, 16, 18) are done on this branch.**
+>
 > **2026-09-27 (latest): WP-16 done on `claude/tools-skills-architecture-jyxa61`, not live.**
 > A `slides` artifact kind ([ADR-0041](../decisions/0041-slides-artifacts.md)):
 > - The content is Markdown with one `#`/`##` heading per slide, the same rule the PowerPoint

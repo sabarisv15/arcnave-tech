@@ -52,7 +52,7 @@
 | WP-15 | 26 | Skills settings: browse, turn off, add custom skills | 5 | yes | future |
 | WP-16 | 10 | Docs, Slides and Design artifact types | 5 | yes | [x] |
 | WP-17 | 12 | Save a created file to Google Drive | 5 | yes | future |
-| WP-18 | 27 | Voice dictation (then voice mode) | 5 | yes | [ ] |
+| WP-18 | 27 | Voice dictation (then voice mode) | 5 | yes | [x] phase 1 |
 | WP-19 | 23, 24 | Break reminders, quiet hours, monthly recap | 5 | no | future |
 
 **Scope (user, 2026-09-27):** the remaining work is WP-09, WP-11, WP-12, WP-13, WP-16 and
