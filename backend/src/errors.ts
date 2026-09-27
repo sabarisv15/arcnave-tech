@@ -172,6 +172,21 @@ export const ERROR_CATALOG = {
     title: 'That file could not be stored',
     detail: 'Try again. If it keeps failing, the storage backend may be unavailable.',
   },
+  style_not_found: {
+    status: 404,
+    title: 'Style not found',
+    detail: 'That style does not exist, or you do not have access to it.',
+  },
+  style_too_long: {
+    status: 422,
+    title: 'Style instructions too long',
+    detail: 'Style instructions cannot exceed 4000 characters.',
+  },
+  sample_too_long: {
+    status: 422,
+    title: 'Writing sample too long',
+    detail: 'Each writing sample cannot exceed 10000 characters.',
+  },
   internal_error: {
     status: 500,
     title: 'Something went wrong',

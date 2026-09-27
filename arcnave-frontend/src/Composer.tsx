@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageCircleMore,
   Paperclip,
+  PenLine,
   Plus,
   Square,
   Telescope,
@@ -16,12 +17,14 @@ import {
   PanelsTopLeft,
 } from "lucide-react";
 import { ApiError, api } from "./api";
+import type { StyleDto, StylePresetDto } from "./api";
 import type { Attachment, Mode } from "./types";
 import { toAttachment } from "./types";
 import { MAX_ATTACHMENT_BYTES, sizeLabel, validateFile } from "./storage";
 import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
+import StylesModal, { BUILTIN_STYLE_PRESETS } from "./StylesModal";
 
 /**
  * Pastes longer than this become an attached text file. claude.ai does the same past "a few
@@ -170,7 +173,12 @@ export default function Composer({
     [mode, setMode] = useState<Mode>(initialMode || preferences.defaultMode),
     [files, setFiles] = useState<Attachment[]>([]),
     [dragging, setDragging] = useState(false),
-    [artifact, setArtifact] = useState(artifactIntent);
+    [artifact, setArtifact] = useState(artifactIntent),
+    [stylePresets, setStylePresets] = useState<StylePresetDto[]>(
+      BUILTIN_STYLE_PRESETS,
+    ),
+    [customStyles, setCustomStyles] = useState<StyleDto[]>([]),
+    [stylesModalOpen, setStylesModalOpen] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null),
     input = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -179,12 +187,28 @@ export default function Composer({
   // their room for longer prompts even though they also use the compact prop for placement.
   const inlineReply = compact && Boolean(chatId);
 
+  const refreshStyles = useCallback(async () => {
+    try {
+      const list = await api.styles?.list?.();
+      if (!mounted.current || !list) return;
+      if (Array.isArray(list.presets) && list.presets.length > 0) {
+        setStylePresets(list.presets);
+      }
+      if (Array.isArray(list.items)) {
+        setCustomStyles(list.items);
+      }
+    } catch {
+      /* Built-in presets remain available if the request fails. */
+    }
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
+    void refreshStyles();
     return () => {
       mounted.current = false;
     };
-  }, []);
+  }, [refreshStyles]);
   useEffect(() => {
     if (initialPrompt) {
       setText(initialPrompt);
@@ -338,6 +362,37 @@ export default function Composer({
           })),
         ]
       : [{ label: "Loading models…", disabled: true }]),
+  ];
+
+  const activeStyleId = preferences.styleId || "normal";
+  const activeStyleName =
+    stylePresets.find((p) => p.id === activeStyleId)?.name ??
+    customStyles.find((s) => s.id === activeStyleId)?.name ??
+    "Normal";
+
+  const styleItems = [
+    ...stylePresets.map((preset) => ({
+      label: preset.name,
+      description: preset.description,
+      selected: activeStyleId === preset.id,
+      onSelect: () => updatePreferences({ styleId: preset.id }),
+    })),
+    ...customStyles.map((style, index) => ({
+      label: style.name,
+      description:
+        style.instructions.length > 72
+          ? `${style.instructions.slice(0, 72)}…`
+          : style.instructions,
+      selected: activeStyleId === style.id,
+      separator: index === 0,
+      onSelect: () => updatePreferences({ styleId: style.id }),
+    })),
+    {
+      label: "Create & edit styles",
+      icon: <PenLine size={15} />,
+      separator: true,
+      onSelect: () => setStylesModalOpen(true),
+    },
   ];
 
   return (
@@ -556,6 +611,21 @@ export default function Composer({
               },
             ]}
           />
+          <Dropdown
+            label="Use style"
+            side="top"
+            trigger={
+              <button
+                className={`quiet-button style-button ${activeStyleId !== "normal" ? "style-active" : ""}`}
+                aria-label={`Use style: ${activeStyleName}`}
+              >
+                <PenLine size={15} />
+                {activeStyleName}
+                <ChevronDown size={13} />
+              </button>
+            }
+            items={styleItems}
+          />
           <div className="spacer" />
           <Dropdown
             label="Model selection"
@@ -611,6 +681,15 @@ export default function Composer({
             : "Files marked with a warning are sent without their text."}
         </p>
       )}
+      <StylesModal
+        open={stylesModalOpen}
+        onClose={() => setStylesModalOpen(false)}
+        presets={stylePresets}
+        customStyles={customStyles}
+        activeStyleId={activeStyleId}
+        onSelectStyle={(styleId) => updatePreferences({ styleId })}
+        onStylesChanged={refreshStyles}
+      />
     </div>
   );
 }

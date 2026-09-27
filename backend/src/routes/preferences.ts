@@ -17,6 +17,7 @@ import { preferences } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
+import { resolveStyle } from '../services/styles.js';
 import { resolveZone } from '../services/usage.js';
 import type { AppInstance } from '../types.js';
 import { assertVersion, iso } from './helpers.js';
@@ -33,6 +34,7 @@ const preferencesSchema = z.object({
   defaultMode: z.string(),
   sourceScope: z.string(),
   saveHistory: z.boolean(),
+  styleId: z.string(),
   /** Read-only here. Write through PATCH /usage/limits. */
   maxOutputTokens: z.number(),
   dailyTokenBudget: z.number().nullable(),
@@ -82,6 +84,7 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
           defaultMode: z.enum(['chat', 'search', 'research']).optional(),
           sourceScope: z.string().trim().min(1).max(32).optional(),
           saveHistory: z.boolean().optional(),
+          styleId: z.string().trim().min(1).max(64).optional(),
           version: z.number().int().optional(),
         }),
         response: { 200: preferencesSchema },
@@ -103,6 +106,10 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
         });
       }
 
+      if (request.body.styleId !== undefined) {
+        await resolveStyle(db, user.id, request.body.styleId);
+      }
+
       const patch: Record<string, unknown> = { version: current.version + 1 };
       for (const field of [
         'theme',
@@ -114,6 +121,7 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
         'defaultMode',
         'sourceScope',
         'saveHistory',
+        'styleId',
       ] as const) {
         if (request.body[field] !== undefined) patch[field] = request.body[field];
       }
@@ -159,6 +167,7 @@ function toDto(row: PrefsRow): z.infer<typeof preferencesSchema> {
     defaultMode: row.defaultMode,
     sourceScope: row.sourceScope,
     saveHistory: row.saveHistory,
+    styleId: row.styleId ?? 'normal',
     maxOutputTokens: row.maxOutputTokens,
     dailyTokenBudget: row.dailyTokenBudget,
     monthlyTokenBudget: row.monthlyTokenBudget,

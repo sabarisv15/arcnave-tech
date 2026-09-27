@@ -113,6 +113,13 @@
       "when": 1790900000000,
       "tag": "0015_max_output_64k",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0016_bizarre_khan",
+      "breakpoints": true
     }
   ]
 }

@@ -1139,3 +1139,11 @@ practice, not canon.
 - **2026-09-26** — The language-rule placement note above is superseded: the user chose to
   remove the rule, as Claude's app prompt has none. The rule stays: read the vendor's own
   guidance before rewording a rule a model ignores.
+- **2026-09-26 (WP-05)** — No new heading (at the 40-entry cap). Two catches during WP-05:
+  (1) `resolveStyle` and `GET /styles/:id` accept both preset keys (`concise`) and custom style
+  UUIDs; querying a Postgres `uuid` column with an unknown non-UUID string throws 500 `22P02`
+  unless guarded by a UUID regex before the query (`style_not_found` 404).
+  (2) On Windows git worktrees, a directory junction for `node_modules` causes Vite/Vitest to
+  resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
+  (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
+

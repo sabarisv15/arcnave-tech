@@ -116,6 +116,30 @@ describe('Prompt Caching Subsystem', () => {
       expect(prefIndex).toBeGreaterThan(capIndex);
       expect(projIndex).toBeGreaterThan(prefIndex);
     });
+
+    it('contains the style block after the static prefix and keeps the prefix byte-identical with and without style', () => {
+      const tools = [toolA, toolB];
+      const withoutStyle = assemblePrompt(tools, {
+        standingPreferences: 'Be honest.',
+      });
+      const withStyle = assemblePrompt(tools, {
+        standingPreferences: 'Be honest.',
+        styleInstructions: 'Respond concisely with bullet points.',
+      });
+
+      // Stable prefix is 100% byte-identical
+      expect(withStyle.stablePrefix.systemText).toBe(withoutStyle.stablePrefix.systemText);
+      expect(withStyle.stablePrefix.prefixHash).toBe(withoutStyle.stablePrefix.prefixHash);
+
+      // Full system instruction contains the style block in dynamic suffix
+      expect(withoutStyle.fullSystemInstruction).not.toContain('<style_instructions>');
+      expect(withStyle.fullSystemInstruction).toContain('<style_instructions>\nRespond concisely with bullet points.\n</style_instructions>');
+
+      // Placed after the static prefix
+      const staticEnd = withStyle.fullSystemInstruction.indexOf('Stop when the useful response is complete.');
+      const styleIndex = withStyle.fullSystemInstruction.indexOf('<style_instructions>');
+      expect(styleIndex).toBeGreaterThan(staticEnd);
+    });
   });
 
   describe('Tool policies follow the tools allowed this turn (Invariant 1)', () => {

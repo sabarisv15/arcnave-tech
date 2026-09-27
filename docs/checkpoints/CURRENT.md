@@ -1,5 +1,11 @@
 # ArcNave — current checkpoint
 
+> **2026-09-26 (WP-05): Response styles — presets and custom styles (ADR-0033).**
+> - Implemented 4 built-in presets (`normal`, `concise`, `explanatory`, `formal`) and user-owned custom styles in `styles` table (migration `0016_bizarre_khan`, `preferences.styleId`).
+> - Placed `<style_instructions>` in the dynamic runtime suffix (`promptAssembly.ts`), keeping `buildStablePrefix` 100% byte-identical across style changes.
+> - Added `/styles` CRUD routes and `POST /styles/summarize` (1–3 writing samples capped at 10,000 chars with `sample_too_long` 422, token budget reservation, and exact usage recording).
+> - Added "Use style" menu in `Composer.tsx` and `StylesModal.tsx` (instructions & writing samples tabs).
+>
 > **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
 >   ran 3 commands, made no unrequested file, and every figure matched the PDF.
@@ -8,11 +14,11 @@
 > - The chat now typesets `$$…$$` with KaTeX (`remark-math` + `rehype-katex`,
 >   `arcnave-frontend/src/markdownPlugins.ts`), as Claude's app does. A single `$` stays text.
 >
-> Tests: backend 964, frontend 66.
+> Tests: backend 984, frontend 71.
 >
 > UI parity handover: `docs/handover/2026-09-26-claude-ui-parity-plan.md` lists 20 work
 > packages (27 gaps against the Claude app). `AGENTS.md` and `.agent/workflows/ui-parity.md`
-> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). None started.
+> carry the repo rules to agents that do not read `CLAUDE.md` (Antigravity). WP-05 done.
 >
 > **2026-09-26: one loop, Claude-doc guidance (ADR-0032), merged and deployed.**
 > - Keyword routing is removed. The router takes no prompt; the AgentLoop runs for Research mode
