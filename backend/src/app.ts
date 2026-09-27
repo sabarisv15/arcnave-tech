@@ -48,6 +48,9 @@ export interface CreateAppOptions extends BuildOptions {
 
 export async function createApp(cfg: Config, options: CreateAppOptions = {}): Promise<AppInstance> {
   const services = options.services ?? buildServices(cfg, options);
+  // The skill registry loads from disk; a request served before it finished listed only some
+  // skills (a cold start, or a test app, answered before the last directory was read).
+  await services.skills.whenLoaded();
 
   const app = Fastify({
     // Trust the client's request id when present so a trace survives a reverse proxy, but

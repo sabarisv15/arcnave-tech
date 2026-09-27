@@ -49,6 +49,20 @@ describe('SkillService', () => {
     expect(building?.description).toContain('use the pdf-reading skill');
   });
 
+  it('never shows a half-loaded registry, during a reload or before the first load finishes', async () => {
+    const full = service.listSkills().map((s) => s.name);
+    const reloading = service.reload();
+    // The reload has started reading the directory; the old registry still answers whole.
+    expect(service.listSkills().map((s) => s.name)).toEqual(full);
+    await reloading;
+    expect(service.listSkills().map((s) => s.name)).toEqual(full);
+
+    const fresh = new SkillService(path.resolve(__dirname, '../../'), 'skills');
+    void fresh.load();
+    await fresh.whenLoaded();
+    expect(fresh.listSkills().map((s) => s.name)).toEqual(full);
+  });
+
   it('includes internal skills when requested', () => {
     const all = service.listSkills(undefined, true);
     const names = all.map((s) => s.name);

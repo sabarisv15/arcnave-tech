@@ -1221,3 +1221,11 @@ practice, not canon.
   design input only. Rule: in launch files, state the behaviour and cite an ADR, never "as X
   does"; provider names only where the code talks to that provider. Verify:
   `src/test/brandNeutral.test.ts` fails on reference wording in launch files.
+- **2026-09-27 (skills load race)** — No new heading (at the cap). `GET /v1/skills` failed
+  about 1 run in 3 of the full suite, listing 12 of 13 skills (the last directory, `xlsx`,
+  missing). Cause: `container.ts` fired `void skills.load()`, which cleared the map and filled
+  it asynchronously, so a request (or a cold-start turn's `<available_skills>`) could see a
+  partial registry; one more skill made the window wider. Rule: a registry read by requests is
+  built into a new map and swapped in whole, and the app awaits it before taking requests
+  (`createApp` → `skills.whenLoaded()`). Verify: `skills.test.ts` "never shows a half-loaded
+  registry" fails without the fix; the full suite passed 3 runs in a row with it.
