@@ -41,8 +41,7 @@ describe('Skills REST API', () => {
     expect(names).toContain('pptx');
     expect(names).toContain('xlsx');
     expect(names).toContain('pdf');
-    expect(names).toContain('data-analysis');
-    expect(names).toContain('research-deep-dive');
+    expect(names).toContain('pdf-reading');
     expect(names).toContain('skill-creator');
 
     // Does not leak internal filesystem paths
@@ -61,8 +60,8 @@ describe('Skills REST API', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { name: string; mode: string; content: string };
     expect(body.name).toBe('pptx');
-    expect(body.mode).toBe('guidance_only'); // artifact.pptx tool is not present
-    expect(body.content).toContain('Presentation (PPTX) Deck Design');
+    expect(body.mode).toBe('guidance_only'); // run_python is not on in this test app
+    expect(body.content).toContain('# Presentations (PPTX)');
   });
 
   it('GET /v1/skills/:name returns 404 for unknown skill', async () => {

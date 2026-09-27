@@ -94,27 +94,11 @@ export class SearchToolsExecutor implements ToolExecutor {
       // Semantic / Domain Keyword Associations
       if (
         tokens.some((t) =>
-          ['excel', 'spreadsheet', 'xlsx', 'sheet', 'workbook', 'word', 'doc', 'docx', 'document', 'powerpoint', 'presentation', 'pptx', 'slide', 'slides', 'deck', 'pdf', 'report', 'deliverable', 'export'].includes(t)
-        ) &&
-        name === 'generate_deliverable'
-      ) {
-        score += 15;
-      }
-
-      if (
-        tokens.some((t) =>
           ['python', 'code', 'calculate', 'compute', 'simulate', 'numpy', 'pandas', 'statistics', 'math', 'regression', 'script'].includes(t)
         ) &&
         name === 'run_python'
       ) {
         score += 15;
-      }
-
-      if (
-        tokens.some((t) => ['file', 'read', 'upload', 'uploaded', 'attachment', 'pdf'].includes(t)) &&
-        name === 'read_uploaded_file'
-      ) {
-        score += 12;
       }
 
       if (
@@ -127,13 +111,6 @@ export class SearchToolsExecutor implements ToolExecutor {
       if (
         tokens.some((t) => ['fetch', 'url', 'http', 'https', 'webpage', 'site', 'website'].includes(t)) &&
         name === 'web_fetch'
-      ) {
-        score += 15;
-      }
-
-      if (
-        tokens.some((t) => ['image', 'photo', 'picture', 'drawing', 'illustration', 'draw'].includes(t)) &&
-        name === 'generate_image'
       ) {
         score += 15;
       }
@@ -164,53 +141,6 @@ export class SearchToolsExecutor implements ToolExecutor {
         ['search_project_files', 'read_project_file'].includes(name)
       ) {
         score += 12;
-      }
-
-      // Exact table work: a request to count, total or classify every row of a statement or
-      // register should reach the extraction pair before run_python, which cannot read a
-      // scanned page (Phase 3 live finding: three wasted rounds before extraction).
-      // Strong words name the exact-figure intent; weak ones only support it, so "merge all
-      // PDFs" does not pull the table tools above mergePdfFiles.
-      const strong = [
-        'count', 'counts', 'exact', 'exactly', 'transaction', 'transactions', 'entries', 'rows',
-        'statement', 'statements', 'ledger', 'register', 'classify', 'reconcile', 'total', 'totals', 'sum',
-      ];
-      const weak = ['every', 'all', 'entry', 'row', 'table', 'tables', 'extract', 'scanned'];
-      const strongHits = Math.min(tokens.filter((t) => strong.includes(t)).length, 4);
-      const weakHits = Math.min(tokens.filter((t) => weak.includes(t)).length, 3);
-      if (strongHits > 0 && (name === 'extract_scanned_table_rows' || name === 'analyze_table_rows')) {
-        score += 20 + 15 * strongHits + 5 * weakHits;
-        // Analysis needs an extractionId, so extraction is listed first.
-        if (name === 'extract_scanned_table_rows') score += 25;
-      }
-
-      // File Operations (PDF, XLSX, DOCX, PPTX)
-      if (
-        tokens.some((t) => ['pdf', 'merge', 'split', 'page', 'pages', 'inspect'].includes(t)) &&
-        ['inspectPdf', 'mergePdfFiles', 'splitPdfFile'].includes(name)
-      ) {
-        score += 15;
-      }
-
-      if (
-        tokens.some((t) => ['excel', 'xlsx', 'spreadsheet', 'sheet', 'workbook', 'cell', 'cells', 'formula'].includes(t)) &&
-        ['inspectSpreadsheet', 'editSpreadsheetCells', 'combineWorkbooks'].includes(name)
-      ) {
-        score += 15;
-      }
-
-      if (
-        tokens.some((t) => ['docx', 'word', 'document', 'paragraph', 'paragraphs', 'heading', 'headings', 'section'].includes(t)) &&
-        ['inspectDocxStructure', 'editDocxContent', 'appendDocxSection'].includes(name)
-      ) {
-        score += 15;
-      }
-
-      if (
-        tokens.some((t) => ['pptx', 'powerpoint', 'presentation', 'slide', 'slides', 'deck', 'reorder'].includes(t)) &&
-        ['inspectPptxStructure', 'reorderPptxSlides', 'editPptxSlideText'].includes(name)
-      ) {
-        score += 15;
       }
 
       if (score > 0) {

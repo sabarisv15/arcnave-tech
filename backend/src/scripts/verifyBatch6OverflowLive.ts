@@ -176,7 +176,6 @@ async function main() {
       container.retriever,
       container.storage,
       undefined,
-      undefined,
       container.skills,
       container.capabilities,
       container.executionRuntime,

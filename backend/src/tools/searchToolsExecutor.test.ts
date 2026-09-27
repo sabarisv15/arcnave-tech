@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import type { ToolDefinition } from '../providers/types.js';
 import {
   CREATE_ARTIFACT,
-  GENERATE_DELIVERABLE,
   RUN_PYTHON,
   SEARCH_TOOLS,
 } from './definitions.js';
@@ -12,28 +11,9 @@ import { SearchToolsExecutor } from './searchToolsExecutor.js';
 describe('SearchToolsExecutor', () => {
   const catalog: ToolDefinition[] = [
     SEARCH_TOOLS,
-    GENERATE_DELIVERABLE,
     RUN_PYTHON,
     CREATE_ARTIFACT,
   ];
-
-  it('finds generate_deliverable for excel / spreadsheet queries', async () => {
-    let discovered: ToolDefinition[] = [];
-    const executor = new SearchToolsExecutor(catalog, (tool) => {
-      discovered.push(tool);
-    });
-
-    const result = await executor.execute(
-      { id: 'c1', name: 'search_tools', input: { query: 'excel spreadsheet generator' } },
-      new AbortController().signal,
-    );
-
-    expect(result.ok).toBe(true);
-    expect(result.content[0]?.type).toBe('json');
-    const data = (result.content[0] as any).data;
-    expect(data.tools.some((t: any) => t.name === 'generate_deliverable')).toBe(true);
-    expect(discovered.some((t) => t.name === 'generate_deliverable')).toBe(true);
-  });
 
   it('finds run_python for code / computation queries', async () => {
     const executor = new SearchToolsExecutor(catalog);

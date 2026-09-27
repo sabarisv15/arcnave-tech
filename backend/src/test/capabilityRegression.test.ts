@@ -14,15 +14,14 @@ import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 
 describe('Capability Regression Suite', () => {
-  describe('1. 16-Tool Surface & Truthful Registry', () => {
-    it('accurately exposes all 16 tools with all gates enabled', () => {
-      const reg = new ProjectToolRegistry(true, true, true, true, true);
+  describe('1. Tool surface & truthful registry', () => {
+    it('exposes every tool its gates allow', () => {
+      const reg = new ProjectToolRegistry(true, true, true, true, false);
       const tools = reg.getAvailableTools({
         projectId: 'p1',
-        activeGoalId: 'g1',
         allowPython: true,
       });
-      expect(tools.length).toBe(17);
+      expect(tools.length).toBe(12);
       const names = tools.map((t: { name: string }) => t.name);
 
       // Core CRUD
@@ -34,7 +33,6 @@ describe('Capability Regression Suite', () => {
       expect(names).toContain('ask_user_options');
 
       // Information access
-      expect(names).toContain('read_uploaded_file');
       expect(names).toContain('web_search');
       expect(names).toContain('web_fetch');
       expect(names).toContain('search_project_files');
@@ -42,11 +40,6 @@ describe('Capability Regression Suite', () => {
 
       // Computation (general-chat decoupled)
       expect(names).toContain('run_python');
-
-      // Agent loop goals
-      expect(names).toContain('get_goal');
-      expect(names).toContain('update_goal');
-      expect(names).toContain('get_context_remaining');
 
       // Skills
       expect(names).toContain('list_skills');
@@ -137,7 +130,6 @@ Please fill the details below.
       expect(prompt).toContain('ArcNave');
       expect(prompt).toContain('create_artifact');
       expect(prompt).toContain('run_python');
-      expect(prompt).toContain('read_uploaded_file');
       expect(prompt).toContain('list_skills');
       // Web tool is disabled
       expect(prompt).not.toContain('web_search');

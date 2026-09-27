@@ -78,7 +78,7 @@ describe('the prompt and tools a file turn starts with (ADR-0022)', () => {
   it('declares the tools file work needs, so no search_tools round comes first', async () => {
     const request = await sendTurn(ctx, user, 'itha tally la import panra mari json file ah kudu');
     expect((request.tools ?? []).map((t) => t.name)).toEqual(
-      expect.arrayContaining(['search_tools', 'load_skill', 'run_python', 'generate_deliverable']),
+      expect.arrayContaining(['search_tools', 'load_skill', 'run_python']),
     );
   });
 
@@ -86,7 +86,7 @@ describe('the prompt and tools a file turn starts with (ADR-0022)', () => {
     const { systemInstruction } = await sendTurn(ctx, user, 'hi');
     expect(systemInstruction).toContain('## Understand the request first');
     expect(systemInstruction).toContain('not with its contents pasted into chat');
-    expect(systemInstruction).toContain('any other format (JSON, CSV, XML, TXT, Markdown, HTML, ZIP, images): run_python, writing the file to "output/"');
+    expect(systemInstruction).toContain('any format (DOCX, XLSX, PPTX, PDF, CSV, JSON, images and so on): run_python, writing the file to "output/"');
     expect(systemInstruction).not.toContain('Reply in the language and script the user writes in');
     expect(systemInstruction).toContain('A skill loaded earlier in this conversation is still in context');
   });

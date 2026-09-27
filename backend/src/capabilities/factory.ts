@@ -21,13 +21,6 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
     limitation: 'Bounded character length per read.',
   });
 
-  // User uploaded files
-  reg.register({
-    id: 'file.read.uploaded',
-    status: cfg.ENABLE_TOOL_USE ? 'full' : 'unavailable',
-    source: 'read_uploaded_file',
-    limitation: 'Bounded character budget, page-aware for PDFs.',
-  });
   reg.register({
     id: 'file.read.pdf',
     status: 'full',
@@ -132,23 +125,6 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
     id: 'skills.read',
     status: cfg.ENABLE_SKILLS ? 'full' : 'unavailable',
     source: 'read_skill',
-  });
-
-  // Agent Loop & Goals
-  reg.register({
-    id: 'agent.loop',
-    status: cfg.ENABLE_AGENT_LOOP ? 'full' : 'unavailable',
-    source: 'AgentLoop',
-  });
-  reg.register({
-    id: 'agent.goal',
-    status: cfg.ENABLE_AGENT_LOOP ? 'full' : 'unavailable',
-    source: 'get_goal / update_goal',
-  });
-  reg.register({
-    id: 'agent.context',
-    status: cfg.ENABLE_AGENT_LOOP ? 'full' : 'unavailable',
-    source: 'get_context_remaining',
   });
 
   return reg;

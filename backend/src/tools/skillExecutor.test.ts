@@ -13,11 +13,15 @@ function jsonContent(content: ToolContent[]): Record<string, unknown> {
 
 describe('SkillToolExecutor', () => {
   let skillService: SkillService;
+  /** A fixture skill with a packaged script: no shipped skill has one. */
+  let scriptedService: SkillService;
 
   beforeAll(async () => {
     const backendRoot = path.resolve(__dirname, '../../');
     skillService = new SkillService(backendRoot, 'skills');
     await skillService.load();
+    scriptedService = new SkillService(path.resolve(__dirname, '../test/fixtures/skill-scripts'), 'skills');
+    await scriptedService.load();
   });
 
   it('list_skills returns compact summaries of available skills', async () => {
@@ -51,7 +55,7 @@ describe('SkillToolExecutor', () => {
 
   it('read_skill returns complete instructions and capability mode', async () => {
     let loadedSkillName = '';
-    const executor = new SkillToolExecutor(skillService, new Set(['generate_deliverable']), (s) => {
+    const executor = new SkillToolExecutor(skillService, new Set(['run_python']), (s) => {
       loadedSkillName = s.name;
     });
 
@@ -65,12 +69,12 @@ describe('SkillToolExecutor', () => {
     expect(data.name).toBe('pptx');
     expect(data.mode).toBe('full');
     expect(data.missingCapabilities).toEqual([]);
-    expect(data.content).toContain('Presentation (PPTX) Deck Design');
+    expect(data.content).toContain('# Presentations (PPTX)');
     expect(loadedSkillName).toBe('pptx');
   });
 
   it('read_skill accurately reports guidance_only mode when tool is missing', async () => {
-    const executor = new SkillToolExecutor(skillService, new Set([])); // no artifact tools
+    const executor = new SkillToolExecutor(skillService, new Set([])); // no run_python
     const result = await executor.execute(
       { id: 'c4', name: 'read_skill', input: { name: 'pptx' } },
       new AbortController().signal,
@@ -80,7 +84,7 @@ describe('SkillToolExecutor', () => {
     const data = jsonContent(result.content);
     expect(data.name).toBe('pptx');
     expect(data.mode).toBe('guidance_only');
-    expect(data.missingCapabilities).toEqual(['generate_deliverable']);
+    expect(data.missingCapabilities).toEqual(['run_python']);
   });
 
   it('read_skill handles unknown skill gracefully with typed failure (Invariant 1)', async () => {
@@ -164,31 +168,31 @@ describe('SkillToolExecutor', () => {
   });
 
   it('returns how to run a script, not its code, when the sandbox has the skills (Claude level 3)', async () => {
-    const executor = new SkillToolExecutor(skillService, new Set(), undefined, { scriptsRoot: '/skills' });
+    const executor = new SkillToolExecutor(scriptedService, new Set(), undefined, { scriptsRoot: '/skills' });
     const result = await executor.execute(
-      { id: 's1', name: 'load_skill', input: { name: 'pdf', resource: 'scripts/analyze_table_rows.py' } },
+      { id: 's1', name: 'load_skill', input: { name: 'scripted', resource: 'scripts/echo_rows.py' } },
       new AbortController().signal,
     );
     const data = jsonContent(result.content);
     expect(data.resourceContent).toBeUndefined();
     expect(JSON.stringify(data)).not.toContain('def parse_number');
-    expect(data.script).toMatchObject({ path: '/skills/pdf/scripts/analyze_table_rows.py' });
-    expect(data.files).toBe('/skills/pdf/ in the sandbox');
+    expect(data.script).toMatchObject({ path: '/skills/scripted/scripts/echo_rows.py' });
+    expect(data.files).toBe('/skills/scripted/ in the sandbox');
 
     // A reference file is still read into context, as Claude reads FORMS.md.
     const doc = jsonContent(
-      (await executor.execute({ id: 's2', name: 'load_skill', input: { name: 'pdf', resource: 'SKILL.md' } }, new AbortController().signal))
+      (await executor.execute({ id: 's2', name: 'load_skill', input: { name: 'scripted', resource: 'SKILL.md' } }, new AbortController().signal))
         .content,
     );
-    expect(String(doc.resourceContent)).toContain('# PDF');
+    expect(String(doc.resourceContent)).toContain('# Scripted');
   });
 
   it('still returns a script\'s source where no sandbox has the skills', async () => {
-    const executor = new SkillToolExecutor(skillService);
+    const executor = new SkillToolExecutor(scriptedService);
     const data = jsonContent(
       (
         await executor.execute(
-          { id: 's3', name: 'load_skill', input: { name: 'pdf', resource: 'scripts/analyze_table_rows.py' } },
+          { id: 's3', name: 'load_skill', input: { name: 'scripted', resource: 'scripts/echo_rows.py' } },
           new AbortController().signal,
         )
       ).content,
@@ -198,11 +202,11 @@ describe('SkillToolExecutor', () => {
   });
 
   it('does not offer to run a script that does not exist', async () => {
-    const executor = new SkillToolExecutor(skillService, new Set(), undefined, { scriptsRoot: '/skills' });
+    const executor = new SkillToolExecutor(scriptedService, new Set(), undefined, { scriptsRoot: '/skills' });
     const data = jsonContent(
       (
         await executor.execute(
-          { id: 's4', name: 'load_skill', input: { name: 'pdf', resource: 'scripts/nope.py' } },
+          { id: 's4', name: 'load_skill', input: { name: 'scripted', resource: 'scripts/nope.py' } },
           new AbortController().signal,
         )
       ).content,

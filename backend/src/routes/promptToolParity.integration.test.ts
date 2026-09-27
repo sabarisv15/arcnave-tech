@@ -1,6 +1,6 @@
 /**
  * The system prompt may only name tools the turn can use. A prompt that tells the model to call
- * get_goal, or offers a research skill with web search off, promises what the request cannot
+ * a tool the turn lacks, or offers research guidance with web search off, promises what the request cannot
  * keep (Invariant 1). The audit of 2026-09-26 found both; this test keeps them found.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -71,7 +71,7 @@ describe('the system prompt names only tools the turn allows', () => {
   });
 
   it('finds the tool names it checks', () => {
-    expect(TOOL_NAMES).toEqual(expect.arrayContaining(['search_tools', 'get_goal', 'web_search', 'run_python']));
+    expect(TOOL_NAMES).toEqual(expect.arrayContaining(['search_tools', 'load_skill', 'web_search', 'run_python']));
   });
 
   for (const [label, env] of Object.entries(CONFIGS)) {
@@ -87,17 +87,15 @@ describe('the system prompt names only tools the turn allows', () => {
     });
   }
 
-  it('does not offer the research skill, or research guidance, while web search is off', async () => {
+  it('does not offer research guidance while web search is off', async () => {
     ctx = await createTestApp(CONFIGS['tools and skills only']!);
     const { system } = await turn(ctx, 'hi');
-    expect(system).not.toContain('research-deep-dive');
     expect(system).not.toContain('<research>');
   });
 
   it('offers them once web search is on', async () => {
     ctx = await createTestApp(CONFIGS['with web']!);
     const { system } = await turn(ctx, 'hi');
-    expect(system).toContain('- research-deep-dive:');
     expect(system).toContain('<research>');
   });
 

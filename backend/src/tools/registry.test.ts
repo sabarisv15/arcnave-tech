@@ -2,16 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ARTIFACT_TOOL_DEFINITIONS,
-  GOAL_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
   QUESTION_TOOL_DEFINITIONS,
   RUN_PYTHON,
   RUN_PYTHON_WARM,
   SKILL_TOOL_DEFINITIONS,
-  UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
 } from './definitions.js';
-import { NEXT_ACTIONS } from './nextActions.js';
 import { ProjectToolRegistry } from './registry.js';
 import { usesWarmSandbox } from './catalog.js';
 import { loadConfig } from '../config.js';
@@ -22,23 +19,19 @@ describe('ProjectToolRegistry', () => {
     expect(registry.getAvailableTools({ projectId: 'p1' })).toEqual([]);
   });
 
-  it('returns artifact, question, and upload tools when enabled even if there is no project', () => {
+  it('returns artifact and question tools when enabled even if there is no project', () => {
     const registry = new ProjectToolRegistry(true);
     expect(registry.getAvailableTools({ projectId: null })).toEqual([
-      NEXT_ACTIONS,
       ...ARTIFACT_TOOL_DEFINITIONS,
       ...QUESTION_TOOL_DEFINITIONS,
-      ...UPLOAD_TOOL_DEFINITIONS,
     ]);
   });
 
-  it('returns artifact, question, upload, and project tools when enabled and project is present', () => {
+  it('returns artifact, question, and project tools when enabled and project is present', () => {
     const registry = new ProjectToolRegistry(true);
     expect(registry.getAvailableTools({ projectId: 'p1' })).toEqual([
-      NEXT_ACTIONS,
       ...ARTIFACT_TOOL_DEFINITIONS,
       ...QUESTION_TOOL_DEFINITIONS,
-      ...UPLOAD_TOOL_DEFINITIONS,
       ...PROJECT_TOOL_DEFINITIONS,
     ]);
   });
@@ -52,77 +45,65 @@ describe('ProjectToolRegistry', () => {
     const registry = new ProjectToolRegistry(true, true);
     expect(registry.getAvailableTools({ projectId: null })).not.toContainEqual(RUN_PYTHON);
     expect(registry.getAvailableTools({ projectId: null, allowPython: true })).toEqual([
-      NEXT_ACTIONS,
       ...ARTIFACT_TOOL_DEFINITIONS,
       ...QUESTION_TOOL_DEFINITIONS,
-      ...UPLOAD_TOOL_DEFINITIONS,
       RUN_PYTHON,
     ]);
   });
 
   it('includes web tools when webEnabled is true', () => {
-    const registry = new ProjectToolRegistry(true, false, false, false, true);
+    const registry = new ProjectToolRegistry(true, false, false, true);
     const tools = registry.getAvailableTools({ projectId: null });
     expect(tools).toContainEqual(WEB_TOOL_DEFINITIONS[0]);
     expect(tools).toContainEqual(WEB_TOOL_DEFINITIONS[1]);
   });
 
   describe('Exhaustive Tool Surface Matrix', () => {
-    it('verifies exact tool counts and definitions in production baseline (TOOL_USE=true, PYTHON=true, SKILLS=false, AGENT=false, WEB=false)', () => {
+    it('verifies exact tool counts and definitions in production baseline (TOOL_USE=true, PYTHON=true, SKILLS=false, WEB=false)', () => {
       const registry = new ProjectToolRegistry(true, true, false, false, false);
 
-      // Without project: 3 artifact + 1 question + 1 upload + 1 python = 6 tools
+      // Without project: 3 artifact + 1 question + 1 python = 5 tools
       const noProj = registry.getAvailableTools({ projectId: null, allowPython: true });
       expect(noProj.map((t) => t.name)).toEqual([
-        'suggest_next_actions',
         'create_artifact',
         'read_artifact',
         'update_artifact',
         'ask_user_options',
-        'read_uploaded_file',
         'run_python',
       ]);
-      expect(noProj.length).toBe(7);
+      expect(noProj.length).toBe(5);
 
-      // With project: 3 artifact + 1 question + 1 upload + 1 python + 2 project = 8 tools
+      // With project: 3 artifact + 1 question + 1 python + 2 project = 7 tools
       const withProj = registry.getAvailableTools({ projectId: 'p1', allowPython: true });
       expect(withProj.map((t) => t.name)).toEqual([
-        'suggest_next_actions',
         'create_artifact',
         'read_artifact',
         'update_artifact',
         'ask_user_options',
-        'read_uploaded_file',
         'run_python',
         'search_project_files',
         'read_project_file',
       ]);
-      expect(withProj.length).toBe(9);
+      expect(withProj.length).toBe(7);
     });
 
-    it('verifies all 17 defined tools are enabled with all flags active and active goal', () => {
-      const allEnabledRegistry = new ProjectToolRegistry(true, true, true, true, true);
+    it('verifies the defined tools with python, skills and web on', () => {
+      const allEnabledRegistry = new ProjectToolRegistry(true, true, true, true, false);
       const tools = allEnabledRegistry.getAvailableTools({
         projectId: 'p1',
-        activeGoalId: 'g1',
         allowPython: true,
       });
-      expect(tools.length).toBe(17);
+      expect(tools.length).toBe(12);
       expect(tools.map((t) => t.name)).toEqual([
-        'suggest_next_actions',
         'create_artifact',
         'read_artifact',
         'update_artifact',
         'ask_user_options',
-        'read_uploaded_file',
         'web_search',
         'web_fetch',
         'run_python',
         'search_project_files',
         'read_project_file',
-        'get_goal',
-        'update_goal',
-        'get_context_remaining',
         'list_skills',
         'search_skills',
         'read_skill',
@@ -131,29 +112,21 @@ describe('ProjectToolRegistry', () => {
 
 
     it('omits render_ui when generativeUiEnabled is false', () => {
-      const registry = new ProjectToolRegistry(true, false, false, false, false, false, false);
+      const registry = new ProjectToolRegistry(true, false, false, false, false, false);
       const tools = registry.getAvailableTools({ projectId: null });
       expect(tools.map((t) => t.name)).not.toContain('render_ui');
     });
 
     it('includes render_ui when generativeUiEnabled is true', () => {
-      const registry = new ProjectToolRegistry(true, false, false, false, false, false, true);
+      const registry = new ProjectToolRegistry(true, false, false, false, false, true);
       const tools = registry.getAvailableTools({ projectId: null });
       expect(tools.map((t) => t.name)).toContain('render_ui');
     });
 
-    it('exposes generate_deliverable when allowDeliverable is true on the turn', () => {
-      const registry = new ProjectToolRegistry(true, false, false, false, false, false, false);
-      const withoutDeliverable = registry.getAvailableTools({ projectId: null });
-      expect(withoutDeliverable.map((t) => t.name)).not.toContain('generate_deliverable');
-
-      const withDeliverable = registry.getAvailableTools({ projectId: null, allowDeliverable: true });
-      expect(withDeliverable.map((t) => t.name)).toContain('generate_deliverable');
-    });
   });
 
   it('describes run_python as the configured engine runs it', () => {
-    const warm = new ProjectToolRegistry(true, true, false, false, false, false, false, false, false, RUN_PYTHON_WARM);
+    const warm = new ProjectToolRegistry(true, true, false, false, false, false, RUN_PYTHON_WARM);
     const tools = warm.getAvailableTools({ projectId: null, allowPython: true });
     expect(tools).toContainEqual(RUN_PYTHON_WARM);
     expect(RUN_PYTHON_WARM.description).toMatch(/persist between calls/);

@@ -9,23 +9,16 @@
 import {
   ARTIFACT_TOOL_DEFINITIONS,
   DISCOVERY_TOOL_DEFINITIONS,
-  GENERATE_DELIVERABLE,
-  GOAL_TOOL_DEFINITIONS,
-  IMAGE_TOOL_DEFINITIONS,
   LOAD_SKILL,
   MEMORY_TOOL_DEFINITIONS,
   PROJECT_TOOL_DEFINITIONS,
   RUN_PYTHON,
   SKILL_TOOL_DEFINITIONS,
-  TABLE_EXTRACTION_TOOL_DEFINITIONS,
   UI_TOOL_DEFINITIONS,
-  UPLOAD_TOOL_DEFINITIONS,
   WEB_TOOL_DEFINITIONS,
-  FILE_OPERATION_TOOL_DEFINITIONS,
   QUESTION_TOOL_DEFINITIONS,
 } from './definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
-import { NEXT_ACTIONS } from './nextActions.js';
 
 /**
  * Allowed tools declared on every turn, beside search_tools and load_skill, so the model can call
@@ -35,10 +28,7 @@ import { NEXT_ACTIONS } from './nextActions.js';
 export const DECLARED_EVERY_TURN: readonly string[] = [
   'ask_user_options',
   'render_ui',
-  'suggest_next_actions',
   'run_python',
-  'read_uploaded_file',
-  'generate_deliverable',
   // Memory is saved as the user chats, without being asked (ADR-0025): the tool must be in hand.
   'save_memory',
   'forget_memory',
@@ -52,11 +42,8 @@ export const DECLARED_EVERY_TURN: readonly string[] = [
 export interface ToolContext {
   userId?: string;
   projectId: string | null;
-  activeGoalId?: string | null;
   /** Per-turn authorization. Infrastructure availability alone never exposes code execution. */
   allowPython?: boolean;
-  /** Exposes generate_deliverable tool for document, spreadsheet, slide, and PDF requests */
-  allowDeliverable?: boolean;
 }
 
 export interface ToolRegistry {
@@ -70,9 +57,6 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly enabled: boolean,
     /** Arbitrary code execution gate. Decoupled from projectId requirement per Phase 5. */
     private readonly runPythonEnabled: boolean = false,
-    /** Item 10 agent loop gate — exposes goal bookkeeping tools (get_goal, update_goal,
-     *  get_context_remaining) when an active goal exists. */
-    private readonly agentLoopEnabled: boolean = false,
     /** Item 11 skills gate — exposes skill discovery and lazy-loading tools (list_skills,
      *  search_skills, read_skill). */
     private readonly skillsEnabled: boolean = false,
@@ -83,10 +67,6 @@ export class ProjectToolRegistry implements ToolRegistry {
     private readonly memoryEnabled: boolean = false,
     /** Phase 6 Generative UI gate — exposes render_ui tool across all chats. */
     private readonly generativeUiEnabled: boolean = false,
-    /** Modern Gemini Image gate — exposes generate_image across all chats. */
-    private readonly imageEnabled: boolean = false,
-    /** Phase 3 table extraction: trusted CLI + skill scripts + a vision provider all present. */
-    private readonly tableExtractionEnabled: boolean = false,
     /** run_python as the configured engine runs it (RUN_PYTHON_WARM on the warm service), so
      *  the description matches what the sandbox actually keeps between calls. */
     private readonly runPythonDefinition: ToolDefinition = RUN_PYTHON,
@@ -94,17 +74,13 @@ export class ProjectToolRegistry implements ToolRegistry {
 
   /**
    * Returns the small initial core tool set sent in Round 0 of provider requests.
-   * Only search_tools (plus load_skill if skills enabled; plus goal tools if in AgentLoop with active goal).
-   * Heavy tools (run_python, generate_deliverable, web_search, read_uploaded_file, etc.) are NOT included.
+   * search_tools, load_skill when skills are enabled, and the tools in DECLARED_EVERY_TURN.
    */
   getInitialTools(context: ToolContext): ToolDefinition[] {
     if (!this.enabled) return [];
     const tools: ToolDefinition[] = [...DISCOVERY_TOOL_DEFINITIONS];
     if (this.skillsEnabled) {
       tools.push(LOAD_SKILL);
-    }
-    if (this.agentLoopEnabled && context.activeGoalId) {
-      tools.push(...GOAL_TOOL_DEFINITIONS);
     }
     tools.push(...this.getAvailableTools(context).filter((t) => DECLARED_EVERY_TURN.includes(t.name)));
     return tools;
@@ -116,7 +92,7 @@ export class ProjectToolRegistry implements ToolRegistry {
    */
   getPolicyCatalog(context: ToolContext, allowedToolNames?: string[]): ToolDefinition[] {
     if (!this.enabled) return [];
-    const available = [...this.getAvailableTools(context), ...FILE_OPERATION_TOOL_DEFINITIONS];
+    const available = this.getAvailableTools(context);
     if (allowedToolNames) {
       return available.filter((t) => allowedToolNames.includes(t.name));
     }
@@ -126,25 +102,11 @@ export class ProjectToolRegistry implements ToolRegistry {
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
     if (this.enabled) {
-      tools.push(NEXT_ACTIONS);
       // Artifact tools (create, read, update) are available across all chats when tool use is on.
       tools.push(...ARTIFACT_TOOL_DEFINITIONS);
 
       // Question options tool across all chats when tool use is on (ADR-0034).
       tools.push(...QUESTION_TOOL_DEFINITIONS);
-
-      // Upload file reading is available across all chats when tool use is on.
-      tools.push(...UPLOAD_TOOL_DEFINITIONS);
-
-      // Deliverable generation (Mode A markdown or Mode B source extraction for XLSX/DOCX/PPTX/PDF)
-      if (context.allowDeliverable === true) {
-        tools.push(GENERATE_DELIVERABLE);
-      }
-
-      // Image generation via Gemini Image hierarchy
-      if (this.imageEnabled) {
-        tools.push(...IMAGE_TOOL_DEFINITIONS);
-      }
 
       // Persistent memory tools are available across all chats when memory is enabled
       if (this.memoryEnabled) {
@@ -167,17 +129,10 @@ export class ProjectToolRegistry implements ToolRegistry {
         tools.push(this.runPythonDefinition);
       }
 
-      if (this.tableExtractionEnabled) {
-        tools.push(...TABLE_EXTRACTION_TOOL_DEFINITIONS);
-      }
-
       // Project knowledge tools require an active project
       if (context.projectId !== null) {
         tools.push(...PROJECT_TOOL_DEFINITIONS);
       }
-    }
-    if (this.agentLoopEnabled && context.activeGoalId) {
-      tools.push(...GOAL_TOOL_DEFINITIONS);
     }
     if (this.skillsEnabled) {
       tools.push(...SKILL_TOOL_DEFINITIONS);

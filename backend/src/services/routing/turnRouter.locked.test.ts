@@ -16,7 +16,6 @@ const candidateSkills = [
 // The prompt is kept in these cases as documentation of the request; the router never sees it.
 function withPdf(_prompt: string, overrides: Partial<RouteTurnInput> = {}): RouteTurnInput {
   return {
-    hasAttachments: true,
     candidateSkills,
     hasProject: false,
     runPythonEnabled: true,

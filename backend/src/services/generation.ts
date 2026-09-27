@@ -16,7 +16,6 @@
 import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
-import { nextActionsExecutor } from '../tools/nextActions.js';
 import { AnswerProtocolGuard } from './answerProtocolGuard.js';
 import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 
@@ -65,22 +64,16 @@ import {
   totalTokens,
   withoutImageBytes,
 } from '../providers/types.js';
-import { AgentLoop } from './agentLoop.js';
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
-import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
-import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
-import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
-import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
 import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
-import { UploadToolExecutor } from '../tools/uploadExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
@@ -104,7 +97,6 @@ import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
-import { TableExtractionToolExecutor, tableExtractionAvailable } from '../tools/tableExtractionExecutor.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -311,7 +303,6 @@ const PROJECT_EXCERPTS_WITHOUT_TOOLS = 8;
 const PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS = 12_000;
 
 export class GenerationService {
-  private readonly agentLoop: AgentLoop;
   private readonly capabilities: CapabilityRegistry;
   private readonly executionRuntime: ExecutionRuntime;
 
@@ -325,7 +316,6 @@ export class GenerationService {
     /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured — run_python
      *  is simply never in the available-tools list in that case (see the wiring in `run()`). */
     private readonly sandboxClient?: SandboxClient,
-    agentLoop?: AgentLoop,
     private readonly skills?: SkillService,
     capabilities?: CapabilityRegistry,
     executionRuntime?: ExecutionRuntime,
@@ -336,13 +326,6 @@ export class GenerationService {
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
-    this.agentLoop =
-      agentLoop ??
-      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime, visionProvider);
-  }
-
-  private tableExtractionEnabled(): boolean {
-    return tableExtractionAvailable(this.cfg.ENABLE_TOOL_USE, this.executionRuntime, this.visionProvider, this.skills);
   }
 
   /**
@@ -529,19 +512,13 @@ export class GenerationService {
     }
 
     // --- Skill-First -> Tool-Second Routing --------------------------------
-    // G6: a file attached on an earlier turn is still available on this one.
-    const historyAttachments = history.flatMap((t) => t.attachments ?? []);
-
     const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
     const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
     const routingDecision = routeTurn({
-      hasAttachments: input.hasAttachments || historyAttachments.length > 0,
       candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
-      imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
       runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
       generativeUiEnabled: Boolean(this.cfg.ENABLE_GENERATIVE_UI),
-      tableExtractionEnabled: this.tableExtractionEnabled(),
       webEnabled: Boolean(this.cfg.ENABLE_WEB),
       memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
     });
@@ -609,27 +586,21 @@ export class GenerationService {
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
-    const imageEnabled = Boolean(this.cfg.ENABLE_IMAGE_GENERATION);
     const toolRegistry = new ProjectToolRegistry(
       this.cfg.ENABLE_TOOL_USE,
       runPythonEnabled,
-      false,
       skillsEnabled,
       webEnabled,
       memoryEnabled,
       generativeUiEnabled,
-      imageEnabled,
-      this.tableExtractionEnabled(),
       usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
     );
     // ADR-0006: permission alone decides.
     const allowPython = routingDecision.allowedTools.includes('run_python');
-    const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
     const toolContext = {
       userId: input.userId,
       projectId: project?.id ?? null,
       allowPython,
-      allowDeliverable,
     };
     // Policy-approved tool catalog for deferred tool discovery
     const policyCatalog = (
@@ -652,9 +623,6 @@ export class GenerationService {
       skillsContext = undefined;
     }
 
-    // The AgentLoop is chosen by the user's mode, never by the prompt's wording (ADR-0032).
-    const isAgentMode = Boolean(this.cfg.ENABLE_AGENT_LOOP) && input.mode === 'research';
-
     // --- assemble context -------------------------------------------------
     timing.mark('skills_tools');
     const { systemInstruction, contextEvents, promptAssembly } = await this.buildSystemInstruction(
@@ -663,7 +631,6 @@ export class GenerationService {
       project,
       availableTools,
       skillsContext,
-      isAgentMode,
       policyCatalog.map((t) => t.name),
       grounded,
     );
@@ -698,65 +665,6 @@ export class GenerationService {
       });
     };
 
-    // --- AgentLoop: Research mode only ------------------------------------
-    if (isAgentMode) {
-      const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
-        entry.alias,
-        await this.hydrateAttachmentBytes(input.attachments),
-        await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
-        releaseReservation,
-      );
-
-      const allAttachmentsMap = new Map<string, AttachmentBlock>();
-      for (const h of wireHistory) {
-        if (h.attachments) {
-          for (const att of h.attachments) {
-            if (att.id) allAttachmentsMap.set(att.id, att);
-          }
-        }
-      }
-      for (const att of wireAttachments) {
-        if (att.id) allAttachmentsMap.set(att.id, att);
-      }
-
-      const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
-      const agentSandbox =
-        routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-      const agentWire = readOfficeFilesWithCode(
-        agentSandbox && sandboxReadsOfficeFiles(this.cfg),
-        wireAttachments,
-        wireHistory,
-      );
-      const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
-        sandbox: agentSandbox,
-        loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
-      });
-
-      const promptWithManifest = attachmentManifestBlock
-        ? `${attachmentManifestBlock}\n\n${input.prompt}`
-        : input.prompt;
-
-      yield* this.agentLoop.stream(
-        { ...input, prompt: promptWithManifest, attachments: agentWire.current, chatFiles },
-        {
-          entry,
-          provider,
-          maxOutputTokens,
-          ...(reasoningEffort ? { reasoningEffort } : {}),
-          prefs,
-          project: project ? { id: project.id, instructions: project.instructions } : null,
-          history: agentWire.history,
-          systemInstruction,
-          startedAt,
-          releaseReservation,
-          grounded,
-          codeExecution,
-          workspace,
-        },
-      );
-      return;
-    }
-
     const projectToolExecutor =
       availableTools.length > 0 && project !== null && this.cfg.ENABLE_TOOL_USE
         ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
@@ -788,10 +696,6 @@ export class GenerationService {
             });
           },
         )
-      : undefined;
-
-    const uploadToolExecutor = this.cfg.ENABLE_TOOL_USE
-      ? new UploadToolExecutor(this.db, this.storage, input.userId)
       : undefined;
 
     const webSearchAdapter = buildWebSearchAdapter(this.cfg);
@@ -826,8 +730,6 @@ export class GenerationService {
     if (this.cfg.ENABLE_TOOL_USE) {
       toolMap.set('ask_user_options', new AskUserOptionsExecutor());
     }
-    let proposedActions: string[] = [];
-    toolMap.set('suggest_next_actions', nextActionsExecutor((actions) => { proposedActions = actions; }));
     if (uiToolExecutor) {
       toolMap.set('render_ui', uiToolExecutor);
     }
@@ -835,9 +737,6 @@ export class GenerationService {
       toolMap.set('create_artifact', artifactToolExecutor);
       toolMap.set('read_artifact', artifactToolExecutor);
       toolMap.set('update_artifact', artifactToolExecutor);
-    }
-    if (uploadToolExecutor) {
-      toolMap.set('read_uploaded_file', uploadToolExecutor);
     }
     if (webToolExecutor) {
       toolMap.set('web_search', webToolExecutor);
@@ -868,72 +767,13 @@ export class GenerationService {
       });
       toolMap.set('run_python', codeExecutor);
     }
-    if (routingDecision.allowedTools.includes('extract_scanned_table_rows')) {
-      const tableExecutor = new TableExtractionToolExecutor(
-        {
-          runtime: this.executionRuntime,
-          workspace,
-          visionProvider: this.visionProvider!,
-          skills: this.skills!,
-          storage: this.storage,
-          db: this.db,
-          userId: input.userId,
-        },
-        this.cfg.TABLE_EXTRACTION_MAX_PAGES,
-      );
-      toolMap.set('extract_scanned_table_rows', tableExecutor);
-      toolMap.set('analyze_table_rows', tableExecutor);
-    }
     if (skillToolExecutor) {
       toolMap.set('load_skill', skillToolExecutor);
       toolMap.set('list_skills', skillToolExecutor);
       toolMap.set('search_skills', skillToolExecutor);
       toolMap.set('read_skill', skillToolExecutor);
     }
-    if (imageEnabled) {
-      toolMap.set(
-        'generate_image',
-        new ImageGenerationExecutor(
-          this.cfg,
-          this.storage,
-          this.db,
-          input.userId,
-          input.chatId,
-          input.messageId,
-        ),
-      );
-    }
-    if (this.cfg.ENABLE_TOOL_USE && allowDeliverable) {
-      toolMap.set(
-        'generate_deliverable',
-        new DeliverableToolExecutor(
-          this.storage,
-          this.db,
-          input.userId,
-          input.chatId,
-          input.messageId,
-          undefined,
-          this.executionRuntime,
-          workspace,
-        ),
-      );
-    }
-
     if (this.cfg.ENABLE_TOOL_USE) {
-      const fileOperationExecutor = new FileOperationExecutor({
-        db: this.db,
-        visionProvider: this.visionProvider,
-        storage: this.storage,
-        executionRuntime: this.executionRuntime,
-        userId: input.userId,
-        chatId: input.chatId,
-        messageId: input.messageId,
-        workspace,
-      });
-      for (const def of FILE_OPERATION_TOOL_DEFINITIONS) {
-        toolMap.set(def.name, fileOperationExecutor);
-      }
-
       const searchToolsExecutor = new SearchToolsExecutor(policyCatalog, (discoveredTool) => {
         if (!availableTools.some((t) => t.name === discoveredTool.name)) {
           availableTools.push(discoveredTool);
@@ -1278,7 +1118,7 @@ export class GenerationService {
       }
     }
 
-    const questions = status === 'complete' ? proposedActions : [];
+    const questions: string[] = [];
 
     await this.finalise(input, {
       text,
@@ -2020,7 +1860,6 @@ export class GenerationService {
     project: { id: string; title: string; instructions: string } | null,
     availableTools: ToolDefinition[] = [],
     skillsContext?: string,
-    isAgentMode: boolean = false,
     /** Every tool allowed this turn, declared or discoverable; tool policies key on these. */
     allowedToolNames?: string[],
     /** The model's own web search is on this turn (Gemini grounding, the Anthropic adapter's web_search). */
@@ -2138,7 +1977,7 @@ export class GenerationService {
     // 7. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
       currentDate: currentDateLine(new Date(), prefs.timezone),
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       styleInstructions,

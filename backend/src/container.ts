@@ -15,7 +15,6 @@ import { ModelRegistry } from './providers/registry.js';
 import type { Provider } from './providers/types.js';
 import { buildCapabilityRegistry } from './capabilities/factory.js';
 import type { CapabilityRegistry } from './capabilities/registry.js';
-import { AgentLoop } from './services/agentLoop.js';
 import { AuthService } from './services/auth.js';
 import { GenerationService } from './services/generation.js';
 import type { Retriever } from './services/retrieval.js';
@@ -49,7 +48,6 @@ export interface Services {
   auth: AuthService;
   usage: UsageService;
   generation: GenerationService;
-  agentLoop: AgentLoop;
   skills: SkillService;
   storage: ObjectStorage;
   retriever: Retriever;
@@ -219,18 +217,6 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR, capabilities);
   void skills.load();
 
-  const agentLoop = new AgentLoop(
-    db,
-    cfg,
-    registry,
-    usage,
-    retriever,
-    storage,
-    sandboxClient,
-    skills,
-    executionRuntime,
-    providers.google,
-  );
   const generation = new GenerationService(
     db,
     cfg,
@@ -239,7 +225,6 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     retriever,
     storage,
     sandboxClient,
-    agentLoop,
     skills,
     capabilities,
     executionRuntime,
@@ -255,7 +240,6 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     auth: new AuthService(db, cfg),
     usage,
     generation,
-    agentLoop,
     skills,
     storage,
     retriever,

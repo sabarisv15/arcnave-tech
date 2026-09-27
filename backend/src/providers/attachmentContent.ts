@@ -80,14 +80,13 @@ export function asReadWithCode(a: AttachmentBlock): AttachmentBlock {
 /** The note sent in place of an attachment whose content is not in this request. */
 export function unavailableAttachmentNote(a: AttachmentBlock): string {
   const reach = a.id
-    ? ` It is still stored: call read_uploaded_file, or pass fileId "${a.id}" to a tool that takes files.`
+    ? ` It is still stored: open it in run_python from input/, or pass fileId "${a.id}" to a tool that takes files.`
     : '';
   switch (a.omittedReason) {
     case 'read_with_code':
       return (
         `[Attachment ${describe(a)} is read from its file, not shown here as text. Open it in ` +
-        `run_python from input/ (its path is in the file list), or call read_uploaded_file` +
-        `${a.id ? ` with fileId "${a.id}"` : ''}.]`
+        `run_python from input/ (its path is in the file list).]`
       );
     case 'history_budget':
       return (

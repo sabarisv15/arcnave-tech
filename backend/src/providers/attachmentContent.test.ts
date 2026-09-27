@@ -64,7 +64,7 @@ describe.each([
     it(`${label}: names the fileId and sends no empty or binary content`, () => {
       const out = wire(att);
       expect(out).toContain(FILE_ID);
-      expect(out).toContain('read_uploaded_file');
+      expect(out).toContain('run_python');
       expect(out).not.toContain('"data":""');
       expect(out).not.toContain('Empty or unreadable');
       expect(out).not.toContain(ZIP_BYTES);

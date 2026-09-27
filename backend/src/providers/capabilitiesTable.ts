@@ -22,7 +22,6 @@ export interface ModelCapabilitySpec {
   /** Native PDF document blocks supported. */
   supportsNativePdf: boolean;
   /** Native image generation capability (e.g. via dedicated image model / tool). */
-  supportsImageGeneration: boolean;
   /** Maximum input tokens supported by the provider endpoint. */
   maxInputTokens?: number;
   /** Maximum output tokens supported by the provider endpoint. */
@@ -60,7 +59,6 @@ const CLAUDE_SONNET_5_SPEC: ModelCapabilitySpec = {
   supportsNativeVideoFrames: false,
   supportsNativeAudio: false,
   supportsNativePdf: true,
-  supportsImageGeneration: true, // routed via generate_image tool
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
@@ -77,7 +75,6 @@ const CLAUDE_OPUS_5_SPEC: ModelCapabilitySpec = {
   supportsNativeVideoFrames: false,
   supportsNativeAudio: false,
   supportsNativePdf: true,
-  supportsImageGeneration: true,
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
@@ -94,7 +91,6 @@ const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
   supportsNativeVideoFrames: true,
   supportsNativeAudio: true,
   supportsNativePdf: true,
-  supportsImageGeneration: true,
   maxInputTokens: 1_048_576,
   maxOutputTokens: 65_536,
   // thinkingLevel LOW, MEDIUM (default), HIGH; MINIMAL is refused on 3.8 Flash (Google's 3.8 Flash guide).
@@ -115,7 +111,6 @@ const GPT_OSS_120B_SPEC: ModelCapabilitySpec = {
   supportsNativeVideoFrames: false,
   supportsNativeAudio: false,
   supportsNativePdf: false,
-  supportsImageGeneration: true,
   maxInputTokens: 128_000,
   maxOutputTokens: 8_192,
   reasoningEfforts: [],
@@ -157,7 +152,6 @@ export function getModelCapability(aliasOrModelId: string): ModelCapabilitySpec 
     supportsNativeVideoFrames: false,
     supportsNativeAudio: false,
     supportsNativePdf: false,
-    supportsImageGeneration: false,
     maxInputTokens: 128_000,
     maxOutputTokens: 4_096,
     reasoningEfforts: [],

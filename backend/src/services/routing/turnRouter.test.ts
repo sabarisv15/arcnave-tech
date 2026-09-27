@@ -14,7 +14,7 @@ const core = (d: { allowedTools: string[] }, discovery = ['search_tools', 'load_
   ...DECLARED_EVERY_TURN.filter((n) => d.allowedTools.includes(n)),
 ];
 
-const base: RouteTurnInput = { hasAttachments: false, candidateSkills, hasProject: false };
+const base: RouteTurnInput = { candidateSkills, hasProject: false };
 
 describe('routeTurn: flags and infrastructure decide, never wording (ADR-0006, ADR-0032)', () => {
   it('takes no prompt at all, so wording cannot change a decision', () => {
@@ -32,28 +32,22 @@ describe('routeTurn: flags and infrastructure decide, never wording (ADR-0006, A
   it('adds each capability only when its flag is on', () => {
     const on = routeTurn({
       ...base,
-      hasAttachments: true,
       hasProject: true,
-      imageEnabled: true,
       runPythonEnabled: true,
       webEnabled: true,
       memoryEnabled: true,
     });
-    for (const tool of ['generate_image', 'run_python', 'web_search', 'save_memory', 'search_project_files', 'read_uploaded_file']) {
+    for (const tool of ['run_python', 'web_search', 'save_memory', 'search_project_files']) {
       expect(on.allowedTools).toContain(tool);
     }
     const off = routeTurn({ ...base, candidateSkills: [] });
-    for (const tool of ['generate_image', 'run_python', 'web_search', 'save_memory', 'search_project_files', 'read_uploaded_file', 'load_skill']) {
+    for (const tool of ['run_python', 'web_search', 'save_memory', 'search_project_files', 'load_skill']) {
       expect(off.allowedTools).not.toContain(tool);
     }
     expect(off.exposedTools).toEqual(core(off, ['search_tools']));
   });
 
-  it('always allows deliverables, as Claude always has file creation when it is on', () => {
-    expect(routeTurn(base).allowedTools).toContain('generate_deliverable');
-  });
-
   it('preselects no skill: the model loads what it needs', () => {
-    expect(routeTurn({ ...base, hasAttachments: true }).selectedSkills).toEqual([]);
+    expect(routeTurn(base).selectedSkills).toEqual([]);
   });
 });

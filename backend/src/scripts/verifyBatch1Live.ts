@@ -163,19 +163,15 @@ async function runLiveTest(options: {
   const toolRegistry = new ProjectToolRegistry(
     true, // enabled
     true, // runPythonEnabled
-    isAgent, // agentLoopEnabled
     false, // skillsEnabled
     true, // webEnabled
     false, // memoryEnabled
     false, // generativeUiEnabled
-    false, // imageEnabled
   );
 
   const toolContext = {
     projectId: null,
-    activeGoalId: isAgent ? 'goal-live-test' : null,
     allowPython: options.targetCapability === 'python',
-    allowDeliverable: true,
   };
 
   // Round 0 initial tools (small core set)
@@ -277,7 +273,7 @@ async function runLiveTest(options: {
   };
 
   const caps = buildCapabilityRegistry(cfg);
-  const systemInstruction = buildDynamicRuntimeContext(cfg, caps, isAgent);
+  const systemInstruction = buildDynamicRuntimeContext(cfg, caps);
 
   const request: GenerationRequest = {
     mode: 'chat',

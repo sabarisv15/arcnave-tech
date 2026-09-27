@@ -14,14 +14,10 @@ import { DECLARED_EVERY_TURN } from '../../tools/registry.js';
 
 /** Flags and infrastructure only. The prompt is deliberately not an input: wording decides nothing. */
 export interface RouteTurnInput {
-  hasAttachments: boolean;
   candidateSkills: Array<{ name: string; description: string }>;
   hasProject: boolean;
-  imageEnabled?: boolean;
   runPythonEnabled?: boolean;
   generativeUiEnabled?: boolean;
-  /** Trusted CLI, skill scripts and a vision provider are all available (Phase 3). */
-  tableExtractionEnabled?: boolean;
   webEnabled?: boolean;
   memoryEnabled?: boolean;
 }
@@ -46,17 +42,13 @@ export interface RuntimeDebugTrace {
  * Computes the complete policy-approved tool catalog authorized for this turn.
  */
 function computeAllowedTools(input: RouteTurnInput): string[] {
-  const allowed = new Set<string>(['search_tools', 'suggest_next_actions']);
+  const allowed = new Set<string>(['search_tools']);
 
   if (input.candidateSkills.length > 0) {
     allowed.add('load_skill');
     allowed.add('list_skills');
     allowed.add('search_skills');
     allowed.add('read_skill');
-  }
-
-  if (input.imageEnabled) {
-    allowed.add('generate_image');
   }
 
   if (input.webEnabled) {
@@ -78,31 +70,10 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
     allowed.add('read_project_file');
   }
 
-  // Deliverable creation tools
-  allowed.add('generate_deliverable');
   allowed.add('create_artifact');
   allowed.add('read_artifact');
   allowed.add('update_artifact');
   allowed.add('ask_user_options');
-
-  // File operations (inspection & manipulation for PDF, XLSX, DOCX, PPTX)
-  allowed.add('inspectPdf');
-  allowed.add('mergePdfFiles');
-  allowed.add('splitPdfFile');
-  allowed.add('inspectSpreadsheet');
-  allowed.add('editSpreadsheetCells');
-  allowed.add('combineWorkbooks');
-  allowed.add('inspectDocxStructure');
-  allowed.add('editDocxContent');
-  allowed.add('appendDocxSection');
-  allowed.add('inspectPptxStructure');
-  allowed.add('reorderPptxSlides');
-  allowed.add('editPptxSlideText');
-
-  // File reading if attachments present
-  if (input.hasAttachments) {
-    allowed.add('read_uploaded_file');
-  }
 
   // Permission and infrastructure only (ENABLE_RUN_PYTHON + a sandbox client), never wording.
   if (input.runPythonEnabled) {
@@ -111,11 +82,6 @@ function computeAllowedTools(input: RouteTurnInput): string[] {
 
   if (input.generativeUiEnabled) {
     allowed.add('render_ui');
-  }
-
-  if (input.tableExtractionEnabled) {
-    allowed.add('extract_scanned_table_rows');
-    allowed.add('analyze_table_rows');
   }
 
   return Array.from(allowed);

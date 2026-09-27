@@ -5,6 +5,7 @@
 - Amends: [ADR-0018](0018-skills-follow-claude.md) (one pdf skill for reading and building)
 - See also: `mistakes.md` 2026-09-26 "Scaffolding built for a weaker model made a strong one
   over-work"
+- Decision 3's scanned-page routing superseded by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): pages in view are read from the view and checked in code; `extract_scanned_table_rows` is removed.
 
 ## Context
 

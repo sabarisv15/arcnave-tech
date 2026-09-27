@@ -1,6 +1,6 @@
 /**
  * Phase 2 of the tools pipeline plan: attachments keep one identity (G26) and reach the sandbox
- * by fileId, on the chat path and the AgentLoop path, for this turn's files and earlier ones.
+ * by fileId, for this turn's files and earlier ones.
  *
  * The provider is faked; its `onRequest` hook calls the real `toolExecutor` from the request,
  * which is exactly what a provider adapter does when the model emits a `run_python` call. The
@@ -22,7 +22,6 @@ beforeAll(async () => {
     ENABLE_TOOL_USE: 'true',
     ENABLE_RUN_PYTHON: 'true',
     SANDBOX_ENGINE: 'process',
-    ENABLE_AGENT_LOOP: 'true',
   });
   user = await signUp(ctx);
   other = await signUp(ctx, 'Other');
@@ -179,41 +178,5 @@ describe('G26: attachments reach the sandbox by fileId', () => {
     const result = run.result();
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result.content)).toContain('was not found, or you do not have access to it');
-  });
-
-  it('AgentLoop path: an attachment is materialised the same way', async () => {
-    const fileId = await upload(user, 'agent.csv', 'agent-row');
-    const chatId = await newChat();
-    const run = runPythonOnce({ code: readAll(['input/agent.csv']), input_files: [fileId] });
-    // Research mode routes to AgentLoop. "python" is in the prompt because AgentLoop still
-    // gates run_python on wording until Phase 4 (G4).
-    await generate(chatId, { prompt: 'Use python to read this file', mode: 'research', attachmentIds: [fileId] });
-
-    const result = run.result();
-    expect(result.ok).toBe(true);
-    expect(data(result).stdout).toContain('agent-row');
-    // Goal tools are only declared by AgentLoop, so this proves which path served the turn.
-    expect(run.toolNames()).toContain('get_goal');
-  });
-});
-
-describe('G6: earlier-turn attachments count as available', () => {
-  const findReader = () => runToolOnce('search_tools', { query: 'read uploaded file attachment' });
-
-  it('turn 2 without a new upload can still discover read_uploaded_file', async () => {
-    const fileId = await upload(user, 'notes.csv', 'a,b');
-    const chatId = await newChat();
-    await generate(chatId, { prompt: 'Here is a file', attachmentIds: [fileId] });
-
-    const search = findReader();
-    await generate(chatId, { prompt: 'Now use that file' });
-    expect(JSON.stringify(search.result().content)).toContain('read_uploaded_file');
-  });
-
-  it('a chat that never had an attachment does not offer it', async () => {
-    const chatId = await newChat();
-    const search = findReader();
-    await generate(chatId, { prompt: 'Hello there' });
-    expect(JSON.stringify(search.result().content)).not.toContain('read_uploaded_file');
   });
 });

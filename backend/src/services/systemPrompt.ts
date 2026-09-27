@@ -73,11 +73,11 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
 
   `<professional_deliverables>\n\n` +
     `Create a file when the user asks for one or for a conversion into a format. A request for a file ("give me a JSON file", "export this", "as Excel") is answered with a file the user can download, in the format asked for, not with its contents pasted into chat. Use the tool listed for that format under "Files for the user" in the capabilities section; if none produces it, say so. In chat, give a concise cover note: what the file holds and anything material about it.\n\n` +
-    `To convert an uploaded file (e.g. "convert this PDF into Excel"), read it first, apply what the user asked, then build the file from what you read: for XLSX pass typed rows as "workbook" to generate_deliverable; for DOCX, PPTX and PDF pass the content. generate_deliverable does not read a PDF, image or Office file by itself: "sourceAttachmentId" only copies a text or CSV file's text as it is.\n\n` +
-    `For substantial file work, load the relevant skill first. Then build the file with generate_deliverable (or create_artifact when an editable in-app artifact is asked for), read the verification report in its result, and when it shows a problem fix the content and build again. The file counts as done only when that report passes.\n\n` +
+    `To convert an uploaded file (e.g. "convert this PDF into Excel"), read it first, apply what the user asked, then build the file from what you read.\n\n` +
+    `Before creating a file or writing code for one, load the skill for its format. Build the file with code, open the result to check it, and fix and build again when it is wrong.\n\n` +
     `Use each format's own structure:\n` +
     `- DOCX: heading hierarchy, paragraphs, lists, tables, links, images, headers and footers, page numbers, sections.\n` +
-    `- XLSX: Use spreadsheet semantics such as: sheets, typed cells, numbers, dates, currencies, formulas, tables, frozen header rows and useful column widths. Charts are not drawn by generate_deliverable (see the python section when it is available). Do not flatten spreadsheet logic into decorative text.\n` +
+    `- XLSX: Use spreadsheet semantics such as: sheets, typed cells, numbers, dates, currencies, formulas, tables, frozen header rows and useful column widths. Do not flatten spreadsheet logic into decorative text.\n` +
     `- PPTX: Use presentation semantics such as: one idea per slide with a takeaway title, readable typography, tables, cards and images, continuation slides instead of shrunken text, and speaker notes when useful.\n` +
     `- PDF: Unicode text, images, links, page breaks, tables with repeated headers across pages, headers, footers and page numbers.\n\n` +
     `</professional_deliverables>`,
@@ -106,17 +106,13 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
 ].join('\n\n');
 
 // Guidance for a tool goes in only when the turn allows that tool.
-const UPLOADED_FILES_GUIDANCE =
+const uploadedFilesGuidance = (pythonOn: boolean): string =>
   `## Uploaded files\n\n` +
     `When runtime context contains an attachment manifest, use it to understand the available files.\n\n` +
-    `Use read_uploaded_file when:\n` +
-    `- the source is large,\n` +
-    `- only part of the source is in context,\n` +
-    `- exact content needs checking,\n` +
-    `- specific pages or ranges matter,\n` +
-    `- or source fidelity matters.\n\n` +
-    `Do not make claims about unseen sections of a file.\n\n` +
-    `Continue reading additional pages or ranges when needed to complete the task.\n\n`;
+    `Some attachments are already in your context: a PDF as the text and an image of each page, images, and plain-text files. You can see them; for these, decide whether code is actually needed.` +
+    (pythonOn ? ` Other files are read with run_python from the path on their manifest line.` : '') +
+    `\n\n` +
+    `Do not make claims about unseen sections of a file.\n\n`;
 
 const PROJECT_FILES_GUIDANCE =
   `## Project files\n\n` +
@@ -131,7 +127,6 @@ const PROJECT_FILES_GUIDANCE =
 // Research guidance names web search, so it goes in only when the web tools are available.
 const RESEARCH_GUIDANCE =
   `<research>\n\n` +
-    `For substantial multi-source research, use the research-deep-dive skill.\n\n` +
     `Research should be iterative rather than one-shot.\n\n` +
     `A good research workflow is:\n\n` +
     `understand the question\n` +
@@ -183,7 +178,6 @@ export function currentDateLine(now: Date, timeZone: string): string {
 export function buildDynamicRuntimeContext(
   cfg: Config,
   capabilities: CapabilityRegistry,
-  isAgentMode: boolean = false,
   /** Every tool allowed this turn. When given, guidance for any other tool is left out. */
   allowedToolNames?: Iterable<string>,
   /** The model's built-in web search is declared this turn; it decides when to search. */
@@ -198,7 +192,6 @@ export function buildDynamicRuntimeContext(
   const webSearchOn = builtInWebSearch || webSearchToolOn;
   const webFetchOn = capabilities.isAvailable('web.fetch') && allows('web_fetch');
   const projectOn = capabilities.isAvailable('project.search') && allows('search_project_files');
-  const uploadsOn = capabilities.isAvailable('file.read.uploaded') && allows('read_uploaded_file');
 
   // ArcNave Capabilities (Truthfully reflecting runtime capability registry)
   const capabilityLines: string[] = [
@@ -210,10 +203,8 @@ export function buildDynamicRuntimeContext(
 
   if (cfg.ENABLE_TOOL_USE) {
     const discoverableExamples = [
-      ...(pythonOn ? ['computation (run_python)'] : []),
-      'deliverables (generate_deliverable)',
+      ...(pythonOn ? ['computation and files (run_python)'] : []),
       'artifacts',
-      'and file operations',
     ];
     const discoverableWeb = [...(webSearchToolOn && !builtInWebSearch ? ['web_search'] : []), ...(webFetchOn ? ['web_fetch'] : [])];
     if (discoverableWeb.length > 0) {
@@ -229,8 +220,7 @@ export function buildDynamicRuntimeContext(
           ...DECLARED_EVERY_TURN.filter(
             (name) =>
               allows(name) &&
-              (name !== 'run_python' || pythonOn) &&
-              (name !== 'read_uploaded_file' || uploadsOn),
+              (name !== 'run_python' || pythonOn),
           ),
         ]).join(', ') +
         ' (the tool declarations you receive are the list). ' +
@@ -241,10 +231,6 @@ export function buildDynamicRuntimeContext(
 
   if (projectOn) {
     capabilityLines.push('Project knowledge:\n- search_project_files\n- read_project_file\n');
-  }
-
-  if (uploadsOn) {
-    capabilityLines.push('Uploaded files:\n- read_uploaded_file\n');
   }
 
   if (webSearchOn || webFetchOn) {
@@ -267,21 +253,14 @@ export function buildDynamicRuntimeContext(
     capabilityLines.push('Skills:\n- load_skill\n- list_skills\n- search_skills\n- read_skill\n');
   }
 
-  if (isAgentMode && capabilities.isAvailable('agent.goal')) {
-    capabilityLines.push(
-      'Agent goal/context tools:\n- get_goal\n- update_goal\n- get_context_remaining\n' +
-        'When an active goal exists, treat its objective as persistent across tool calls and turns. Use get_goal when the goal state matters, update_goal only according to its schema, and get_context_remaining when exact remaining context matters; if it is unavailable, treat remaining context as unknown.\n',
-    );
-  }
-
   if (cfg.ENABLE_TOOL_USE) {
     capabilityLines.push(
       pythonOn
-        ? 'Files for the user:\n- DOCX, XLSX, PPTX, PDF: generate_deliverable (builds and verifies the format)\n' +
+        ? 'Files for the user:\n' +
             (usesWarmSandbox(cfg)
-              ? '- any other format (JSON, CSV, XML, TXT, Markdown, HTML, ZIP, images): run_python, writing the file to "output/"; every file written there is returned to the user as a download\n'
-              : '- any other format (JSON, CSV, XML, TXT, Markdown, HTML, ZIP, images): run_python, writing the file to "output/" and naming it in "expected_outputs"; only the files named there are returned to the user as downloads\n')
-        : 'Files for the user:\n- DOCX, XLSX, PPTX, PDF: generate_deliverable (builds and verifies the format)\n- no other format can be produced as a file here\n',
+              ? '- any format (DOCX, XLSX, PPTX, PDF, CSV, JSON, images and so on): run_python, writing the file to "output/"; every file written there is returned to the user as a download\n'
+              : '- any format (DOCX, XLSX, PPTX, PDF, CSV, JSON, images and so on): run_python, writing the file to "output/" and naming it in "expected_outputs"; only the files named there are returned to the user as downloads\n')
+        : 'Files for the user:\n- no file can be produced as a download here\n',
     );
   }
 
@@ -318,10 +297,10 @@ export function buildDynamicRuntimeContext(
     );
   }
 
-  if (uploadsOn || projectOn) {
+  if (cfg.ENABLE_TOOL_USE || projectOn) {
     sections.push(
       '<files>\n\n' +
-        (uploadsOn ? UPLOADED_FILES_GUIDANCE : '') +
+        (cfg.ENABLE_TOOL_USE ? uploadedFilesGuidance(pythonOn) : '') +
         (projectOn ? PROJECT_FILES_GUIDANCE : '') +
         '</files>',
     );
@@ -410,9 +389,8 @@ export function buildDynamicRuntimeContext(
         `Inspect generated results before reporting them.\n\n` +
         `Successful code execution does not automatically prove the result is correct.\n\n` +
         `Check important outputs when practical.\n\n` +
-        `Use data-analysis and dataviz skills for substantial analytical work.\n\n` +
         `To read a long table out of an uploaded file, use run_python on the file in "input/" rather than reading it page by page.\n\n` +
-        `For an Excel file with a chart, build the workbook with openpyxl (openpyxl.chart) in run_python and save it to "output/": generate_deliverable draws no charts.\n\n` +
+        `For an Excel file with a chart, build the workbook with openpyxl (openpyxl.chart) in run_python and save it to "output/".\n\n` +
         `</python>`,
     );
   }
@@ -468,9 +446,8 @@ export function buildDynamicRuntimeContext(
 export function buildBaseSystemPrompt(
   cfg: Config,
   capabilities: CapabilityRegistry,
-  isAgentMode: boolean = false,
 ): string {
-  const dynamic = buildDynamicRuntimeContext(cfg, capabilities, isAgentMode);
+  const dynamic = buildDynamicRuntimeContext(cfg, capabilities);
   return dynamic
     ? `${STATIC_BASE_SYSTEM_PROMPT_V1}\n\n${dynamic}`
     : STATIC_BASE_SYSTEM_PROMPT_V1;

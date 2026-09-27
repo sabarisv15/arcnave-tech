@@ -102,10 +102,9 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('an important source should be inspected directly');
     });
 
-    it('Eval 5: Uploaded multi-page document -> Directs to read_uploaded_file with pagination', () => {
-      expect(masterPrompt).toContain('Use read_uploaded_file when:');
-      expect(masterPrompt).toContain('the source is large');
-      expect(masterPrompt).toContain('specific pages or ranges matter');
+    it('Eval 5: Uploaded document -> What is already in context is seen, not fetched again', () => {
+      expect(masterPrompt).toContain('Some attachments are already in your context');
+      expect(masterPrompt).toContain('decide whether code is actually needed');
       expect(masterPrompt).toContain('Do not make claims about unseen sections of a file');
     });
 
@@ -131,8 +130,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('concise cover note');
     });
 
-    it('Eval 9: Deep multi-source research -> Directs to research-deep-dive, triangulation, and iterative synthesis', () => {
-      expect(masterPrompt).toContain('For substantial multi-source research, use the research-deep-dive skill');
+    it('Eval 9: Deep multi-source research -> Triangulation and iterative synthesis', () => {
       expect(masterPrompt).toContain('Research should be iterative rather than one-shot');
       expect(masterPrompt).toContain('compare sources');
       expect(masterPrompt).toContain('investigate contradictions');

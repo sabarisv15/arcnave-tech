@@ -7,6 +7,7 @@
 - Date: 2026-09-25
 - Amends: [ADR-0006](0006-turn-router-policy-boundary.md) (decision 2: what is declared on every
   turn)
+- Amended by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): read_uploaded_file, generate_deliverable and suggest_next_actions are removed from the tools declared every turn.
 
 ## Context
 

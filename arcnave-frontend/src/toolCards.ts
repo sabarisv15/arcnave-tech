@@ -33,6 +33,8 @@ export function extractToolCardData(calls: ToolCall[]): {
       for (const block of c.content) {
         if (block.type === "json" && block.data) {
           const data = block.data as Record<string, any>;
+          // generate_deliverable and generate_image were removed (ADR-0046); their calls stay in
+          // messages saved before, and those files must still download.
           if (c.name === "generate_deliverable" && data.downloadUrl && data.filename) {
             deliverables.push(data as DeliverableData);
           } else if (c.name === "generate_image" && data.downloadUrl) {

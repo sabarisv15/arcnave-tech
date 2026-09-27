@@ -8,6 +8,7 @@
 - Amends:
   - ADR-0031: `REASONING_EFFORT` default high → medium.
   - The prompt and the pdf and xlsx skills.
+- Amended by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): the AgentLoop path and its goal tools are removed; Research mode is grounded search only.
 
 ## Context
 

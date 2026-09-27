@@ -1,143 +1,64 @@
 ---
 name: docx
-version: 2.1.0
+version: 3.0.0
 description: "Use whenever a task touches a Word document: reading or answering questions about an uploaded .docx/.doc (read from the file with code), exact extraction, editing it, or producing a Word file."
 category: artifact
 scope: builtin
 requires:
   tools:
-    - generate_deliverable
-  capabilities:
-    - artifact.export.docx
+    - run_python
 autoload: false
 metadata:
   source: arcnave
 ---
 
-# Professional Document (DOCX) Authoring & Deliverable Architecture
+# Word documents (DOCX)
 
-Procedural knowledge for creating, formatting, inspecting, and editing professional Word documents (.docx). Covers OpenXML package preservation, heading hierarchies, styled tables, executive callouts, and targeted text replacements.
+Every step below runs in `run_python`. Uploaded files are in `input/`; a file saved to
+`output/` reaches the user as a download.
 
----
+## Reading an uploaded document
 
-## 1. When to Use This Skill
+A Word document is not in the conversation as text: its attachment line says to read it from
+the file. Read it with `pandoc input/file.docx -t markdown` for the text with headings, lists
+and tables, or with `python-docx` for paragraphs, tables and styles. When images or layout
+matter, convert it with LibreOffice (`soffice --headless --convert-to pdf`) and render pages
+into `view/` to look at them.
 
-- Generating formal Word documents, executive summaries, whitepapers, legal agreements, memos, or consulting reports.
-- Modifying or replacing specific text runs in an existing `.docx` document (`editDocxContent`).
-- Appending new sections or paragraphs to an existing Word document (`appendDocxSection`).
-- Inspecting structural properties (paragraph counts, table counts, headings) of an uploaded `.docx` (`inspectDocxStructure`).
-- Converting extracted document notes or research findings into a formatted `.docx` deliverable.
+## Creating a document
 
----
+Build it with `python-docx` and save it to `output/<name>.docx`.
+- Keep an unbroken heading hierarchy (Heading 1, then Heading 2); never skip a level.
+- Use real Word structure: styles for headings, real lists, tables with a header row,
+  page numbers in the footer when the document is long.
+- Right-align numeric table columns; left-align text.
+- Keep list nesting to two levels.
 
-## 2. When NOT to Use This Skill
+## Changing an existing document
 
-- Tabular accounting models or spreadsheets (use `xlsx`).
-- Slide presentations or visual pitch decks (use `pptx`).
-- Fixed-layout printable audit reports where exact page budgeting must be rigid (use `pdf`).
+Keep the user's file as it is apart from what they asked to change. A `.docx` is a ZIP of XML
+parts: for a targeted text change, open it with `python-docx` (or unzip it and edit
+`word/document.xml`), change only the runs asked for, and save the result to `output/`. Never
+rebuild an existing document from scratch for a targeted edit: that loses its styles, headers,
+footers and images.
 
----
+A phrase can be split across several runs; check the paragraph text, not a single run, before
+concluding it is absent.
 
-## 3. Understand & Inspect Existing Files
+## From other files
 
-### A. Reading an uploaded document
-With run_python on the turn, a Word document is not in the conversation as text: its attachment
-line says to read it from the file, which is in `input/`. Read it with `pandoc input/file.docx
--t markdown` for the text with headings, lists and tables, or with `python-docx` for paragraphs,
-tables and styles. When images or layout matter, convert it with LibreOffice
-(`soffice --headless --convert-to pdf`) and render pages into `view/` to look at them.
+Read the source first, then write the document from what you read. For a slide deck made from
+the document, see the pptx skill; for a PDF, save the document and convert it with LibreOffice
+(`soffice --headless --convert-to pdf --outdir output/ file.docx`).
 
-Without run_python, the document reaches you as extracted text, which leaves out images and can
-flatten layout; `read_uploaded_file` returns it again when it is not in the conversation.
+## Checking the file
 
-### B. Deterministic Structural Inspection
-When programmatic workflows require exact paragraph counts, table counts, or section headings:
-- Call the `inspectDocxStructure` tool with the file's `fileId` to obtain:
-  - `paragraphsCount`: Total `<w:p>` paragraph elements.
-  - `tablesCount`: Total `<w:tbl>` table structures.
-  - `headings`: Extracted document headings from Heading styles or lead paragraphs.
+Open the saved file again and check what the user will rely on: the headings, that edited text
+reads correctly, tables and page count. Render pages into `view/` when layout matters. Fix and
+save again when something is wrong.
 
----
+In chat, give a short cover note on what the document holds or what changed; do not paste the
+whole document into chat.
 
-## 4. Create New File
-
-When the user asks to write, draft, or export a Word document:
-1. Construct structured Markdown with headings (`#`, `##`, `###`), formatted body text, callouts (`> `), and tables.
-2. Call `generate_deliverable` with:
-   - `format`: `'docx'`
-   - `title`: Clean document title (e.g. `"Market_Expansion_Strategy"`, `"Executive_Brief"`)
-   - `content`: Complete, structured Markdown content.
-
-### Formatting & Layout Standards
-ArcNave's format-native Word engine (`docxRenderer`) compiles Markdown to OpenXML structures:
-- **Heading Hierarchy**: Maintain strict, unbroken heading levels (`# Title`, `## Heading 1`, `### Heading 2`). Never jump directly from `#` to `###`.
-- **Typography & Clean Layout**: Compiles with clean typography (Aptos / Calibri / Segoe UI) and standard 1-inch margins (1440 twips).
-- **Executive Callouts**: Format takeaways with blockquotes (`> `). Rendered with distinctive accent bars and shaded background fills.
-- **Data Tables**: Every table must have a distinct header row. Right-align numeric columns; left-align text. Alternating row shading and cell padding are automatically applied.
-- **Lists**: Use structured bulleted (`- `) or numbered (`1. `) lists. Keep nesting $\le 2$ levels.
-
----
-
-## 5. Edit Existing File & Format-Preserving Operations
-
-### A. Targeted Content Replacement (`editDocxContent`)
-When editing an existing uploaded `.docx` (e.g. replacing company names, updating terms, fixing dates, updating clauses):
-- Call the `editDocxContent` tool with `fileId` and `replacements`:
-  - `replacements`: Array of `{ search: string, replace: string }`.
-- **Preservation Principle**: Edits `word/document.xml` in place while preserving the entire existing OOXML package, including styles, fonts, margins, header/footer relationships, and embedded media. **Never rebuild an existing document from scratch if a targeted edit is requested.**
-
-### B. Appending Content (`appendDocxSection`)
-- Call the `appendDocxSection` tool with `fileId`, `heading` and `paragraphs` to append new sections and paragraphs before `</w:body>` without disturbing prior document sections.
-
----
-
-## 6. Multi-File Operations
-
-- When synthesizing findings from multiple source files, extract core takeaways and compile into the target document via `generate_deliverable`.
-- For appending multiple sections sequentially, chain `appendDocxSection`.
-
----
-
-## 7. Cross-Skill Transformations
-
-No single skill owns an entire cross-format workflow. The source skill extracts; the target skill structures and renders.
-
-### DOCX $\to$ PPTX (Document to Presentation)
-1. **Source Phase (`docx`)**: Inspect headings and paragraphs to extract executive themes, metrics, and takeaways.
-2. **Target Phase (`pptx`)**: Map sections onto slide cards adhering to the $\ge$14pt typography floor.
-3. **Render Phase**: Call `generate_deliverable(format: 'pptx', title, content)`.
-
-### DOCX $\to$ PDF
-Extract or verify Markdown content, then invoke `generate_deliverable(format: 'pdf', title, content)`.
-
----
-
-## 8. Execution Strategy
-
-- **MODEL decides WHAT**: Authors narrative content, legal terms, and analytical sections.
-- **SKILL teaches HOW**: Enforces unbroken heading hierarchies, callout styling, and targeted XML edits.
-- **ExecutionRuntime performs deterministic work**: Executes native Word operations and format renderers.
-- **Chat is the Cover Note**: In chat, summarize what changed or highlight key findings in 1–2 concise paragraphs. Direct the user to the generated `.docx` deliverable; do NOT dump the entire document text into chat.
-
----
-
-## 9. Validation & Repair Loop
-
-- Generated documents undergo post-generation verification (valid ZIP archive containing `[Content_Types].xml` and `word/document.xml`, clean OpenXML tag closure, non-empty body).
-- **Repair Loop**: If a validation warning occurs, adjust the input structure and issue a corrective tool call.
-
----
-
-## 10. Warnings & Limitations
-
-- **No Magic Binary Conversion**: `generate_deliverable` requires structured markdown upstream; it does not transcode binary source files directly.
-- **No Tracked Changes or Comments**: Tracked changes and comment authoring are not currently supported by native operations.
-- **Two ways to work**: the tools above (`generate_deliverable`, `editDocxContent`, …) run on the
-  server with the `docx` and JSZip libraries. For anything they do not cover, `run_python` has
-  `python-docx`, `pandoc` and LibreOffice; a file written to `output/` is returned to the user.
-
----
-
-## 11. Available Resources & Scripts
-
-- This skill has no scripts or templates.
+Tracked changes and comments need editing the XML directly (`w:ins`, `w:del`, comment parts);
+say so when the user asks for them and the change is not simple.

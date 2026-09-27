@@ -28,7 +28,12 @@ const LIBRARIES: Record<string, string> = {
   xlsxwriter: 'xlsxwriter',
   xlrd: 'xlrd',
   pdfplumber: 'pdfplumber',
+  pypdf: 'pypdf',
   pymupdf: 'pymupdf',
+  pytesseract: 'pytesseract',
+  // Not in the image: a skill that names them fails here until the image has them.
+  reportlab: 'reportlab',
+  qpdf: 'qpdf',
   pandas: 'pandas',
   matplotlib: 'matplotlib',
   pandoc: 'pandoc',
@@ -69,7 +74,7 @@ describe('skill content matches the code', () => {
   });
 
   it('reads every bundled skill', () => {
-    expect(skills.length).toBeGreaterThanOrEqual(12);
+    expect(skills.length).toBeGreaterThanOrEqual(7);
   });
 
   it.each(skills)('$dir: requires only tools and capabilities that exist', ({ dir }) => {

@@ -42,6 +42,8 @@ const verb = (
   return { icon, running, done, failed: `${noun.charAt(0).toUpperCase()}${noun.slice(1)} failed`, past, one, many };
 };
 
+// Some names below belong to tools removed in ADR-0046. They stay so that messages saved
+// before still read the way they did.
 const VERBS: Record<string, Verb> = {
   run_python: verb(Terminal, "Running command", "Ran command", "ran", "a command", "commands"),
   load_skill: verb(BookOpen, "Loading skill", "Loaded skill", "loaded", "a skill", "skills"),
