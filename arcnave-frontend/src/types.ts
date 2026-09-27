@@ -129,6 +129,17 @@ export interface ToolCall {
   at?: string | null;
 }
 
+export interface AskUserOptionItem {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserOptionsInput {
+  question: string;
+  kind: "single" | "multi" | "rank";
+  options: AskUserOptionItem[];
+}
+
 export interface MessageUsage {
   inputTokens: number;
   outputTokens: number;

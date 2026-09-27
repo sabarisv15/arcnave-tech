@@ -53,7 +53,9 @@ describe('tool exposure with tool use on (ADR-0006)', () => {
 
   it('tells the model what is declared and that a direct answer is fine', async () => {
     const request = await sendTurn(ctx, user, 'hi');
-    expect(request.systemInstruction).toContain('Declared on this turn: search_tools, load_skill, generate_deliverable');
+    expect(request.systemInstruction).toContain(
+      'Declared on this turn: search_tools, load_skill, ask_user_options, generate_deliverable',
+    );
     expect(request.systemInstruction).toContain('When a direct answer is enough, answer directly without tools.');
   });
 });

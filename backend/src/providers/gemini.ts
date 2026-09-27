@@ -24,7 +24,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
-import { isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 import { CLEARED_TOOL_RESULT, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
 
@@ -201,7 +201,20 @@ export function buildGeminiContents(request: GenerationRequest): Content[] {
   });
 
   const currentParts: Part[] = [...attachmentParts(request.attachments), { text: request.prompt }];
-  return [...historyContents, { role: 'user', parts: currentParts }];
+  const allContents = [...historyContents, { role: 'user', parts: currentParts }];
+
+  // Merge adjacent same-role turns so multi-turn requests alternate between 'user' and 'model' (e.g. after a terminal tool result)
+  const merged: Content[] = [];
+  for (const c of allContents) {
+    if (!c.parts || c.parts.length === 0) continue;
+    const prev = merged.at(-1);
+    if (prev && prev.role === c.role) {
+      prev.parts = [...(prev.parts ?? []), ...(c.parts ?? [])];
+    } else {
+      merged.push({ role: c.role, parts: [...c.parts] });
+    }
+  }
+  return merged;
 }
 
 function isNotFound(err: unknown): boolean {
@@ -541,6 +554,11 @@ export class GeminiProvider implements Provider {
           responseParts.push(toGeminiFunctionResponsePart(call.name, call.id, result));
         }
         contents = [...contents, { role: 'user', parts: responseParts }];
+
+        if (hasTerminalToolCall(roundCalls)) {
+          finishReason = 'stop';
+          break;
+        }
 
       }
     } catch (err) {

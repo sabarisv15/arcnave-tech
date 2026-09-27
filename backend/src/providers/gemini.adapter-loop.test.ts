@@ -373,6 +373,117 @@ describe('GeminiProvider tool-calling loop', () => {
     ).rejects.toThrow();
     expect(client.calls).toHaveLength(1);
   });
+
+  it('ends the turn after ask_user_options and replays its {status:"shown"} result cleanly on the next user turn', async () => {
+    const ASK_TOOL = {
+      name: 'ask_user_options',
+      description: 'Present clickable options.',
+      inputSchema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
+    };
+    const askInput = {
+      question: 'Which stack should we use?',
+      kind: 'single',
+      options: [{ label: 'React + Fastify' }, { label: 'Next.js' }],
+    };
+    const shownResult: ToolResult = {
+      toolCallId: 'c-ask-1',
+      ok: true,
+      content: [{ type: 'json', data: { status: 'shown' } }],
+    };
+
+    // Turn 1: model calls ask_user_options -> adapter stops after 1 round with finishReason: 'stop'
+    const client1 = new FakeGeminiClient();
+    client1.responses = [
+      fakeStream([
+        {
+          functionCalls: [{ id: 'c-ask-1', name: 'ask_user_options', args: askInput }],
+          usageMetadata: { promptTokenCount: 25, candidatesTokenCount: 12 },
+        },
+      ]),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('ask_user_options', shownResult);
+
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    const provider1 = new GeminiProvider(cfg, client1 as never);
+    const turn1Events = await collect(
+      provider1.stream(baseRequest({ prompt: 'Build me a web app', tools: [ASK_TOOL], toolExecutor: executor })),
+    );
+
+    expect(client1.calls).toHaveLength(1);
+    expect(executor.calls).toHaveLength(1);
+    expect(turn1Events.find((e) => e.type === 'tool_use')).toMatchObject({
+      type: 'tool_use',
+      toolCallId: 'c-ask-1',
+      name: 'ask_user_options',
+      input: askInput,
+    });
+    expect(turn1Events.find((e) => e.type === 'tool_result')).toMatchObject({
+      type: 'tool_result',
+      toolCallId: 'c-ask-1',
+      name: 'ask_user_options',
+      result: shownResult,
+    });
+    expect(turn1Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'stop' });
+
+    // Turn 2: user clicks "React + Fastify"; history replays the assistant tool call (even with empty text) and {status:'shown'} result
+    const client2 = new FakeGeminiClient();
+    client2.responses = [
+      fakeStream([
+        { text: 'Great choice! Setting up React + Fastify.' },
+        { usageMetadata: { promptTokenCount: 45, candidatesTokenCount: 10 }, candidates: [{ finishReason: 'STOP' }] },
+      ]),
+    ];
+    const provider2 = new GeminiProvider(cfg, client2 as never);
+    const turn2Events = await collect(
+      provider2.stream(
+        baseRequest({
+          prompt: 'React + Fastify',
+          history: [
+            { role: 'user', text: 'Build me a web app' },
+            {
+              role: 'assistant',
+              text: '',
+              toolCalls: [
+                {
+                  id: 'c-ask-1',
+                  name: 'ask_user_options',
+                  input: askInput,
+                  result: shownResult,
+                  thoughtSignature: 'sig-ask-1',
+                },
+              ],
+            },
+          ],
+          tools: [ASK_TOOL],
+          toolExecutor: executor,
+        }),
+      ),
+    );
+
+    expect(client2.calls).toHaveLength(1);
+    const sentContents = (client2.calls[0] as { contents: { role: string; parts: unknown[] }[] }).contents;
+    // Gemini requires strictly alternating user / model / user turns
+    expect(sentContents.map((c) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(sentContents[1]!.parts).toEqual([
+      {
+        functionCall: { id: 'c-ask-1', name: 'ask_user_options', args: askInput },
+        thoughtSignature: 'sig-ask-1',
+      },
+    ]);
+    expect(sentContents[2]!.parts).toEqual([
+      {
+        functionResponse: {
+          id: 'c-ask-1',
+          name: 'ask_user_options',
+          response: { output: { status: 'shown' } },
+        },
+      },
+      { text: 'React + Fastify' },
+    ]);
+    expect(turn2Events.some((e) => e.type === 'delta' && e.text.includes('React + Fastify'))).toBe(true);
+    expect(turn2Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'STOP' });
+  });
 });
 
 describe('GeminiProvider timeouts (ADR-0024)', () => {

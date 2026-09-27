@@ -95,6 +95,16 @@
 > - Added "Use style" menu in `Composer.tsx` and `StylesModal.tsx` (instructions & writing samples tabs).
 >
 > **2026-09-26 (latest): reply-language rule removed; math rendered in chat.**
+> **2026-09-27 (latest): WP-06 (Clickable question options — single, multi, rank) complete on `feat/wp-06-ask-options`.**
+> - ADR-0034 accepted (`docs/decisions/0034-turn-ending-options-tool.md`): terminal tool `ask_user_options` ends the provider loop and AgentLoop with `{ status: 'shown' }`.
+> - Tool definition in `backend/src/tools/definitions.ts`: `{ question, kind: 'single'|'multi'|'rank', options: [{ label, description? }] }` (2–6 options). Tool description instructs model not to repeat question in text reply.
+> - Policy: `isTerminalTool` in `backend/src/providers/toolLoopPolicy.ts` ends turns immediately without another model round; Research `AgentLoop` stops upon terminal tool.
+> - Adapters & Replay: Gemini and Anthropic Vertex adapters cleanly replay `ask_user_options` and `{ status: 'shown' }` in turn history on subsequent user turns without error.
+> - Frontend: `QuestionOptions.tsx` renders interactive options above `<Composer />` with question prompt displayed prominently. Supports single-click selection, multi-select checkboxes, and rank ordering. Composer remains active for typing; sending any reply dismisses options.
+> - Hidden from activity: `ask_user_options` filtered out from `ToolActivity` and `ResponseActivity` spinner.
+> - Verified: `npx tsc --noEmit` clean on both backend and frontend; all 11 WP-06 backend test files pass (155 tests); 9 frontend test files pass (73 tests); local browser acceptance verified in headless Chrome with 3 screenshots captured.
+
+> **2026-09-26: reply-language rule removed; math rendered in chat.**
 > - ADR-0032 is merged (79817d2) and deployed. A live "consolidate" of a 25-page statement
 >   ran 3 commands, made no unrequested file, and every figure matched the PDF.
 > - The reply-language rule is removed, as in Claude's app prompt: the model chooses the

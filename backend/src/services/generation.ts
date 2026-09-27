@@ -97,6 +97,7 @@ import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
+import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
@@ -793,6 +794,9 @@ export class GenerationService {
       : undefined;
 
     const toolMap = new Map<string, ToolExecutor>();
+    if (this.cfg.ENABLE_TOOL_USE) {
+      toolMap.set('ask_user_options', new AskUserOptionsExecutor());
+    }
     if (uiToolExecutor) {
       toolMap.set('render_ui', uiToolExecutor);
     }

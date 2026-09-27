@@ -200,4 +200,52 @@ describe('tool calls in the history (ADR-0022)', () => {
     expect(after.history.some((t) => t.toolCalls?.some((c) => c.name === 'load_skill'))).toBe(false);
     expect(after.systemInstruction).toContain('### Loaded Skill: pdf');
   });
+
+  it('replays a turn-ending ask_user_options call and its {status:"shown"} result on the next turn (ADR-0034)', async () => {
+    const { send } = await newChat();
+    const optionsInput = {
+      question: 'Where would you like to go?',
+      mode: 'single',
+      options: [{ label: 'Japan' }, { label: 'Italy' }],
+    };
+    ctx.provider.script = [
+      { type: 'delta', text: 'Let us narrow down your trip.' },
+      { type: 'tool_use', toolCallId: 'opt-1', name: 'ask_user_options', input: optionsInput, thoughtSignature: 'sig-opt-1' },
+      {
+        type: 'tool_result',
+        toolCallId: 'opt-1',
+        name: 'ask_user_options',
+        result: { toolCallId: 'opt-1', ok: true, content: [{ type: 'json', data: { status: 'shown' } }] },
+      },
+      { type: 'completed', usage: { inputTokens: 100, outputTokens: 15, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+    ] satisfies ProviderEvent[];
+    await send('help me plan a trip, ask me what you need');
+
+    plainAnswer();
+    const request = await send('Japan');
+
+    const earlier = request.history[1]!;
+    expect(earlier.role).toBe('assistant');
+    expect(earlier.toolCalls).toEqual([
+      {
+        id: 'opt-1',
+        name: 'ask_user_options',
+        input: optionsInput,
+        result: { toolCallId: 'opt-1', ok: true, content: [{ type: 'json', data: { status: 'shown' } }] },
+        thoughtSignature: 'sig-opt-1',
+      },
+    ]);
+    expect((request.tools ?? []).map((t) => t.name)).toContain('ask_user_options');
+
+    const gemini = buildGeminiContents(request);
+    expect(gemini[1]).toEqual({
+      role: 'model',
+      parts: [{ functionCall: { id: 'opt-1', name: 'ask_user_options', args: optionsInput }, thoughtSignature: 'sig-opt-1' }],
+    });
+    expect(JSON.stringify(gemini[2])).toContain('"status":"shown"');
+
+    const anthropic = buildAnthropicMessages(request);
+    expect(anthropic[1]).toMatchObject({ role: 'assistant', content: [{ type: 'tool_use', id: 'hist_1_0', name: 'ask_user_options' }] });
+    expect(anthropic[2]).toMatchObject({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'hist_1_0', content: '{"status":"shown"}' }] });
+  });
 });

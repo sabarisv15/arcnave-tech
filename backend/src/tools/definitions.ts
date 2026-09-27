@@ -1202,5 +1202,57 @@ export const FILE_OPERATION_TOOL_DEFINITIONS: ToolDefinition[] = [
   EDIT_PPTX_SLIDE_TEXT,
 ];
 
+/* -------------------------------------------------------------------------- Question Options (WP-06) */
+
+export const ASK_USER_OPTIONS: ToolDefinition = {
+  name: 'ask_user_options',
+  description:
+    'Presents clickable options (multiple choice, multi-select, or ranking) to the user at the bottom of the chat. ' +
+    'Use this only when the answer is one of a few known options, and at most once per turn. ' +
+    'Calling this tool ends the turn so the user can make their selection. ' +
+    'The question will be displayed prominently above the options in the UI, so do not repeat the question in your text reply.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      question: {
+        type: 'string',
+        description: 'The prompt or question to show above the options.',
+      },
+      kind: {
+        type: 'string',
+        enum: ['single', 'multi', 'rank'],
+        description:
+          '"single" for single-choice buttons (one click responds), "multi" for multi-select checkboxes, "rank" for ordering choices.',
+      },
+      options: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+              description: 'The display text for this option.',
+            },
+            description: {
+              type: 'string',
+              description: 'Optional supporting explanation or detail for this option.',
+            },
+          },
+          required: ['label'],
+          additionalProperties: false,
+        },
+        minItems: 2,
+        maxItems: 6,
+        description: 'Between 2 and 6 options to present.',
+      },
+    },
+    required: ['question', 'kind', 'options'],
+    additionalProperties: false,
+  },
+};
+
+export const QUESTION_TOOL_DEFINITIONS: ToolDefinition[] = [ASK_USER_OPTIONS];
+
+
 
 

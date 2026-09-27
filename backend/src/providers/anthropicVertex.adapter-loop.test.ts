@@ -338,6 +338,113 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     ).rejects.toThrow();
     expect(client.calls).toHaveLength(1);
   });
+
+  it('ends the turn after ask_user_options and replays its {status:"shown"} result cleanly on the next user turn', async () => {
+    const ASK_TOOL = {
+      name: 'ask_user_options',
+      description: 'Present clickable options.',
+      inputSchema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
+    };
+    const askInput = {
+      question: 'Which stack should we use?',
+      kind: 'single',
+      options: [{ label: 'React + Fastify' }, { label: 'Next.js' }],
+    };
+    const shownResult: ToolResult = {
+      toolCallId: 't-ask-1',
+      ok: true,
+      content: [{ type: 'json', data: { status: 'shown' } }],
+    };
+
+    // Turn 1: model calls ask_user_options -> adapter stops after 1 round with finishReason: 'stop'
+    const client1 = new FakeAnthropicClient();
+    client1.responses = [
+      fakeMessageStream([], {
+        content: [{ type: 'tool_use', id: 't-ask-1', name: 'ask_user_options', input: askInput }],
+        usage: { input_tokens: 25, output_tokens: 12 },
+        stop_reason: 'tool_use',
+      }),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('ask_user_options', shownResult);
+
+    const cfg = loadConfig({ NODE_ENV: 'test' });
+    const provider1 = new AnthropicVertexProvider(cfg, client1 as never);
+    const turn1Events = await collect(
+      provider1.stream(baseRequest({ prompt: 'Build me a web app', tools: [ASK_TOOL], toolExecutor: executor })),
+    );
+
+    expect(client1.calls).toHaveLength(1);
+    expect(executor.calls).toHaveLength(1);
+    expect(turn1Events.find((e) => e.type === 'tool_use')).toMatchObject({
+      type: 'tool_use',
+      toolCallId: 't-ask-1',
+      name: 'ask_user_options',
+      input: askInput,
+    });
+    expect(turn1Events.find((e) => e.type === 'tool_result')).toMatchObject({
+      type: 'tool_result',
+      toolCallId: 't-ask-1',
+      name: 'ask_user_options',
+      result: shownResult,
+    });
+    expect(turn1Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'stop' });
+
+    // Turn 2: user clicks "React + Fastify"; history replays the assistant tool call (even with empty text) and {status:'shown'} result
+    const client2 = new FakeAnthropicClient();
+    client2.responses = [
+      fakeMessageStream(
+        [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Great choice! Setting up React + Fastify.' } }],
+        { content: [{ type: 'text' }], usage: { input_tokens: 45, output_tokens: 10 }, stop_reason: 'end_turn' },
+      ),
+    ];
+    const provider2 = new AnthropicVertexProvider(cfg, client2 as never);
+    const turn2Events = await collect(
+      provider2.stream(
+        baseRequest({
+          prompt: 'React + Fastify',
+          history: [
+            { role: 'user', text: 'Build me a web app' },
+            {
+              role: 'assistant',
+              text: '',
+              toolCalls: [
+                {
+                  id: 't-ask-1',
+                  name: 'ask_user_options',
+                  input: askInput,
+                  result: shownResult,
+                },
+              ],
+            },
+          ],
+          tools: [ASK_TOOL],
+          toolExecutor: executor,
+        }),
+      ),
+    );
+
+    expect(client2.calls).toHaveLength(1);
+    const sentMessages = (client2.calls[0] as { messages: { role: string; content: unknown }[] }).messages;
+    // Anthropic requires strictly alternating user / assistant / user roles and no empty text blocks
+    expect(sentMessages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    const assistantBlocks = sentMessages[1]!.content as { type: string; id?: string; name?: string }[];
+    expect(assistantBlocks).toHaveLength(1);
+    expect(assistantBlocks[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'ask_user_options',
+      input: askInput,
+    });
+    const finalUserBlocks = sentMessages[2]!.content as { type: string; tool_use_id?: string; text?: string }[];
+    expect(finalUserBlocks[0]).toMatchObject({
+      type: 'tool_result',
+      tool_use_id: assistantBlocks[0]!.id,
+      content: JSON.stringify({ status: 'shown' }),
+    });
+    expect(finalUserBlocks[1]).toEqual({ type: 'text', text: 'React + Fastify' });
+    expect(turn2Events.some((e) => e.type === 'delta' && e.text.includes('React + Fastify'))).toBe(true);
+    expect(turn2Events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'end_turn' });
+  });
 });
 
 describe('refusal (G13)', () => {
