@@ -3366,13 +3366,13 @@ textarea {
   font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-weight: 600;
 }
-/* Claude-style conversation typography: chat content stays sans-serif even if an older
-   account preference selected the legacy serif option. Branding headings remain serif. */
+/* AI reply typography now follows the same serif choice as the greeting/branding headings
+   when the user picks the "serif" chat font, instead of being silently forced to sans-serif. */
 [data-font="serif"] .assistant-message > .markdown,
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
-  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
 }
 [data-motion="reduced"] *,
 [data-motion="reduced"] *::before,
@@ -4136,14 +4136,17 @@ button,
 input,
 textarea,
 select,
-.markdown,
+.markdown {
+  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* Chat font (Settings > Appearance): Default, Serif (matches the greeting/branding), Match
+   system, or Dyslexic friendly. */
 [data-font="serif"] .assistant-message > .markdown,
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
 [data-font="serif"] .assistant-message > .markdown h3 {
-  font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
 }
-/* Chat font (Settings > Appearance): Default, Match system, or Dyslexic friendly. */
 [data-font="system"] .assistant-message > .markdown,
 [data-font="system"] .assistant-message > .markdown h1,
 [data-font="system"] .assistant-message > .markdown h2,
@@ -4581,6 +4584,7 @@ select:focus-visible {
 .composer textarea {
   color: var(--ink);
   letter-spacing: -0.012em;
+  font-weight: 500;
 }
 
 .composer textarea::placeholder {
