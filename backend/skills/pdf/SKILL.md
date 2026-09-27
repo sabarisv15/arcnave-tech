@@ -53,8 +53,11 @@ Progress:
 item, qty, rate, amount). Give each record a `kind` (`data`, `opening`, `subtotal`, `total`,
 `header`) and its `page`; count only `data` records.
 - Text layer: extract with `pdfplumber` (tables, or words by position).
-- Scanned: read the pages yourself a few at a time and append the records with code. Tesseract
-  digits are unreliable on photographed pages; crop the region at 200–300 dpi instead.
+- Scanned: you already see every page. Read all of them and write every record, from every
+  page, as data inside one `run_python` script; the same script runs step 3's checks and prints
+  only the rows that fail. Do not spend one call per page or per few pages, and do not OCR with
+  Tesseract (its digits are unreliable on photographed pages). Render a crop at 200–300 dpi
+  only for a value you cannot read.
 - When one PDF holds several documents, add a `source` field and report each one separately
   as well as combined.
 
@@ -69,7 +72,12 @@ Do not change a number just to make a check pass.
 **4. Answer.** Compute counts, sums and splits in code. For a classification, apply written
 rules and keep anything they do not cover as `UNKNOWN`. Report which checks passed and
 anything that is unreconciled (with page and row). Show at most about 50 rows in chat. When the
-user asks for the full list as a file, write it with `generate_deliverable` (xlsx).
+user asks for a file, build only the format they named (JSON, CSV, XML: write it from the same
+checked records in `run_python`; XLSX: `generate_deliverable`). Do not add a file in another
+format they did not ask for.
+
+A scanned statement usually takes three calls: records and checks, a fix of the failed rows,
+and the output file. When the checks pass the first time, build the file in the same script.
 
 Without run_python, use `extract_scanned_table_rows` and then `analyze_table_rows`. Its `count`,
 `sum` and `running_balance` operations do step 3's checks in code: pass a printed total or count

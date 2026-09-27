@@ -166,8 +166,10 @@ const envSchema = z.object({
    *  `finishReason: 'tool_limit'` rather than looping forever once this is hit, and the UI offers
    *  Continue, as Claude's app does at its per-turn tool-use limit. 16, not 8:
    *  search, skill, extract, analyze, one repair and the answer must all fit, and on the real
-   *  statement 8 ran out before analysis (G11). TURN_DEADLINE_MS bounds the time. */
-  TOOL_MAX_ROUNDS: int(16),
+   *  statement 8 ran out before analysis (G11). 30, not 16: a scanned two-statement conversion hit 16
+   *  live (2026-09-27) and the user had to press Continue; Claude's app did it in one turn.
+   *  TURN_DEADLINE_MS bounds the time. */
+  TOOL_MAX_ROUNDS: int(30),
   /** Hard server-side cap on `read_project_file`'s returned text, regardless of what `maxChars`
    *  the model requests. Keeps one large document from ever being handed over whole. */
   READ_PROJECT_FILE_MAX_CHARS: int(6000),

@@ -684,6 +684,13 @@ verification.
 
 ---
 
+
+> **2026-09-27 — scanned PDF to a file in one turn.** A live KVB + Federal → Tally JSON turn ran
+> out of 16 rounds, varied per run, and returned an unrequested Excel file. The pdf skill now has
+> every record written in one `run_python` script with the checks (no page-by-page rounds, no
+> Tesseract), and builds only the format asked for; the system prompt says the same.
+> `TOOL_MAX_ROUNDS` 16 → 30. Tested locally (suite green); not live yet.
+
 ## Objective
 
 Replace ArcNave's mock provider boundary and browser-local persistence with a real backend:

@@ -1195,3 +1195,12 @@ practice, not canon.
   resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
   (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
 
+- **2026-09-27 (KVB/Federal → Tally JSON)** — No new heading (at the cap). Live, the turn hit
+  `TOOL_MAX_ROUNDS` (16) and needed Continue, answers differed per run, and an Excel file came
+  back for a JSON request; Claude's app did the same PDF in one turn with ~7 tool calls. Cause:
+  the pdf skill told the model to read a scanned PDF "a few pages at a time" and append records
+  with code, one round per few pages, although every page image is already in the request; and
+  its step 4 named `generate_deliverable (xlsx)` for any "file". Rule: a skill's workflow is a
+  cost model: count the rounds it implies on the real document before shipping it. Records for
+  every page now go in one script with the checks; the output is only the format asked for.
+  Verify: the live KVB turn finishes without Continue and returns only JSON.
