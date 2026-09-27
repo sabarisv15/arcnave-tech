@@ -54,7 +54,7 @@ export function ChatsPage() {
           <p className="eyebrow">YOUR CONVERSATIONS</p>
           <h1>A thought worth keeping.</h1>
         </div>
-        <Link className="button primary" to="/">
+        <Link className="button primary" to="/app">
           <Plus size={16} />
           New chat
         </Link>
@@ -111,7 +111,7 @@ export function ChatsPage() {
           }
           action={
             !query && (
-              <Link className="button primary" to="/">
+              <Link className="button primary" to="/app">
                 Start a conversation
               </Link>
             )

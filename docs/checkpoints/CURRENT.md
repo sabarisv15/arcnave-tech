@@ -1,6 +1,6 @@
 # ArcNave — current checkpoint
 
-> **2026-09-27 (latest): artifacts, question card, visuals and display cards work as the reference's, on `claude/happy-maxwell-1h7hmx`, not live.**
+> **2026-09-27 (latest): artifacts, question card, visuals and display cards work as the reference's; merged to main on the owner's request ("commit push merge panitu"), which starts both deploy triggers (Cloudflare frontend, Cloud Build backend). Live behaviour not yet checked.**
 > [ADR-0048](../decisions/0048-artifacts-questions-visuals-and-cards-as-the-reference.md),
 > checked against the Fable 5.1, Opus 5.5 and Sonnet 5 app prompts and the read_me capture.
 > - Artifacts are files: `create_artifact`/`read_artifact`/`update_artifact` removed. A presented
@@ -16,8 +16,10 @@
 >   `image_search` only with a live provider), narration and memory wording as the app prompt,
 >   artifact edits across turns, skills free of removed tools.
 > - Backend typecheck clean, **904/904 tests**; frontend typecheck, build and **188/188 tests**.
-> - Next: owner's approval to merge and deploy; then a live turn with a card, a visual, a React
->   artifact, and the question card; and the checks still open from ADR-0047 (KVB + Federal
+> - Merged with main's campus-site PRs (#33 to #35); one CSS conflict, both kept; after the
+>   merge frontend **195/195** and build, backend **904/904**.
+> - Next: confirm both deploy builds, then a live turn with a card, a visual, a React artifact,
+>   and the question card; and the checks still open from ADR-0047 (KVB + Federal
 >   48 / 277 / 325, memory, image_search).
 
 > **2026-09-27: tools and skills match the reference one for one; merged in PR #32 (`ca8599c`) and deployed.**
@@ -2126,4 +2128,10 @@ verification command for each is in `mistakes.md`; summary:
     - Active routing routes exclusively to `Gemini 3.8 Flash`.
     - Fallback mechanism in `resolveModel` transparently redirects disabled model requests to `Gemini 3.8 Flash`.
     - Model selector in frontend workspace and preferences endpoint defaults to `"Auto"`.
+
+
+> **2026-09-27: Academic Campus AI public website release approved.** Public homepage/about/data/use pages, campus preparation examples, signup/login routing and /app workspace entry. Frontend build and 183 tests passed; final copy focused tests 7 passed. Desktop/390px evidence saved locally. Live registration remains disabled. User authorized commit, push, merge and cloud deployment in this task.
+
+
+> **2026-09-28: Campus website layout correction.** Compact tablet/short-screen hero keeps preview visible; consistent gutters and responsive product columns. Product explains NAAC/NBA/AICTE inputs, assisted drafts and campus review. How it works includes source verification and an IQAC request example. Frontend 185 tests pass; build passes. Existing release authorization retained for website correction.
 

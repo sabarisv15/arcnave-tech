@@ -244,7 +244,7 @@ export default function Sidebar({
     >
       <div className="brand-row">
         <Link
-          to="/"
+          to="/app"
           className="brand"
           onClick={() => {
             setPanel({ kind: "closed" });
@@ -277,7 +277,7 @@ export default function Sidebar({
           <button
             className="nav-item new-chat"
             aria-label="New chat"
-            onClick={() => go("/")}
+            onClick={() => go("/app")}
           >
             <SquarePlus size={18} />
             <span>New chat</span>
