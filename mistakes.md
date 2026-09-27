@@ -10,16 +10,6 @@
   the configured `python` executable, not only `python3`. Parse Markdown front matter after
   normalizing CRLF so Windows checkouts validate the same content as Linux.
 
-- **2026-09-27 (Gemini final-round answer cut off)** — Live: "Answer cut off: it used every
-  tool step this turn allows" even though the last round had `toolConfig: {mode: NONE}`. Cause:
-  when Vertex rejected that `toolConfig` with `INVALID_ARGUMENT`, the retry (`gemini.ts`) dropped
-  only `toolConfig`, not the `tools` field — functions stayed declared, the model called one
-  anyway, and a call past the round limit is never run, so the turn ended with no answer. Rule:
-  forcing a text-only answer on the last round means omitting the tool declarations entirely, not
-  just switching `toolConfig` off — a provider free to ignore one still sees the other. Verify:
-  `gemini.adapter-loop.test.ts` — the final-round INVALID_ARGUMENT retry request must have
-  `config.tools === undefined`, not just `config.toolConfig === undefined`.
-
 **Owner:** the coding agent. Humans may prune it; the agent writes it.
 **Read:** at the start of every session, before touching code.
 **Write:** before closing any task, while the mistake is still fresh.

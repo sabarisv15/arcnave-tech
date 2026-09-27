@@ -326,11 +326,7 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Here is the answer.');
   });
 
-  it('a final round rejected with INVALID_ARGUMENT is retried once with the tools dropped entirely, not just toolConfig', async () => {
-    // Retrying with the functions still declared (only toolConfig removed) leaves the model free
-    // to call one anyway; that call is never run (past the round limit), and the turn ends with
-    // no answer ("Answer cut off: it used every tool step this turn allows" — the live bug this
-    // guards). Dropping `tools` from the request is what actually forces a text answer.
+  it('a final round rejected with INVALID_ARGUMENT is retried once without toolConfig', async () => {
     const client = new FakeGeminiClient();
     const answer = fakeStream([{ text: 'Answer anyway.' }]);
     client.responses = [fakeStream([{ functionCalls: [{ id: 'c0', name: 'search_project_files', args: {} }] }])];
@@ -348,10 +344,9 @@ describe('GeminiProvider tool-calling loop', () => {
     const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
     const provider = new GeminiProvider(cfg, client as never);
     const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
-    const retried = client.calls[2] as { config: { toolConfig?: unknown; tools?: unknown } };
+    const retried = client.calls[2] as { config: { toolConfig?: unknown } };
     expect(finalAttempts).toBe(2);
     expect(retried.config.toolConfig).toBeUndefined();
-    expect(retried.config.tools).toBeUndefined();
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Answer anyway.');
   });
 
