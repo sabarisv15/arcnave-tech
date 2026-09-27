@@ -18,7 +18,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
 import { nextActionsExecutor } from '../tools/nextActions.js';
 import { AnswerProtocolGuard } from './answerProtocolGuard.js';
-import { usesWarmSandbox } from '../tools/catalog.js';
+import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 
 import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
@@ -722,7 +722,11 @@ export class GenerationService {
       const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
       const agentSandbox =
         routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-      const agentWire = readOfficeFilesWithCode(agentSandbox, wireAttachments, wireHistory);
+      const agentWire = readOfficeFilesWithCode(
+        agentSandbox && sandboxReadsOfficeFiles(this.cfg),
+        wireAttachments,
+        wireHistory,
+      );
       const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
         sandbox: agentSandbox,
         loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
@@ -964,7 +968,11 @@ export class GenerationService {
 
     const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
     codeExecutor?.setChatFiles(chatFiles);
-    const wire = readOfficeFilesWithCode(codeExecutor !== undefined, wireAttachments, wireHistory);
+    const wire = readOfficeFilesWithCode(
+      codeExecutor !== undefined && sandboxReadsOfficeFiles(this.cfg),
+      wireAttachments,
+      wireHistory,
+    );
     const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
       sandbox: codeExecutor !== undefined,
       loadableSkills: this.loadableSkills(activeToolNames.has('load_skill')),

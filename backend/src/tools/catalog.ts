@@ -108,6 +108,16 @@ export interface ToolCatalogEntry {
 }
 
 /** Whether run_python runs on the warm sandbox service (ADR-0010), mirroring container.ts. */
+/**
+ * Whether run_python can open Office files (xlrd, python-docx, python-pptx, pandoc): the warm
+ * service image has them (Dockerfile.service); the single-use Cloud Run Job image does not
+ * (sandbox/Dockerfile). The process engine is local development, expected to mirror the warm
+ * image. Office text is kept inline when this is false (ADR-0045).
+ */
+export function sandboxReadsOfficeFiles(cfg: Config): boolean {
+  return usesWarmSandbox(cfg) || cfg.SANDBOX_ENGINE === 'process';
+}
+
 export function usesWarmSandbox(cfg: Config): boolean {
   return cfg.SANDBOX_ENGINE === 'warm' || (cfg.SANDBOX_ENGINE === 'auto' && Boolean(cfg.SANDBOX_SERVICE_URL));
 }

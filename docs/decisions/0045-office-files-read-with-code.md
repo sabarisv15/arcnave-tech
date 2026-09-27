@@ -41,12 +41,17 @@ pattern that let a figure be read off by eye in the PDF case (ADR-0044).
    `read_uploaded_file` (`asReadWithCode`, `omittedReason: 'read_with_code'`). This applies to
    the current turn and to history, in chat and agent mode (`readOfficeFilesWithCode` in
    `services/generation.ts`).
+   Only where the sandbox has the readers (`sandboxReadsOfficeFiles` in `tools/catalog.ts`):
+   the warm service image (`Dockerfile.service`: xlrd, python-docx, python-pptx, pandoc) and the
+   local process engine. The single-use Cloud Run Job image (`sandbox/Dockerfile`) lacks them, so
+   with that engine the text is still sent (review on PR #31).
 2. Without run_python, the extracted text is still sent: nothing else could read the file, and
    a model with no way to read it would be worse off. This is where ArcNave differs from the
    reference, because its code tool can be off.
-3. PDFs, images and plain-text types (csv, md, txt, html, json) stay in the conversation, as in
+3. An uploaded PDF's manifest hint names `pdf-reading`, not `pdf` (review on PR #31).
+4. PDFs, images and plain-text types (csv, md, txt, html, json) stay in the conversation, as in
    the reference.
-4. The xlsx, docx and pptx skills say how to read the file (pandas and openpyxl, pandoc and
+5. The xlsx, docx and pptx skills say how to read the file (pandas and openpyxl, pandoc and
    python-docx, python-pptx) and keep the text fallback for turns without run_python. Their
    descriptions now trigger on any question about an uploaded file of that type.
 

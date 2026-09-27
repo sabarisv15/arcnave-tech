@@ -42,7 +42,9 @@ export function sandboxInputNames(files: Pick<ManifestFile, 'id' | 'filename'>[]
 }
 
 const SKILL_BY_EXTENSION: Record<string, string> = {
-  '.pdf': 'pdf',
+  // An uploaded PDF is read, so its hint is the reading skill; `pdf` builds and changes PDFs
+  // (ADR-0044). Pointing here at `pdf` cost a round loading the wrong skill first.
+  '.pdf': 'pdf-reading',
   '.xlsx': 'xlsx',
   '.xlsm': 'xlsx',
   '.xls': 'xlsx',
@@ -55,7 +57,7 @@ const SKILL_BY_EXTENSION: Record<string, string> = {
 };
 
 const SKILL_BY_MIME: Record<string, string> = {
-  'application/pdf': 'pdf',
+  'application/pdf': 'pdf-reading',
   'text/csv': 'xlsx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.ms-excel': 'xlsx',
