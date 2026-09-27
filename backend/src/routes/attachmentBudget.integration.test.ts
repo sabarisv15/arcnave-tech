@@ -67,8 +67,8 @@ describe('G15: historical PDF over the budget', () => {
       rehydrated = await request.toolExecutor!.execute(
         {
           id: 'call-1',
-          name: 'run_python',
-          input: { code: "print(open('input/statement.pdf','rb').read()[:8])", input_files: [fileId] },
+          name: 'bash_tool',
+          input: { command: 'head -c 8 input/statement.pdf', description: 'read the header' },
         },
         new AbortController().signal,
       );
@@ -92,6 +92,6 @@ describe('G15: historical PDF over the budget', () => {
     // On demand, the exact stored bytes come back.
     expect(rehydrated!.ok).toBe(true);
     const out = (rehydrated!.content.find((c) => c.type === 'json') as { data: { stdout: string } }).data.stdout;
-    expect(out).toContain("b'%PDF-1.7");
+    expect(out).toContain('%PDF-1.7');
   });
 });

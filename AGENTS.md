@@ -25,9 +25,16 @@ PostgreSQL 16 with Drizzle, Vertex AI models. Tests use Vitest.
 5. Errors are typed. Every client-visible failure is an `ApiError` with a stable `code`; the
    frontend switches on `code`, never on the message text.
 6. No secret is ever committed. No keys, no service-account JSON, no `.env` files.
+7. ArcNave is its own brand. Launch files never describe ArcNave as following another assistant;
+   provider names only where the code talks to that provider (ADR-0044).
 
 ## How to work
 
+- Claude is the reference for every change (fix, bug, gap, feature, add, remove, downgrade,
+  upgrade): find how Claude does it from a source, compare, match it, and record any deliberate
+  difference in the ADR. Asked why ArcNave does something: Claude does X, ArcNave does Y, the
+  gap, the fix. See `.claude/rules/claude-reference.md`. Launch files stay brand-neutral
+  (Invariant 7 in `CLAUDE.md`).
 - Work on one work package at a time, on its own branch, in its own conversation.
 - Plan first. Produce an implementation plan and task list before editing code, and wait for
   the user's review when the work package says "ADR required".

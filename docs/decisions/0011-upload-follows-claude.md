@@ -6,6 +6,8 @@
   2026-09-25: an image over 10 MB is refused at upload ("10 MB on claude.ai", Vision). A paste
   longer than 4,000 characters becomes an attached `pasted-text.txt`, as claude.ai turns a long
   paste into an attachment. Anthropic does not publish its threshold, so 4,000 is ArcNave's own.
+  2026-09-27: amended by [ADR-0045](0045-office-files-read-with-code.md): with run_python on the
+  turn, Office files are read from the file with code instead of sent as extracted text.
 - Date: 2026-09-25
 - See also: [ADR-0004](0004-file-handling-parity.md) (which extractors read which format)
 

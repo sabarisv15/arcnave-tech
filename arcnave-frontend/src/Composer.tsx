@@ -130,7 +130,7 @@ export function describeEffortControl(
 
   const items = supported.map((level) => ({
     level,
-    // Each model's recommended level is marked "Default", as Claude's menu marks it.
+    // Each model's recommended level is marked "Default".
     label: level === defaultLevel ? `${EFFORT_COPY[level].label} · Default` : EFFORT_COPY[level].label,
     description:
       steppedDown && level === applied
@@ -152,8 +152,8 @@ export function describeEffortControl(
 }
 
 /**
- * Pastes longer than this become an attached text file. claude.ai does the same past "a few
- * thousand characters"; Anthropic does not document the number, so this one is ours.
+ * Pastes longer than this become an attached text file, past a few
+ * thousand characters; this number is ArcNave's.
  */
 export const PASTE_AS_FILE_CHARS = 4000;
 
@@ -168,6 +168,7 @@ export function deriveFollowUpSuggestion(
 ): string {
   const latestAssistant = history.at(-1);
   if (latestAssistant?.role !== "assistant" || latestAssistant.status !== "complete") return "";
+  // suggest_next_actions was removed (ADR-0046); only messages saved before carry it.
   const proposal = [...(latestAssistant?.toolCalls ?? [])].reverse().find((call) => call.name === "suggest_next_actions" && call.ok === true);
   if (proposal && proposal.input && typeof proposal.input === "object") {
     const composer = (proposal.input as Record<string, unknown>).composer;
@@ -631,7 +632,7 @@ export default function Composer({
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => {
               // A pasted file (a screenshot) attaches, and a long paste becomes a text file,
-              // as claude.ai turns it into a "pasted text" attachment instead of message text.
+              // a "pasted text" attachment instead of message text.
               const pastedFiles = Array.from(e.clipboardData.files);
               const asFile = pastedFiles.length ? null : pastedTextFile(e.clipboardData.getData("text/plain"));
               if (!pastedFiles.length && !asFile) return;
@@ -790,8 +791,7 @@ export default function Composer({
             }
             items={[
               ...modelItems,
-              // Effort lives in the model menu, as in Claude's app ("click the model name, then
-              // Effort"): the levels offered are the ones this model accepts.
+              // Effort lives in the model menu: the levels offered are the ones this model accepts.
               ...(effortControl
                 ? [
                     { label: "Effort", disabled: true, separator: true },

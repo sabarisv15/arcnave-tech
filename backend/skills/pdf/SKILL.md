@@ -1,14 +1,12 @@
 ---
 name: pdf
-version: 4.0.0
-description: "Use when a task needs PDF procedure beyond reading pages already shown: exact counts, totals or complete row lists, scanned or photographed PDFs, converting a PDF to Excel or Word, splitting, merging, or creating a PDF. Not needed to answer a question from a PDF already in the conversation."
+version: 6.0.0
+description: "Use whenever the user wants a PDF file produced or changed: creating a PDF from content, merging PDFs, splitting or extracting pages, rewriting a PDF's content, or converting a PDF into an Excel, Word or PowerPoint file. For reading, counting or extracting what is inside a PDF, use the pdf-reading skill; a conversion needs both."
 category: artifact
 scope: builtin
 requires:
   tools:
-    - generate_deliverable
-  capabilities:
-    - artifact.export.pdf
+    - bash_tool
 autoload: false
 metadata:
   source: arcnave
@@ -16,100 +14,44 @@ metadata:
 
 # PDF
 
-## What you already see
+Reading what is inside a PDF (counts, totals, tables, scanned pages) is the pdf-reading
+skill. This one produces and changes PDF files.
 
-A PDF of up to 100 pages reaches you as an image of every page plus that page's text; past 100
-pages, text only (the attachment line says which). Summaries and questions about what you can
-see need no tool call.
-
-For a page you cannot see (text-only PDF, a figure, a hard-to-read value), open the file in
-`run_python` (it is in `input/`, path on its attachment line) and render the page or a region
-into `view/`:
-
-```python
-import fitz  # pymupdf
-page = fitz.open("input/statement.pdf")[4]
-page.get_pixmap(dpi=250, clip=fitz.Rect(40, 300, 560, 420)).save("view/p5_rows.png")
-```
-
-## Exact counts, totals and complete lists
-
-Use this workflow when the user asks for an exact figure or a complete list, such as "count
-every transaction", "total of this column" or "list every entry". Reading a page by eye can
-skip or merge a row without noticing. It does not apply to summaries or to questions the
-visible pages already answer.
-
-```
-Progress:
-- [ ] 1. Check the PDF type: page count and whether pages have a text layer
-- [ ] 2. Write every record to a file (rows.json) with named fields
-- [ ] 3. Check the records against the document's own figures
-- [ ] 4. Compute the answer in code from the checked file
-```
-
-**1. PDF type.** `len(page.get_text().strip())` per page with pymupdf.
-
-**2. Records.** Choose fields from the document (date, description, debit, credit, balance; or
-item, qty, rate, amount). Give each record a `kind` (`data`, `opening`, `subtotal`, `total`,
-`header`) and its `page`; count only `data` records.
-- Text layer: extract with `pdfplumber` (tables, or words by position).
-- Scanned: read the pages yourself a few at a time and append the records with code. Tesseract
-  digits are unreliable on photographed pages; crop the region at 200–300 dpi instead.
-- When one PDF holds several documents, add a `source` field and report each one separately
-  as well as combined.
-
-**3. Check.** Use the checks the document offers:
-- running balance: previous + credits − debits = balance;
-- printed totals, counts, and opening and closing balances;
-- arithmetic inside a row (qty × rate = amount).
-
-A failed check means a record is wrong. Look at that row again, fix it, and re-run the check.
-Do not change a number just to make a check pass.
-
-**4. Answer.** Compute counts, sums and splits in code. For a classification, apply written
-rules and keep anything they do not cover as `UNKNOWN`. Report which checks passed and
-anything that is unreconciled (with page and row). Show at most about 50 rows in chat. When the
-user asks for the full list as a file, write it with `generate_deliverable` (xlsx).
-
-Without run_python, use `extract_scanned_table_rows` and then `analyze_table_rows`. Its `count`,
-`sum` and `running_balance` operations do step 3's checks in code: pass a printed total or count
-as `expected` and the result reports the difference (`scripts/analyze_table_rows.py`).
+Work on the sandbox computer: write a script with `create_file` and run it with `bash_tool`
+(`python3 build.py`), or run a short command directly. Uploaded files are in `input/`
+(read-only). Save the finished file to `output/<name>` and give it with `present_files`.
 
 ## Page count and metadata
 
-`inspectPdf` with the `fileId` returns `pageCount`, `title` and `author`.
+`pypdf.PdfReader(path)`: `len(reader.pages)` and `reader.metadata`. From the shell:
+`pdfinfo input/file.pdf`.
 
 ## Create a PDF
 
-Write Markdown (headings, paragraphs, `> ` callouts, GFM tables). Then call
-`generate_deliverable` with `format: 'pdf'`, a `title` (the filename) and `content`. The
-renderer embeds Unicode fonts (₹, €, smart quotes), repeats table headers across pages, and
-adds "Page X of Y" footers.
+Build the document as a `.docx` with `python-docx` (see the docx skill: headings, tables with a
+repeated header row, page numbers in the footer), then convert it:
+`soffice --headless --convert-to pdf --outdir output/ file.docx`. The sandbox fonts (DejaVu,
+Noto) draw ₹, € and Tamil text.
+
+A chart or a figure-only page can be saved straight to PDF with matplotlib
+(`fig.savefig("output/chart.pdf")`).
 
 ## Change an existing PDF
 
 PDF is fixed-layout: do not edit its bytes.
-- Split or extract pages: `splitPdfFile` with `fileId` and 1-indexed `pageRanges`, e.g.
-  `[[1, 3], [5, 5]]`.
-- Merge: `mergePdfFiles` with `fileIds` in order (at least 2).
-- Rewrite content: extract it, edit it as Markdown, and build a new PDF.
-- The same filename uploaded twice: each file has its own `run_python path` and `fileId`.
+- Split or extract pages: `pypdf` (`PdfWriter`, `writer.add_page(reader.pages[i])`), then
+  `writer.write("output/part.pdf")`.
+- Merge: add every page of each file, in the order asked, to one `PdfWriter`.
+- Rotate: `page.rotate(90)`.
+- Rewrite content: extract it, edit it, and build a new PDF.
+- The same filename uploaded twice: each file has its own path in `input/`.
 
 ## Convert a PDF
 
-- **To Excel:** read the rows (the workflow above when every row matters). Then pass a typed
-  `workbook` (dates, numbers, formulas) to `generate_deliverable` with `format: 'xlsx'`. See
-  the xlsx skill for workbook structure. `sourceAttachmentId` does not parse a PDF.
-- **To Word or PowerPoint:** extract the content, write it as Markdown, and call
-  `generate_deliverable` with `format: 'docx'` or `format: 'pptx'`.
+Read the content first with the pdf-reading skill. Then build the target file with its skill:
+xlsx for Excel, docx for Word, pptx for PowerPoint.
 
-## When a tool reports a problem
+## Checking the file
 
-`generate_deliverable` verifies the file it builds. If a result has `status: 'warning'` with
-`repairable: true`, fix what the diagnostic names and call it again.
-
-## Scripts
-
-`scripts/normalize_table_rows.py` and `scripts/analyze_table_rows.py` run inside
-`extract_scanned_table_rows` and `analyze_table_rows`. Do not run them directly: they expect
-those tools' input format.
+Open the saved PDF again: page count, and render the pages that matter to PNG with
+`pdftoppm -r 80 -png` and `view` them. Fix and save again when something is wrong.

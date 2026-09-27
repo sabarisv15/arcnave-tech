@@ -44,8 +44,8 @@ async function main(): Promise<void> {
   }, SESSION_SWEEP_INTERVAL_MS);
   retention.unref();
 
-  // Idle sandbox workspaces are checkpointed to storage (ADR-0015), as Claude's containers are
-  // after about 5 minutes. Every minute; the advisory lock makes instances take turns.
+  // Idle sandbox workspaces are checkpointed to storage (ADR-0015) after about 5 minutes
+  // without a run. Every minute; the advisory lock makes instances take turns.
   const warmSandbox = app.services.warmSandbox;
   if (warmSandbox) {
     const checkpoints = setInterval(() => {

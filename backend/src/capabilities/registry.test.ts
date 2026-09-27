@@ -41,6 +41,5 @@ describe('CapabilityRegistry', () => {
     expect(reg.isFull('artifact.create')).toBe(true);
     expect(reg.isFull('python.execute')).toBe(false);
     expect(reg.isFull('skills.discover')).toBe(true);
-    expect(reg.isFull('agent.loop')).toBe(false);
   });
 });

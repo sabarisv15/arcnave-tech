@@ -11,7 +11,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { STATIC_BASE_SYSTEM_PROMPT_V1 } from '../systemPrompt.js';
 import { STATIC_MEMORY_POLICY_V1 } from '../memory/policy.js';
 import { STATIC_COMPACTION_POLICY_V1 } from '../compaction/policy.js';
-import { GENERATIVE_UI_POLICY_V1, ANALYTICS_POLICY_V1 } from '../ui/policy.js';
+import { GENERATIVE_UI_POLICY_V1 } from '../ui/policy.js';
 import {
   canonicalizeTools,
   computePrefixHash,
@@ -30,12 +30,11 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedTool
   const allowed = new Set(allowedToolNames ?? authorizedTools.map((t) => t.name));
   const systemText = [
     STATIC_BASE_SYSTEM_PROMPT_V1,
-    ...(allowed.has('save_memory') ? [STATIC_MEMORY_POLICY_V1] : []),
+    ...(allowed.has('memory_read') ? [STATIC_MEMORY_POLICY_V1] : []),
     STATIC_COMPACTION_POLICY_V1,
     // render_ui's policy says "You have access to the render_ui tool", so it goes in only when
     // the tool is declared: a model can only call what it was declared (Gemini function calling).
     ...(authorizedTools.some((t) => t.name === 'render_ui') ? [GENERATIVE_UI_POLICY_V1] : []),
-    ...(allowed.has('run_python') ? [ANALYTICS_POLICY_V1] : []),
   ].join('\n\n');
 
   const tools = canonicalizeTools(authorizedTools);
@@ -93,7 +92,7 @@ export function assemblePrompt(
 
   if (dynamicSuffix.relevantMemory?.trim()) {
     dynamicParts.push(
-      `<memory>\nWhat you remember about this user from earlier conversations, by topic. Use it where it helps; do not recite it.\n${dynamicSuffix.relevantMemory.trim()}\n</memory>`,
+      `<memory>\n${dynamicSuffix.relevantMemory.trim()}\n</memory>`,
     );
   }
 

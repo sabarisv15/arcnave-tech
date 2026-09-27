@@ -20,7 +20,7 @@ export interface StablePrefix {
 }
 
 export interface DynamicSuffix {
-  /** "The current date is …" in the user's time zone, as Claude's system prompt gives it. */
+  /** "The current date is …" in the user's time zone. */
   currentDate?: string;
   runtimeCapabilities?: string;
   standingPreferences?: string;

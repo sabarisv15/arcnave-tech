@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAttachmentManifest, sandboxInputNames, skillForFile } from './manifest.js';
+import { buildAttachmentManifest, sandboxInputNames } from './manifest.js';
 
 const pdf = { id: '970b76e7-2f4e-44bd-9d35-ef7b9f221e56', filename: 'kvb fedral.pdf', mimeType: 'application/pdf', sizeBytes: 10 };
 const csv = { id: 'aaaaaaaa-0000-0000-0000-000000000000', filename: 'data.csv', mimeType: 'text/csv', sizeBytes: 5 };
@@ -18,30 +18,32 @@ describe('sandboxInputNames', () => {
   });
 });
 
-describe('skillForFile', () => {
-  it('maps by MIME type, falling back to the extension', () => {
-    expect(skillForFile(pdf)).toBe('pdf');
-    expect(skillForFile({ filename: 'q.XLSX', mimeType: 'application/octet-stream' })).toBe('xlsx');
-    expect(skillForFile({ filename: 'photo.png', mimeType: 'image/png' })).toBeUndefined();
-  });
-});
-
 describe('buildAttachmentManifest', () => {
-  it('prints the sandbox path and the skill, and says what to do with them', () => {
-    const text = buildAttachmentManifest([pdf], { sandbox: true, loadableSkills: new Set(['pdf']) });
-    expect(text).toContain('run_python path: input/kvb_fedral.pdf');
-    expect(text).toContain('skill: pdf');
-    expect(text).toContain('call load_skill for the skill named on its line');
-  });
-
-  it('promises neither a path nor a skill it cannot keep', () => {
-    const text = buildAttachmentManifest([pdf], { sandbox: false, loadableSkills: new Set() });
-    expect(text).not.toContain('run_python path');
-    expect(text).not.toContain('skill:');
+  it('prints the path on the computer, and names no skill: the prompt maps work to skills after the model has looked (ADR-0047)', () => {
+    const text = buildAttachmentManifest([pdf], { sandbox: true });
+    expect(text).toContain('path: input/kvb_fedral.pdf');
+    expect(text).not.toContain('skill');
     expect(text).not.toContain('load_skill');
   });
 
+  it('promises no path it cannot keep', () => {
+    expect(buildAttachmentManifest([pdf], { sandbox: false })).not.toContain('path:');
+  });
+
   it('is empty for no files', () => {
-    expect(buildAttachmentManifest([], { sandbox: true, loadableSkills: new Set(['pdf']) })).toBe('');
+    expect(buildAttachmentManifest([], { sandbox: true })).toBe('');
+  });
+});
+
+describe('Office files are read with code only where the sandbox has the readers (ADR-0045)', () => {
+  it('warm service and local process engines read them; the Cloud Run Job image does not', async () => {
+    const { sandboxReadsOfficeFiles } = await import('../../tools/catalog.js');
+    const cfg = (v: Record<string, unknown>) => v as unknown as Parameters<typeof sandboxReadsOfficeFiles>[0];
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'warm' }))).toBe(true);
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'auto', SANDBOX_SERVICE_URL: 'https://s' }))).toBe(true);
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'process' }))).toBe(true);
+    // sandbox/Dockerfile (the Job) has no xlrd, python-docx or python-pptx.
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'cloud-run' }))).toBe(false);
+    expect(sandboxReadsOfficeFiles(cfg({ SANDBOX_ENGINE: 'auto' }))).toBe(false);
   });
 });

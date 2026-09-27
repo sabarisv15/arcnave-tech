@@ -15,10 +15,8 @@
  */
 import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
-import { nextActionsExecutor } from '../tools/nextActions.js';
 import { AnswerProtocolGuard } from './answerProtocolGuard.js';
-import { usesWarmSandbox } from '../tools/catalog.js';
+import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 
 import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
@@ -39,6 +37,7 @@ import { AUTO_ALIAS } from '../providers/registry.js';
 import type { RoutingDecision } from '../providers/routing.js';
 import { routeAuto } from '../providers/routing.js';
 import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
+import { asReadWithCode } from '../providers/attachmentContent.js';
 import type {
   AttachmentBlock,
   AttachmentRef,
@@ -64,22 +63,15 @@ import {
   totalTokens,
   withoutImageBytes,
 } from '../providers/types.js';
-import { AgentLoop } from './agentLoop.js';
 import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
 import { ArtifactToolExecutor } from '../tools/artifactExecutor.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
-import { DeliverableToolExecutor } from '../tools/deliverableExecutor.js';
-import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
-import { FILE_OPERATION_TOOL_DEFINITIONS } from '../tools/definitions.js';
-import { ImageGenerationExecutor } from '../tools/imageGenerationExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
-import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
-import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
-import { UploadToolExecutor } from '../tools/uploadExecutor.js';
+import { SKILLS_ROOT } from '../tools/codeExecutionExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
@@ -91,19 +83,19 @@ import { assemblePrompt } from './promptCache/promptAssembly.js';
 import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
-import { distillUserStatement } from './memory/distiller.js';
 import { compact, shouldCompact, lastContextTokens } from './compaction/autoCompact.js';
 import { StreamTimeSplit, TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
+import { ChatToolExecutor } from '../tools/chatExecutor.js';
+import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
 import type { UIBlock } from './ui/types.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
-import { TableExtractionToolExecutor, tableExtractionAvailable } from '../tools/tableExtractionExecutor.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
@@ -205,7 +197,7 @@ function sentAsBytes(att: { mimeType: string }): boolean {
 
 /**
  * The same attachments with each rendered page image stored for the model to read by URI. New
- * objects, never the cached pages themselves: those are shared with Claude requests.
+ * objects, never the cached pages themselves: those are shared with requests to other providers.
  */
 async function referencePages(atts: AttachmentBlock[], store: ModelInputStore): Promise<AttachmentBlock[]> {
   return Promise.all(
@@ -282,10 +274,29 @@ export interface PreferencesRow {
   effort?: ReasoningEffort | null;
 }
 
+/**
+ * With a sandbox on the turn, Office and e-book files are read from the file with code rather
+ * than sent as flattened text (ADR-0045): the text loses cell addresses, formulas, hidden sheets
+ * and layout. Without one, the text is all the model can read, so it stays.
+ */
+export function readOfficeFilesWithCode(
+  sandbox: boolean,
+  current: AttachmentBlock[],
+  history: Turn[],
+): { current: AttachmentBlock[]; history: Turn[] } {
+  if (!sandbox) return { current, history };
+  return {
+    current: current.map(asReadWithCode),
+    history: history.map((t) => (t.attachments ? { ...t, attachments: t.attachments.map(asReadWithCode) } : t)),
+  };
+}
+
 /* -------------------------------------------------------------------------- service */
 
-/** Characters of a skill given again after a compaction. Claude Code caps each at 5,000 tokens;
- *  ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
+/** A view of a skill's instructions: /skills/<name>/SKILL.md. */
+const SKILL_FILE = /^\/skills\/([^/]+)\/SKILL\.md$/;
+
+/** Characters of a skill given again after a compaction. ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
 const REINJECTED_SKILL_MAX_CHARS = 20_000;
 
 /** A turn without tools gets project excerpts instead of the search tool: how many, and their
@@ -294,7 +305,6 @@ const PROJECT_EXCERPTS_WITHOUT_TOOLS = 8;
 const PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS = 12_000;
 
 export class GenerationService {
-  private readonly agentLoop: AgentLoop;
   private readonly capabilities: CapabilityRegistry;
   private readonly executionRuntime: ExecutionRuntime;
 
@@ -305,27 +315,17 @@ export class GenerationService {
     private readonly usage: UsageService,
     private readonly retriever: Retriever,
     private readonly storage: ObjectStorage,
-    /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured — run_python
-     *  is simply never in the available-tools list in that case (see the wiring in `run()`). */
+    /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured: the computer's
+     *  tools are then never declared (see the wiring in `runTurn()`). */
     private readonly sandboxClient?: SandboxClient,
-    agentLoop?: AgentLoop,
     private readonly skills?: SkillService,
     capabilities?: CapabilityRegistry,
     executionRuntime?: ExecutionRuntime,
-    /** Reads page images for table extraction (a backend call; never from the sandbox). */
-    private readonly visionProvider?: Provider,
     /** Where Gemini reads page images from instead of the request (ADR-0016); unset, inline. */
     private readonly modelInputs?: ModelInputStore,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
-    this.agentLoop =
-      agentLoop ??
-      new AgentLoop(db, cfg, registry, usage, retriever, storage, sandboxClient, skills, this.executionRuntime, visionProvider);
-  }
-
-  private tableExtractionEnabled(): boolean {
-    return tableExtractionAvailable(this.cfg.ENABLE_TOOL_USE, this.executionRuntime, this.visionProvider, this.skills);
   }
 
   /**
@@ -354,7 +354,7 @@ export class GenerationService {
 
   /**
    * Every file of the conversation, oldest first, then any of this turn's not yet stored on a
-   * message. Claude keeps every file of a chat in reach for the whole chat; here a file whose turn
+   * message. Every file of a chat stays in reach for the whole chat: a file whose turn
    * is no longer in the history (compacted, or past the backstop) is still listed and still in
    * run_python's input/ (ADR-0019). Upload order keeps each file's input/ name stable.
    */
@@ -377,22 +377,6 @@ export class GenerationService {
       files.push({ id: a.id, filename: a.filename ?? a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes });
     }
     return files;
-  }
-
-  /**
-   * Where run_python's sandbox has the skill files: the warm sandbox image copies them to
-   * /skills (Dockerfile.service). The Cloud Run Jobs image does not.
-   */
-  private skillsInSandbox(): string | undefined {
-    return this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined && usesWarmSandbox(this.cfg)
-      ? SANDBOX_SKILLS_ROOT
-      : undefined;
-  }
-
-  /** Skill names the manifest may point to: only when load_skill can actually be called. */
-  private loadableSkills(loadSkillAvailable: boolean): Set<string> {
-    if (!loadSkillAvailable || !this.skills) return new Set();
-    return new Set(this.skills.listSkills().map((s) => s.name));
   }
 
   private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
@@ -450,7 +434,7 @@ export class GenerationService {
       });
     }
 
-    // Claude "searches the web when it helps" in every chat (Help Center, web search): the search
+    // The web is searched when it helps, in every chat: the search
     // tool is offered on every turn the web is on, and the model decides whether to use it.
     // Search and Research modes still require it.
     const searchAvailable = entry.supportsGrounding && provider.supportsGrounding();
@@ -469,7 +453,7 @@ export class GenerationService {
 
     const codeExecution = input.codeExecution && (provider.supportsCodeExecution?.() ?? false);
     if (input.codeExecution && !codeExecution) {
-      // Claude has no code-execution tool on Vertex (ADR-0004) — never silently run the turn
+      // The Anthropic adapter has no code-execution tool on Vertex (ADR-0004): never silently run the turn
       // on a different model than the one the caller asked for just because it can run code.
       throw new ApiError('capability_unavailable', {
         detail:
@@ -511,62 +495,60 @@ export class GenerationService {
       }
     }
 
-    // --- Skill-First -> Tool-Second Routing --------------------------------
-    // G6: a file attached on an earlier turn is still available on this one.
-    const historyAttachments = history.flatMap((t) => t.attachments ?? []);
-
-    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
-    const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
+    // --- tools this turn may use (ADR-0006, ADR-0047) ---------------------
+    const codeEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
+    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
+    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
+    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const routingDecision = routeTurn({
-      hasAttachments: input.hasAttachments || historyAttachments.length > 0,
-      candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
-      imageEnabled: Boolean(this.cfg.ENABLE_IMAGE_GENERATION),
-      runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
-      generativeUiEnabled: Boolean(this.cfg.ENABLE_GENERATIVE_UI),
-      tableExtractionEnabled: this.tableExtractionEnabled(),
-      webEnabled: Boolean(this.cfg.ENABLE_WEB),
-      memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
+      codeEnabled,
+      generativeUiEnabled,
+      webEnabled,
+      memoryEnabled,
     });
+    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, {
+      codeEnabled,
+      persistentSandbox: usesWarmSandbox(this.cfg),
+      webEnabled,
+      memoryEnabled,
+      generativeUiEnabled,
+    });
+    const allowCode = routingDecision.allowedTools.includes('bash_tool');
+    const availableTools = toolRegistry
+      .getAvailableTools({ userId: input.userId, projectId: project?.id ?? null, allowCode })
+      .filter((t) => routingDecision.allowedTools.includes(t.name));
+    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
-    // Progressive Skill Disclosure:
-    // AI Model evaluates task first with lightweight skill metadata in context.
-    // If the model determines a domain skill is relevant, it invokes `load_skill` to disclose full instructions.
+    // --- skills: names and descriptions up front, each read with view when needed ---------
+    // Skills are listed only when view can read them (Invariant 1). After a compaction, the
+    // skills read in the summarised turns come back in full (ADR-0027): the summary alone would
+    // leave a skill the model believes it has read.
     let skillsContext: string | undefined;
     const loadedSkills: SkillDetail[] = [];
-    if (this.skills) {
-      // A skill that needs a tool this turn cannot use is not offered: its description would
-      // promise work the turn cannot do (Invariant 1).
-      const availableSkills = this.skills
-        .listSkills(routingDecision.allowedTools)
-        .filter((s) => s.missingTools.length === 0);
+    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined && activeToolNames.has('view');
+    if (skillsEnabled) {
+      const availableSkills = this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0);
       const parts: string[] = [];
-
       if (availableSkills.length > 0) {
-        const skillList = availableSkills
-          .map((s) => `- ${s.name}: ${s.description}`)
-          .join('\n');
         parts.push(
-          `<available_skills>\n${skillList}\n</available_skills>\n` +
-            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.' +
-            (this.skillsInSandbox()
-              ? ` Each skill's files are also in the sandbox at ${SANDBOX_SKILLS_ROOT}/<skill_name>/, read-only: run its scripts from run_python and use only their output.`
-              : ''),
+          '<available_skills>\n' +
+            availableSkills
+              .map(
+                (s) =>
+                  `<skill>\n<name>${s.name}</name>\n<description>${s.description}</description>\n` +
+                  `<location>${SKILLS_ROOT}/${s.name}/SKILL.md</location>\n</skill>`,
+              )
+              .join('\n') +
+            '\n</available_skills>',
         );
       }
-
-      // After a compaction, the skills loaded in the summarised turns come back in full: Claude
-      // Code "re-injects the body of each skill you invoked" after compacting (ADR-0027); the
-      // summary alone would leave a skill the model believes it has read.
       const reinjected = latestCompaction
         ? await this.skillsLoadedThrough(input.chatId, latestCompaction.throughSeq)
         : [];
-      // If skills were pre-selected by routing or autoloaded, include their full instructions
-      for (const skillName of [...reinjected, ...routingDecision.selectedSkills]) {
-        const detail = this.skills.getSkill(skillName);
-        if (detail && !loadedSkills.some((s) => s.name === detail.name)) {
-          loadedSkills.push(detail);
-        }
+      for (const skillName of reinjected) {
+        const detail = this.skills!.getSkill(skillName);
+        if (detail && !loadedSkills.some((s) => s.name === detail.name)) loadedSkills.push(detail);
       }
       if (loadedSkills.length > 0) {
         parts.push(
@@ -574,69 +556,15 @@ export class GenerationService {
             .map((s) => {
               const body =
                 s.content.length > REINJECTED_SKILL_MAX_CHARS
-                  ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: load_skill gives the whole skill.]`
+                  ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: view ${SKILLS_ROOT}/${s.name}/SKILL.md for the whole skill.]`
                   : s.content;
-              return `### Loaded Skill: ${s.name}\n\n${body}`;
+              return `### Skill read earlier: ${SKILLS_ROOT}/${s.name}/SKILL.md\n\n${body}`;
             })
             .join('\n\n---\n\n'),
         );
       }
-
-      if (parts.length > 0) {
-        skillsContext = parts.join('\n\n');
-      }
+      if (parts.length > 0) skillsContext = parts.join('\n\n');
     }
-
-    // --- resolve available tools -------------------------------------------
-    const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
-    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
-    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
-    const imageEnabled = Boolean(this.cfg.ENABLE_IMAGE_GENERATION);
-    const toolRegistry = new ProjectToolRegistry(
-      this.cfg.ENABLE_TOOL_USE,
-      runPythonEnabled,
-      false,
-      skillsEnabled,
-      webEnabled,
-      memoryEnabled,
-      generativeUiEnabled,
-      imageEnabled,
-      this.tableExtractionEnabled(),
-      usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
-    );
-    // ADR-0006: permission alone decides.
-    const allowPython = routingDecision.allowedTools.includes('run_python');
-    const allowDeliverable = routingDecision.allowedTools.includes('generate_deliverable');
-    const toolContext = {
-      userId: input.userId,
-      projectId: project?.id ?? null,
-      allowPython,
-      allowDeliverable,
-    };
-    // Policy-approved tool catalog for deferred tool discovery
-    const policyCatalog = (
-      toolRegistry.getPolicyCatalog
-        ? toolRegistry.getPolicyCatalog(toolContext)
-        : toolRegistry.getAvailableTools(toolContext)
-    ).filter((t) => routingDecision.allowedTools.includes(t.name));
-
-    // Initial active tools: small core set sent in Round 0 (search_tools, load_skill if skills enabled)
-    const initialTools = toolRegistry.getInitialTools
-      ? toolRegistry.getInitialTools(toolContext)
-      : [];
-
-    const availableTools = initialTools.filter((t) => routingDecision.exposedTools.includes(t.name));
-    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
-
-    // Never advertise skills the model has no way to load (Invariant 1). This holds when tool use
-    // is off: the registry then sends no tools at all, `load_skill` included.
-    if (!activeToolNames.has('load_skill')) {
-      skillsContext = undefined;
-    }
-
-    // The AgentLoop is chosen by the user's mode, never by the prompt's wording (ADR-0032).
-    const isAgentMode = Boolean(this.cfg.ENABLE_AGENT_LOOP) && input.mode === 'research';
 
     // --- assemble context -------------------------------------------------
     timing.mark('skills_tools');
@@ -646,8 +574,8 @@ export class GenerationService {
       project,
       availableTools,
       skillsContext,
-      isAgentMode,
-      policyCatalog.map((t) => t.name),
+      // Every allowed tool is declared (ADR-0047); with tool use off, none is.
+      availableTools.map((t) => t.name),
       grounded,
     );
     for (const event of contextEvents) {
@@ -681,66 +609,9 @@ export class GenerationService {
       });
     };
 
-    // --- AgentLoop: Research mode only ------------------------------------
-    if (isAgentMode) {
-      const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
-        entry.alias,
-        await this.hydrateAttachmentBytes(input.attachments),
-        await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
-        releaseReservation,
-      );
-
-      const allAttachmentsMap = new Map<string, AttachmentBlock>();
-      for (const h of wireHistory) {
-        if (h.attachments) {
-          for (const att of h.attachments) {
-            if (att.id) allAttachmentsMap.set(att.id, att);
-          }
-        }
-      }
-      for (const att of wireAttachments) {
-        if (att.id) allAttachmentsMap.set(att.id, att);
-      }
-
-      const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
-      const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
-        sandbox: routingDecision.allowedTools.includes('run_python') && this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
-        loadableSkills: this.loadableSkills(Boolean(this.skills) && this.cfg.ENABLE_TOOL_USE),
-      });
-
-      const promptWithManifest = attachmentManifestBlock
-        ? `${attachmentManifestBlock}\n\n${input.prompt}`
-        : input.prompt;
-
-      yield* this.agentLoop.stream(
-        { ...input, prompt: promptWithManifest, attachments: wireAttachments, chatFiles },
-        {
-          entry,
-          provider,
-          maxOutputTokens,
-          ...(reasoningEffort ? { reasoningEffort } : {}),
-          prefs,
-          project: project ? { id: project.id, instructions: project.instructions } : null,
-          history: wireHistory,
-          systemInstruction,
-          startedAt,
-          releaseReservation,
-          grounded,
-          codeExecution,
-          workspace,
-        },
-      );
-      return;
-    }
-
     const projectToolExecutor =
       availableTools.length > 0 && project !== null && this.cfg.ENABLE_TOOL_USE
         ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
-        : undefined;
-
-    const skillToolExecutor =
-      skillsEnabled && this.skills !== undefined
-        ? new SkillToolExecutor(this.skills, activeToolNames, undefined, { scriptsRoot: this.skillsInSandbox() })
         : undefined;
 
     const pendingArtifactEvents: StreamEvent[] = [];
@@ -766,17 +637,18 @@ export class GenerationService {
         )
       : undefined;
 
-    const uploadToolExecutor = this.cfg.ENABLE_TOOL_USE
-      ? new UploadToolExecutor(this.db, this.storage, input.userId)
-      : undefined;
-
     const webSearchAdapter = buildWebSearchAdapter(this.cfg);
     const webToolExecutor = webEnabled
-      ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService())
+      ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService(), webSearchAdapter)
       : undefined;
+    // web_fetch opens only URLs already in the conversation: the user's, or a search's.
+    webToolExecutor?.allowUrlsIn(input.prompt, JSON.stringify(history));
 
     const memoryToolExecutor = memoryEnabled
-      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null, input.chatId)
+      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+      : undefined;
+    const chatToolExecutor = memoryEnabled
+      ? new ChatToolExecutor(input.userId, project?.id ?? null, input.chatId)
       : undefined;
 
     const pendingUiEvents: StreamEvent[] = [];
@@ -802,8 +674,6 @@ export class GenerationService {
     if (this.cfg.ENABLE_TOOL_USE) {
       toolMap.set('ask_user_options', new AskUserOptionsExecutor());
     }
-    let proposedActions: string[] = [];
-    toolMap.set('suggest_next_actions', nextActionsExecutor((actions) => { proposedActions = actions; }));
     if (uiToolExecutor) {
       toolMap.set('render_ui', uiToolExecutor);
     }
@@ -812,27 +682,21 @@ export class GenerationService {
       toolMap.set('read_artifact', artifactToolExecutor);
       toolMap.set('update_artifact', artifactToolExecutor);
     }
-    if (uploadToolExecutor) {
-      toolMap.set('read_uploaded_file', uploadToolExecutor);
-    }
     if (webToolExecutor) {
-      toolMap.set('web_search', webToolExecutor);
-      toolMap.set('web_fetch', webToolExecutor);
+      for (const name of ['web_search', 'web_fetch', 'image_search']) toolMap.set(name, webToolExecutor);
     }
     if (memoryToolExecutor) {
-      toolMap.set('save_memory', memoryToolExecutor);
-      toolMap.set('search_chats', memoryToolExecutor);
-      toolMap.set('search_memory', memoryToolExecutor);
-      toolMap.set('read_memory', memoryToolExecutor);
-      toolMap.set('update_memory', memoryToolExecutor);
-      toolMap.set('forget_memory', memoryToolExecutor);
+      for (const d of MEMORY_TOOL_DEFINITIONS) toolMap.set(d.name, memoryToolExecutor);
+    }
+    if (chatToolExecutor) {
+      for (const d of CHAT_TOOL_DEFINITIONS) toolMap.set(d.name, chatToolExecutor);
     }
     if (projectToolExecutor) {
       toolMap.set('search_project_files', projectToolExecutor);
       toolMap.set('read_project_file', projectToolExecutor);
     }
     let codeExecutor: CodeExecutionToolExecutor | undefined;
-    if (allowPython) {
+    if (allowCode) {
       codeExecutor = new CodeExecutionToolExecutor(this.executionRuntime, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS, {
         workspace,
         userId: input.userId,
@@ -840,83 +704,9 @@ export class GenerationService {
         chatId: input.chatId,
         db: this.db,
         storage: this.storage,
-        visionProvider: this.visionProvider,
+        skills: this.skills,
       });
-      toolMap.set('run_python', codeExecutor);
-    }
-    if (routingDecision.allowedTools.includes('extract_scanned_table_rows')) {
-      const tableExecutor = new TableExtractionToolExecutor(
-        {
-          runtime: this.executionRuntime,
-          workspace,
-          visionProvider: this.visionProvider!,
-          skills: this.skills!,
-          storage: this.storage,
-          db: this.db,
-          userId: input.userId,
-        },
-        this.cfg.TABLE_EXTRACTION_MAX_PAGES,
-      );
-      toolMap.set('extract_scanned_table_rows', tableExecutor);
-      toolMap.set('analyze_table_rows', tableExecutor);
-    }
-    if (skillToolExecutor) {
-      toolMap.set('load_skill', skillToolExecutor);
-      toolMap.set('list_skills', skillToolExecutor);
-      toolMap.set('search_skills', skillToolExecutor);
-      toolMap.set('read_skill', skillToolExecutor);
-    }
-    if (imageEnabled) {
-      toolMap.set(
-        'generate_image',
-        new ImageGenerationExecutor(
-          this.cfg,
-          this.storage,
-          this.db,
-          input.userId,
-          input.chatId,
-          input.messageId,
-        ),
-      );
-    }
-    if (this.cfg.ENABLE_TOOL_USE && allowDeliverable) {
-      toolMap.set(
-        'generate_deliverable',
-        new DeliverableToolExecutor(
-          this.storage,
-          this.db,
-          input.userId,
-          input.chatId,
-          input.messageId,
-          undefined,
-          this.executionRuntime,
-          workspace,
-        ),
-      );
-    }
-
-    if (this.cfg.ENABLE_TOOL_USE) {
-      const fileOperationExecutor = new FileOperationExecutor({
-        db: this.db,
-        visionProvider: this.visionProvider,
-        storage: this.storage,
-        executionRuntime: this.executionRuntime,
-        userId: input.userId,
-        chatId: input.chatId,
-        messageId: input.messageId,
-        workspace,
-      });
-      for (const def of FILE_OPERATION_TOOL_DEFINITIONS) {
-        toolMap.set(def.name, fileOperationExecutor);
-      }
-
-      const searchToolsExecutor = new SearchToolsExecutor(policyCatalog, (discoveredTool) => {
-        if (!availableTools.some((t) => t.name === discoveredTool.name)) {
-          availableTools.push(discoveredTool);
-          activeToolNames.add(discoveredTool.name);
-        }
-      });
-      toolMap.set('search_tools', searchToolsExecutor);
+      for (const name of CODE_TOOL_NAMES) toolMap.set(name, codeExecutor);
     }
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
@@ -944,10 +734,12 @@ export class GenerationService {
 
     const chatFiles = await this.chatFilesOf(input.chatId, allAttachmentsMap);
     codeExecutor?.setChatFiles(chatFiles);
-    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
-      sandbox: codeExecutor !== undefined,
-      loadableSkills: this.loadableSkills(activeToolNames.has('load_skill')),
-    });
+    const wire = readOfficeFilesWithCode(
+      codeExecutor !== undefined && sandboxReadsOfficeFiles(this.cfg),
+      wireAttachments,
+      wireHistory,
+    );
+    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, { sandbox: codeExecutor !== undefined });
 
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
@@ -959,8 +751,8 @@ export class GenerationService {
     const previousContextTokens = compactedNow ? null : await this.previousContextTokens(input);
     const request: GenerationRequest = {
       prompt: effectivePrompt,
-      history: wireHistory,
-      attachments: wireAttachments,
+      history: wire.history,
+      attachments: wire.current,
       systemInstruction,
       promptAssembly,
       mode: input.mode,
@@ -981,7 +773,7 @@ export class GenerationService {
     let errorCode: string | null = null;
     const collectedText: string[] = [];
     const collectedThinking: string[] = [];
-    // The answer in the order it happened, as Claude shows it: thinking, text and tool steps
+    // The answer in the order it happened: thinking, text and tool steps
     // interleaved. Kept on the message so a reload shows the same timeline.
     const segments: MessageSegment[] = [];
     const answerGuard = new AnswerProtocolGuard();
@@ -1249,7 +1041,7 @@ export class GenerationService {
       }
     }
 
-    const questions = status === 'complete' ? proposedActions : [];
+    const questions: string[] = [];
 
     await this.finalise(input, {
       text,
@@ -1282,27 +1074,12 @@ export class GenerationService {
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
     });
 
-    if (status === 'complete' && this.cfg.ENABLE_MEMORY && this.cfg.ENABLE_MEMORY_BACKGROUND_DISTILL) {
-      distillUserStatement({
-        userId: input.userId,
-        userMessage: input.prompt,
-        chatId: input.chatId,
-        messageId: input.messageId,
-        projectId: project?.id ?? null,
-      }).catch((err) => {
-        log.debug({ err }, 'Background memory distillation failed');
-      });
-    }
-
     // A cancelled run has no terminal `done`: the client already knows it stopped, and
     // emitting "done" would claim a completion that did not happen.
     if (status === 'complete') {
       const debugTrace: RuntimeDebugTrace = {
-        candidateSkills: routingDecision.candidateSkills,
-        selectedSkills: routingDecision.selectedSkills,
         loadedSkills: loadedSkills.map((s) => s.name),
         allowedTools: routingDecision.allowedTools,
-        exposedTools: availableTools.map((t) => t.name),
         toolsCalled,
       };
       log.info({ debugTrace }, 'Runtime debug trace');
@@ -1381,7 +1158,7 @@ export class GenerationService {
     }
 
     const available = await this.registry.availableEntries({ probe: 'never' });
-    // Claude keeps one model for a conversation. Auto picks once, then the chat stays on that
+    // One model per conversation. Auto picks once, then the chat stays on that
     // model while it is available and can do what the turn needs: a follow-up about a file is
     // not handed to a weaker model, and thinking tied to the model is not lost mid-task.
     const earlier = await this.chatModelAlias(input.chatId, input.messageId);
@@ -1411,7 +1188,7 @@ export class GenerationService {
       throw new ApiError('no_model_available', {
         detail: requiresVision
           ? 'No configured model can see images or PDFs. Remove the attachment, or configure ' +
-            'Claude or Gemini.'
+            'a model that can.'
           : requiresGrounding
             ? 'No configured model supports grounded search. Enable grounding or use Chat mode.'
             : 'No model in the registry is configured and reachable. Check the MODEL_* ' +
@@ -1429,7 +1206,7 @@ export class GenerationService {
    * Only retries before the first event is yielded downstream. Once the client has seen a
    * token, a restart would duplicate text, so the failure propagates instead.
    *
-   * There is no first-token cutoff, as Claude's SDK has none: a request is bounded by the
+   * There is no first-token cutoff: a request is bounded by the
    * adapter's PROVIDER_TIMEOUT_MS (10 minutes, the SDK's default) and retried only when it fails
    * (connection error, timeout, 408/409/429/5xx), never for being slow. A 12 s cutoff aborted
    * large follow-ups that were still reading, and each retry repeated the same slow request
@@ -1607,7 +1384,7 @@ export class GenerationService {
       .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq })
       .from(messages)
       .where(and(...conditions))
-      // No turn count: like Claude, the whole conversation goes, up to the model's window. What
+      // No turn count: the whole conversation goes, up to the model's window. What
       // keeps it inside the window is compaction (ADR-0019); the character budget below is the
       // backstop. A 20-message cap here used to drop a file sent 11 questions ago.
       .orderBy(desc(messages.seq));
@@ -1728,8 +1505,8 @@ export class GenerationService {
 
   /**
    * Compacts the chat before this turn when the previous request reached the trigger (ADR-0019),
-   * with the model this turn runs on, as Claude compacts with the model of the request. The user
-   * sees it happen, as claude.ai shows "Compacting our conversation". A failed compaction leaves
+   * with the model this turn runs on. The user sees it happen ("Compacting our conversation").
+   * A failed compaction leaves
    * the history whole and the turn goes on; an abort ends the turn.
    */
   private async *compactIfNeeded(
@@ -1850,8 +1627,8 @@ export class GenerationService {
     try {
       const spec = getModelCapability(alias);
       const limited = await enforceModelLimits(spec, current, history);
-      // Gemini reads page images from Cloud Storage, as Claude's Files API keeps a large PDF
-      // out of the request (ADR-0016). Claude on Vertex takes base64 only, so it is left as is.
+      // Gemini reads page images from Cloud Storage, keeping a large PDF out of the request
+      // (ADR-0016). The Anthropic adapter on Vertex takes base64 only, so it is left as is.
       if (spec.provider !== 'google' || !this.modelInputs) return { current, history: limited };
       const store = this.modelInputs;
       return {
@@ -1874,9 +1651,8 @@ export class GenerationService {
     const maxBudget = this.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
     let cumulativeBytes = 0;
 
-    // Claude has every earlier image of the chat (Vision: "Claude has access to every image from
-    // earlier turns"). The budget only guards bytes that ride inline in a request whose limit is
-    // not verified: Gemini's inline data. Claude's own request limit is verified and enforced,
+    // Every earlier image of the chat stays available. The budget only guards bytes that ride inline in a request whose limit is
+    // not verified: Gemini's inline data. The Anthropic adapter's request limit is verified and enforced,
     // newest first, by enforceModelLimits; a Gemini PDF with a model-input bucket goes by gs://
     // URI (ADR-0016) and adds nothing inline. Those are loaded whatever their size (ADR-0019).
     const spec = getModelCapability(alias);
@@ -1965,7 +1741,7 @@ export class GenerationService {
     );
   }
 
-  /** Skills a load_skill or read_skill call loaded in this chat's turns up to `throughSeq`. */
+  /** Skills a view of /skills/<name>/SKILL.md read in this chat's turns up to `throughSeq`. */
   private async skillsLoadedThrough(chatId: string, throughSeq: number): Promise<string[]> {
     const rows = await this.db
       .select({ input: toolCalls.input })
@@ -1975,13 +1751,14 @@ export class GenerationService {
         and(
           eq(messages.chatId, chatId),
           sql`${messages.seq} <= ${throughSeq}`,
-          inArray(toolCalls.name, ['load_skill', 'read_skill']),
+          eq(toolCalls.name, 'view'),
           eq(toolCalls.ok, true),
         ),
       )
       .orderBy(messages.seq, toolCalls.ordinal);
     const names = rows
-      .map((r) => (r.input as { name?: unknown } | null)?.name)
+      .map((r) => (r.input as { path?: unknown } | null)?.path)
+      .map((p) => (typeof p === 'string' ? SKILL_FILE.exec(p)?.[1] : undefined))
       .filter((n): n is string => typeof n === 'string');
     return [...new Set(names)];
   }
@@ -1992,10 +1769,9 @@ export class GenerationService {
     project: { id: string; title: string; instructions: string } | null,
     availableTools: ToolDefinition[] = [],
     skillsContext?: string,
-    isAgentMode: boolean = false,
     /** Every tool allowed this turn, declared or discoverable; tool policies key on these. */
     allowedToolNames?: string[],
-    /** The model's own web search is on this turn (Gemini grounding, Claude's web_search). */
+    /** The model's own web search is on this turn (Gemini grounding, the Anthropic adapter's web_search). */
     builtInWebSearch = false,
   ): Promise<{
     systemInstruction: string;
@@ -2007,21 +1783,11 @@ export class GenerationService {
     // 1. Standing preferences: the user's own instructions.
     const combinedStandingPrefs = prefs.instructions.trim();
 
-    // 2. Memory. Claude's conversations start "from what it already knows about you": every topic,
-    // not a per-prompt search. That also keeps this text the same from turn to turn, so it does not
-    // break the prompt cache the way a prompt-matched selection did (ADR-0025).
+    // 2. Memory: the listing of every file, and the profile and preferences in full. The same
+    // text from turn to turn, so it does not break the prompt cache (ADR-0025, ADR-0047).
     let relevantMemoryText = '';
-    if (this.cfg.ENABLE_MEMORY && allowedToolNames?.includes('save_memory')) {
-      const memory = await memoryService.getMemoryContext(
-        input.userId,
-        project?.id ?? null,
-        this.cfg.MEMORY_CONTEXT_MAX_CHARS,
-      );
-      relevantMemoryText =
-        memory.text +
-        (memory.omitted > 0
-          ? `\n(${String(memory.omitted)} more topic${memory.omitted === 1 ? '' : 's'} not shown; find them with search_memory.)`
-          : '');
+    if (this.cfg.ENABLE_MEMORY && allowedToolNames?.includes('memory_read')) {
+      relevantMemoryText = await memoryService.memoryPrompt(input.userId, project?.id ?? null, this.cfg.MEMORY_CONTEXT_MAX_CHARS);
     }
 
     // 3. Conversation compaction summary
@@ -2033,9 +1799,8 @@ export class GenerationService {
       }
     }
 
-    // 4. Project knowledge. Claude keeps a project's files in context and switches to search
-    // only "when your project knowledge approaches the context window limit" (Help Center, RAG
-    // for projects). So: every file whole while they fit, excerpts by relevance past that.
+    // 4. Project knowledge. A project's files stay in context, switching to search only when
+    // the project knowledge approaches the context window limit (ADR-0020). So: every file whole while they fit, excerpts by relevance past that.
     let retrievedContextText: string | undefined;
     const wholeFiles = project ? await projectFileTexts(this.db, project.id) : [];
     const wholeChars = wholeFiles.reduce((n, f) => n + f.text.length, 0);
@@ -2056,8 +1821,7 @@ export class GenerationService {
         },
       });
     } else if (project && wholeFiles.length > 0 && allowedToolNames?.includes('search_project_files')) {
-      // Past the limit Claude "uses a project knowledge search tool to retrieve relevant
-      // information" (Help Center, RAG for projects): the model searches when it needs to. Chunks
+      // Past the limit the model searches when it needs to. Chunks
       // picked here by the prompt's words changed the system prompt every turn and broke its
       // cache (audit B9, B10).
       retrievedContextText =
@@ -2112,7 +1876,7 @@ export class GenerationService {
     // 7. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
       currentDate: currentDateLine(new Date(), prefs.timezone),
-      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, isAgentMode, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
+      runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,
       styleInstructions,
@@ -2387,7 +2151,7 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
         code: 'provider_payload_limit',
         title: 'Image exceeds provider 5 MB limit',
         detail:
-          'This image exceeds the provider base64 limit (5 MB on Anthropic Claude). ' +
+          'This image exceeds the selected model\'s 5 MB image limit. ' +
           'Upload a smaller image or select Gemini 3.8 Flash, which supports larger files.',
       };
     }
@@ -2410,7 +2174,7 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
       code: 'provider_payload_limit',
       title: 'Image exceeds provider 5 MB limit',
       detail:
-        'This image exceeds the provider base64 limit (5 MB on Anthropic Claude). ' +
+        'This image exceeds the selected model\'s 5 MB image limit. ' +
         'Upload a smaller image or select Gemini 3.8 Flash, which supports larger files.',
     };
   }

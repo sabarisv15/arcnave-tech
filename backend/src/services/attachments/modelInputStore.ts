@@ -1,11 +1,9 @@
 /**
  * Where a model reads large inputs from, instead of the request body (ADR-0016).
  *
- * Claude's answer to a large PDF is the Files API: upload once, send a `file_id`, "to keep
- * request payloads small" (platform.claude.com, PDF support). Gemini on Vertex has the same
- * shape: a `fileData` part with a `gs://` URI. Claude on Vertex has no equivalent ("On Amazon
- * Bedrock and Google Cloud, only base64-encoded sources are currently available", Vision), so
- * this is used for Gemini only.
+ * A large PDF is uploaded once and referenced, to keep request payloads small. Gemini on Vertex
+ * takes a `fileData` part with a `gs://` URI. The Anthropic adapter on Vertex takes base64
+ * sources only, so this is used for Gemini only.
  *
  * Page images go to their own bucket, not the attachments bucket, so Vertex's read access
  * reaches rendered pages and nothing a user uploaded. Objects are named by content hash:

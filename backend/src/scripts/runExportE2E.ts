@@ -17,7 +17,7 @@ import type { GenerationRequest, ToolCall, ToolDefinition, ToolResult } from '..
 import { loadConfig } from '../config.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
-import { CREATE_ARTIFACT, READ_SKILL, LIST_SKILLS, SEARCH_SKILLS } from '../tools/definitions.js';
+import { CREATE_ARTIFACT, codeToolDefinitions } from '../tools/definitions.js';
 import { renderMarkdownExport } from '../services/documents/index.js';
 import { verifyDocx } from '../services/documents/verify/docxVerify.js';
 import { verifyXlsx } from '../services/documents/verify/xlsxVerify.js';
@@ -89,7 +89,7 @@ async function main() {
   const outDir = path.resolve(process.cwd(), 'test-artifacts', 'e2e-exports');
   await fs.mkdir(outDir, { recursive: true });
 
-  const tools: ToolDefinition[] = [CREATE_ARTIFACT, READ_SKILL, LIST_SKILLS, SEARCH_SKILLS];
+  const tools: ToolDefinition[] = [CREATE_ARTIFACT, ...codeToolDefinitions(true)];
 
   let passed = 0;
 

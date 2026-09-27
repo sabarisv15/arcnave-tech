@@ -531,7 +531,7 @@ function Conversation() {
     const roomBelow = scrollerRect.bottom - anchorRect.bottom;
 
     // Short turns stay in place when there is already useful reading room. Long conversations
-    // get a one-shot Claude-style turn anchor without tying scroll state to token rendering.
+    // get a one-shot turn anchor without tying scroll state to token rendering.
     if (
       anchorRect.top >= scrollerRect.top &&
       anchorRect.bottom <= scrollerRect.bottom &&
@@ -651,6 +651,9 @@ const tokens = (value: number) => value.toLocaleString();
 
 const toolActivityLabels: Record<string, { running: string; complete: string }> = {
   run_python: { running: "Running a calculation", complete: "Calculation finished" },
+  bash_tool: { running: "Running a command", complete: "Command finished" },
+  present_files: { running: "Preparing files", complete: "Files ready" },
+  image_search: { running: "Finding images", complete: "Images found" },
   search_project_files: {
     running: "Searching project files",
     complete: "Project search finished",
@@ -913,7 +916,7 @@ function MessageView({
         <ResponseActivity message={m} />
       )}
       {m.segments && m.segments.length > 0 ? (
-        // Claude's order: each stretch of thinking, text and tool steps where it happened.
+        // In order: each stretch of thinking, text and tool steps where it happened.
         m.segments.map((seg, i) => {
           const last = i === m.segments!.length - 1;
           if (seg.type === "ui")
@@ -968,10 +971,19 @@ function MessageView({
       {m.status === "generating" && m.visualDrafts?.map((d) => <VisualDraft key={d.id} draft={d} />)}
       {(() => {
         if (!m.toolCalls?.length) return null;
-        const { deliverables, images } = extractToolCardData(m.toolCalls);
-        if (!deliverables.length && !images.length) return null;
+        const { deliverables, images, webImages } = extractToolCardData(m.toolCalls);
+        if (!deliverables.length && !images.length && !webImages.length) return null;
         return (
           <div className="message-deliverable-tray">
+            {webImages.length > 0 && (
+              <div className="web-image-strip">
+                {webImages.map((img) => (
+                  <a key={img.imageUrl} href={img.sourceUrl} target="_blank" rel="noopener noreferrer" title={img.title}>
+                    <img src={img.thumbnailUrl} alt={img.title} loading="lazy" referrerPolicy="no-referrer" />
+                  </a>
+                ))}
+              </div>
+            )}
             {images.map((img) => (
               <ImageCard key={img.attachmentId} item={img} />
             ))}
@@ -1161,7 +1173,7 @@ function DeliverableCard({ item }: { item: DeliverableData }) {
 
   return (
     <div className="deliverable-card" role="region" aria-label={`Deliverable: ${item.filename}`}>
-      {/* Opening a created file shows it before it is downloaded, as Claude's file cards do (WP-11). */}
+      {/* Opening a created file shows it before it is downloaded (WP-11). */}
       <button
         type="button"
         className="deliverable-card-open"

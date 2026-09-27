@@ -1,5 +1,57 @@
 # ArcNave — current checkpoint
 
+> **2026-09-27 (latest): tools and skills match the reference one for one; merged in PR #32 (`ca8599c`) and deployed.**
+> Main's Cloud Build for `ca8599c` succeeded (reported by the owner; this session had no GCP
+> access to see the revision). The Cloudflare frontend build also succeeded. Live behaviour is
+> not yet checked.
+> [ADR-0047](../decisions/0047-tools-and-skills-match-the-reference.md), checked against the
+> Opus 5.5, Sonnet 5 and Fable 5.1 app prompts.
+> - The computer: `bash_tool`, `view`, `create_file`, `str_replace`, `present_files` replace
+>   `run_python`, on every sandbox engine. A file reaches the user only through `present_files`.
+> - Skills are read with `view /skills/<name>/SKILL.md`; `load_skill`, `read_skill`,
+>   `list_skills`, `search_skills` and `search_tools` are gone: every allowed tool is declared.
+>   New skills `file-reading` and `frontend-design` (replaces artifact-design). The manifest names
+>   no skill; the prompt says see what is in context first, then view skills before any code.
+> - Memory is files: six `memory_*` tools with version tokens; migration 0022 moves old topics
+>   to `/topics/<slug>.md`. Past chats: `conversation_search`, `read_conversation`, `recent_chats`.
+> - `image_search` (SerpAPI or Google CSE; says unavailable otherwise); `web_fetch` opens only
+>   URLs already in the conversation.
+> - Removed as ours: visual QA pass, analytics policy, regex memory distiller.
+> - Backend typecheck clean, **917/917 tests**; frontend build and **178/178 tests**.
+> - Next: a live turn on the new tools (a skill read with view, a file given with
+>   present_files, memory, image_search), and the KVB + Federal check (48 / 277 / 325).
+
+> **2026-09-27: tools and skills cut to the reference, on `claude/happy-maxwell-1h7hmx`, not live.**
+> [ADR-0046](../decisions/0046-tools-and-skills-cut-to-the-reference.md). Clean-up step only;
+> the plan and implementation come next.
+> - 21 tools removed (table extraction, generate_deliverable, read_uploaded_file, the 12
+>   per-format file tools, goal tools, suggest_next_actions, generate_image) with their
+>   executors and tests. Removed features, owner-confirmed: AgentLoop research path, image
+>   generation, follow-up chips. Research mode (grounded search) stays.
+> - 6 skills removed; docx, pdf, pptx, xlsx now build with run_python only; pdf-reading reads
+>   pages already in view in one pass and checks in code.
+> - Backend typecheck clean, **951/951 tests**; frontend build and **176/176 tests**.
+> - Not run: the live KVB + Federal check (48 / 277 / 325) with the active model; must pass
+>   before deployment. Next: bash / view / create_file / str_replace tools, file-reading
+>   skill, the prompt's order (see, then skill, then code).
+
+> **2026-09-27: PDF reading split and exact figures computed, on `claude/keen-goldberg-7fz0ia`, not live.**
+> [ADR-0044](../decisions/0044-pdf-reading-and-exact-figures.md). A live chat gave
+> 172 Federal entries for 277 after the pdf skill and `extract_scanned_table_rows` gave opposite
+> orders. Now: the prompt carries a "do not estimate figures in prose" sentence (exact
+> figures only); building skills load after the material is gathered; new `pdf-reading` skill
+> routes text-layer pages to `pdfplumber` and scanned pages to `extract_scanned_table_rows`
+> whether or not run_python is on; `pdf` keeps create/change/convert. Backend typecheck and the
+> full suite pass locally. Not yet run: the live KVB + Federal check (expect 48 / 277 / 325).
+> **Next session: start from [2026-09-27-handoff.md](2026-09-27-handoff.md)** (pending items, why, how).
+> Office files (xlsx, docx, pptx, …) are read from the file with run_python when the turn has it,
+> not inlined as flattened text ([ADR-0045](../decisions/0045-office-files-read-with-code.md));
+> without run_python the text still goes.
+> Launch files no longer describe ArcNave as another assistant (ADR-0044 §4, `brandNeutral.test.ts`);
+> provider names remain only in provider code.
+> Still open from the same review: last-round forced answer when Vertex rejects function-calling
+> NONE, table tools deferred behind `search_tools`, silent model fallback (Invariant 1).
+
 > **2026-09-27: chat corrections integrated onto main `94deb57`, awaiting release approval.**
 > Branch `codex/wp-10-visual-sandbox`; [ADR-0043](../decisions/0043-contextual-chat-follow-ups-and-safe-answer-rendering.md).
 > Single-dollar math with currency preservation, contextual next actions and independent composer

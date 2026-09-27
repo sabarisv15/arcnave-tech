@@ -13,6 +13,7 @@
   code never runs in the backend, and trusted work runs locally.
 - Takes the "warm per-chat sandbox" item from Phase 6 of the tools pipeline plan.
   ADR-0007 (no general egress) applies, and was implemented on this service on 2026-09-25.
+- Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): run_python is replaced by bash_tool, view, create_file, str_replace and present_files on the same service; files reach the user only through present_files.
 
 ## Context
 

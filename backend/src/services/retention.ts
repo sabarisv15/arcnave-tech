@@ -1,8 +1,7 @@
 /**
  * How long a deleted chat and an unsent upload are kept.
  *
- * Claude is the reference (Anthropic Privacy Center, "Can you delete data sent via Claude?"): a
- * deleted conversation leaves the user's history at once and is removed from the back end
+ * A deleted conversation leaves the user's history at once and is removed from the back end
  * within 30 days. `DELETE /chats/:id` does the first part (it sets `deletedAt`); this sweep does
  * the second. It removes the chat's rows (messages, their attachments and everything else that
  * cascades) and the stored bytes of files uploaded into it.
@@ -13,7 +12,7 @@
  * - An upload never sent with a message is removed after UNSENT_UPLOAD_TTL_HOURS. The upload
  *   route has always said such files are "not kept forever".
  * - A chat's sandbox checkpoint (ADR-0015) goes with the chat, and otherwise after
- *   SANDBOX_STATE_RETENTION_DAYS without a run, as Claude's containers expire after 30 days.
+ *   SANDBOX_STATE_RETENTION_DAYS without a run (30 days).
  */
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 

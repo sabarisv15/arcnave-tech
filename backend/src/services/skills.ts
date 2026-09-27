@@ -7,7 +7,7 @@
  * - Strong frontmatter validation (Zod schema).
  * - Progressive disclosure: lightweight list & search summaries; lazy-loaded full bodies.
  * - Capability / Dependency checks: computes mode ('full' | 'guidance_only' | 'unavailable') based on active tools.
- * - Internal autoload skills (e.g. python-sandbox-patterns).
+ * - Internal autoload skills (`autoload: true` in frontmatter).
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -33,7 +33,7 @@ export type SkillMode = 'full' | 'guidance_only' | 'unavailable';
 const XML_TAG = /<[^>]*>/;
 
 /**
- * Claude's Agent Skills field rules (platform.claude.com, "Agent Skills", Skill structure):
+ * Agent Skills field rules (the open skill format):
  * name at most 64 characters of lowercase letters, numbers and hyphens, no XML tags, no reserved
  * words; description non-empty, at most 1024 characters, no XML tags. Every skill's description
  * is in every system prompt, so the length cap is what keeps that list cheap.
@@ -102,7 +102,9 @@ export const SUPPORTED_CAPABILITIES = new Set<string>([
 import type { CapabilityRegistry } from '../capabilities/registry.js';
 
 export class SkillService {
-  private readonly skills = new Map<string, SkillEntry>();
+  private skills = new Map<string, SkillEntry>();
+  /** The load in progress or done; the app waits on it before taking requests. */
+  private loading: Promise<void> | null = null;
   /** Skill directories that were not loaded, and why. A skill is never dropped unrecorded. */
   readonly rejected: { dir: string; reason: string }[] = [];
   private loaded = false;
@@ -118,9 +120,23 @@ export class SkillService {
    * Scans predefined allowed directory, parses and validates all SKILL.md files.
    * Safe against path traversal: models only query this populated registry.
    */
-  async load(): Promise<void> {
-    this.skills.clear();
-    this.rejected.length = 0;
+  load(): Promise<void> {
+    this.loading = this.scan();
+    return this.loading;
+  }
+
+  /** Resolves once the registry is complete: a request that lists skills never sees part of it. */
+  whenLoaded(): Promise<void> {
+    return this.loading ?? this.load();
+  }
+
+  /**
+   * Built into a fresh map and swapped in whole, so a reload never exposes a half-filled
+   * registry: the old one serves until the new one is complete.
+   */
+  private async scan(): Promise<void> {
+    const skills = new Map<string, SkillEntry>();
+    const rejected: { dir: string; reason: string }[] = [];
 
     const candidatePaths = [
       path.resolve(this.rootDir, this.relativeSkillsDir),
@@ -145,6 +161,8 @@ export class SkillService {
 
     if (!skillsPath) {
       log.warn({ candidatePaths }, 'skills directory not found across candidate paths');
+      this.skills = skills;
+      this.rejected.splice(0, this.rejected.length);
       this.loaded = true;
       return;
     }
@@ -167,16 +185,16 @@ export class SkillService {
             }
             const parsed = this.parseSkillContent(raw, skillFilePath);
             if (typeof parsed === 'string') {
-              this.rejected.push({ dir: entry, reason: parsed });
+              rejected.push({ dir: entry, reason: parsed });
               continue;
             }
             const key = parsed.frontmatter.name;
             // Resources are read from the directory named after the skill (getSkillResource).
             if (key !== entry) {
-              this.rejected.push({ dir: entry, reason: `name "${key}" does not match its directory` });
+              rejected.push({ dir: entry, reason: `name "${key}" does not match its directory` });
               log.warn({ key, skillFilePath }, 'skill name does not match its directory, skipping');
             } else {
-              this.skills.set(key, parsed);
+              skills.set(key, parsed);
             }
           } catch {
             continue;
@@ -187,6 +205,8 @@ export class SkillService {
       }
     }
 
+    this.skills = skills;
+    this.rejected.splice(0, this.rejected.length, ...rejected);
     this.loaded = true;
     log.info({ count: this.skills.size, rejected: this.rejected }, 'skills registry loaded');
   }

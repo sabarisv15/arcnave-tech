@@ -1205,3 +1205,58 @@ practice, not canon.
   resolve `vitest` to the target realpath outside the worktree root and bundle a second copy
   (`Vitest failed to find the runner`); use `npm ci --prefer-offline` per worktree instead.
 
+- **2026-09-27 (PDF reading split)** — No new heading (at the 40-entry cap). Two catches:
+  (1) A skill and a tool description gave opposite orders: the pdf skill said to use
+  `extract_scanned_table_rows` only *without* run_python, the tool said to call it first because
+  run_python cannot read a scanned page. Live, with run_python on, Gemini followed the skill, read
+  pages by eye a few at a time, hit the 16-round limit, then answered 172 entries for 277. Rule:
+  when a skill names a tool, read that tool's description and make them agree; `skills.test.ts`
+  now fails if `pdf-reading` makes the scanned path depend on run_python being off.
+  (2) In the cloud container, 22 PDF tests failed with no code change: `pdftoppm`/`pdftotext`
+  were missing. Rule: `apt-get install -y poppler-utils` alongside `service postgresql start`
+  before judging a PDF test failure; `which pdftoppm` verifies.
+- **2026-09-27 (brand)** — No new heading (at the cap). Launch code described ArcNave by another
+  assistant ("as Claude does", "Claude-style", claude.ai limits: ~70 comment lines, a skill line,
+  and two user-facing error strings). ArcNave is its own brand; the reference assistant is a
+  design input only. Rule: in launch files, state the behaviour and cite an ADR, never "as X
+  does"; provider names only where the code talks to that provider. Verify:
+  `src/test/brandNeutral.test.ts` fails on reference wording in launch files.
+- **2026-09-27 (skills load race)** — No new heading (at the cap). `GET /v1/skills` failed
+  about 1 run in 3 of the full suite, listing 12 of 13 skills (the last directory, `xlsx`,
+  missing). Cause: `container.ts` fired `void skills.load()`, which cleared the map and filled
+  it asynchronously, so a request (or a cold-start turn's `<available_skills>`) could see a
+  partial registry; one more skill made the window wider. Rule: a registry read by requests is
+  built into a new map and swapped in whole, and the app awaits it before taking requests
+  (`createApp` → `skills.whenLoaded()`). Verify: `skills.test.ts` "never shows a half-loaded
+  registry" fails without the fix; the full suite passed 3 runs in a row with it.
+- **2026-09-27 (office files)** — No new heading (at the cap). The docx and pptx skills told the
+  model the extracted text "is sufficient … answer directly", and every Office file went inline
+  as flattened text, losing cell addresses, formulas and hidden sheets. The reference assistant
+  reads those types from the file with code. Rule: a skill's claim about how a file reaches the
+  model must match the pipeline; check `attachmentContent.ts` before writing one. Verify:
+  `officeReadWithCode.integration.test.ts` (ADR-0045).
+- **2026-09-27 (tool clean-up, ADR-0046)** — No new heading (at the cap). Rewriting the pdf
+  skill to build files with code, I first named `reportlab` and `qpdf` because the reference's
+  pdf skill uses them; the sandbox image (`sandbox/Dockerfile.service`) has neither, so the
+  model would have been sent to libraries that are not there. The check only covered libraries
+  listed in `skillContent.test.ts`. Rule: every library or CLI a skill names is checked against
+  the sandbox image before it is written, and added to that test's `LIBRARIES` so a later
+  mention fails when the image lacks it. Verify: `npx vitest run src/services/skillContent.test.ts`
+  fails if a skill names `reportlab` or `qpdf`.
+- **2026-09-27 (computer tools, ADR-0047)** — No new heading (at the cap). Three found here.
+  (1) I told the user the reference has one memory tool (`memory_user_edits`, from the Sonnet 5
+  capture); the newer Opus 5.5 and Fable 5.1 captures have six `memory_*` file tools. Rule: when
+  captures differ, read the newest ones before stating the reference's tool list, and say which
+  capture a claim comes from. (2) Python source written inside a TypeScript template literal:
+  `'\n'` in TS becomes a real newline in the Python, a syntax error the typecheck cannot see.
+  Rule: write `\\n`/`\\t` for Python escapes in a template literal, and run the program on the
+  process engine in a test. Verify: `codeExecutionExecutor.test.ts` "view numbers a text file"
+  fails without the double escape. (3) I gated the memory prompt on the router's allowed tools;
+  the router does not know `ENABLE_TOOL_USE`, so with tool use off it still queried memory
+  (13 chat tests failed with CONNECTION_ENDED). Rule: gate prompt text on the tools actually
+  declared on the request. Verify: `chats.integration.test.ts` passes whole, not only one test.
+- **2026-09-27 (merge claim)** — No new heading (at the cap). Before merging PR #32 I told the
+  owner "backend is not deployed by this merge", from the Cloudflare entry alone; CURRENT.md
+  also records that main's Cloud Build trigger deploys the backend. The session had no GCP
+  credentials to check which happened. Rule: before a merge to main, read CURRENT.md for every
+  trigger on main and name each one to the owner; say "unverified" when it cannot be checked.

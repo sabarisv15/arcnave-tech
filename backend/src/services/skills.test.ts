@@ -24,49 +24,50 @@ describe('SkillService', () => {
     expect(names).toContain('pptx');
     expect(names).toContain('xlsx');
     expect(names).toContain('pdf');
-    expect(names).toContain('data-analysis');
-    expect(names).toContain('research-deep-dive');
+    expect(names).toContain('pdf-reading');
     expect(names).toContain('skill-creator');
-
-    // Listed like any other skill since the 2026-09-26 audit (D10): in chat, only the listing
-    // tells the model it exists.
-    expect(names).toContain('python-sandbox-patterns');
   });
 
-  it('includes internal skills when requested', () => {
-    const all = service.listSkills(undefined, true);
-    const names = all.map((s) => s.name);
-    expect(names).toContain('python-sandbox-patterns');
+  it('splits PDF reading from PDF building', () => {
+    const reading = service.getSkill('pdf-reading', ['bash_tool']);
+    expect(reading).not.toBeNull();
+    // Skills are read with view, so a skill is offered only on a turn with the computer.
+    expect(reading?.missingTools).toEqual([]);
+    // Pages already in view are read from the view in one pass, not looked at again through
+    // tool calls a few at a time: those ran a turn out of tool steps (2026-09-27).
+    expect(reading?.content).toContain('Read every row from them in one pass');
+    expect(reading?.content).not.toContain('read the pages yourself a few at a time');
+
+    const building = service.getSkill('pdf', ['bash_tool']);
+    expect(building?.content).not.toContain('## Exact counts, totals and complete lists');
+    expect(building?.description).toContain('use the pdf-reading skill');
   });
 
-  it('evaluates capability dependencies honestly (guidance_only vs full)', () => {
-    // 1. Without generate_deliverable -> pptx mode should be guidance_only and missing generate_deliverable
-    const withoutTool = service.getSkill('pptx', []);
-    expect(withoutTool).not.toBeNull();
-    expect(withoutTool?.mode).toBe('guidance_only');
-    expect(withoutTool?.missingCapabilities).toEqual(['generate_deliverable']);
+  it('never shows a half-loaded registry, during a reload or before the first load finishes', async () => {
+    const full = service.listSkills().map((s) => s.name);
+    const reloading = service.reload();
+    // The reload has started reading the directory; the old registry still answers whole.
+    expect(service.listSkills().map((s) => s.name)).toEqual(full);
+    await reloading;
+    expect(service.listSkills().map((s) => s.name)).toEqual(full);
 
-    // 2. With generate_deliverable -> pptx has supported artifact.export.pptx capability -> full mode
-    const withTool = service.getSkill('pptx', ['generate_deliverable']);
-    expect(withTool).not.toBeNull();
-    expect(withTool?.mode).toBe('full');
-    expect(withTool?.missingCapabilities).toEqual([]);
-
-    // 3. PDF requires artifact.export.pdf which is NOT supported in default set -> always guidance_only
-    const pdfSkill = service.getSkill('pdf', ['generate_deliverable']);
-    expect(pdfSkill).not.toBeNull();
-    expect(pdfSkill?.mode).toBe('guidance_only');
-    expect(pdfSkill?.missingCapabilities).toEqual(['artifact.export.pdf']);
+    const fresh = new SkillService(path.resolve(__dirname, '../../'), 'skills');
+    void fresh.load();
+    await fresh.whenLoaded();
+    expect(fresh.listSkills().map((s) => s.name)).toEqual(full);
   });
 
-  it('evaluates run_python dependency for data-analysis', () => {
-    const withoutPython = service.getSkill('data-analysis', []);
-    expect(withoutPython?.mode).toBe('guidance_only');
-    expect(withoutPython?.missingCapabilities).toContain('run_python');
+  it('evaluates tool dependencies honestly (guidance_only vs full)', () => {
+    // The file skills build with code: without the computer they are guidance only.
+    for (const name of ['docx', 'pdf', 'pptx', 'xlsx', 'pdf-reading', 'file-reading']) {
+      const withoutTool = service.getSkill(name, []);
+      expect(withoutTool?.mode).toBe('guidance_only');
+      expect(withoutTool?.missingCapabilities).toEqual(['bash_tool']);
 
-    const withPython = service.getSkill('data-analysis', ['run_python']);
-    expect(withPython?.mode).toBe('full');
-    expect(withPython?.missingCapabilities).toHaveLength(0);
+      const withTool = service.getSkill(name, ['bash_tool']);
+      expect(withTool?.mode).toBe('full');
+      expect(withTool?.missingCapabilities).toEqual([]);
+    }
   });
 
   it('prevents path traversal attempts completely', () => {
@@ -84,12 +85,6 @@ describe('SkillService', () => {
     const spreadsheetResults = service.searchSkills('financial formulas spreadsheet');
     expect(spreadsheetResults.length).toBeGreaterThanOrEqual(1);
     expect(spreadsheetResults[0]?.name).toBe('xlsx');
-  });
-
-  it('returns autoload skills', () => {
-    const autoloads = service.getAutoloadSkills(['run_python']);
-    const names = autoloads.map((s) => s.name);
-    expect(names).toContain('python-sandbox-patterns');
   });
 
   it('handles reload cleanly', async () => {
@@ -166,6 +161,16 @@ describe('SkillService frontmatter rules (Claude Agent Skills)', () => {
     expect(reasons.long).toContain('description');
     expect(reasons.xml).toContain('XML');
     expect(reasons.mismatch).toContain('directory');
+  });
+
+  it('lists an internal skill only when asked, and returns autoload skills', async () => {
+    const svc = await loadWith({
+      helper: 'name: helper\ndescription: Internal helper. Use when running code.\ncategory: internal\nautoload: true',
+      public: 'name: public\ndescription: A listed skill. Use when asked.',
+    });
+    expect(svc.listSkills().map((s) => s.name)).toEqual(['public']);
+    expect(svc.listSkills(undefined, true).map((s) => s.name).sort()).toEqual(['helper', 'public']);
+    expect(svc.getAutoloadSkills([]).map((s) => s.name)).toEqual(['helper']);
   });
 
   it('accepts the limits exactly', async () => {

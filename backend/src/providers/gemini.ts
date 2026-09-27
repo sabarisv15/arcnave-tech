@@ -26,7 +26,7 @@ import type {
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
 import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
-import { CLEARED_TOOL_RESULT, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
+import { CLEARED_TOOL_RESULT, isSkillRead, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -105,7 +105,15 @@ export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclar
  * parts and their thought signatures are untouched; only the result is replaced.
  */
 export function clearOldFunctionResponses(contents: Content[], policy: ContextEditingPolicy): Content[] {
-  const clearable = (p: Part) => Boolean(p.functionResponse) && !policy.excludeTools.includes(p.functionResponse!.name ?? '');
+  // A result names its call only by id; the call's arguments say whether it read a skill.
+  const kept = new Set<string>();
+  for (const c of contents) {
+    for (const p of c.parts ?? []) {
+      const call = p.functionCall;
+      if (call?.id && policy.keepResultOf(call.name ?? '', (call.args ?? {}) as Record<string, unknown>)) kept.add(call.id);
+    }
+  }
+  const clearable = (p: Part) => Boolean(p.functionResponse) && !kept.has(p.functionResponse!.id ?? '');
   const total = contents.reduce((n, c) => n + (c.parts ?? []).filter(clearable).length, 0);
   let remaining = resultsToClear(total, policy);
   if (remaining === 0) return contents;
@@ -243,7 +251,7 @@ interface GeminiUsageMetadata {
  * (Agent Platform pricing), and `candidatesTokenCount` leaves the thoughts out. So output is both.
  * The request's context for compaction stays prompt plus answer: thoughts are not sent back.
  */
-/** Claude's effort ladder on Gemini's thinkingLevel: levels above HIGH run at HIGH. */
+/** ArcNave's effort ladder on Gemini's thinkingLevel: levels above HIGH run at HIGH. */
 export function geminiThinkingLevel(effort: ReasoningEffort): ThinkingLevel {
   if (effort === 'low') return ThinkingLevel.LOW;
   if (effort === 'medium') return ThinkingLevel.MEDIUM;
@@ -257,7 +265,7 @@ export function usageFrom(meta: GeminiUsageMetadata | undefined): ProviderUsage 
   const cached = cachedContentTokenCount ?? 0;
   return {
     // promptTokenCount "also includes the number of tokens in the cached content" (SDK
-    // UsageMetadata). inputTokens is the uncached part, as Claude's input_tokens is, so the
+    // UsageMetadata). inputTokens is the uncached part, as on every adapter, so the
     // cached tokens are priced once, at the cache-read rate, and not again at the input rate.
     inputTokens: Math.max(0, (promptTokenCount ?? 0) - cached),
     outputTokens: (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0),
@@ -375,7 +383,7 @@ export class GeminiProvider implements Provider {
       triggerTokens: this.cfg.CONTEXT_EDIT_TRIGGER_TOKENS,
       keep: this.cfg.CONTEXT_EDIT_KEEP_TOOL_RESULTS,
       batch: this.cfg.CONTEXT_EDIT_CLEAR_BATCH,
-      excludeTools: ['load_skill'],
+      keepResultOf: isSkillRead,
     };
     // The exact prompt size of the latest request, which decides whether the next is edited.
     let lastPromptTokens = request.previousContextTokens ?? 0;
@@ -388,7 +396,7 @@ export class GeminiProvider implements Provider {
         // The SDK's `abortSignal` config only stops a request already underway; without this
         // check, an abort here would still issue one more provider call.
         if (request.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        // The last round must end in an answer, as the Claude adapter's does: function calling
+        // The last round must end in an answer, as on every adapter: function calling
         // is switched off and the system instruction says to answer from the results so far.
         // The conversation itself is left as it is: a text part added to the functionResponse
         // turn made Vertex reject the request ("Requests ending with a model turn are not
@@ -427,7 +435,7 @@ export class GeminiProvider implements Provider {
               : stream
                 ? { toolConfig: { functionCallingConfig: { streamFunctionCallArguments: true } } }
                 : {}),
-            // Thought summaries, shown to the user as Claude shows its thinking (audit B8). They
+            // Thought summaries, shown to the user (audit B8). They
             // arrive as parts marked `thought`, which `chunk.text` leaves out of the answer.
             thinkingConfig: {
               includeThoughts: true,
@@ -535,7 +543,7 @@ export class GeminiProvider implements Provider {
         contents = [...contents, { role: 'model', parts: modelParts }];
 
         // Every call of the response is run, in order, and all their responses go back together
-        // in one turn, as Claude runs parallel tool calls (ADR-0026). Sequential, not
+        // in one turn (parallel tool calls, ADR-0026). Sequential, not
         // concurrent: two run_python calls share one workspace.
         const responseParts: Part[] = [];
         for (const [i, c] of roundCalls.entries()) {
@@ -564,7 +572,7 @@ export class GeminiProvider implements Provider {
     } catch (err) {
       if (request.signal.aborted) throw err;
       // The caller did not abort, so this is the SDK's own per-request timeout firing: a typed,
-      // retryable timeout, as Claude's SDK treats one (APIConnectionTimeoutError, retried).
+      // retryable timeout, as the other adapter's SDK treats one.
       if (isAbort(err)) {
         throw new ProviderError(`Gemini request timed out after ${this.cfg.PROVIDER_TIMEOUT_MS}ms`, {
           retryable: true,

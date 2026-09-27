@@ -3366,6 +3366,14 @@ textarea {
   font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
   font-weight: 600;
 }
+/* AI reply typography now follows the same serif choice as the greeting/branding headings
+   when the user picks the "serif" chat font, instead of being silently forced to sans-serif. */
+[data-font="serif"] .assistant-message > .markdown,
+[data-font="serif"] .assistant-message > .markdown h1,
+[data-font="serif"] .assistant-message > .markdown h2,
+[data-font="serif"] .assistant-message > .markdown h3 {
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+}
 [data-motion="reduced"] *,
 [data-motion="reduced"] *::before,
 [data-motion="reduced"] *::after {
@@ -4118,7 +4126,7 @@ textarea {
 }
 @media (max-width: 760px) { .auth-study { display: none; }.auth-welcome { padding: 0; }.auth-layout { width: 100%; } }
 
-/* Claude-inspired workspace pass: quiet sans UI and editorial type only for display moments. */
+/* Workspace pass: quiet sans UI and editorial type only for display moments. */
 :root {
   font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -4131,11 +4139,8 @@ select,
 .markdown {
   font-family: "Inter Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
-/* Chat font (Settings > Appearance): Default, Match system, or Dyslexic friendly. */
-.assistant-message > .markdown,
-.assistant-message > .markdown h1,
-.assistant-message > .markdown h2,
-.assistant-message > .markdown h3,
+/* Chat font (Settings > Appearance): Default, Serif (matches the greeting/branding), Match
+   system, or Dyslexic friendly. */
 [data-font="serif"] .assistant-message > .markdown,
 [data-font="serif"] .assistant-message > .markdown h1,
 [data-font="serif"] .assistant-message > .markdown h2,
@@ -4579,6 +4584,7 @@ select:focus-visible {
 .composer textarea {
   color: var(--ink);
   letter-spacing: -0.012em;
+  font-weight: 500;
 }
 
 .composer textarea::placeholder {
@@ -5427,6 +5433,28 @@ select:focus-visible {
 
 /* -------------------------------------------------------------------------- Deliverable & Image Cards */
 
+.web-image-strip {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  overflow-x: auto;
+}
+
+.web-image-strip a {
+  flex: 0 0 auto;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.web-image-strip img {
+  display: block;
+  height: 140px;
+  width: auto;
+  max-width: 240px;
+  object-fit: cover;
+}
+
 .message-deliverable-tray {
   display: flex;
   flex-direction: column;
@@ -5601,7 +5629,7 @@ select:focus-visible {
   font-weight: 500;
 }
 
-/* Tool activity: the turn's steps, Claude-style (ToolActivity.tsx). */
+/* Tool activity: the turn's steps (ToolActivity.tsx). */
 .tool-activity {
   margin: 4px 0 14px;
   font-size: 13.5px;

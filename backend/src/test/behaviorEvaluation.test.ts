@@ -51,10 +51,9 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
         'trust_boundaries',
         'arcNave_capabilities',
         'tool_use',
-        'skills',
+        'computer_use',
         'web',
         'files',
-        'python',
         'artifacts',
         'professional_deliverables',
         'source_transformation',
@@ -102,21 +101,20 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('an important source should be inspected directly');
     });
 
-    it('Eval 5: Uploaded multi-page document -> Directs to read_uploaded_file with pagination', () => {
-      expect(masterPrompt).toContain('Use read_uploaded_file when:');
-      expect(masterPrompt).toContain('the source is large');
-      expect(masterPrompt).toContain('specific pages or ranges matter');
+    it('Eval 5: Uploaded document -> What is already in context is seen, not fetched again', () => {
+      expect(masterPrompt).toContain('Some attachments are already in your context');
+      expect(masterPrompt).toContain('decide whether the computer is actually needed');
       expect(masterPrompt).toContain('Do not make claims about unseen sections of a file');
     });
 
     it('Eval 6: Document / PDF -> Word conversion -> Enforces source transformation and docx skill', () => {
       expect(masterPrompt).toContain('Transform; do not silently rewrite.');
-      expect(masterPrompt).toContain('Load a skill when the task needs its procedure');
+      expect(masterPrompt).toContain('view the SKILL.md of every skill that plausibly applies');
       expect(masterPrompt).toContain('Preserve meaningful source structure');
     });
 
     it('Eval 7: "Create financial spreadsheet" -> Enforces xlsx skill, formulas-first, and export workflow', () => {
-      expect(masterPrompt).toContain('Load a skill when the task needs its procedure');
+      expect(masterPrompt).toContain('view the SKILL.md of every skill that plausibly applies');
       expect(masterPrompt).toContain('Use spreadsheet semantics such as:');
       expect(masterPrompt).toContain('formulas');
       expect(masterPrompt).toContain('typed cells');
@@ -124,15 +122,14 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
     });
 
     it('Eval 8: "Create presentation" -> Enforces pptx skill, readability floor, and deliverable cover note', () => {
-      expect(masterPrompt).toContain('Load a skill when the task needs its procedure');
+      expect(masterPrompt).toContain('view the SKILL.md of every skill that plausibly applies');
       expect(masterPrompt).toContain('Use presentation semantics such as:');
       expect(masterPrompt).toContain('readable typography');
       expect(masterPrompt).toContain('continuation slides');
       expect(masterPrompt).toContain('concise cover note');
     });
 
-    it('Eval 9: Deep multi-source research -> Directs to research-deep-dive, triangulation, and iterative synthesis', () => {
-      expect(masterPrompt).toContain('For substantial multi-source research, use the research-deep-dive skill');
+    it('Eval 9: Deep multi-source research -> Triangulation and iterative synthesis', () => {
       expect(masterPrompt).toContain('Research should be iterative rather than one-shot');
       expect(masterPrompt).toContain('compare sources');
       expect(masterPrompt).toContain('investigate contradictions');
@@ -169,6 +166,23 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).not.toContain('check completeness, for example by comparing counts');
       // Claude app system prompt, responding to mistakes.
       expect(masterPrompt).toContain('own them and work to fix them');
+    });
+
+    it('Eval 11b2: Exact figures are computed, not estimated (ADR-0044)', () => {
+      expect(masterPrompt).toContain('do not estimate figures in prose');
+      expect(masterPrompt).toContain('compute the figure with a tool');
+      // Scoped to exact figures: a summary still needs no computation (mistakes.md, 2026-09-26).
+      expect(masterPrompt).toContain('A summary, or a question one visible passage answers, needs no computation.');
+    });
+
+    it('Eval 11b3: What is in context is seen first; skills are read before any code or file (ADR-0047)', () => {
+      expect(masterPrompt).toContain('Transcribing or summarising what you can see needs no tool');
+      expect(masterPrompt).toContain('Before creating any file, writing any code or running any command');
+      expect(masterPrompt).not.toContain('load_skill');
+    });
+
+    it('Eval 11b4: The prompt names no other assistant as what ArcNave is or follows (ADR-0044)', () => {
+      expect(masterPrompt).not.toMatch(/\b(claude|opus|anthropic)\b/i);
     });
 
     it('Eval 11c: Current user language and script take priority, including Tanglish', () => {

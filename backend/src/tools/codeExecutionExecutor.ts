@@ -1,12 +1,12 @@
 /**
- * Executes `run_python` only — a sibling to `ProjectToolExecutor`, not a branch inside it,
- * because this tool touches no database and has a genuinely different failure mode (an external
- * sandbox call, not a Postgres query). Every branch returns a `ToolResult`, never throws, for
- * the same reason as `ProjectToolExecutor`: a bad input or a sandbox failure is something the
- * *model* needs to see and react to (Invariant 1).
+ * The sandbox computer's tools (ADR-0047): bash_tool, view, create_file, str_replace and
+ * present_files. Each one is a short Python program run by the configured sandbox engine, so the
+ * warm service, the single-use Job and the local process engine all serve them unchanged, with
+ * the same uid isolation and no network. Skills are read from /skills/<name>/ through the skill
+ * service instead, so they read the same on every engine.
  *
- * Connected to ExecutionRuntime for isolated per-run workspaces, input materialization,
- * and output file persistence.
+ * Every branch returns a `ToolResult`, never throws: a bad input or a sandbox failure is
+ * something the model needs to see and react to (Invariant 1).
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -14,37 +14,81 @@ import { z } from 'zod';
 
 import type { Database } from '../db/client.js';
 import { logger } from '../logger.js';
-import type { Provider, ToolCall, ToolContent, ToolExecutor, ToolResult } from '../providers/types.js';
+import type { ToolCall, ToolContent, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { ObjectStorage } from '../services/storage.js';
+import type { SkillService } from '../services/skills.js';
 import { verifyPdf } from '../services/documents/verify/pdfVerify.js';
 import { verifyXlsx } from '../services/documents/verify/xlsxVerify.js';
 import { verifyDocx } from '../services/documents/verify/docxVerify.js';
 import { verifyPptx } from '../services/documents/verify/pptxVerify.js';
-import type { DeliverableWarning } from '../services/documents/primitives.js';
-import { visualQaEngine } from '../services/qa/visualQaEngine.js';
 import { AttachmentNotFoundError, ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
 import type { SandboxClient } from './sandbox/client.js';
 import { sandboxInputNames, type ManifestFile } from '../services/attachments/manifest.js';
 
 const log = logger.child({ module: 'codeExecutionExecutor' });
 
-const runInput = z.object({
-  code: z.string().min(1),
-  input_files: z.array(z.string().uuid()).max(20).optional(),
-  expected_outputs: z.array(z.string()).max(20).optional(),
-  expectedOutputs: z.array(z.string()).max(20).optional(),
-});
+/** Where view and str_replace find the skills: read-only, served by the skill service. */
+export const SKILLS_ROOT = '/skills';
 
-/** Images the code saves in view/ are shown to the model (ADR-0010): the way it reads a page
- *  crop at full resolution instead of guessing a digit. Bounded, because each costs tokens. */
+const bashInput = z.object({ command: z.string().min(1), description: z.string().optional() });
+const viewInput = z.object({
+  path: z.string().min(1),
+  description: z.string().optional(),
+  view_range: z.tuple([z.number().int(), z.number().int()]).nullish(),
+});
+const createInput = z.object({ path: z.string().min(1), file_text: z.string(), description: z.string().optional() });
+const replaceInput = z.object({
+  path: z.string().min(1),
+  old_str: z.string().min(1),
+  new_str: z.string().default(''),
+  description: z.string().optional(),
+});
+const presentInput = z.object({ filepaths: z.array(z.string().min(1)).min(1).max(20) });
+
+/** Images view shows are bounded: each costs tokens. */
 const MAX_VIEW_IMAGES = 4;
 const MAX_VIEW_IMAGE_BYTES = 5 * 1024 * 1024;
 const VIEW_IMAGE_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
   '.webp': 'image/webp',
 };
+/** A text file viewed whole is cut in the middle past this many characters. */
+const VIEW_MAX_CHARS = 16_000;
+/** A line range is cut too, well inside the sandbox's 256 KB stdout cap (sandbox/server.py). */
+const VIEW_RANGE_MAX_CHARS = 60_000;
+
+/** A failure's output budget: head and tail within about 10,000 characters. */
+const ERROR_OUTPUT_CHARS = 10_000;
+
+/** `text` within `max` characters, keeping its start and its end, with the cut marked. */
+export function headAndTail(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const marker = `\n[... ${String(text.length - max)} characters omitted ...]\n`;
+  if (max <= marker.length * 2) return text.slice(0, max);
+  const room = max - marker.length;
+  const head = Math.ceil(room / 2);
+  return text.slice(0, head) + marker + text.slice(text.length - (room - head));
+}
+
+/** A text file as view shows it: numbered lines, a range, or the whole cut in the middle. */
+export function numberedView(text: string, range?: [number, number] | null): string {
+  const lines = text.split('\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  let start = 1;
+  let end = lines.length;
+  if (range) {
+    start = Math.max(1, range[0]);
+    end = range[1] === -1 ? lines.length : Math.min(lines.length, range[1]);
+  }
+  const out = lines
+    .slice(start - 1, end)
+    .map((l, i) => `${String(start + i).padStart(6)}\t${l}`)
+    .join('\n');
+  return range ? out : headAndTail(out, VIEW_MAX_CHARS);
+}
 
 /** name -> mtime of each plain file in `dir` (empty when it does not exist). */
 async function snapshotDir(dir: string): Promise<Map<string, number>> {
@@ -60,12 +104,120 @@ function textResult(toolCallId: string, ok: boolean, text: string): ToolResult {
   return { toolCallId, ok, content: [{ type: 'text', text }] };
 }
 
-/** The sandbox's `msg_out`/`msg_err` JSON chunk shape, per the Code Execution REST reference. */
-interface SandboxOutputChunk {
-  msg_out?: string;
-  msg_err?: string;
-  undeclaredOutputs?: string[];
+/** A Python program that reads its arguments from base64 JSON, so no input can break out of it. */
+function program(args: unknown, body: string): string {
+  const encoded = Buffer.from(JSON.stringify(args), 'utf8').toString('base64');
+  return `import base64, json, os, sys, shutil\nA = json.loads(base64.b64decode('${encoded}').decode('utf-8'))\n${body}`;
 }
+
+const READ_ONLY_CHECK = `
+def read_only(p):
+    n = os.path.normpath(p)
+    return n == 'input' or n.startswith('input' + os.sep)
+`;
+
+const BASH = `
+import subprocess
+r = subprocess.run(A['command'], shell=True, executable='/bin/bash', capture_output=True)
+sys.stdout.write(r.stdout.decode('utf-8', 'replace'))
+sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
+if r.returncode:
+    sys.stderr.write('\\n[exit code %d]' % r.returncode)
+sys.exit(r.returncode)
+`;
+
+// A text file comes back numbered and cut to size here, since the engine caps stdout; an image is
+// copied into view/, which the engines hand back as a picture.
+const VIEW = `
+p = A['path']
+if not os.path.exists(p):
+    sys.exit('The path %s does not exist.' % p)
+if os.path.isdir(p):
+    base = os.path.normpath(p)
+    out = [base + '/']
+    for root, dirs, files in os.walk(base):
+        depth = os.path.relpath(root, base).count(os.sep) + (0 if root == base else 1)
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.') and d != 'node_modules')
+        if depth >= 2:
+            dirs[:] = []
+        for name in sorted(dirs):
+            out.append('  ' * (depth + 1) + name + '/')
+        for name in sorted(f for f in files if not f.startswith('.')):
+            size = os.path.getsize(os.path.join(root, name))
+            out.append('  ' * (depth + 1) + '%s  (%d bytes)' % (name, size))
+    print(json.dumps({'kind': 'dir', 'text': '\\n'.join(out)}))
+elif os.path.splitext(p)[1].lower() in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
+    os.makedirs('view', exist_ok=True)
+    dest = os.path.join('view', os.path.basename(p))
+    if os.path.abspath(dest) != os.path.abspath(p):
+        shutil.copyfile(p, dest)
+    os.utime(dest)
+    print(json.dumps({'kind': 'image', 'name': os.path.basename(p)}))
+else:
+    lines = open(p, 'rb').read().decode('utf-8', 'backslashreplace').split('\\n')
+    if len(lines) > 1 and lines[-1] == '':
+        lines.pop()
+    r = A.get('view_range')
+    start, end = 1, len(lines)
+    if r:
+        start = max(1, r[0])
+        end = len(lines) if r[1] == -1 else min(len(lines), r[1])
+    out = '\\n'.join('%6d\\t%s' % (start + i, l) for i, l in enumerate(lines[start - 1:end]))
+    cap = A['max_chars'] if not r else A['range_max_chars']
+    if len(out) > cap:
+        marker = '\\n[... %d characters omitted ...]\\n' % (len(out) - cap)
+        room = cap - len(marker)
+        head = (room + 1) // 2
+        out = out[:head] + marker + out[len(out) - (room - head):]
+    print(json.dumps({'kind': 'text', 'text': out}, ensure_ascii=False))
+`;
+
+const CREATE = `${READ_ONLY_CHECK}
+p = A['path']
+if read_only(p):
+    sys.exit('input/ is read-only: create the file somewhere else.')
+if os.path.exists(p):
+    sys.exit('The file %s already exists. Edit it with str_replace, or overwrite it with bash_tool.' % p)
+d = os.path.dirname(p)
+if d:
+    os.makedirs(d, exist_ok=True)
+with open(p, 'w', encoding='utf-8') as f:
+    f.write(A['file_text'])
+print('File created: %s' % p)
+`;
+
+const REPLACE = `${READ_ONLY_CHECK}
+p = A['path']
+if read_only(p):
+    sys.exit('input/ is read-only: copy the file somewhere else to edit it.')
+if not os.path.isfile(p):
+    sys.exit('The file %s does not exist.' % p)
+s = open(p, encoding='utf-8').read()
+n = s.count(A['old_str'])
+if n == 0:
+    sys.exit('old_str was not found in %s. View the file and copy the text exactly, without line numbers.' % p)
+if n > 1:
+    sys.exit('old_str occurs %d times in %s. Include more surrounding text so it occurs once.' % (n, p))
+with open(p, 'w', encoding='utf-8') as f:
+    f.write(s.replace(A['old_str'], A['new_str'], 1))
+print('File edited: %s' % p)
+`;
+
+// Each file is placed in output/ and touched, so the engine returns it on this run even when it
+// was written in an earlier turn.
+const PRESENT = `
+names = []
+for p in A['filepaths']:
+    if not os.path.isfile(p):
+        sys.exit('The file %s does not exist.' % p)
+    os.makedirs('output', exist_ok=True)
+    dest = os.path.join('output', os.path.basename(p))
+    if os.path.abspath(dest) != os.path.abspath(p):
+        shutil.copyfile(p, dest)
+    os.utime(dest)
+    names.append(os.path.basename(p))
+print(json.dumps(names))
+`;
 
 export interface CodeExecutionOptions {
   workspace?: WorkspaceFiles;
@@ -76,24 +228,17 @@ export interface CodeExecutionOptions {
   chatId?: string;
   db?: Database;
   storage?: ObjectStorage;
-  /** Looks at rendered output pages for visual QA (G14). Without it the visual layer is `not_checked`. */
-  visionProvider?: Provider;
   /** Every file in the conversation. All of them are placed in input/ before the first call,
-   *  under the names the attachment manifest printed, as Claude's container has uploads. */
+   *  under the names the attachment manifest printed. */
   chatFiles?: Pick<ManifestFile, 'id' | 'filename'>[];
+  /** Serves view of /skills/<name>/... */
+  skills?: SkillService;
 }
 
-/** A failure's output budget, as Claude Code's: head and tail within about 10,000 characters. */
-const ERROR_OUTPUT_CHARS = 10_000;
-
-/** `text` within `max` characters, keeping its start and its end, with the cut marked. */
-export function headAndTail(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const marker = `\n[... ${String(text.length - max)} characters omitted ...]\n`;
-  if (max <= marker.length * 2) return text.slice(0, max);
-  const room = max - marker.length;
-  const head = Math.ceil(room / 2);
-  return text.slice(0, head) + marker + text.slice(text.length - (room - head));
+interface RunOutcome {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
 }
 
 export class CodeExecutionToolExecutor implements ToolExecutor {
@@ -105,7 +250,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
   private readonly chatId?: string;
   private readonly db?: Database;
   private readonly storage?: ObjectStorage;
-  private readonly visionProvider?: Provider;
+  private readonly skills?: SkillService;
   /** fileId → path under input/, so a second call in the same turn reuses the same path. */
   private readonly materialized = new Map<string, string>();
   private chatFiles: Pick<ManifestFile, 'id' | 'filename'>[] = [];
@@ -126,8 +271,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     this.messageId = options?.messageId;
     this.chatId = options?.chatId;
     this.db = options?.db;
-    this.visionProvider = options?.visionProvider;
     this.storage = options?.storage;
+    this.skills = options?.skills;
     this.chatFiles = options?.chatFiles ?? [];
   }
 
@@ -141,242 +286,213 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     if (signal.aborted) {
       return textResult(call.id, false, 'The request was aborted before this tool ran.');
     }
-    if (call.name !== 'run_python') {
-      return textResult(call.id, false, `Unknown tool "${call.name}".`);
+    switch (call.name) {
+      case 'bash_tool':
+        return this.bash(call, signal);
+      case 'view':
+        return this.view(call, signal);
+      case 'create_file':
+        return this.simple(call, signal, createInput, CREATE);
+      case 'str_replace':
+        return this.simple(call, signal, replaceInput, REPLACE);
+      case 'present_files':
+        return this.present(call, signal);
+      default:
+        return textResult(call.id, false, `Unknown tool "${call.name}".`);
     }
+  }
 
-    const parsed = runInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
+  private async bash(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
+    const parsed = bashInput.safeParse(call.input);
+    if (!parsed.success) return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    const viewDir = this.workspace ? path.join(this.workspace.workspaceDir, 'view') : undefined;
+    const viewBefore = viewDir ? await snapshotDir(viewDir) : new Map<string, number>();
+    const run = await this.run(program(parsed.data, BASH), signal);
+    if ('error' in run) return textResult(call.id, false, run.error);
 
-    const declaredOutputs = parsed.data.expected_outputs ?? parsed.data.expectedOutputs;
+    // About 30,000 characters of a command's output are read back, and a failure's as a
+    // head-and-tail excerpt of about 10,000: an error is usually at the end.
+    const stderr = headAndTail(run.stderr, Math.min(ERROR_OUTPUT_CHARS, this.maxOutputChars));
+    const stdout = headAndTail(run.stdout, Math.max(0, this.maxOutputChars - stderr.length));
+    const data: Record<string, unknown> = {
+      stdout,
+      stderr,
+      returncode: run.exitCode,
+      truncated: stdout.length < run.stdout.length || stderr.length < run.stderr.length,
+    };
+    // An image the command saved in view/ is shown, as view would show it.
+    const images = await this.freshViewImages(viewBefore, data);
+    return { toolCallId: call.id, ok: true, content: [{ type: 'json', data }, ...images] };
+  }
 
-    if (!this.chatFilesReady && this.chatFiles.length > 0) {
-      const staged = await this.materializeChatFiles();
-      if (!staged.ok) return textResult(call.id, false, staged.error);
-      this.chatFilesReady = true;
-    }
-
-    let inputFiles: Array<{ fileId: string; path: string }> = [];
-    if (parsed.data.input_files && parsed.data.input_files.length > 0) {
-      const staged = await this.materializeInputs(parsed.data.input_files);
-      if (!staged.ok) return textResult(call.id, false, staged.error);
-      inputFiles = staged.files;
-    }
+  private async view(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
+    const parsed = viewInput.safeParse(call.input);
+    if (!parsed.success) return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    const p = parsed.data.path;
+    if (p === SKILLS_ROOT || p.startsWith(`${SKILLS_ROOT}/`)) return this.viewSkill(call.id, p, parsed.data.view_range);
 
     const viewDir = this.workspace ? path.join(this.workspace.workspaceDir, 'view') : undefined;
     const viewBefore = viewDir ? await snapshotDir(viewDir) : new Map<string, number>();
+    const args = { path: p, view_range: parsed.data.view_range ?? null, max_chars: VIEW_MAX_CHARS, range_max_chars: VIEW_RANGE_MAX_CHARS };
+    const run = await this.run(program(args, VIEW), signal);
+    if ('error' in run) return textResult(call.id, false, run.error);
+    if (run.exitCode) return textResult(call.id, false, run.stderr.trim() || 'view failed.');
+    let shown: { kind: string; text?: string; name?: string };
+    try {
+      shown = JSON.parse(run.stdout) as typeof shown;
+    } catch {
+      return textResult(call.id, false, `view could not read ${p}.`);
+    }
+    if (shown.kind === 'text') return textResult(call.id, true, shown.text ?? '');
+    if (shown.kind === 'dir') return textResult(call.id, true, shown.text ?? '');
+    const data: Record<string, unknown> = {};
+    const images = await this.freshViewImages(viewBefore, data);
+    if (images.length === 0) {
+      return textResult(call.id, false, String(data.viewNotice ?? `The image ${p} could not be shown.`));
+    }
+    return { toolCallId: call.id, ok: true, content: [{ type: 'text', text: `Image: ${p}` }, ...images] };
+  }
 
+  /** The skills directory, read-only, as a directory listing or numbered text. */
+  private async viewSkill(callId: string, p: string, range?: [number, number] | null): Promise<ToolResult> {
+    if (!this.skills) return textResult(callId, false, `The path ${p} does not exist.`);
+    const rel = path.posix.normalize(p).slice(SKILLS_ROOT.length).replace(/^\/+/, '');
+    if (rel === '' || rel === '.') {
+      const names = this.skills.listSkills().map((s) => `  ${s.name}/\n    SKILL.md`);
+      return textResult(callId, true, [`${SKILLS_ROOT}/`, ...names].join('\n'));
+    }
+    const [skillName, ...restParts] = rel.split('/');
+    const rest = restParts.join('/');
+    if (!skillName || !this.skills.getSkill(skillName)) return textResult(callId, false, `The path ${p} does not exist.`);
+    if (rest === '') return textResult(callId, true, `${SKILLS_ROOT}/${skillName}/\n  SKILL.md`);
+    const text = await this.skills.getSkillResource(skillName, rest);
+    if (text === null) return textResult(callId, false, `The path ${p} does not exist.`);
+    return textResult(callId, true, numberedView(text, range));
+  }
+
+  private async simple(
+    call: ToolCall,
+    signal: AbortSignal,
+    schema: typeof createInput | typeof replaceInput,
+    body: string,
+  ): Promise<ToolResult> {
+    const parsed = schema.safeParse(call.input);
+    if (!parsed.success) return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    if (parsed.data.path === SKILLS_ROOT || parsed.data.path.startsWith(`${SKILLS_ROOT}/`)) {
+      return textResult(call.id, false, `${SKILLS_ROOT} is read-only: copy the file somewhere else to change it.`);
+    }
+    const run = await this.run(program(parsed.data, body), signal);
+    if ('error' in run) return textResult(call.id, false, run.error);
+    if (run.exitCode) return textResult(call.id, false, run.stderr.trim() || `${call.name} failed.`);
+    return textResult(call.id, true, run.stdout.trim());
+  }
+
+  private async present(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
+    const parsed = presentInput.safeParse(call.input);
+    if (!parsed.success) return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
+    const expected = parsed.data.filepaths.map((p) => path.posix.basename(p));
+    const run = await this.run(program(parsed.data, PRESENT), signal, expected);
+    if ('error' in run) return textResult(call.id, false, run.error);
+    if (run.exitCode) return textResult(call.id, false, run.stderr.trim() || 'present_files failed.');
+    if (!this.workspace || !this.runtime || !this.userId || !this.messageId || !this.db || !this.storage) {
+      return textResult(call.id, false, 'Files cannot be given to the user here: there is no file storage.');
+    }
+
+    // A structurally broken Office file or PDF is not handed over: the model is told to rebuild it.
+    const problems: string[] = [];
+    const names: string[] = [];
+    for (const name of new Set(expected)) {
+      const filePath = path.join(this.workspace.outputDir, name);
+      const buf = await fs.readFile(filePath).catch(() => null);
+      if (!buf) {
+        problems.push(`${name}: the sandbox did not return it.`);
+        continue;
+      }
+      const check = await structuralCheck(name, buf);
+      if (check && !check.ok) {
+        problems.push(`${name} is broken and was not given to the user: ${check.errors.join('; ')}`);
+        continue;
+      }
+      names.push(name);
+    }
+
+    let persisted: Array<{ filename: string; mimeType: string; sizeBytes: number; downloadUrl: string }> = [];
+    try {
+      persisted = (
+        await this.runtime.persistOutputFiles(
+          this.workspace,
+          { userId: this.userId, messageId: this.messageId, db: this.db, storage: this.storage },
+          names,
+        )
+      ).map((f) => ({ filename: f.filename, mimeType: f.mimeType, sizeBytes: f.sizeBytes, downloadUrl: f.downloadUrl }));
+    } catch (err) {
+      log.warn({ err }, 'Failed to store presented files');
+      return textResult(call.id, false, 'The files could not be stored. Try again.');
+    }
+    // Order the cards as the model listed the files: the first is the one to open first.
+    persisted.sort((a, b) => names.indexOf(a.filename) - names.indexOf(b.filename));
+    const data: Record<string, unknown> = { persistedFiles: persisted };
+    if (problems.length > 0) data.errors = problems;
+    return { toolCallId: call.id, ok: persisted.length > 0, content: [{ type: 'json', data }] };
+  }
+
+  /** Runs one program on the sandbox engine; the conversation's files are placed first. */
+  private async run(code: string, signal: AbortSignal, expectedOutputs?: string[]): Promise<RunOutcome | { error: string }> {
+    if (!this.chatFilesReady && this.chatFiles.length > 0) {
+      const staged = await this.materializeChatFiles();
+      if (!staged.ok) return { error: staged.error };
+      this.chatFilesReady = true;
+    }
     let execution;
     try {
       if (this.runtime) {
         const session = this.userId && this.chatId ? { userId: this.userId, chatId: this.chatId } : undefined;
-        execution = await this.runtime.executePython(parsed.data.code, this.workspace, signal, declaredOutputs, session);
+        execution = await this.runtime.executePython(code, this.workspace, signal, expectedOutputs, session);
       } else if (this.client) {
-        execution = await this.client.runPython(parsed.data.code, signal, {
-          workspaceDir: this.workspace?.workspaceDir,
-          expectedOutputs: declaredOutputs,
-        });
+        execution = await this.client.runPython(code, signal, { workspaceDir: this.workspace?.workspaceDir, expectedOutputs });
       } else {
-        return textResult(call.id, false, 'No execution runtime or sandbox configured.');
+        return { error: 'No sandbox is configured.' };
       }
     } catch (err) {
-      return textResult(call.id, false, err instanceof Error ? err.message : String(err));
+      return { error: err instanceof Error ? err.message : String(err) };
     }
-
-    const jsonChunk = execution.outputs.find((o) => o.mimeType === 'application/json');
-    let parsedChunk: SandboxOutputChunk = {};
-    if (jsonChunk) {
+    const chunk = execution.outputs.find((o) => o.mimeType === 'application/json');
+    let parsed: { msg_out?: string; msg_err?: string; exit_code?: number | null } = {};
+    if (chunk) {
       try {
-        parsedChunk = JSON.parse(jsonChunk.text) as SandboxOutputChunk;
+        parsed = JSON.parse(chunk.text) as typeof parsed;
       } catch {
-        // The sandbox's own output was not the documented JSON shape — fall through with
-        // empty stdout/stderr rather than throwing; the model still gets an ok result.
+        // Not the documented shape: treat as empty output rather than throwing.
       }
     }
-
-    const rawStdout = parsedChunk.msg_out ?? '';
-    const rawStderr = parsedChunk.msg_err ?? '';
-    // Claude Code reads back about 30,000 characters of a command's output, and a failure's as a
-    // head-and-tail excerpt of about 10,000 (tools-reference, "Output limits"). An error is
-    // usually at the end, so stderr keeps its head and tail within ERROR_OUTPUT_CHARS first.
-    const stderr = headAndTail(rawStderr, Math.min(ERROR_OUTPUT_CHARS, this.maxOutputChars));
-    const stdout = headAndTail(rawStdout, Math.max(0, this.maxOutputChars - stderr.length));
-    const truncated = stdout.length < rawStdout.length || stderr.length < rawStderr.length;
-
-    // Collect and persist any output files generated by Python script in workspace.outputDir
-    let persistedFiles: Array<{ filename: string; mimeType: string; sizeBytes: number; downloadUrl: string }> = [];
-    const structuralWarnings: DeliverableWarning[] = [];
-
-    if (this.workspace) {
-      try {
-        // Run structural verification and visual QA on any office/pdf deliverable files in outputDir
-        const entries = await fs.readdir(this.workspace.outputDir).catch(() => [] as string[]);
-        for (const fname of entries) {
-          const filePath = path.join(this.workspace.outputDir, fname);
-          const stat = await fs.stat(filePath).catch(() => null);
-          if (!stat || !stat.isFile()) continue;
-
-          const ext = path.extname(fname).toLowerCase();
-          const buf = await fs.readFile(filePath);
-
-          let v: { ok: boolean; errors: string[] } | null = null;
-          let docType = '';
-
-          if (ext === '.pdf') {
-            docType = 'PDF';
-            v = await verifyPdf(buf);
-          } else if (ext === '.xlsx') {
-            docType = 'Excel';
-            v = await verifyXlsx(buf);
-          } else if (ext === '.docx') {
-            docType = 'Word doc';
-            v = await verifyDocx(buf);
-          } else if (ext === '.pptx') {
-            docType = 'PowerPoint';
-            v = await verifyPptx(buf);
-          }
-
-          if (v) {
-            if (!v.ok) {
-              // Block persistence of corrupted file
-              await fs.unlink(filePath).catch(() => undefined);
-              structuralWarnings.push({
-                severity: 'warning',
-                type: 'structural_corruption',
-                message: `Generated ${docType} "${fname}" failed structural verification: ${v.errors.join('; ')}`,
-                repairable: true,
-              });
-              continue;
-            }
-
-            // File is structurally sound: evaluate visual QA for layout-sensitive deliverables
-            try {
-              const format = ext.slice(1) as 'pdf' | 'xlsx' | 'docx' | 'pptx';
-              const visualReport = await visualQaEngine.evaluateVisualQa({
-                buffer: buf,
-                format,
-                runtime: this.runtime,
-                workspace: this.workspace,
-                visionProvider: this.visionProvider,
-                signal,
-              });
-
-              if (visualReport.defects.length > 0) {
-                for (const defect of visualReport.defects) {
-                  structuralWarnings.push({
-                    severity: defect.severity === 'critical' ? 'error' : 'warning',
-                    type: defect.type,
-                    message: `Visual defect in "${fname}": ${defect.description}`,
-                    repairable: defect.repairable,
-                  });
-                }
-              }
-
-              if (visualReport.previewAvailable && visualReport.status === 'not_checked') {
-                structuralWarnings.push({
-                  severity: 'info',
-                  type: 'visual_not_checked',
-                  message: `Visual layout of "${fname}" was not checked: ${visualReport.diagnostics.join('; ')}`,
-                  repairable: false,
-                });
-              }
-
-              if (!visualReport.previewAvailable && visualReport.diagnostics.length > 0) {
-                for (const diag of visualReport.diagnostics) {
-                  structuralWarnings.push({
-                    severity: 'info',
-                    type: 'visual_qa_diagnostic',
-                    message: `Visual QA diagnostic for "${fname}": ${diag}`,
-                    repairable: false,
-                  });
-                }
-              }
-            } catch (visualErr) {
-              log.warn({ visualErr, fname }, 'Visual QA evaluation encountered an error for Python output');
-            }
-          }
-        }
-
-        if (this.runtime && this.userId && this.messageId && this.db && this.storage) {
-          const persisted = await this.runtime.persistOutputFiles(this.workspace, {
-            userId: this.userId,
-            messageId: this.messageId,
-            db: this.db,
-            storage: this.storage,
-          });
-          persistedFiles = persisted.map((f) => ({
-            filename: f.filename,
-            mimeType: f.mimeType,
-            sizeBytes: f.sizeBytes,
-            downloadUrl: f.downloadUrl,
-          }));
-        }
-      } catch (collectErr) {
-        log.warn({ collectErr }, 'Failed to persist Python workspace output files');
-      }
-    }
-
-    const resultData: Record<string, unknown> = {
-      stdout,
-      stderr,
-      truncated,
-    };
-    if (inputFiles.length > 0) resultData.inputFiles = inputFiles;
-
-    if (structuralWarnings.length > 0) {
-      resultData.warnings = structuralWarnings;
-      resultData.repairable = true;
-    }
-
-    const undeclared = execution.undeclaredOutputs ?? parsedChunk.undeclaredOutputs;
-    if (Array.isArray(undeclared) && undeclared.length > 0) {
-      resultData.undeclaredOutputs = undeclared;
-      resultData.notice = `Output file(s) [${undeclared.join(', ')}] were created in "output/" but not declared in "expected_outputs". Declare them in "expected_outputs" to authorize upload.`;
-    }
-
-    if (persistedFiles.length > 0) {
-      resultData.persistedFiles = persistedFiles;
-      resultData.outputFilesSummary = persistedFiles
-        .map((f) => `Saved file "${f.filename}" (${Math.round(f.sizeBytes / 1024)} KB) -> ${f.downloadUrl}`)
-        .join('\n');
-    }
-
-    const images: ToolContent[] = [];
-    if (viewDir) {
-      const after = await snapshotDir(viewDir);
-      const fresh = [...after.keys()].filter((n) => after.get(n) !== viewBefore.get(n)).sort();
-      const skipped: string[] = [];
-      for (const name of fresh) {
-        const mimeType = VIEW_IMAGE_TYPES[path.extname(name).toLowerCase()];
-        const size = (await fs.stat(path.join(viewDir, name))).size;
-        if (!mimeType || size > MAX_VIEW_IMAGE_BYTES || images.length >= MAX_VIEW_IMAGES) {
-          skipped.push(name);
-          continue;
-        }
-        images.push({ type: 'image', name, mimeType, base64: (await fs.readFile(path.join(viewDir, name))).toString('base64') });
-      }
-      if (images.length > 0) resultData.viewedImages = images.map((i) => (i as { name: string }).name);
-      if (skipped.length > 0) {
-        resultData.viewNotice =
-          `Not shown: ${skipped.join(', ')}. view/ shows at most ${String(MAX_VIEW_IMAGES)} PNG, JPEG or WebP ` +
-          `images of up to ${String(MAX_VIEW_IMAGE_BYTES / 1024 / 1024)} MB per call.`;
-      }
-    }
-
-    return {
-      toolCallId: call.id,
-      ok: true,
-      content: [{ type: 'json', data: resultData }, ...images],
-    };
+    return { stdout: parsed.msg_out ?? '', stderr: parsed.msg_err ?? '', exitCode: parsed.exit_code ?? null };
   }
 
-  /**
-   * Copies the named attachments into this turn's workspace `input/`, scoped to the calling user.
-   * Works the same for this turn's files and for files from earlier turns (G26, G15): identity
-   * is the fileId, and the bytes come from object storage on demand.
-   */
+  private async freshViewImages(before: Map<string, number>, data: Record<string, unknown>): Promise<ToolContent[]> {
+    if (!this.workspace) return [];
+    const viewDir = path.join(this.workspace.workspaceDir, 'view');
+    const after = await snapshotDir(viewDir);
+    const fresh = [...after.keys()].filter((n) => after.get(n) !== before.get(n)).sort();
+    const images: ToolContent[] = [];
+    const skipped: string[] = [];
+    for (const name of fresh) {
+      const mimeType = VIEW_IMAGE_TYPES[path.extname(name).toLowerCase()];
+      const size = (await fs.stat(path.join(viewDir, name))).size;
+      if (!mimeType || size > MAX_VIEW_IMAGE_BYTES || images.length >= MAX_VIEW_IMAGES) {
+        skipped.push(name);
+        continue;
+      }
+      images.push({ type: 'image', name, mimeType, base64: (await fs.readFile(path.join(viewDir, name))).toString('base64') });
+    }
+    if (images.length > 0) data.viewedImages = images.map((i) => (i as { name: string }).name);
+    if (skipped.length > 0) {
+      data.viewNotice =
+        `Not shown: ${skipped.join(', ')}. At most ${String(MAX_VIEW_IMAGES)} PNG, JPEG, GIF or WebP images of up to ` +
+        `${String(MAX_VIEW_IMAGE_BYTES / 1024 / 1024)} MB are shown per call.`;
+    }
+    return images;
+  }
+
   /** Places every conversation file in input/ under its manifest name. Once per turn. */
   private async materializeChatFiles(): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!this.runtime || !this.workspace || !this.db || !this.storage || !this.userId) return { ok: true };
@@ -400,34 +516,20 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     }
     return { ok: true };
   }
+}
 
-  private async materializeInputs(
-    fileIds: string[],
-  ): Promise<{ ok: true; files: Array<{ fileId: string; path: string }> } | { ok: false; error: string }> {
-    if (!this.runtime || !this.workspace || !this.db || !this.storage || !this.userId) {
-      return { ok: false, error: 'input_files is not available here: this sandbox has no workspace for uploaded files.' };
-    }
-    const files: Array<{ fileId: string; path: string }> = [];
-    for (const fileId of fileIds) {
-      let relPath = this.materialized.get(fileId);
-      if (!relPath) {
-        try {
-          const mat = await this.runtime.materializeAttachment(this.workspace, fileId, this.userId, this.db, this.storage);
-          relPath = `input/${mat.filename}`;
-          this.materialized.set(fileId, relPath);
-        } catch (err) {
-          log.warn({ err, fileId }, 'Failed to materialize run_python input file');
-          const missing = err instanceof AttachmentNotFoundError;
-          return {
-            ok: false,
-            error: missing
-              ? `Attachment "${fileId}" was not found, or you do not have access to it.`
-              : `Attachment "${fileId}" exists but could not be read from storage. Try again, or tell the user the file is unavailable.`,
-          };
-        }
-      }
-      files.push({ fileId, path: relPath });
-    }
-    return { ok: true, files };
+/** The format's structural check, or null for a format without one. */
+async function structuralCheck(name: string, buf: Buffer): Promise<{ ok: boolean; errors: string[] } | null> {
+  switch (path.extname(name).toLowerCase()) {
+    case '.pdf':
+      return verifyPdf(buf);
+    case '.xlsx':
+      return verifyXlsx(buf);
+    case '.docx':
+      return verifyDocx(buf);
+    case '.pptx':
+      return verifyPptx(buf);
+    default:
+      return null;
   }
 }

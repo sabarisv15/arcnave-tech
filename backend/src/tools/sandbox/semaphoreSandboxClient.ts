@@ -23,7 +23,7 @@ export class SemaphoreSandboxClient implements SandboxClient {
     const claimId = await this.semaphore.claim();
     if (claimId === null) {
       throw new Error(
-        'The sandbox is at capacity — too many run_python calls are already in flight. Try again shortly.',
+        'The sandbox is at capacity — too many sandbox calls are already in flight. Try again shortly.',
       );
     }
     try {

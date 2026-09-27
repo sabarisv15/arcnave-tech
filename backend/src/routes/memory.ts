@@ -107,7 +107,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
     },
   );
 
-  // Claude's memory topics can be read, edited and deleted in settings (ADR-0025).
+  // Memory topics can be read, edited and deleted in settings (ADR-0025).
   typed.post(
     '/memory',
     {

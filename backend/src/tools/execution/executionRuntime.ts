@@ -306,8 +306,10 @@ export class ExecutionRuntime {
   async persistOutputFiles(
     workspace: WorkspaceFiles,
     params: { userId: string; messageId: string; db: Database; storage: ObjectStorage },
+    /** Only these files of output/: the ones presented to the user. */
+    only?: string[],
   ): Promise<PersistedOutputFile[]> {
-    const outputs = await this.collectOutputFiles(workspace);
+    const outputs = (await this.collectOutputFiles(workspace)).filter((o) => !only || only.includes(o.filename));
     const persisted: PersistedOutputFile[] = [];
 
     for (const out of outputs) {

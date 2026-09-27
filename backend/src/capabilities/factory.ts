@@ -21,13 +21,6 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
     limitation: 'Bounded character length per read.',
   });
 
-  // User uploaded files
-  reg.register({
-    id: 'file.read.uploaded',
-    status: cfg.ENABLE_TOOL_USE ? 'full' : 'unavailable',
-    source: 'read_uploaded_file',
-    limitation: 'Bounded character budget, page-aware for PDFs.',
-  });
   reg.register({
     id: 'file.read.pdf',
     status: 'full',
@@ -74,7 +67,7 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
   reg.register({
     id: 'python.execute',
     status: cfg.ENABLE_RUN_PYTHON ? 'full' : 'unavailable',
-    source: 'run_python',
+    source: 'bash_tool, view, create_file, str_replace, present_files',
     limitation: 'Cloud Run isolated sandbox with timeouts and memory bounds.',
   });
 
@@ -126,29 +119,12 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
   reg.register({
     id: 'skills.discover',
     status: cfg.ENABLE_SKILLS ? 'full' : 'unavailable',
-    source: 'list_skills / search_skills',
+    source: '<available_skills> in the prompt',
   });
   reg.register({
     id: 'skills.read',
     status: cfg.ENABLE_SKILLS ? 'full' : 'unavailable',
-    source: 'read_skill',
-  });
-
-  // Agent Loop & Goals
-  reg.register({
-    id: 'agent.loop',
-    status: cfg.ENABLE_AGENT_LOOP ? 'full' : 'unavailable',
-    source: 'AgentLoop',
-  });
-  reg.register({
-    id: 'agent.goal',
-    status: cfg.ENABLE_AGENT_LOOP ? 'full' : 'unavailable',
-    source: 'get_goal / update_goal',
-  });
-  reg.register({
-    id: 'agent.context',
-    status: cfg.ENABLE_AGENT_LOOP ? 'full' : 'unavailable',
-    source: 'get_context_remaining',
+    source: 'view /skills/<name>/SKILL.md',
   });
 
   return reg;

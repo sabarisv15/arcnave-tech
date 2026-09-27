@@ -1,6 +1,6 @@
 /**
  * Dictation into the composer (WP-18, ADR-0042), with the browser's speech recognition. As in
- * Claude's app, the first use asks for the language; after that the mic starts at once.
+ * the first use asks for the language; after that the mic starts at once.
  * Where the browser has no recognition, there is no mic button.
  */
 import { useCallback, useEffect, useRef, useState } from "react";

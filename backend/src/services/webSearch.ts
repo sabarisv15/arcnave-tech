@@ -16,10 +16,21 @@ export interface WebSearchResponse {
   results: WebSearchResultItem[];
 }
 
+export interface ImageSearchResultItem {
+  title: string;
+  /** The image itself. */
+  imageUrl: string;
+  thumbnailUrl: string;
+  /** The page the image is on. */
+  sourceUrl: string;
+}
+
 export interface WebSearchAdapter {
   readonly name: string;
   readonly isLive: boolean;
   search(query: string, maxResults: number, signal?: AbortSignal): Promise<WebSearchResultItem[]>;
+  /** Absent when the provider has no image search: image_search then says so (Invariant 1). */
+  searchImages?(query: string, maxResults: number, signal?: AbortSignal): Promise<ImageSearchResultItem[]>;
 }
 
 /**
@@ -50,6 +61,27 @@ export class SerpApiWebSearchAdapter implements WebSearchAdapter {
       snippet: item.snippet ?? '',
       publishedDate: item.date,
     }));
+  }
+  async searchImages(query: string, maxResults: number, signal?: AbortSignal): Promise<ImageSearchResultItem[]> {
+    const url = new URL('https://serpapi.com/search');
+    url.searchParams.set('q', query);
+    url.searchParams.set('api_key', this.apiKey);
+    url.searchParams.set('engine', 'google_images');
+    const res = await fetch(url.toString(), { method: 'GET', signal });
+    if (!res.ok) {
+      throw new Error(`SerpAPI error: HTTP ${res.status} ${res.statusText}`);
+    }
+    const data = (await res.json()) as any;
+    const items = Array.isArray(data.images_results) ? data.images_results : [];
+    return items
+      .filter((item: any) => typeof item.original === 'string')
+      .slice(0, maxResults)
+      .map((item: any) => ({
+        title: item.title ?? '',
+        imageUrl: item.original,
+        thumbnailUrl: item.thumbnail ?? item.original,
+        sourceUrl: item.link ?? '',
+      }));
   }
 }
 
@@ -82,6 +114,27 @@ export class GoogleCustomSearchAdapter implements WebSearchAdapter {
       title: item.title ?? 'Untitled',
       url: item.link ?? '',
       snippet: item.snippet ?? '',
+    }));
+  }
+
+  async searchImages(query: string, maxResults: number, signal?: AbortSignal): Promise<ImageSearchResultItem[]> {
+    const url = new URL('https://www.googleapis.com/customsearch/v1');
+    url.searchParams.set('q', query);
+    url.searchParams.set('key', this.apiKey);
+    url.searchParams.set('cx', this.searchEngineId);
+    url.searchParams.set('searchType', 'image');
+    url.searchParams.set('num', String(maxResults));
+    const res = await fetch(url.toString(), { method: 'GET', signal });
+    if (!res.ok) {
+      throw new Error(`Google Custom Search error: HTTP ${res.status} ${res.statusText}`);
+    }
+    const data = (await res.json()) as any;
+    const items = Array.isArray(data.items) ? data.items : [];
+    return items.slice(0, maxResults).map((item: any) => ({
+      title: item.title ?? '',
+      imageUrl: item.link ?? '',
+      thumbnailUrl: item.image?.thumbnailLink ?? item.link ?? '',
+      sourceUrl: item.image?.contextLink ?? '',
     }));
   }
 }

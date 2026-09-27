@@ -292,7 +292,7 @@ export const messages = pgTable(
     artifactId: uuid('artifact_id'),
     /** Google's terms require rendering this widget when Search grounding is used. */
     searchEntryPoint: text('search_entry_point'),
-    /** The model's thought summary for this answer, shown collapsed as Claude shows its thinking.
+    /** The model's thought summary for this answer, shown collapsed.
      *  Null when the model gave none. Never sent back to a model. */
     thinking: text('thinking'),
     /** The answer's thinking, text and tool steps in the order they happened. Null for answers
@@ -431,7 +431,7 @@ export const attachments = pgTable(
 
 /**
  * A chat's sandbox workspace, checkpointed to storage so its files outlive the sandbox instance
- * (ADR-0015), as Claude's code-execution containers are restored for 30 days. The manifest names
+ * (ADR-0015), restorable for 30 days. The manifest names
  * every stored object of the checkpoint; this row is how restore and retention find it.
  */
 export const sandboxWorkspaces = pgTable(

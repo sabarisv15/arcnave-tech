@@ -1,6 +1,6 @@
 /**
  * The system prompt may only name tools the turn can use. A prompt that tells the model to call
- * get_goal, or offers a research skill with web search off, promises what the request cannot
+ * a tool the turn lacks, or offers research guidance with web search off, promises what the request cannot
  * keep (Invariant 1). The audit of 2026-09-26 found both; this test keeps them found.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import { createTestApp, signUp } from '../test/harness.js';
 
 const TOOL_NAMES = [
   ...new Set(
-    Object.values(definitions)
+    [...Object.values(definitions), definitions.codeToolDefinitions(true)]
       .flatMap((v) => (Array.isArray(v) ? v : [v]))
       .filter((v) => Boolean(v && typeof v === 'object' && 'name' in v && 'inputSchema' in v))
       .map((d) => (d as { name: string }).name),
@@ -71,7 +71,7 @@ describe('the system prompt names only tools the turn allows', () => {
   });
 
   it('finds the tool names it checks', () => {
-    expect(TOOL_NAMES).toEqual(expect.arrayContaining(['search_tools', 'get_goal', 'web_search', 'run_python']));
+    expect(TOOL_NAMES).toEqual(expect.arrayContaining(['web_search', 'bash_tool', 'view', 'memory_read', 'conversation_search']));
   });
 
   for (const [label, env] of Object.entries(CONFIGS)) {
@@ -80,24 +80,22 @@ describe('the system prompt names only tools the turn allows', () => {
       const { system, allowed, declared } = await turn(ctx, 'hi');
       const unavailable = namedTools(system).filter((name) => !allowed.has(name));
       expect(unavailable).toEqual([]);
-      // "You have access to the X tool" is a promise the model acts on at once, without
-      // search_tools; it holds only for a declared tool (a model calls only what is declared).
+      // "You have access to the X tool" is a promise the model acts on at once; it holds only
+      // for a declared tool (a model calls only what is declared).
       const promised = [...system.matchAll(/access to the `?(\w+)`? tool/g)].map((m) => m[1]!);
       expect(promised.filter((name) => !declared.has(name))).toEqual([]);
     });
   }
 
-  it('does not offer the research skill, or research guidance, while web search is off', async () => {
+  it('does not offer research guidance while web search is off', async () => {
     ctx = await createTestApp(CONFIGS['tools and skills only']!);
     const { system } = await turn(ctx, 'hi');
-    expect(system).not.toContain('research-deep-dive');
     expect(system).not.toContain('<research>');
   });
 
   it('offers them once web search is on', async () => {
     ctx = await createTestApp(CONFIGS['with web']!);
     const { system } = await turn(ctx, 'hi');
-    expect(system).toContain('- research-deep-dive:');
     expect(system).toContain('<research>');
   });
 

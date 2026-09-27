@@ -151,7 +151,7 @@ export default function SelectionFloatingButton() {
           contextAfter: surroundingContext.after,
         });
 
-        // As Claude does with edit requests, the request joins the next message instead of
+        // The edit request joins the next message instead of
         // sending at once: several passages can be marked before one send, and the user sees
         // exactly what goes to the model.
         const targetChatId = artifact.chatId || activeChatId;

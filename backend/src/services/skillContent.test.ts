@@ -10,11 +10,11 @@ import path from 'node:path';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { TOOL_CATALOG_ENTRIES } from '../tools/catalog.js';
+import { routeTurn } from './routing/turnRouter.js';
 import { SkillService } from './skills.js';
 
 const ROOT = path.resolve(__dirname, '../..');
-const TOOLS = new Set(TOOL_CATALOG_ENTRIES.map((e) => e.name));
+const TOOLS = new Set(routeTurn({ hasProject: true, codeEnabled: true, webEnabled: true, memoryEnabled: true, generativeUiEnabled: true }).allowedTools);
 const CAPABILITIES = new Set(
   [...readFileSync(path.join(ROOT, 'src/capabilities/factory.ts'), 'utf8').matchAll(/id: '([a-z.]+)'/g)].map((m) => m[1]!),
 );
@@ -28,7 +28,12 @@ const LIBRARIES: Record<string, string> = {
   xlsxwriter: 'xlsxwriter',
   xlrd: 'xlrd',
   pdfplumber: 'pdfplumber',
+  pypdf: 'pypdf',
   pymupdf: 'pymupdf',
+  pytesseract: 'pytesseract',
+  // Not in the image: a skill that names them fails here until the image has them.
+  reportlab: 'reportlab',
+  qpdf: 'qpdf',
   pandas: 'pandas',
   matplotlib: 'matplotlib',
   pandoc: 'pandoc',
@@ -47,6 +52,10 @@ const STALE = [
   'datasetHandle',
   'data URI',
   'materializeInputFiles',
+  // Tools the computer replaced (ADR-0047).
+  'run_python',
+  'load_skill',
+  'read_skill',
 ];
 
 const skills = readdirSync(path.join(ROOT, 'skills'))
@@ -69,7 +78,7 @@ describe('skill content matches the code', () => {
   });
 
   it('reads every bundled skill', () => {
-    expect(skills.length).toBeGreaterThanOrEqual(12);
+    expect(skills.length).toBeGreaterThanOrEqual(7);
   });
 
   it.each(skills)('$dir: requires only tools and capabilities that exist', ({ dir }) => {
@@ -103,6 +112,10 @@ describe('skill content matches the code', () => {
 
   it.each(skills)('$dir: none of the retired wording', ({ text }) => {
     for (const phrase of STALE) expect(text).not.toContain(phrase);
+  });
+
+  it.each(skills)('$dir: names no other assistant as what ArcNave is or follows (ADR-0044)', ({ text }) => {
+    expect(text).not.toMatch(/\b(claude|opus|sonnet|anthropic|fable)\b/i);
   });
 
   it.each(skills)('$dir: description says when to use it', ({ dir }) => {

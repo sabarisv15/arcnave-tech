@@ -5,9 +5,7 @@
  * A. Capabilities Table: exact model limits (Sonnet 5 / Opus 5 = 1M input, Gemini = 1M, GPT-OSS = 128k, fallback = 128k).
  * B. Distinction between maxInputTokens, maxOutputTokens, and combined context window.
  * C. Dynamic Attachment Manifest outside system prompt: preserved in user context (<available_attachments>).
- * D. Duplicate Filename Ambiguity Safety in FileOperationExecutor: throws typed ambiguity error instead of limit(1).
  * E. Historical Attachment Hydration Budget (12 MB) & Explicit fileId / Unique Filename Promotion.
- * F. get_context_remaining normalized contract: exact vs unavailable semantics.
  * G. Context Overflow detection and streamWithRetry Streaming Safety Rule: single retry if emitted === false; never restart if emitted === true.
  */
 
@@ -16,10 +14,6 @@ import { getModelCapability, MODEL_CAPABILITIES } from '../providers/capabilitie
 import { ProviderError } from '../providers/types.js';
 import { ApiError } from '../errors.js';
 import { isContextOverflowError, mapProviderError } from '../services/generation.js';
-import { GoalToolExecutor, type ContextRemainingMeasurement } from '../tools/goalExecutor.js';
-import { FileOperationExecutor } from '../tools/fileOperationExecutor.js';
-import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
-import type { ToolCall } from '../providers/types.js';
 
 describe('Batch 6: Context Architecture & Production Regression Suite', () => {
   // =========================================================================
@@ -122,134 +116,6 @@ describe('Batch 6: Context Architecture & Production Regression Suite', () => {
       const effectivePrompt = `${manifestBlock}\n\n${userPrompt}`;
       expect(effectivePrompt.startsWith('<available_attachments>')).toBe(true);
       expect(effectivePrompt.endsWith(userPrompt)).toBe(true);
-    });
-  });
-
-  // =========================================================================
-  // TEST D: Duplicate Filename Ambiguity Safety in FileOperationExecutor
-  // =========================================================================
-  describe('Test D: Duplicate Filename Ambiguity Safety', () => {
-    const userId = 'user-test-duplicate-safety';
-
-    function buildMockDb(attachmentRows: any[]) {
-      return {
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              limit: async () => attachmentRows,
-              then: (fn: any) => Promise.resolve(attachmentRows).then(fn),
-              [Symbol.iterator]: function* () {
-                yield* attachmentRows;
-              },
-            }),
-            orderBy: () => ({
-              then: (fn: any) => Promise.resolve(attachmentRows).then(fn),
-            }),
-          }),
-        }),
-      } as any;
-    }
-
-    it('resolves directly when given an exact UUID', async () => {
-      const mockStorage = { get: async () => Buffer.from('data'), put: async () => {} } as any;
-      const executor = new FileOperationExecutor({
-        db: buildMockDb([]),
-        storage: mockStorage,
-        executionRuntime: new ExecutionRuntime(),
-        userId,
-        chatId: 'chat-1',
-        messageId: 'msg-1',
-      });
-
-      const uuid = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
-      const resolved = await (executor as any).resolveAttachmentId(uuid);
-      expect(resolved).toBe(uuid);
-    });
-
-    it('resolves cleanly when a filename is unique', async () => {
-      const rows = [
-        {
-          id: 'unique-id-999',
-          filename: 'unique_doc.pdf',
-          userId,
-        },
-      ];
-      const mockStorage = { get: async () => Buffer.from('data'), put: async () => {} } as any;
-      const executor = new FileOperationExecutor({
-        db: buildMockDb(rows),
-        storage: mockStorage,
-        executionRuntime: new ExecutionRuntime(),
-        userId,
-        chatId: 'chat-1',
-        messageId: 'msg-1',
-      });
-
-      const resolved = await (executor as any).resolveAttachmentId('unique_doc.pdf');
-      expect(resolved).toBe('unique-id-999');
-    });
-
-    it('throws a typed ambiguity error when duplicate filenames exist in user attachments', async () => {
-      const duplicateRows = [
-        {
-          id: 'att-uuid-1',
-          filename: 'quarterly_report.xlsx',
-          userId,
-        },
-        {
-          id: 'att-uuid-2',
-          filename: 'quarterly_report.xlsx',
-          userId,
-        },
-      ];
-      const mockStorage = { get: async () => Buffer.from('data'), put: async () => {} } as any;
-      const executor = new FileOperationExecutor({
-        db: buildMockDb(duplicateRows),
-        storage: mockStorage,
-        executionRuntime: new ExecutionRuntime(),
-        userId,
-        chatId: 'chat-1',
-        messageId: 'msg-1',
-      });
-
-      await expect((executor as any).resolveAttachmentId('quarterly_report.xlsx')).rejects.toThrow(
-        /Ambiguous filename 'quarterly_report.xlsx'. Multiple attachments match this name \(att-uuid-1, att-uuid-2\). Please invoke the tool using the specific fileId./,
-      );
-    });
-
-    it('returns tool execution failure describing ambiguity when invoked through execute()', async () => {
-      const duplicateRows = [
-        {
-          id: 'att-uuid-a',
-          filename: 'shared.pdf',
-          userId,
-        },
-        {
-          id: 'att-uuid-b',
-          filename: 'shared.pdf',
-          userId,
-        },
-      ];
-      const mockStorage = { get: async () => Buffer.from('data'), put: async () => {} } as any;
-      const executor = new FileOperationExecutor({
-        db: buildMockDb(duplicateRows),
-        storage: mockStorage,
-        executionRuntime: new ExecutionRuntime(),
-        userId,
-        chatId: 'chat-1',
-        messageId: 'msg-1',
-      });
-
-      const call: ToolCall = {
-        id: 'call_inspect_dup',
-        name: 'inspectPdf',
-        input: { fileId: 'shared.pdf' },
-      };
-
-      const result = await executor.execute(call);
-      expect(result.ok).toBe(false);
-      const firstContent = result.content[0] as { type: 'text'; text: string };
-      expect(firstContent?.text).toContain("Ambiguous filename 'shared.pdf'");
-      expect(firstContent?.text).toContain('Please invoke the tool using the specific fileId');
     });
   });
 
@@ -426,76 +292,6 @@ describe('Batch 6: Context Architecture & Production Regression Suite', () => {
       // Normal recency rule applies: recent v2 is hydrated, older v1 is dehydrated
       expect(result[1]!.attachments![0].base64).toBe('mock_base64_data');
       expect(result[0]!.attachments![0].base64).toBeUndefined();
-    });
-  });
-
-  // =========================================================================
-  // TEST F: get_context_remaining Normalized Contract
-  // =========================================================================
-  describe('Test F: get_context_remaining Normalized Contract', () => {
-    it('returns available: false and null exact metrics when exact context is unavailable', async () => {
-      const executor = new GoalToolExecutor(
-        {} as any,
-        null,
-        'run-test-1',
-        null, // No exact measurement available
-      );
-
-      const call: ToolCall = {
-        id: 'call_ctx_1',
-        name: 'get_context_remaining',
-        input: {},
-      };
-
-      const result = await executor.execute(call, new AbortController().signal);
-      expect(result.ok).toBe(true);
-      const parsed = (result.content[0] as any).data;
-
-      expect(parsed.available).toBe(false);
-      expect(parsed.exact).toBe(false);
-      expect(parsed.activeInputTokensExact).toBeNull();
-      expect(parsed.inputTokensRemainingExact).toBeNull();
-      expect(parsed.contextLimit).toBeNull();
-      expect(parsed.tokensUsed).toBeNull();
-      expect(parsed.tokensRemaining).toBeNull();
-      expect(parsed.note).toBe('Exact context measurement unavailable');
-    });
-
-    it('returns full truthful normalized contract when exact context measurement is populated', async () => {
-      const measurement: ContextRemainingMeasurement = {
-        available: true,
-        maxInputTokens: 1_000_000,
-        contextWindowTokens: 1_000_000,
-        activeInputTokensExact: 52_400,
-        inputTokensRemainingExact: 947_600,
-        lastRequestPromptTokensExact: 50_000,
-        exact: true,
-      };
-
-      const executor = new GoalToolExecutor({} as any, null, 'run-test-2', measurement);
-
-      const call: ToolCall = {
-        id: 'call_ctx_2',
-        name: 'get_context_remaining',
-        input: {},
-      };
-
-      const result = await executor.execute(call, new AbortController().signal);
-      expect(result.ok).toBe(true);
-      const parsed = (result.content[0] as any).data;
-
-      expect(parsed.available).toBe(true);
-      expect(parsed.exact).toBe(true);
-      expect(parsed.maxInputTokens).toBe(1_000_000);
-      expect(parsed.contextWindowTokens).toBe(1_000_000);
-      expect(parsed.activeInputTokensExact).toBe(52_400);
-      expect(parsed.inputTokensRemainingExact).toBe(947_600);
-      expect(parsed.lastRequestPromptTokensExact).toBe(50_000);
-
-      // Backward-compatible aliases are also populated
-      expect(parsed.contextLimit).toBe(1_000_000);
-      expect(parsed.tokensUsed).toBe(52_400);
-      expect(parsed.tokensRemaining).toBe(947_600);
     });
   });
 
