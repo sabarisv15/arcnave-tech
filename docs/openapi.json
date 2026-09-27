@@ -445,6 +445,16 @@
             "in": "query",
             "name": "probe",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "query",
+            "name": "chatId",
+            "required": false
           }
         ],
         "responses": {
@@ -469,13 +479,20 @@
                         },
                         "detail": {
                           "type": "string"
+                        },
+                        "reasoningEfforts": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       },
                       "required": [
                         "alias",
                         "description",
                         "available",
-                        "detail"
+                        "detail",
+                        "reasoningEfforts"
                       ],
                       "additionalProperties": false
                     },
@@ -515,6 +532,12 @@
                           "providerModelId": {
                             "nullable": true,
                             "type": "string"
+                          },
+                          "reasoningEfforts": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -527,7 +550,8 @@
                           "detail",
                           "supportsGrounding",
                           "contextWindow",
-                          "providerModelId"
+                          "providerModelId",
+                          "reasoningEfforts"
                         ],
                         "additionalProperties": false
                       }
@@ -874,6 +898,10 @@
                             "nullable": true,
                             "type": "string"
                           },
+                          "effort": {
+                            "nullable": true,
+                            "type": "string"
+                          },
                           "providerModelId": {
                             "nullable": true,
                             "type": "string"
@@ -1206,6 +1234,7 @@
                           "questions",
                           "feedback",
                           "modelAlias",
+                          "effort",
                           "providerModelId",
                           "finishReason",
                           "artifactId",
@@ -1608,6 +1637,16 @@
                   "codeExecution": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
                   }
                 },
                 "required": [
@@ -4783,6 +4822,17 @@
                     "saveHistory": {
                       "type": "boolean"
                     },
+                    "effort": {
+                      "nullable": true,
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ]
+                    },
                     "maxOutputTokens": {
                       "type": "number"
                     },
@@ -4821,6 +4871,7 @@
                     "defaultMode",
                     "sourceScope",
                     "saveHistory",
+                    "effort",
                     "maxOutputTokens",
                     "dailyTokenBudget",
                     "monthlyTokenBudget",
@@ -4897,6 +4948,17 @@
                   "saveHistory": {
                     "type": "boolean"
                   },
+                  "effort": {
+                    "nullable": true,
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
                   "version": {
                     "type": "integer",
                     "minimum": -9007199254740991,
@@ -4942,6 +5004,17 @@
                     "saveHistory": {
                       "type": "boolean"
                     },
+                    "effort": {
+                      "nullable": true,
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ]
+                    },
                     "maxOutputTokens": {
                       "type": "number"
                     },
@@ -4980,6 +5053,7 @@
                     "defaultMode",
                     "sourceScope",
                     "saveHistory",
+                    "effort",
                     "maxOutputTokens",
                     "dailyTokenBudget",
                     "monthlyTokenBudget",

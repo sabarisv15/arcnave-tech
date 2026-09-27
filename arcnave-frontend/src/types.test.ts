@@ -200,6 +200,17 @@ describe("preferences mapping", () => {
     expect(toPreferences(prefs({ font: "mono" })).font).toBe("sans");
     expect(toPreferences(prefs({ font: "unknown" })).font).toBe("sans");
   });
+
+  it("maps valid effort levels and treats null or unknown values as null", () => {
+    expect(toPreferences(prefs({ effort: "xhigh" })).effort).toBe("xhigh");
+    expect(toPreferences(prefs({ effort: null })).effort).toBeNull();
+    expect(toPreferences(prefs({ effort: "ultra" })).effort).toBeNull();
+  });
+
+  it("maps applied effort on a message when valid", () => {
+    expect(toMessage(message({ effort: "high" })).effort).toBe("high");
+    expect(toMessage(message({ effort: null })).effort).toBeUndefined();
+  });
 });
 
 describe("error copy", () => {

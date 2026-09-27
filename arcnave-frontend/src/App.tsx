@@ -46,7 +46,7 @@ import Settings from "./Settings";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
 import { api, describeError } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
-import type { Message, MessageUsage, Mode, ToolCall } from "./types";
+import type { Message, MessageUsage, Mode, ReasoningEffort, ToolCall } from "./types";
 import { extractToolCardData, type DeliverableData, type ImageData } from "./toolCards";
 import { cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
@@ -671,7 +671,15 @@ function ResponseActivity({ message: m }: { message: Message }) {
   );
 }
 
-function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: string | null }) {
+function UsageRow({
+  usage,
+  createdAt,
+  effort,
+}: {
+  usage: MessageUsage;
+  createdAt?: string | null;
+  effort?: ReasoningEffort | null;
+}) {
   const formattedDate = createdAt
     ? new Intl.DateTimeFormat(undefined, {
         dateStyle: "medium",
@@ -681,6 +689,7 @@ function UsageRow({ usage, createdAt }: { usage: MessageUsage; createdAt?: strin
   return (
     <p className="message-usage">
       {formattedDate && <span className="message-date">{formattedDate}</span>}
+      {effort && <span>{effort} effort</span>}
       {usage.exact ? (
         <>
           <span>{tokens(usage.inputTokens)} in</span>
@@ -1051,7 +1060,9 @@ function MessageView({
           {copied && <span className="copy-label">Copied</span>}
         </div>
       )}
-      {usage && !loading && <UsageRow usage={usage} createdAt={m.createdAt} />}
+      {usage && !loading && (
+        <UsageRow usage={usage} createdAt={m.createdAt} effort={m.effort} />
+      )}
       {m.questions && m.status === "complete" && m.questions.length > 0 && (
         <div className="related-questions">
           <p className="eyebrow">KEEP EXPLORING</p>

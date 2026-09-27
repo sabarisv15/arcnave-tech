@@ -48,6 +48,7 @@ import type {
   ProviderUsage,
   ToolDefinition,
   ToolExecutor,
+  ReasoningEffort,
   ToolResult,
   Turn,
 } from '../providers/types.js';
@@ -137,7 +138,7 @@ export type StreamEvent =
    */
   | { type: 'ui_draft'; draftId: string; title: string; from: number; text: string }
   | { type: 'debug'; trace: RuntimeDebugTrace }
-  | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string }
+  | { type: 'done'; questions: string[]; usage: UsageDto; finishReason: string; effort?: ReasoningEffort }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
 export interface ModelInfo {
@@ -259,6 +260,7 @@ export interface GenerateInput {
   attachments: AttachmentRef[];
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
   codeExecution: boolean;
+  effort?: ReasoningEffort;
   signal: AbortSignal;
 }
 
@@ -270,6 +272,7 @@ export interface PreferencesRow {
   warnThresholdPct: number;
   routingPreference: string;
   timezone: string;
+  effort?: ReasoningEffort | null;
 }
 
 /* -------------------------------------------------------------------------- service */
@@ -652,8 +655,11 @@ export class GenerationService {
       this.cfg.MAX_OUTPUT_TOKENS_CEILING,
       modelSpec.maxOutputTokens ?? Number.POSITIVE_INFINITY,
     );
-    const reasoningEffort = effortFor(modelSpec, this.cfg.REASONING_EFFORT);
+    const requestedEffort =
+      input.effort ?? (prefs.effort as ReasoningEffort | undefined) ?? this.cfg.REASONING_EFFORT;
+    const reasoningEffort = effortFor(modelSpec, requestedEffort);
     timing.note('effort', reasoningEffort ?? null);
+    if (input.effort) timing.note('requestedEffort', input.effort);
 
     // --- reserve budget ---------------------------------------------------
     // The reservation is the worst case for this request; it is released as soon as the real
@@ -1130,6 +1136,7 @@ export class GenerationService {
           finishReason: null,
           entry,
           mode: input.mode,
+          effort: reasoningEffort,
         });
         await releaseReservation();
         await this.usage.record({
@@ -1217,6 +1224,7 @@ export class GenerationService {
       entry,
       mode: input.mode,
       questions,
+      effort: reasoningEffort,
     });
 
     await this.usage.record({
@@ -1266,6 +1274,7 @@ export class GenerationService {
         questions,
         usage: toUsageDto(usage, computeCostFor(this.cfg, entry.providerModelId!, usage)),
         finishReason,
+        ...(reasoningEffort ? { effort: reasoningEffort } : {}),
       };
     }
     } finally {
@@ -1493,12 +1502,16 @@ export class GenerationService {
         warnThresholdPct: preferencesTable.warnThresholdPct,
         routingPreference: preferencesTable.routingPreference,
         timezone: preferencesTable.timezone,
+        effort: preferencesTable.effort,
       })
       .from(preferencesTable)
       .where(eq(preferencesTable.userId, userId))
       .limit(1);
     if (!row) throw new ApiError('internal_error', { detail: 'Preferences are missing.' });
-    return row;
+    return {
+      ...row,
+      effort: (row.effort as ReasoningEffort | null) ?? null,
+    };
   }
 
   private async loadProject(
@@ -2145,6 +2158,7 @@ export class GenerationService {
       questions?: string[];
       thinking?: string;
       segments?: MessageSegment[];
+      effort?: ReasoningEffort;
     },
   ): Promise<void> {
     const researchStage =
@@ -2169,6 +2183,7 @@ export class GenerationService {
         researchStage,
         questions: result.questions ?? [],
         modelAlias: result.entry.alias,
+        effort: result.effort ?? null,
         provider: result.entry.provider,
         providerModelId: result.entry.providerModelId ?? null,
         finishReason: result.finishReason,

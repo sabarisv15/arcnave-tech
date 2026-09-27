@@ -77,6 +77,7 @@ interface Transcript {
     status: string;
     errorCode: string | null;
     modelAlias: string | null;
+    effort: string | null;
     finishReason: string | null;
     toolCalls: Array<{
       toolCallId: string;
@@ -900,4 +901,89 @@ describe('attachment text across turns', () => {
     }
   });
 });
+
+/* -------------------------------------------------------------------------- reasoning effort */
+
+describe('reasoning effort', () => {
+  it('persists effort in preferences and applies it when generate does not specify one', async () => {
+    const u = await signUp(ctx);
+    const headers = { cookie: u.cookie };
+
+    const getInitial = await ctx.app.inject({
+      method: 'GET',
+      url: '/v1/preferences',
+      headers,
+    });
+    expect(getInitial.statusCode).toBe(200);
+    expect((getInitial.json() as { effort: string | null }).effort).toBeNull();
+
+    const patch = await ctx.app.inject({
+      method: 'PATCH',
+      url: '/v1/preferences',
+      headers,
+      payload: { effort: 'high' },
+    });
+    expect(patch.statusCode).toBe(200);
+    expect((patch.json() as { effort: string | null }).effort).toBe('high');
+
+    const chatId = await newChat(headers);
+    const res = await generate(chatId, { model: 'Sonnet 5' }, headers);
+    expect(res.statusCode).toBe(200);
+
+    const lastReq = ctx.provider.seen[ctx.provider.seen.length - 1]!;
+    expect(lastReq.reasoningEffort).toBe('high');
+
+    const frames = parseSse(res.body);
+    const doneFrame = frames.find((f) => f.event === 'done');
+    expect(doneFrame?.data['effort']).toBe('high');
+
+    const t = await transcript(chatId, headers);
+    const assistantMsg = t.messages.find((m) => m.role === 'assistant');
+    expect(assistantMsg?.effort).toBe('high');
+  });
+
+  it('rejects an unknown effort level with 422 validation_error', async () => {
+    const chatId = await newChat();
+    const res = await generate(chatId, { effort: 'ultra' });
+    expect(res.statusCode).toBe(422);
+    const body = JSON.parse(res.body) as { error: { code: string } };
+    expect(body.error.code).toBe('validation_error');
+  });
+
+  it('passes requested effort to the provider, returns applied effort in done event, and stores it on the message', async () => {
+    const chatId = await newChat();
+    const res = await generate(chatId, { model: 'Opus 5', effort: 'xhigh' });
+    expect(res.statusCode).toBe(200);
+
+    const lastReq = ctx.provider.seen[ctx.provider.seen.length - 1]!;
+    expect(lastReq.reasoningEffort).toBe('xhigh');
+
+    const frames = parseSse(res.body);
+    const doneFrame = frames.find((f) => f.event === 'done');
+    expect(doneFrame?.data['effort']).toBe('xhigh');
+
+    const t = await transcript(chatId);
+    const assistantMsg = t.messages[t.messages.length - 1]!;
+    expect(assistantMsg.effort).toBe('xhigh');
+  });
+
+  it('steps down effort when the selected model does not support the requested level and returns the stepped-down effort', async () => {
+    const chatId = await newChat();
+    // Gemini 3.8 Flash supports only low | medium | high; requesting xhigh steps down to high.
+    const res = await generate(chatId, { model: 'Gemini 3.8 Flash', effort: 'xhigh' });
+    expect(res.statusCode).toBe(200);
+
+    const lastReq = ctx.provider.seen[ctx.provider.seen.length - 1]!;
+    expect(lastReq.reasoningEffort).toBe('high');
+
+    const frames = parseSse(res.body);
+    const doneFrame = frames.find((f) => f.event === 'done');
+    expect(doneFrame?.data['effort']).toBe('high');
+
+    const t = await transcript(chatId);
+    const assistantMsg = t.messages[t.messages.length - 1]!;
+    expect(assistantMsg.effort).toBe('high');
+  });
+});
+
 

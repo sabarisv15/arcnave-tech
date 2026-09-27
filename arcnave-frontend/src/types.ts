@@ -26,6 +26,31 @@ import type {
 
 export type Mode = "chat" | "search" | "research";
 
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export const REASONING_EFFORT_LADDER: readonly ReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+/**
+ * The effort level that will actually apply on a model: the requested level, or the highest
+ * level below it that the model accepts. Undefined when the model exposes no effort levels.
+ */
+export function resolveEffortForModel(
+  supported: readonly string[],
+  requested: ReasoningEffort,
+): ReasoningEffort | undefined {
+  for (let i = REASONING_EFFORT_LADDER.indexOf(requested); i >= 0; i -= 1) {
+    const candidate = REASONING_EFFORT_LADDER[i]!;
+    if (supported.includes(candidate)) return candidate;
+  }
+  return supported[0] as ReasoningEffort | undefined;
+}
+
 export type RunStatus =
   "idle" | "submitting" | "generating" | "stopped" | "complete" | "error";
 
@@ -165,6 +190,7 @@ export interface Message {
   errorTitle?: string;
   errorDetail?: string;
   modelAlias?: string;
+  effort?: ReasoningEffort;
   providerModelId?: string;
   /** The model's thought summary, shown collapsed above the answer. */
   thinking?: string;
@@ -241,6 +267,7 @@ export interface Preferences {
   theme: "light" | "dark" | "system";
   font: "sans" | "serif" | "readable";
   modelAlias: string;
+  effort: ReasoningEffort | null;
   instructions: string;
   enterToSend: boolean;
   reducedMotion: boolean;
@@ -391,6 +418,9 @@ export function toMessage(dto: MessageDto): Message {
       : {}),
     ...(dto.errorCode ? { error: dto.errorCode } : {}),
     ...(dto.modelAlias ? { modelAlias: dto.modelAlias } : {}),
+    ...(dto.effort && REASONING_EFFORT_LADDER.includes(dto.effort as ReasoningEffort)
+      ? { effort: dto.effort as ReasoningEffort }
+      : {}),
     ...(dto.providerModelId ? { providerModelId: dto.providerModelId } : {}),
     ...(dto.thinking ? { thinking: dto.thinking } : {}),
     ...(dto.segments && dto.segments.length > 0 ? { segments: dto.segments } : {}),
@@ -457,6 +487,10 @@ export function toPreferences(dto: PreferencesDto): Preferences {
     theme: dto.theme === "light" || dto.theme === "dark" ? dto.theme : "system",
     font: dto.font === "serif" ? "serif" : dto.font === "readable" ? "readable" : "sans",
     modelAlias: dto.modelAlias,
+    effort:
+      dto.effort && REASONING_EFFORT_LADDER.includes(dto.effort as ReasoningEffort)
+        ? (dto.effort as ReasoningEffort)
+        : null,
     instructions: dto.instructions,
     enterToSend: dto.enterToSend,
     reducedMotion: dto.reducedMotion,

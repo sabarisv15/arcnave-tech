@@ -848,6 +848,7 @@ export class AgentLoop {
         questions: [],
         usage: toUsageDto(cumulativeUsage ?? EMPTY_USAGE, computeCostFor(this.cfg, entry.providerModelId!, cumulativeUsage ?? EMPTY_USAGE)),
         finishReason,
+        ...(reasoningEffort ? { effort: reasoningEffort } : {}),
       };
     }
     } finally {

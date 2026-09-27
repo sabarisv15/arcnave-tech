@@ -16,7 +16,7 @@
  */
 import { ApiError, describeError, errorCopy, url } from "./api";
 import type { SourceDto, UsageDto } from "./api";
-import type { Mode, ResearchEvent } from "./types";
+import type { Mode, ReasoningEffort, ResearchEvent } from "./types";
 import type { UIBlock } from "./generative-ui/types";
 
 export interface ModelInfo {
@@ -69,7 +69,13 @@ export type StreamEvent =
   /** A visual while the model writes it (ADR-0037): `text` continues the draft from `from`. */
   | { type: "ui_draft"; draftId: string; title: string; from: number; text: string }
   | { type: "debug"; trace: RuntimeDebugTrace }
-  | { type: "done"; questions: string[]; usage: UsageDto; finishReason: string }
+  | {
+      type: "done";
+      questions: string[];
+      usage: UsageDto;
+      finishReason: string;
+      effort?: ReasoningEffort | null;
+    }
   | {
       type: "error";
       code: string;
@@ -83,6 +89,7 @@ export interface GenerateRequest {
   mode: Mode;
   /** A model alias from `GET /models`, or `Auto`. */
   model: string;
+  effort?: ReasoningEffort;
   attachmentIds?: string[];
   /** Re-run an existing assistant message instead of appending a new pair. */
   retryMessageId?: string;
@@ -114,6 +121,7 @@ export async function* generate(
         mode: req.mode,
         model: req.model,
         attachmentIds: req.attachmentIds ?? [],
+        ...(req.effort ? { effort: req.effort } : {}),
         ...(req.retryMessageId ? { retryMessageId: req.retryMessageId } : {}),
       }),
       signal,

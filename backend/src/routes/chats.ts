@@ -99,6 +99,7 @@ const messageSchema = z.object({
   questions: z.array(z.string()),
   feedback: z.string().nullable(),
   modelAlias: z.string().nullable(),
+  effort: z.string().nullable(),
   providerModelId: z.string().nullable(),
   finishReason: z.string().nullable(),
   artifactId: z.string().nullable(),
@@ -442,6 +443,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             status: m.status === 'generating' || m.status === 'submitting' ? 'stopped' : m.status,
             questions: m.questions,
             modelAlias: m.modelAlias,
+            effort: m.effort,
             provider: m.provider,
             providerModelId: m.providerModelId,
             finishReason: m.finishReason,
@@ -475,6 +477,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           retryMessageId: z.string().uuid().optional(),
           /** Gemini's code-execution sandbox. See ADR-0004; unavailable on other providers. */
           codeExecution: z.boolean().default(false),
+          effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
         }),
       },
       config: {
@@ -491,7 +494,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       if (activeRuns.has(chat.id)) throw new ApiError('run_in_progress');
 
-      const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution } = request.body;
+      const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution, effort } =
+        request.body;
 
       // --- create or reuse the assistant row ----------------------------
       const assistantMessageId = retryMessageId
@@ -551,6 +555,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             attachmentManifest,
             attachments: turnAttachments,
             codeExecution,
+            effort,
             signal: controller.signal,
           })) {
             run.publish(event);
@@ -829,6 +834,7 @@ async function loadMessages(
     questions: m.questions,
     feedback: m.feedback,
     modelAlias: m.modelAlias,
+    effort: m.effort ?? null,
     providerModelId: m.providerModelId,
     finishReason: m.finishReason,
     artifactId: m.artifactId,

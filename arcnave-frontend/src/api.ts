@@ -365,6 +365,7 @@ export interface ModelDto {
   supportsGrounding: boolean;
   contextWindow: number | null;
   providerModelId: string | null;
+  reasoningEfforts?: string[];
 }
 
 export interface ModelsDto {
@@ -373,6 +374,7 @@ export interface ModelsDto {
     description: string;
     available: boolean;
     detail: string;
+    reasoningEfforts?: string[];
   };
   models: ModelDto[];
   capabilities: { groundedSearch: boolean; detail: string };
@@ -442,6 +444,7 @@ export interface MessageDto {
   questions: string[];
   feedback: string | null;
   modelAlias: string | null;
+  effort?: string | null;
   providerModelId: string | null;
   finishReason: string | null;
   artifactId: string | null;
@@ -610,6 +613,7 @@ export interface PreferencesDto {
   theme: string;
   font: string;
   modelAlias: string;
+  effort?: string | null;
   instructions: string;
   enterToSend: boolean;
   reducedMotion: boolean;
@@ -736,7 +740,8 @@ export const api = {
   },
 
   models: {
-    list: (probe = false) => get<ModelsDto>("/models", { probe }),
+    list: (probe = false, chatId?: string) =>
+      get<ModelsDto>("/models", { probe, ...(chatId ? { chatId } : {}) }),
     refresh: () => post<void>("/models/refresh"),
   },
 
