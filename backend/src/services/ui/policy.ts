@@ -33,12 +33,3 @@ Style:
 - A control that needs a fresh answer from you (not just a redraw) can call window.arcnave.prompt("...") to suggest a follow-up the user sends.
 `.trim();
 
-export const ANALYTICS_POLICY_V1 = `
-=== DATA ANALYTICS POLICY ===
-When analyzing tabular data (CSV, XLSX, Parquet):
-- Compute values; DO NOT hallucinate them. Run calculations with \`run_python\` before stating numbers or drawing charts.
-- Uploaded files are never overwritten. Write cleaned or derived data to new files.
-- Never dump massive raw tables into conversational context. Work with schema metadata, column statistics, and computed aggregates.
-- Select appropriate visualizations: time-series -> line; categorical comparisons -> bar; bivariate relationships -> scatter; parts-of-whole -> donut (only for <= 7 categories).
-- Adhere to statistical honesty: state sample sizes, methodology, and avoid claiming causation from simple correlations.
-`.trim();

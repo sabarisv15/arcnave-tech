@@ -64,7 +64,7 @@ describe('Office files with a sandbox on the turn', () => {
     const turn2 = ctx.provider.seen.at(-1)!;
 
     for (const request of [turn1, turn2]) {
-      expect(request.tools?.map((t) => t.name)).toContain('run_python');
+      expect(request.tools?.map((t) => t.name)).toContain('bash_tool');
       for (const wire of wires(request)) {
         expect(wire).not.toContain(MARKER);
         expect(wire).toContain('is read from its file');

@@ -264,9 +264,7 @@ const envSchema = z.object({
   /** Persistent memory (memory_items). On by default (ADR-0025). */
   ENABLE_MEMORY: bool(true),
   /** Background conservative distillation of durable user-stated facts. */
-  ENABLE_MEMORY_BACKGROUND_DISTILL: bool(false),
   /** Maximum total characters allocated to standing context memories. */
-  MEMORY_STANDING_MAX_CHARS: int(2000),
   /** Characters of memory topics a conversation starts with; the rest stay searchable. */
   MEMORY_CONTEXT_MAX_CHARS: int(8000),
 

@@ -5433,6 +5433,28 @@ select:focus-visible {
 
 /* -------------------------------------------------------------------------- Deliverable & Image Cards */
 
+.web-image-strip {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  overflow-x: auto;
+}
+
+.web-image-strip a {
+  flex: 0 0 auto;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.web-image-strip img {
+  display: block;
+  height: 140px;
+  width: auto;
+  max-width: 240px;
+  object-fit: cover;
+}
+
 .message-deliverable-tray {
   display: flex;
   flex-direction: column;

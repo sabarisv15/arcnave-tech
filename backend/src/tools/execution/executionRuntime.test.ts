@@ -341,7 +341,7 @@ with open('output/result.txt', 'w') as out:
     }
   });
 
-  it('CodeExecutionToolExecutor automatically persists output files when wired with ExecutionRuntime', async () => {
+  it('CodeExecutionToolExecutor stores a file only when present_files hands it over', async () => {
     const runtime = new ExecutionRuntime(new ProcessSandboxClient());
     const runId = `tool_persist_${Date.now()}`;
     const workspace = await runtime.createWorkspace(runId);
@@ -375,23 +375,24 @@ with open('output/result.txt', 'w') as out:
     });
 
     try {
-      const code = `
-with open('output/analysis.txt', 'w') as f:
-    f.write('Analysis results complete')
-print("Completed job")
-`;
-      const result = await executor.execute(
-        { id: 'call-1', name: 'run_python', input: { code } },
+      const ran = await executor.execute(
+        { id: 'call-1', name: 'bash_tool', input: { command: 'mkdir -p output && echo done > output/analysis.txt && echo Completed job', description: 'x' } },
         new AbortController().signal,
       );
+      expect(ran.ok).toBe(true);
+      const ranData = (ran.content[0] as { data: any }).data;
+      expect(ranData.stdout).toContain('Completed job');
+      expect(ranData.persistedFiles).toBeUndefined();
 
+      const result = await executor.execute(
+        { id: 'call-2', name: 'present_files', input: { filepaths: ['output/analysis.txt'] } },
+        new AbortController().signal,
+      );
       expect(result.ok).toBe(true);
       const block = result.content[0] as { type: string; data: any };
-      expect(block.data.stdout).toContain('Completed job');
       expect(block.data.persistedFiles.length).toBe(1);
       expect(block.data.persistedFiles[0].filename).toBe('analysis.txt');
       expect(block.data.persistedFiles[0].downloadUrl).toBe('/files/saved-chart-id/download');
-      expect(block.data.outputFilesSummary).toContain('/files/saved-chart-id/download');
     } finally {
       await runtime.cleanupWorkspace(workspace);
     }

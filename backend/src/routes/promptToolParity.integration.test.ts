@@ -11,7 +11,7 @@ import { createTestApp, signUp } from '../test/harness.js';
 
 const TOOL_NAMES = [
   ...new Set(
-    Object.values(definitions)
+    [...Object.values(definitions), definitions.codeToolDefinitions(true)]
       .flatMap((v) => (Array.isArray(v) ? v : [v]))
       .filter((v) => Boolean(v && typeof v === 'object' && 'name' in v && 'inputSchema' in v))
       .map((d) => (d as { name: string }).name),
@@ -71,7 +71,7 @@ describe('the system prompt names only tools the turn allows', () => {
   });
 
   it('finds the tool names it checks', () => {
-    expect(TOOL_NAMES).toEqual(expect.arrayContaining(['search_tools', 'load_skill', 'web_search', 'run_python']));
+    expect(TOOL_NAMES).toEqual(expect.arrayContaining(['web_search', 'bash_tool', 'view', 'memory_read', 'conversation_search']));
   });
 
   for (const [label, env] of Object.entries(CONFIGS)) {
@@ -80,8 +80,8 @@ describe('the system prompt names only tools the turn allows', () => {
       const { system, allowed, declared } = await turn(ctx, 'hi');
       const unavailable = namedTools(system).filter((name) => !allowed.has(name));
       expect(unavailable).toEqual([]);
-      // "You have access to the X tool" is a promise the model acts on at once, without
-      // search_tools; it holds only for a declared tool (a model calls only what is declared).
+      // "You have access to the X tool" is a promise the model acts on at once; it holds only
+      // for a declared tool (a model calls only what is declared).
       const promised = [...system.matchAll(/access to the `?(\w+)`? tool/g)].map((m) => m[1]!);
       expect(promised.filter((name) => !declared.has(name))).toEqual([]);
     });

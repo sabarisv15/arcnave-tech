@@ -51,10 +51,9 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
         'trust_boundaries',
         'arcNave_capabilities',
         'tool_use',
-        'skills',
+        'computer_use',
         'web',
         'files',
-        'python',
         'artifacts',
         'professional_deliverables',
         'source_transformation',
@@ -104,18 +103,18 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
 
     it('Eval 5: Uploaded document -> What is already in context is seen, not fetched again', () => {
       expect(masterPrompt).toContain('Some attachments are already in your context');
-      expect(masterPrompt).toContain('decide whether code is actually needed');
+      expect(masterPrompt).toContain('decide whether the computer is actually needed');
       expect(masterPrompt).toContain('Do not make claims about unseen sections of a file');
     });
 
     it('Eval 6: Document / PDF -> Word conversion -> Enforces source transformation and docx skill', () => {
       expect(masterPrompt).toContain('Transform; do not silently rewrite.');
-      expect(masterPrompt).toContain('Load a skill when the task needs its procedure');
+      expect(masterPrompt).toContain('view the SKILL.md of every skill that plausibly applies');
       expect(masterPrompt).toContain('Preserve meaningful source structure');
     });
 
     it('Eval 7: "Create financial spreadsheet" -> Enforces xlsx skill, formulas-first, and export workflow', () => {
-      expect(masterPrompt).toContain('Load a skill when the task needs its procedure');
+      expect(masterPrompt).toContain('view the SKILL.md of every skill that plausibly applies');
       expect(masterPrompt).toContain('Use spreadsheet semantics such as:');
       expect(masterPrompt).toContain('formulas');
       expect(masterPrompt).toContain('typed cells');
@@ -123,7 +122,7 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
     });
 
     it('Eval 8: "Create presentation" -> Enforces pptx skill, readability floor, and deliverable cover note', () => {
-      expect(masterPrompt).toContain('Load a skill when the task needs its procedure');
+      expect(masterPrompt).toContain('view the SKILL.md of every skill that plausibly applies');
       expect(masterPrompt).toContain('Use presentation semantics such as:');
       expect(masterPrompt).toContain('readable typography');
       expect(masterPrompt).toContain('continuation slides');
@@ -174,12 +173,12 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('compute the figure with a tool');
       // Scoped to exact figures: a summary still needs no computation (mistakes.md, 2026-09-26).
       expect(masterPrompt).toContain('A summary, or a question one visible passage answers, needs no computation.');
-      expect(masterPrompt).toContain('an exact count or total over a file is not such a question');
     });
 
-    it('Eval 11b3: A building skill is loaded once the material is in hand (ADR-0044)', () => {
-      expect(masterPrompt).toContain('load a skill that builds a file after the material is in hand');
-      expect(masterPrompt).toContain('load a skill that helps gather or read the material');
+    it('Eval 11b3: What is in context is seen first; skills are read before any code or file (ADR-0047)', () => {
+      expect(masterPrompt).toContain('Transcribing or summarising what you can see needs no tool');
+      expect(masterPrompt).toContain('Before creating any file, writing any code or running any command');
+      expect(masterPrompt).not.toContain('load_skill');
     });
 
     it('Eval 11b4: The prompt names no other assistant as what ArcNave is or follows (ADR-0044)', () => {

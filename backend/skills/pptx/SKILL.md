@@ -6,7 +6,7 @@ category: artifact
 scope: builtin
 requires:
   tools:
-    - run_python
+    - bash_tool
 autoload: false
 metadata:
   source: arcnave
@@ -14,15 +14,16 @@ metadata:
 
 # Presentations (PPTX)
 
-Every step below runs in `run_python`. Uploaded files are in `input/`; a file saved to
-`output/` reaches the user as a download.
+Work on the sandbox computer: write a script with `create_file` and run it with `bash_tool`
+(`python3 build.py`), or run a short command directly. Uploaded files are in `input/`
+(read-only). Save the finished file to `output/<name>` and give it with `present_files`.
 
 ## Reading an uploaded presentation
 
 A presentation is not in the conversation as text: its attachment line says to read it from the
 file. Read slide text, tables and speaker notes with `python-pptx`, slide by slide. To see a
 slide, convert the deck with LibreOffice (`soffice --headless --convert-to pdf`) and render that
-page into `view/` with `pdftoppm`.
+page to PNG with `pdftoppm`, then `view` it.
 
 ## Creating a deck
 
@@ -49,7 +50,7 @@ Read the source first, then plan the slides from what you read: one slide per ma
 
 ## Checking the file
 
-Convert the saved deck to PDF with LibreOffice, render the pages into `view/`, and look at them:
+Convert the saved deck to PDF with LibreOffice, render the pages to PNG, and `view` them:
 text that overflows its box, overlapping shapes, empty slides. Fix and save again when
 something is wrong.
 

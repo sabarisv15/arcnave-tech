@@ -23,9 +23,7 @@ import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
 import {
   CREATE_ARTIFACT,
-  READ_SKILL,
-  LIST_SKILLS,
-  SEARCH_SKILLS,
+  codeToolDefinitions,
   READ_ARTIFACT,
   SEARCH_PROJECT_FILES,
   WEB_FETCH,
@@ -37,9 +35,7 @@ const ALL_STANDARD_TOOLS: ToolDefinition[] = [
   WEB_FETCH,
   CREATE_ARTIFACT,
   READ_ARTIFACT,
-  READ_SKILL,
-  LIST_SKILLS,
-  SEARCH_SKILLS,
+  ...codeToolDefinitions(true),
   SEARCH_PROJECT_FILES,
 ];
 

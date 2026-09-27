@@ -18,8 +18,8 @@ export interface ContextEditingPolicy {
   keep: number;
   /** Results are cleared in multiples of this many. */
   batch: number;
-  /** Tools whose results are never cleared (a loaded skill is instructions, not data). */
-  excludeTools: readonly string[];
+  /** Calls whose results are never cleared: a skill that was read is instructions, not data. */
+  keepResultOf: (name: string, args: Record<string, unknown>) => boolean;
 }
 
 /** How many of the oldest clearable results to clear, out of `total`. */
@@ -28,4 +28,9 @@ export function resultsToClear(total: number, policy: Pick<ContextEditingPolicy,
   if (clearable <= 0) return 0;
   const batch = Math.max(1, policy.batch);
   return Math.floor(clearable / batch) * batch;
+}
+
+/** A view of a file under /skills: the skill's instructions, kept through context editing. */
+export function isSkillRead(name: string, args: Record<string, unknown>): boolean {
+  return name === 'view' && typeof args.path === 'string' && args.path.startsWith('/skills/');
 }

@@ -8,6 +8,7 @@
   [ADR-0032](0032-one-loop-model-reads-the-request.md) (the AgentLoop path),
   [ADR-0043](0043-contextual-chat-follow-ups-and-safe-answer-rendering.md) (follow-up tool),
   [ADR-0044](0044-pdf-reading-and-exact-figures.md) decision 3 (scanned-page routing).
+- Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): the plan left open here is done; artifact-design is replaced by frontend-design.
 
 This is the clean-up step only. The plan (bash / view / create_file / str_replace in place of
 run_python, file-reading skill, the prompt's order of seeing, then skills, then code) comes next

@@ -42,9 +42,25 @@ const verb = (
   return { icon, running, done, failed: `${noun.charAt(0).toUpperCase()}${noun.slice(1)} failed`, past, one, many };
 };
 
-// Some names below belong to tools removed in ADR-0046. They stay so that messages saved
-// before still read the way they did.
+// Some names below belong to tools removed in ADR-0046 and ADR-0047. They stay so that messages
+// saved before still read the way they did.
 const VERBS: Record<string, Verb> = {
+  bash_tool: verb(Terminal, "Running command", "Ran command", "ran", "a command", "commands"),
+  view: verb(FileText, "Viewing file", "Viewed file", "viewed", "a file", "files"),
+  view_skill: verb(BookOpen, "Reading skill", "Read skill", "read", "a skill", "skills"),
+  create_file: verb(FilePlus2, "Creating file", "Created file", "created", "a file", "files"),
+  str_replace: verb(FilePlus2, "Editing file", "Edited file", "edited", "a file", "files"),
+  present_files: verb(FilePlus2, "Sharing files", "Shared files", "shared", "files", "files"),
+  image_search: verb(ImageIcon, "Finding images", "Found images", "found", "images", "images"),
+  memory_list: verb(Brain, "Checking memory", "Checked memory", "checked", "memory", "memory"),
+  memory_read: verb(Brain, "Checking memory", "Checked memory", "checked", "memory", "memory"),
+  memory_write: verb(Brain, "Saving to memory", "Saved to memory", "saved", "a memory", "memories"),
+  memory_append: verb(Brain, "Saving to memory", "Saved to memory", "saved", "a memory", "memories"),
+  memory_str_replace: verb(Brain, "Updating memory", "Updated memory", "updated", "memory", "memory"),
+  memory_delete: verb(Brain, "Updating memory", "Updated memory", "updated", "memory", "memory"),
+  conversation_search: verb(Search, "Searching past chats", "Searched past chats", "searched", "past chats", "past chats"),
+  read_conversation: verb(Search, "Reading a past chat", "Read a past chat", "read", "a past chat", "past chats"),
+  recent_chats: verb(Search, "Checking recent chats", "Checked recent chats", "checked", "recent chats", "recent chats"),
   run_python: verb(Terminal, "Running command", "Ran command", "ran", "a command", "commands"),
   load_skill: verb(BookOpen, "Loading skill", "Loaded skill", "loaded", "a skill", "skills"),
   read_skill: verb(BookOpen, "Loading skill", "Loaded skill", "loaded", "a skill", "skills"),
@@ -74,6 +90,12 @@ const VERBS: Record<string, Verb> = {
   render_ui: verb(LayoutPanelTop, "Building view", "Built view", "built", "a view", "views"),
 };
 
+/** Reading a skill is a view of /skills/<name>/SKILL.md; it reads as "Read skill". */
+function verbName(call: Pick<ToolCall, "name" | "input">): string {
+  const p = (call.input as { path?: unknown } | undefined)?.path;
+  return call.name === "view" && typeof p === "string" && p.startsWith("/skills/") ? "view_skill" : call.name;
+}
+
 function verbFor(name: string): Verb {
   const known = VERBS[name];
   if (known) return known;
@@ -83,14 +105,14 @@ function verbFor(name: string): Verb {
 
 /** The label the live status line shows for one call. */
 export function toolStepLabel(call: ToolCall): string {
-  const v = verbFor(call.name);
+  const v = verbFor(verbName(call));
   return call.ok === undefined ? v.running : call.ok ? v.done : v.failed;
 }
 
 /** "Loaded a skill, ran 4 commands, created a file": each tool once, in first-use order. */
 export function summariseToolCalls(calls: ToolCall[]): string {
   const counts = new Map<string, number>();
-  for (const c of calls) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+  for (const c of calls) counts.set(verbName(c), (counts.get(verbName(c)) ?? 0) + 1);
   // Two tools that read the same ("Loaded a skill") merge rather than repeat.
   const phrases = new Map<string, number>();
   const order: string[] = [];
@@ -128,9 +150,10 @@ export function WorkingSpark({ active }: { active: boolean }) {
 }
 
 function stepDetail(call: ToolCall): { input: string; output: string } {
+  const raw = call.input as { code?: unknown; command?: unknown } | undefined;
   const input =
-    call.input && typeof call.input === "object" && typeof (call.input as { code?: unknown }).code === "string"
-      ? (call.input as { code: string }).code
+    raw && typeof raw === "object" && (typeof raw.command === "string" || typeof raw.code === "string")
+      ? String(raw.command ?? raw.code)
       : call.input === undefined
         ? ""
         : JSON.stringify(call.input, null, 2);
@@ -144,7 +167,7 @@ function stepDetail(call: ToolCall): { input: string; output: string } {
 function Step({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false);
   const running = call.ok === undefined;
-  const Icon = call.ok === false ? X : verbFor(call.name).icon;
+  const Icon = call.ok === false ? X : verbFor(verbName(call)).icon;
   const { input, output } = stepDetail(call);
   const expandable = !running && (input || output);
   return (

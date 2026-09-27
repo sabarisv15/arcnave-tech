@@ -15,7 +15,6 @@
  */
 import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { RUN_PYTHON, RUN_PYTHON_WARM } from '../tools/definitions.js';
 import { AnswerProtocolGuard } from './answerProtocolGuard.js';
 import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 
@@ -72,8 +71,7 @@ import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
-import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
-import { SANDBOX_SKILLS_ROOT, SkillToolExecutor } from '../tools/skillExecutor.js';
+import { SKILLS_ROOT } from '../tools/codeExecutionExecutor.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
@@ -85,13 +83,14 @@ import { assemblePrompt } from './promptCache/promptAssembly.js';
 import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
 import { memoryService } from './memory/memoryService.js';
-import { distillUserStatement } from './memory/distiller.js';
 import { compact, shouldCompact, lastContextTokens } from './compaction/autoCompact.js';
 import { StreamTimeSplit, TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
+import { ChatToolExecutor } from '../tools/chatExecutor.js';
+import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { AskUserOptionsExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
@@ -294,6 +293,9 @@ export function readOfficeFilesWithCode(
 
 /* -------------------------------------------------------------------------- service */
 
+/** A view of a skill's instructions: /skills/<name>/SKILL.md. */
+const SKILL_FILE = /^\/skills\/([^/]+)\/SKILL\.md$/;
+
 /** Characters of a skill given again after a compaction. ArcNave counts no tokens (Invariant 3), so the cap is in characters. */
 const REINJECTED_SKILL_MAX_CHARS = 20_000;
 
@@ -313,14 +315,12 @@ export class GenerationService {
     private readonly usage: UsageService,
     private readonly retriever: Retriever,
     private readonly storage: ObjectStorage,
-    /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured — run_python
-     *  is simply never in the available-tools list in that case (see the wiring in `run()`). */
+    /** Undefined when ENABLE_RUN_PYTHON is off or no Vertex project is configured: the computer's
+     *  tools are then never declared (see the wiring in `runTurn()`). */
     private readonly sandboxClient?: SandboxClient,
     private readonly skills?: SkillService,
     capabilities?: CapabilityRegistry,
     executionRuntime?: ExecutionRuntime,
-    /** Reads page images for table extraction (a backend call; never from the sandbox). */
-    private readonly visionProvider?: Provider,
     /** Where Gemini reads page images from instead of the request (ADR-0016); unset, inline. */
     private readonly modelInputs?: ModelInputStore,
   ) {
@@ -377,22 +377,6 @@ export class GenerationService {
       files.push({ id: a.id, filename: a.filename ?? a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes });
     }
     return files;
-  }
-
-  /**
-   * Where run_python's sandbox has the skill files: the warm sandbox image copies them to
-   * /skills (Dockerfile.service). The Cloud Run Jobs image does not.
-   */
-  private skillsInSandbox(): string | undefined {
-    return this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined && usesWarmSandbox(this.cfg)
-      ? SANDBOX_SKILLS_ROOT
-      : undefined;
-  }
-
-  /** Skill names the manifest may point to: only when load_skill can actually be called. */
-  private loadableSkills(loadSkillAvailable: boolean): Set<string> {
-    if (!loadSkillAvailable || !this.skills) return new Set();
-    return new Set(this.skills.listSkills().map((s) => s.name));
   }
 
   private async *runTurn(input: GenerateInput): AsyncGenerator<StreamEvent> {
@@ -511,56 +495,60 @@ export class GenerationService {
       }
     }
 
-    // --- Skill-First -> Tool-Second Routing --------------------------------
-    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined;
-    const candidateSkillSummaries = skillsEnabled ? this.skills!.listSkills() : [];
+    // --- tools this turn may use (ADR-0006, ADR-0047) ---------------------
+    const codeEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
+    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
+    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
+    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const routingDecision = routeTurn({
-      candidateSkills: candidateSkillSummaries,
       hasProject: project !== null,
-      runPythonEnabled: this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined,
-      generativeUiEnabled: Boolean(this.cfg.ENABLE_GENERATIVE_UI),
-      webEnabled: Boolean(this.cfg.ENABLE_WEB),
-      memoryEnabled: Boolean(this.cfg.ENABLE_MEMORY),
+      codeEnabled,
+      generativeUiEnabled,
+      webEnabled,
+      memoryEnabled,
     });
+    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, {
+      codeEnabled,
+      persistentSandbox: usesWarmSandbox(this.cfg),
+      webEnabled,
+      memoryEnabled,
+      generativeUiEnabled,
+    });
+    const allowCode = routingDecision.allowedTools.includes('bash_tool');
+    const availableTools = toolRegistry
+      .getAvailableTools({ userId: input.userId, projectId: project?.id ?? null, allowCode })
+      .filter((t) => routingDecision.allowedTools.includes(t.name));
+    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
-    // Progressive Skill Disclosure:
-    // AI Model evaluates task first with lightweight skill metadata in context.
-    // If the model determines a domain skill is relevant, it invokes `load_skill` to disclose full instructions.
+    // --- skills: names and descriptions up front, each read with view when needed ---------
+    // Skills are listed only when view can read them (Invariant 1). After a compaction, the
+    // skills read in the summarised turns come back in full (ADR-0027): the summary alone would
+    // leave a skill the model believes it has read.
     let skillsContext: string | undefined;
     const loadedSkills: SkillDetail[] = [];
-    if (this.skills) {
-      // A skill that needs a tool this turn cannot use is not offered: its description would
-      // promise work the turn cannot do (Invariant 1).
-      const availableSkills = this.skills
-        .listSkills(routingDecision.allowedTools)
-        .filter((s) => s.missingTools.length === 0);
+    const skillsEnabled = this.cfg.ENABLE_SKILLS && this.skills !== undefined && activeToolNames.has('view');
+    if (skillsEnabled) {
+      const availableSkills = this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0);
       const parts: string[] = [];
-
       if (availableSkills.length > 0) {
-        const skillList = availableSkills
-          .map((s) => `- ${s.name}: ${s.description}`)
-          .join('\n');
         parts.push(
-          `<available_skills>\n${skillList}\n</available_skills>\n` +
-            'To use any of the above domain skills, invoke `load_skill({ name: "<skill_name>" })` to retrieve detailed instructions, templates, and domain rules before selecting execution tools.' +
-            (this.skillsInSandbox()
-              ? ` Each skill's files are also in the sandbox at ${SANDBOX_SKILLS_ROOT}/<skill_name>/, read-only: run its scripts from run_python and use only their output.`
-              : ''),
+          '<available_skills>\n' +
+            availableSkills
+              .map(
+                (s) =>
+                  `<skill>\n<name>${s.name}</name>\n<description>${s.description}</description>\n` +
+                  `<location>${SKILLS_ROOT}/${s.name}/SKILL.md</location>\n</skill>`,
+              )
+              .join('\n') +
+            '\n</available_skills>',
         );
       }
-
-      // After a compaction, the skills loaded in the summarised turns come back in full
-      // (ADR-0027); the
-      // summary alone would leave a skill the model believes it has read.
       const reinjected = latestCompaction
         ? await this.skillsLoadedThrough(input.chatId, latestCompaction.throughSeq)
         : [];
-      // If skills were pre-selected by routing or autoloaded, include their full instructions
-      for (const skillName of [...reinjected, ...routingDecision.selectedSkills]) {
-        const detail = this.skills.getSkill(skillName);
-        if (detail && !loadedSkills.some((s) => s.name === detail.name)) {
-          loadedSkills.push(detail);
-        }
+      for (const skillName of reinjected) {
+        const detail = this.skills!.getSkill(skillName);
+        if (detail && !loadedSkills.some((s) => s.name === detail.name)) loadedSkills.push(detail);
       }
       if (loadedSkills.length > 0) {
         parts.push(
@@ -568,59 +556,14 @@ export class GenerationService {
             .map((s) => {
               const body =
                 s.content.length > REINJECTED_SKILL_MAX_CHARS
-                  ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: load_skill gives the whole skill.]`
+                  ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: view ${SKILLS_ROOT}/${s.name}/SKILL.md for the whole skill.]`
                   : s.content;
-              return `### Loaded Skill: ${s.name}\n\n${body}`;
+              return `### Skill read earlier: ${SKILLS_ROOT}/${s.name}/SKILL.md\n\n${body}`;
             })
             .join('\n\n---\n\n'),
         );
       }
-
-      if (parts.length > 0) {
-        skillsContext = parts.join('\n\n');
-      }
-    }
-
-    // --- resolve available tools -------------------------------------------
-    const runPythonEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
-    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
-    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
-    const toolRegistry = new ProjectToolRegistry(
-      this.cfg.ENABLE_TOOL_USE,
-      runPythonEnabled,
-      skillsEnabled,
-      webEnabled,
-      memoryEnabled,
-      generativeUiEnabled,
-      usesWarmSandbox(this.cfg) ? RUN_PYTHON_WARM : RUN_PYTHON,
-    );
-    // ADR-0006: permission alone decides.
-    const allowPython = routingDecision.allowedTools.includes('run_python');
-    const toolContext = {
-      userId: input.userId,
-      projectId: project?.id ?? null,
-      allowPython,
-    };
-    // Policy-approved tool catalog for deferred tool discovery
-    const policyCatalog = (
-      toolRegistry.getPolicyCatalog
-        ? toolRegistry.getPolicyCatalog(toolContext)
-        : toolRegistry.getAvailableTools(toolContext)
-    ).filter((t) => routingDecision.allowedTools.includes(t.name));
-
-    // Initial active tools: small core set sent in Round 0 (search_tools, load_skill if skills enabled)
-    const initialTools = toolRegistry.getInitialTools
-      ? toolRegistry.getInitialTools(toolContext)
-      : [];
-
-    const availableTools = initialTools.filter((t) => routingDecision.exposedTools.includes(t.name));
-    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
-
-    // Never advertise skills the model has no way to load (Invariant 1). This holds when tool use
-    // is off: the registry then sends no tools at all, `load_skill` included.
-    if (!activeToolNames.has('load_skill')) {
-      skillsContext = undefined;
+      if (parts.length > 0) skillsContext = parts.join('\n\n');
     }
 
     // --- assemble context -------------------------------------------------
@@ -631,7 +574,8 @@ export class GenerationService {
       project,
       availableTools,
       skillsContext,
-      policyCatalog.map((t) => t.name),
+      // Every allowed tool is declared (ADR-0047); with tool use off, none is.
+      availableTools.map((t) => t.name),
       grounded,
     );
     for (const event of contextEvents) {
@@ -670,11 +614,6 @@ export class GenerationService {
         ? new ProjectToolExecutor(this.db, this.retriever, project.id, this.cfg.READ_PROJECT_FILE_MAX_CHARS)
         : undefined;
 
-    const skillToolExecutor =
-      skillsEnabled && this.skills !== undefined
-        ? new SkillToolExecutor(this.skills, activeToolNames, undefined, { scriptsRoot: this.skillsInSandbox() })
-        : undefined;
-
     const pendingArtifactEvents: StreamEvent[] = [];
     const artifactToolExecutor = this.cfg.ENABLE_TOOL_USE
       ? new ArtifactToolExecutor(
@@ -700,11 +639,16 @@ export class GenerationService {
 
     const webSearchAdapter = buildWebSearchAdapter(this.cfg);
     const webToolExecutor = webEnabled
-      ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService())
+      ? new WebToolExecutor(new WebSearchService(webSearchAdapter), new WebFetchService(), webSearchAdapter)
       : undefined;
+    // web_fetch opens only URLs already in the conversation: the user's, or a search's.
+    webToolExecutor?.allowUrlsIn(input.prompt, JSON.stringify(history));
 
     const memoryToolExecutor = memoryEnabled
-      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null, input.chatId)
+      ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+      : undefined;
+    const chatToolExecutor = memoryEnabled
+      ? new ChatToolExecutor(input.userId, project?.id ?? null, input.chatId)
       : undefined;
 
     const pendingUiEvents: StreamEvent[] = [];
@@ -739,23 +683,20 @@ export class GenerationService {
       toolMap.set('update_artifact', artifactToolExecutor);
     }
     if (webToolExecutor) {
-      toolMap.set('web_search', webToolExecutor);
-      toolMap.set('web_fetch', webToolExecutor);
+      for (const name of ['web_search', 'web_fetch', 'image_search']) toolMap.set(name, webToolExecutor);
     }
     if (memoryToolExecutor) {
-      toolMap.set('save_memory', memoryToolExecutor);
-      toolMap.set('search_chats', memoryToolExecutor);
-      toolMap.set('search_memory', memoryToolExecutor);
-      toolMap.set('read_memory', memoryToolExecutor);
-      toolMap.set('update_memory', memoryToolExecutor);
-      toolMap.set('forget_memory', memoryToolExecutor);
+      for (const d of MEMORY_TOOL_DEFINITIONS) toolMap.set(d.name, memoryToolExecutor);
+    }
+    if (chatToolExecutor) {
+      for (const d of CHAT_TOOL_DEFINITIONS) toolMap.set(d.name, chatToolExecutor);
     }
     if (projectToolExecutor) {
       toolMap.set('search_project_files', projectToolExecutor);
       toolMap.set('read_project_file', projectToolExecutor);
     }
     let codeExecutor: CodeExecutionToolExecutor | undefined;
-    if (allowPython) {
+    if (allowCode) {
       codeExecutor = new CodeExecutionToolExecutor(this.executionRuntime, this.cfg.RUN_PYTHON_MAX_OUTPUT_CHARS, {
         workspace,
         userId: input.userId,
@@ -763,24 +704,9 @@ export class GenerationService {
         chatId: input.chatId,
         db: this.db,
         storage: this.storage,
-        visionProvider: this.visionProvider,
+        skills: this.skills,
       });
-      toolMap.set('run_python', codeExecutor);
-    }
-    if (skillToolExecutor) {
-      toolMap.set('load_skill', skillToolExecutor);
-      toolMap.set('list_skills', skillToolExecutor);
-      toolMap.set('search_skills', skillToolExecutor);
-      toolMap.set('read_skill', skillToolExecutor);
-    }
-    if (this.cfg.ENABLE_TOOL_USE) {
-      const searchToolsExecutor = new SearchToolsExecutor(policyCatalog, (discoveredTool) => {
-        if (!availableTools.some((t) => t.name === discoveredTool.name)) {
-          availableTools.push(discoveredTool);
-          activeToolNames.add(discoveredTool.name);
-        }
-      });
-      toolMap.set('search_tools', searchToolsExecutor);
+      for (const name of CODE_TOOL_NAMES) toolMap.set(name, codeExecutor);
     }
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
@@ -813,10 +739,7 @@ export class GenerationService {
       wireAttachments,
       wireHistory,
     );
-    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, {
-      sandbox: codeExecutor !== undefined,
-      loadableSkills: this.loadableSkills(activeToolNames.has('load_skill')),
-    });
+    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, { sandbox: codeExecutor !== undefined });
 
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
@@ -1151,27 +1074,12 @@ export class GenerationService {
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
     });
 
-    if (status === 'complete' && this.cfg.ENABLE_MEMORY && this.cfg.ENABLE_MEMORY_BACKGROUND_DISTILL) {
-      distillUserStatement({
-        userId: input.userId,
-        userMessage: input.prompt,
-        chatId: input.chatId,
-        messageId: input.messageId,
-        projectId: project?.id ?? null,
-      }).catch((err) => {
-        log.debug({ err }, 'Background memory distillation failed');
-      });
-    }
-
     // A cancelled run has no terminal `done`: the client already knows it stopped, and
     // emitting "done" would claim a completion that did not happen.
     if (status === 'complete') {
       const debugTrace: RuntimeDebugTrace = {
-        candidateSkills: routingDecision.candidateSkills,
-        selectedSkills: routingDecision.selectedSkills,
         loadedSkills: loadedSkills.map((s) => s.name),
         allowedTools: routingDecision.allowedTools,
-        exposedTools: availableTools.map((t) => t.name),
         toolsCalled,
       };
       log.info({ debugTrace }, 'Runtime debug trace');
@@ -1833,7 +1741,7 @@ export class GenerationService {
     );
   }
 
-  /** Skills a load_skill or read_skill call loaded in this chat's turns up to `throughSeq`. */
+  /** Skills a view of /skills/<name>/SKILL.md read in this chat's turns up to `throughSeq`. */
   private async skillsLoadedThrough(chatId: string, throughSeq: number): Promise<string[]> {
     const rows = await this.db
       .select({ input: toolCalls.input })
@@ -1843,13 +1751,14 @@ export class GenerationService {
         and(
           eq(messages.chatId, chatId),
           sql`${messages.seq} <= ${throughSeq}`,
-          inArray(toolCalls.name, ['load_skill', 'read_skill']),
+          eq(toolCalls.name, 'view'),
           eq(toolCalls.ok, true),
         ),
       )
       .orderBy(messages.seq, toolCalls.ordinal);
     const names = rows
-      .map((r) => (r.input as { name?: unknown } | null)?.name)
+      .map((r) => (r.input as { path?: unknown } | null)?.path)
+      .map((p) => (typeof p === 'string' ? SKILL_FILE.exec(p)?.[1] : undefined))
       .filter((n): n is string => typeof n === 'string');
     return [...new Set(names)];
   }
@@ -1874,21 +1783,11 @@ export class GenerationService {
     // 1. Standing preferences: the user's own instructions.
     const combinedStandingPrefs = prefs.instructions.trim();
 
-    // 2. Memory. A conversation starts from what is already known about the user: every topic,
-    // not a per-prompt search. That also keeps this text the same from turn to turn, so it does not
-    // break the prompt cache the way a prompt-matched selection did (ADR-0025).
+    // 2. Memory: the listing of every file, and the profile and preferences in full. The same
+    // text from turn to turn, so it does not break the prompt cache (ADR-0025, ADR-0047).
     let relevantMemoryText = '';
-    if (this.cfg.ENABLE_MEMORY && allowedToolNames?.includes('save_memory')) {
-      const memory = await memoryService.getMemoryContext(
-        input.userId,
-        project?.id ?? null,
-        this.cfg.MEMORY_CONTEXT_MAX_CHARS,
-      );
-      relevantMemoryText =
-        memory.text +
-        (memory.omitted > 0
-          ? `\n(${String(memory.omitted)} more topic${memory.omitted === 1 ? '' : 's'} not shown; find them with search_memory.)`
-          : '');
+    if (this.cfg.ENABLE_MEMORY && allowedToolNames?.includes('memory_read')) {
+      relevantMemoryText = await memoryService.memoryPrompt(input.userId, project?.id ?? null, this.cfg.MEMORY_CONTEXT_MAX_CHARS);
     }
 
     // 3. Conversation compaction summary

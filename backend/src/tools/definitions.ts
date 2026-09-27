@@ -65,191 +65,117 @@ export const READ_PROJECT_FILE: ToolDefinition = {
 
 export const PROJECT_TOOL_DEFINITIONS: ToolDefinition[] = [SEARCH_PROJECT_FILES, READ_PROJECT_FILE];
 
-/**
- * Item 9 phase 2. Gated separately from the two tools above (ENABLE_RUN_PYTHON, not just
- * ENABLE_TOOL_USE) — arbitrary code execution is a materially larger blast radius than
- * read-only project-file search. The description says "no persisted state between calls"
- * deliberately: this phase always creates a fresh sandbox per call rather than reusing one
- * across a chat, unlike the Vertex Agent Engine quickstart's same-sandbox-reuse example — if a
- * future phase adds session-scoped reuse, this description has to change in the same commit, or
- * the model is told something false.
- */
-export const RUN_PYTHON: ToolDefinition = {
-  name: 'run_python',
-  description:
-    'Runs Python code in an isolated, single-use sandbox. Do not rely on network access. Use it for ' +
-    'computation — arithmetic, data transformation, analysing an uploaded file, verifying a calculation. ' +
-    'Every file in the conversation is placed in "input/" before the code runs, at the "run_python path" ' +
-    'printed on its line in the attachment list; open it there directly. "input_files" is not needed. ' +
-    'If the code generates deliverable files (e.g. charts, spreadsheets, reports, data files), ' +
-    'save them to the "output/" directory and explicitly declare their exact filenames in "expected_outputs". ' +
-    'Only declared output files will be authorized and uploaded from the sandbox; undeclared files are rejected. ' +
-    'Output is captured stdout/stderr, truncated if large. The sandbox has no persisted state between calls — each call starts fresh.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      code: { type: 'string', description: 'Python source to execute.' },
-      input_files: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Not needed: every conversation file is already in "input/". Accepted for compatibility.',
-      },
-      expected_outputs: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Optional list of output filenames expected to be written to "output/" (e.g. ["sales_chart.png", "summary.csv"]). ' +
-          'Only declared filenames will be authorized and uploaded from the sandbox.',
-      },
-    },
-    required: ['code'],
-  },
-};
+/* -------------------------------------------------------------------------- The code machine */
 
 /**
- * run_python as the warm sandbox service runs it (ADR-0010). Selected by `definitionFor` in the
- * catalog whenever that engine is configured, so the model is never told "fresh each call" while
- * its files are in fact kept, or the reverse.
+ * The sandbox computer, as five tools: a shell, and file tools that read, create, edit and hand
+ * over files (ADR-0047). They run on the same sandbox engine; `persistent` says whether that
+ * engine keeps files between calls (the warm service does, the single-use Job does not), so the
+ * model is never told files stay when they do not.
  */
-export const RUN_PYTHON_WARM: ToolDefinition = {
-  name: 'run_python',
-  description:
-    'Runs Python code in this chat\'s own sandbox computer. Files persist between calls in the same ' +
-    'chat: anything written to the working directory (or "output/") is still there next call, so load ' +
-    'or parse a file once, save the result (e.g. rows.json, a .parquet), and reuse it. Python variables ' +
-    'do not persist between calls; files do. No network access. Pre-installed: pandas, numpy, scipy, ' +
-    'matplotlib, openpyxl, xlrd, xlsxwriter, pdfplumber, pypdf, pymupdf (fitz), python-docx, python-pptx, ' +
-    'pillow, opencv, pytesseract with tesseract (eng, tam), poppler (pdftoppm, pdftotext), pandoc, ' +
-    'LibreOffice. Nothing can be installed. ' +
-    'Every file in the conversation is already in "input/", at the "run_python path" printed on its ' +
-    'line in the attachment list; open it there directly. "input_files" is not needed. Any size of file works. ' +
-    'Files written or changed in "output/" during the call are returned to the user as downloads. ' +
-    'To look at something yourself, save an image (PNG/JPEG/WebP) to "view/": it is shown to you with the ' +
-    'result, up to 4 per call. For a scanned page, render just the region you need at high resolution ' +
-    '(e.g. pymupdf page.get_pixmap(dpi=200, clip=rect)) and read it, rather than trusting OCR for exact figures. ' +
-    'Output is captured stdout/stderr, truncated if large; print summaries, not whole tables. ' +
-    'A call may run for a few minutes.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      code: { type: 'string', description: 'Python source to execute.' },
-      input_files: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Not needed: every conversation file is already in "input/". Accepted for compatibility.',
+export function codeToolDefinitions(persistent: boolean): ToolDefinition[] {
+  const machine = persistent
+    ? "This chat's own sandbox computer. Files persist between calls in the same chat; shell state " +
+      '(variables, the current directory) does not. '
+    : 'A single-use sandbox computer: each call starts from an empty machine, so do the whole job in one command. ';
+  return [
+    {
+      name: 'bash_tool',
+      description:
+        'Runs a bash command on ' + machine.charAt(0).toLowerCase() + machine.slice(1) +
+        'No network access, and nothing can be installed. Python 3 with pandas, numpy, scipy, matplotlib, ' +
+        'openpyxl, xlrd, xlsxwriter, pdfplumber, pypdf, pymupdf (fitz), python-docx, python-pptx, pillow, ' +
+        'opencv and pytesseract; poppler (pdftoppm, pdftotext), pandoc and LibreOffice. The files in the ' +
+        'conversation are in input/ (read-only), at the path on each file\'s attachment line. Write files ' +
+        'for the user to output/ and hand them over with present_files. Output is truncated when long, ' +
+        'so print summaries, not whole tables.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'The bash command to run.' },
+          description: { type: 'string', description: 'Why this command is being run.' },
+        },
+        required: ['command', 'description'],
       },
     },
-    required: ['code'],
-  },
-};
-
-/**
- * Item 11 Skills System Tools.
- * Provides lightweight discovery, keyword search, and lazy loading of specialized SKILL.md instructions.
- */
-export const LIST_SKILLS: ToolDefinition = {
-  name: 'list_skills',
-  description:
-    'Lists available specialized skills with their name, version, category, capability mode, and summary description. ' +
-    'Call this to discover expert procedural instructions for documents, presentations, spreadsheets, data analysis, or deep research.',
-  inputSchema: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  },
-};
-
-export const SEARCH_SKILLS: ToolDefinition = {
-  name: 'search_skills',
-  description:
-    'Searches available skills by topic or task keywords (e.g. "presentation", "spreadsheet", "deep research", "data analysis"). ' +
-    'Returns ranked matches with summaries and capability modes.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description: 'Search query or task keywords to find relevant skills.',
+    {
+      name: 'view',
+      description:
+        'Shows a text file with numbered lines, an image (PNG, JPEG, GIF, WebP) as a picture, or a ' +
+        'directory listing two levels deep (hidden files left out). The line prefix (spaces, number, tab) ' +
+        'is display only: never include it in str_replace. A text file with no view_range is cut in the ' +
+        'middle past 16,000 characters. Skills are read from /skills/<name>/SKILL.md.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          description: { type: 'string', description: 'Why this is being viewed.' },
+          path: { type: 'string', description: 'Path of the file or directory, e.g. "input/report.pdf" or "/skills/xlsx/SKILL.md".' },
+          view_range: {
+            type: 'array',
+            items: { type: 'integer' },
+            minItems: 2,
+            maxItems: 2,
+            description: 'Optional [start_line, end_line] for a text file, from 1; [start_line, -1] reads to the end.',
+          },
+        },
+        required: ['description', 'path'],
       },
     },
-    required: ['query'],
-    additionalProperties: false,
-  },
-};
-
-export const READ_SKILL: ToolDefinition = {
-  name: 'read_skill',
-  description:
-    'Loads the complete expert instructions, formatting standards, and gotchas for a specified skill. ' +
-    'Call this before performing complex domain tasks (e.g. creating documents, slides, financial models, or deep research).',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      name: {
-        type: 'string',
-        description:
-          'The exact name of the skill to load (e.g. "docx", "pptx", "xlsx", "pdf", "pdf-reading", "skill-creator").',
+    {
+      name: 'create_file',
+      description:
+        'Creates a new file with the given content, making its folders. Fails when the path already ' +
+        'exists: edit an existing file with str_replace, or overwrite it with bash_tool.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          description: { type: 'string', description: 'Why this file is being created. Give this first.' },
+          path: { type: 'string', description: 'Path of the file to create. Give this second.' },
+          file_text: { type: 'string', description: 'The whole content of the file. Give this last.' },
+        },
+        required: ['description', 'path', 'file_text'],
       },
     },
-    required: ['name'],
-    additionalProperties: false,
-  },
-};
-
-export const LOAD_SKILL: ToolDefinition = {
-  name: 'load_skill',
-  description:
-    'Internal progressive disclosure mechanism. Loads specialized instructions (SKILL.md) and ' +
-    'optional resource files (e.g. templates, reference docs, scripts) for a known skill into context. ' +
-    'Call this before creating a file or writing code for one (e.g. "pdf", "xlsx", "docx", "pptx"), ' +
-    'unless it is already loaded in this session.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      name: {
-        type: 'string',
-        description: 'The exact name of the skill to load (e.g. "pdf", "xlsx", "docx", "pptx").',
-      },
-      resource: {
-        type: 'string',
-        description: 'Optional relative path to a specific skill resource (e.g. "reference.md", "scripts/validate.py").',
+    {
+      name: 'str_replace',
+      description:
+        'Replaces one string in a file with another. old_str must match the file exactly and occur ' +
+        'exactly once; widen it with surrounding text until it is unique. View the file just before ' +
+        'editing it: after an edit, earlier views of that file are stale. input/ and /skills are read-only.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path of the file to edit.' },
+          description: { type: 'string', description: 'Why this edit is being made.' },
+          old_str: { type: 'string', description: 'The text to replace; it must occur exactly once.' },
+          new_str: { type: 'string', description: 'The replacement; empty deletes old_str.' },
+        },
+        required: ['path', 'description', 'old_str'],
       },
     },
-    required: ['name'],
-    additionalProperties: false,
-  },
-};
-
-export const SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
-  LIST_SKILLS,
-  SEARCH_SKILLS,
-  READ_SKILL,
-];
-
-/* -------------------------------------------------------------------------- Tool Discovery */
-
-export const SEARCH_TOOLS: ToolDefinition = {
-  name: 'search_tools',
-  description:
-    'Searches the policy-approved catalog of executable tools available in this workspace. ' +
-    'Call this when you evaluate that the task requires an execution tool (e.g. generating an Excel/Word/PPTX/PDF deliverable, running Python computations, web search, creating artifacts). ' +
-    'Returns matching tool definitions and parameter schemas that can be invoked.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description: 'Search query or capability keywords (e.g. "excel", "deliverable", "python", "image", "web_search", "artifact").',
+    {
+      name: 'present_files',
+      description:
+        'Gives files to the user as downloads. Use it for every file the user should get, after it is ' +
+        'created; not for intermediate files you only read yourself. A file outside output/ is copied ' +
+        'there first. Put the file the user should open first at the front of the list.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filepaths: {
+            type: 'array',
+            items: { type: 'string' },
+            minItems: 1,
+            description: 'Paths of the files to give the user.',
+          },
+        },
+        required: ['filepaths'],
       },
     },
-    required: ['query'],
-    additionalProperties: false,
-  },
-};
+  ];
+}
 
-export const DISCOVERY_TOOL_DEFINITIONS: ToolDefinition[] = [SEARCH_TOOLS];
+export const CODE_TOOL_NAMES = ['bash_tool', 'view', 'create_file', 'str_replace', 'present_files'] as const;
 
 /* -------------------------------------------------------------------------- Artifacts */
 
@@ -338,20 +264,12 @@ export const ARTIFACT_TOOL_DEFINITIONS: ToolDefinition[] = [
 export const WEB_SEARCH: ToolDefinition = {
   name: 'web_search',
   description:
-    'Searches the public web for real-time, current information or specific factual sources. ' +
-    'Returns a ranked list of search results including titles, snippets, and canonical URLs. ' +
-    'Use for up-to-date facts, current events, or verifying external claims.',
+    'Searches the web. Returns a ranked list of results with title, URL and snippet. Use it for current ' +
+    'information, facts that may have changed, and sources to cite.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: {
-        type: 'string',
-        description: 'Keywords or search query to look up on the web (1-6 words recommended).',
-      },
-      maxResults: {
-        type: 'integer',
-        description: 'Maximum number of results to retrieve (1 to 10). Defaults to 5.',
-      },
+      query: { type: 'string', description: 'Search query.' },
     },
     required: ['query'],
     additionalProperties: false,
@@ -361,190 +279,214 @@ export const WEB_SEARCH: ToolDefinition = {
 export const WEB_FETCH: ToolDefinition = {
   name: 'web_fetch',
   description:
-    'Fetches and extracts readable text from a specified public HTTP/HTTPS URL. ' +
-    'Returns the document title, extracted text content, and pagination/truncation details. ' +
-    'Use when you need to read the full body of a web article or documentation page returned by web_search.',
+    'Fetches the readable text of a web page. Only a URL that already appears in this conversation can be ' +
+    'fetched: one the user gave, or one a web_search or web_fetch returned. A URL recalled from memory or made ' +
+    'by editing a seen URL is refused; search for the page and fetch the link it returns. Pages behind a login ' +
+    'cannot be read. The URL must include https://.',
   inputSchema: {
     type: 'object',
     properties: {
-      url: {
-        type: 'string',
-        description: 'The public http:// or https:// URL to fetch.',
-      },
-      maxChars: {
-        type: 'integer',
-        description: 'Maximum characters to retrieve (1000 to 30000). Defaults to 10000.',
-      },
+      url: { type: 'string', description: 'The URL to fetch, exactly as it appeared.' },
     },
     required: ['url'],
     additionalProperties: false,
   },
 };
 
-export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH];
-
-/* -------------------------------------------------------------------------- Phase 5: Memory tools */
-
-export const SEARCH_MEMORY: ToolDefinition = {
-  name: 'search_memory',
+export const IMAGE_SEARCH: ToolDefinition = {
+  name: 'image_search',
   description:
-    'Searches persistent memory across past conversations for user preferences, constraints, ' +
-    'project decisions, or remembered facts. Returns matching memories with their canonical memoryId, ' +
-    'key, summary, content excerpt, version, and relevance score.',
+    'Finds images on the web and shows them to the user. Use it when pictures would help the user ' +
+    'understand (a place, an animal, a product, a style); skip it when the answer is text, code or support.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: {
-        type: 'string',
-        description: 'Keywords or search phrase to look up in persistent memory.',
-      },
-      scope: {
-        type: 'string',
-        enum: ['global', 'project'],
-        description: 'Optional scope filter: "global" for user-wide memories, "project" for current project.',
-      },
-      limit: {
-        type: 'integer',
-        description: 'Maximum number of memories to return (1 to 10). Defaults to 5.',
-      },
+      query: { type: 'string', description: 'What to find images of.' },
+      max_results: { type: 'integer', minimum: 3, maximum: 5, description: 'How many images, 3 to 5. Defaults to 3.' },
     },
     required: ['query'],
     additionalProperties: false,
   },
 };
 
-export const SAVE_MEMORY: ToolDefinition = {
-  name: 'save_memory',
-  description:
-    'Saves something about the user to memory under a short topic, so later conversations start from it. ' +
-    'Saving to a topic that already exists replaces that topic\'s content, so include what should be kept. ' +
-    'Use it when the user asks you to remember something, and on your own for durable facts that will help in ' +
-    'later conversations: their work, projects, preferences and standing instructions. Do not save passing ' +
-    'details of one task.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      topic: {
-        type: 'string',
-        description: 'Short topic name, e.g. "Work", "Writing style", "Bank statement project".',
-      },
-      content: {
-        type: 'string',
-        description: 'What to remember under this topic, written as plain statements.',
-      },
-      scope: {
-        type: 'string',
-        enum: ['global', 'project'],
-        description:
-          'Optional: "project" keeps it to the current project only; defaults to "project" inside a project and "global" elsewhere.',
-      },
-    },
-    required: ['topic', 'content'],
-    additionalProperties: false,
-  },
-};
+export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH, IMAGE_SEARCH];
 
-export const READ_MEMORY: ToolDefinition = {
-  name: 'read_memory',
-  description:
-    'Reads the complete content and metadata of a persistent memory item by its canonical memoryId.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      memoryId: {
-        type: 'string',
-        description: 'The canonical UUID of the memory item, as returned by search_memory.',
-      },
-    },
-    required: ['memoryId'],
-    additionalProperties: false,
-  },
-};
+/* -------------------------------------------------------------------------- Memory (ADR-0047) */
 
-export const UPDATE_MEMORY: ToolDefinition = {
-  name: 'update_memory',
-  description:
-    'Updates an existing persistent memory item. Requires the canonical memoryId and ' +
-    'expectedVersion for optimistic concurrency control.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      memoryId: {
-        type: 'string',
-        description: 'The canonical UUID of the memory item to update.',
-      },
-      expectedVersion: {
-        type: 'integer',
-        description: 'The current version of the memory item being modified, to prevent race conditions.',
-      },
-      content: {
-        type: 'string',
-        description: 'Updated memory content.',
-      },
-      summary: {
-        type: 'string',
-        description: 'Short single-sentence summary of the memory.',
-      },
-      isStanding: {
-        type: 'boolean',
-        description: 'Whether this memory is a standing preference loaded into all conversations.',
-      },
-    },
-    required: ['memoryId', 'expectedVersion'],
-    additionalProperties: false,
-  },
-};
+/** Memory is a set of Markdown files, each changed only against the version last read. */
+const VERSION_NEW =
+  'The version token from your most recent memory_read or memory_write of this file, or the word new ' +
+  'for a file that does not exist yet. Never make one up.';
+const PRIVACY = 'Never file, even when asked: government-ID, payment-card or bank-account numbers; immigration status; caste; a minor\'s own age or date of birth; sexual history; abuse; criminal history or being a victim of crime; suicide, self-harm or eating disorders; health or personality inferences the user did not state.';
 
-export const FORGET_MEMORY: ToolDefinition = {
-  name: 'forget_memory',
+export const MEMORY_LIST: ToolDefinition = {
+  name: 'memory_list',
   description:
-    'Removes a memory topic, by its topic name or its memoryId. ' +
-    'Deletes it from memory; original chat transcripts are preserved.',
+    'Lists memory files by path, with size and last update, optionally under a path prefix. ' +
+    'include_preview adds each file\'s description line. Read a file with memory_read.',
   inputSchema: {
     type: 'object',
     properties: {
-      topic: {
-        type: 'string',
-        description: 'The topic name to remove, as shown in memory.',
-      },
-      memoryId: {
-        type: 'string',
-        description: 'The canonical UUID of the memory item to remove, as returned by search_memory.',
-      },
-      expectedVersion: {
-        type: 'integer',
-        description: 'Optional expected version for concurrency safety.',
-      },
+      path_prefix: { type: 'string', description: 'Only list paths starting with this, e.g. "/topics/".' },
+      include_preview: { type: 'boolean', description: 'Also give each file\'s one-line description.' },
+      cursor: { type: 'string', description: 'The last path of a previous listing, to continue after it.' },
     },
     additionalProperties: false,
   },
 };
 
-export const SEARCH_CHATS: ToolDefinition = {
-  name: 'search_chats',
+export const MEMORY_READ: ToolDefinition = {
+  name: 'memory_read',
   description:
-    'Searches the user\'s earlier conversations (inside a project: that project\'s chats only) for words ' +
-    'they mention. Use it when the user refers to something discussed before that is not in this ' +
-    'conversation. Returns matching excerpts with the chat title and date; cite the chat title when you use one.',
+    'Reads one or more memory files: content, last update and version token. Pass several paths in one call ' +
+    'rather than one call each.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'Words to look for, e.g. "KVB statement reconciliation".' },
-      limit: { type: 'integer', description: 'Maximum excerpts to return (1 to 10). Defaults to 5.' },
+      path: {
+        anyOf: [
+          { type: 'string' },
+          { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20 },
+        ],
+        description: 'A path such as "/topics/work.md", or a list of up to 20 paths.',
+      },
     },
-    required: ['query'],
+    required: ['path'],
+    additionalProperties: false,
+  },
+};
+
+export const MEMORY_WRITE: ToolDefinition = {
+  name: 'memory_write',
+  description:
+    'Creates a memory file, or replaces one whole: every line left out is deleted. Pass the version from ' +
+    'your last memory_read of it, or new for a file not yet listed; a file already there must be read first. ' +
+    'A conflict returns the current content so you can merge and retry. ' + PRIVACY,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Path of the file, e.g. "/topics/work.md".' },
+      content: { type: 'string', description: 'The whole file.' },
+      if_version: { type: 'string', description: VERSION_NEW },
+    },
+    required: ['path', 'content', 'if_version'],
+    additionalProperties: false,
+  },
+};
+
+export const MEMORY_APPEND: ToolDefinition = {
+  name: 'memory_append',
+  description:
+    'Adds text on a new line at the end of a memory file, without resending the rest. Do not append a fact ' +
+    'the file already has: change that line with memory_str_replace. ' + PRIVACY,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Path of the file.' },
+      content: { type: 'string', description: 'Text to add at the end.' },
+      if_version: { type: 'string', description: VERSION_NEW },
+    },
+    required: ['path', 'content', 'if_version'],
+    additionalProperties: false,
+  },
+};
+
+export const MEMORY_STR_REPLACE: ToolDefinition = {
+  name: 'memory_str_replace',
+  description:
+    'Changes one part of a memory file: old_str must occur exactly once. An empty new_str deletes it. ' +
+    'Needs the version from your last memory_read or memory_write of the file. ' + PRIVACY,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Path of the file.' },
+      old_str: { type: 'string', description: 'The exact text to replace, occurring once.' },
+      new_str: { type: 'string', description: 'The replacement; empty deletes old_str.' },
+      if_version: { type: 'string', description: 'The version token from your last read or write of this file.' },
+    },
+    required: ['path', 'old_str', 'new_str', 'if_version'],
+    additionalProperties: false,
+  },
+};
+
+export const MEMORY_DELETE: ToolDefinition = {
+  name: 'memory_delete',
+  description:
+    'Deletes a whole memory file. Only when the user asks to forget that file or subject; to remove one line, ' +
+    'use memory_str_replace. Never delete to tidy up. Needs the version from a memory_read of the file.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Path of the file.' },
+      if_version: { type: 'string', description: 'The version token from your memory_read of this file.' },
+    },
+    required: ['path', 'if_version'],
     additionalProperties: false,
   },
 };
 
 export const MEMORY_TOOL_DEFINITIONS: ToolDefinition[] = [
-  SAVE_MEMORY,
-  SEARCH_CHATS,
-  SEARCH_MEMORY,
-  READ_MEMORY,
-  UPDATE_MEMORY,
-  FORGET_MEMORY,
+  MEMORY_LIST,
+  MEMORY_READ,
+  MEMORY_WRITE,
+  MEMORY_APPEND,
+  MEMORY_STR_REPLACE,
+  MEMORY_DELETE,
 ];
+
+/* -------------------------------------------------------------------------- Past chats */
+
+export const CONVERSATION_SEARCH: ToolDefinition = {
+  name: 'conversation_search',
+  description:
+    'Searches the user\'s past chats (inside a project, that project\'s chats) for a few words. Returns ' +
+    'matching excerpts with the chat\'s id, title and date, and a page_token to open each one with ' +
+    'read_conversation. Use short keywords, never a pasted passage.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'A few keywords.' },
+      max_results: { type: 'integer', minimum: 1, maximum: 10, description: 'Results to return, 1 to 10. Defaults to 5.' },
+      within_conversation_id: { type: 'string', description: 'Search inside this one chat only.' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+};
+
+export const READ_CONVERSATION: ToolDefinition = {
+  name: 'read_conversation',
+  description:
+    'Opens a past chat at a conversation_search hit and returns the turns around it. Not for reading whole chats.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      conversation_id: { type: 'string', description: 'The chat id from a tool result. Never guess one.' },
+      page_token: { type: 'string', description: 'A hit\'s page_token, or next_page_token / prev_page_token. Omit to start at the beginning.' },
+      max_turns: { type: 'integer', minimum: 1, maximum: 50, description: 'Turns to return, up to 50. Defaults to 20.' },
+    },
+    required: ['conversation_id'],
+    additionalProperties: false,
+  },
+};
+
+export const RECENT_CHATS: ToolDefinition = {
+  name: 'recent_chats',
+  description:
+    'Lists the user\'s most recently updated chats (inside a project, that project\'s), newest first, ' +
+    'with a short excerpt of each. Page with before and after.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      n: { type: 'integer', minimum: 1, maximum: 20, description: 'How many chats, 1 to 20. Defaults to 3.' },
+      before: { type: 'string', description: 'Only chats updated before this ISO date-time.' },
+      after: { type: 'string', description: 'Only chats updated after this ISO date-time.' },
+    },
+    additionalProperties: false,
+  },
+};
+
+export const CHAT_TOOL_DEFINITIONS: ToolDefinition[] = [CONVERSATION_SEARCH, READ_CONVERSATION, RECENT_CHATS];
 
 export const RENDER_UI: ToolDefinition = {
   name: 'render_ui',

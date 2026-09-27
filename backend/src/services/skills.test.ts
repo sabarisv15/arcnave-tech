@@ -29,16 +29,16 @@ describe('SkillService', () => {
   });
 
   it('splits PDF reading from PDF building', () => {
-    const reading = service.getSkill('pdf-reading', []);
+    const reading = service.getSkill('pdf-reading', ['bash_tool']);
     expect(reading).not.toBeNull();
-    // Reading needs no tool to be offered: a PDF can arrive in a turn with nothing else enabled.
+    // Skills are read with view, so a skill is offered only on a turn with the computer.
     expect(reading?.missingTools).toEqual([]);
     // Pages already in view are read from the view in one pass, not looked at again through
     // tool calls a few at a time: those ran a turn out of tool steps (2026-09-27).
     expect(reading?.content).toContain('Read every row from them in one pass');
     expect(reading?.content).not.toContain('read the pages yourself a few at a time');
 
-    const building = service.getSkill('pdf', ['run_python']);
+    const building = service.getSkill('pdf', ['bash_tool']);
     expect(building?.content).not.toContain('## Exact counts, totals and complete lists');
     expect(building?.description).toContain('use the pdf-reading skill');
   });
@@ -58,13 +58,13 @@ describe('SkillService', () => {
   });
 
   it('evaluates tool dependencies honestly (guidance_only vs full)', () => {
-    // The file skills build with code: without run_python they are guidance only.
-    for (const name of ['docx', 'pdf', 'pptx', 'xlsx']) {
+    // The file skills build with code: without the computer they are guidance only.
+    for (const name of ['docx', 'pdf', 'pptx', 'xlsx', 'pdf-reading', 'file-reading']) {
       const withoutTool = service.getSkill(name, []);
       expect(withoutTool?.mode).toBe('guidance_only');
-      expect(withoutTool?.missingCapabilities).toEqual(['run_python']);
+      expect(withoutTool?.missingCapabilities).toEqual(['bash_tool']);
 
-      const withTool = service.getSkill(name, ['run_python']);
+      const withTool = service.getSkill(name, ['bash_tool']);
       expect(withTool?.mode).toBe('full');
       expect(withTool?.missingCapabilities).toEqual([]);
     }

@@ -67,7 +67,7 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
   reg.register({
     id: 'python.execute',
     status: cfg.ENABLE_RUN_PYTHON ? 'full' : 'unavailable',
-    source: 'run_python',
+    source: 'bash_tool, view, create_file, str_replace, present_files',
     limitation: 'Cloud Run isolated sandbox with timeouts and memory bounds.',
   });
 
@@ -119,12 +119,12 @@ export function buildCapabilityRegistry(cfg: Config): InMemoryCapabilityRegistry
   reg.register({
     id: 'skills.discover',
     status: cfg.ENABLE_SKILLS ? 'full' : 'unavailable',
-    source: 'list_skills / search_skills',
+    source: '<available_skills> in the prompt',
   });
   reg.register({
     id: 'skills.read',
     status: cfg.ENABLE_SKILLS ? 'full' : 'unavailable',
-    source: 'read_skill',
+    source: 'view /skills/<name>/SKILL.md',
   });
 
   return reg;

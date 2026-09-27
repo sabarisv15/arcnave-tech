@@ -6,7 +6,7 @@ category: artifact
 scope: builtin
 requires:
   tools:
-    - run_python
+    - bash_tool
 autoload: false
 metadata:
   source: arcnave
@@ -14,8 +14,9 @@ metadata:
 
 # Word documents (DOCX)
 
-Every step below runs in `run_python`. Uploaded files are in `input/`; a file saved to
-`output/` reaches the user as a download.
+Work on the sandbox computer: write a script with `create_file` and run it with `bash_tool`
+(`python3 build.py`), or run a short command directly. Uploaded files are in `input/`
+(read-only). Save the finished file to `output/<name>` and give it with `present_files`.
 
 ## Reading an uploaded document
 
@@ -23,7 +24,7 @@ A Word document is not in the conversation as text: its attachment line says to 
 the file. Read it with `pandoc input/file.docx -t markdown` for the text with headings, lists
 and tables, or with `python-docx` for paragraphs, tables and styles. When images or layout
 matter, convert it with LibreOffice (`soffice --headless --convert-to pdf`) and render pages
-into `view/` to look at them.
+to PNG and look at them with `view`.
 
 ## Creating a document
 
@@ -54,7 +55,7 @@ the document, see the pptx skill; for a PDF, save the document and convert it wi
 ## Checking the file
 
 Open the saved file again and check what the user will rely on: the headings, that edited text
-reads correctly, tables and page count. Render pages into `view/` when layout matters. Fix and
+reads correctly, tables and page count. When layout matters, render pages to PNG and `view` them. Fix and
 save again when something is wrong.
 
 In chat, give a short cover note on what the document holds or what changed; do not paste the

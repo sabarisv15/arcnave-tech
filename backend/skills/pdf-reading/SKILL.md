@@ -1,10 +1,13 @@
 ---
 name: pdf-reading
-version: 2.0.0
+version: 3.0.0
 description: "Use whenever an answer depends on reading what is inside a PDF exactly: counting, totalling or listing every row or entry (bank statements, ledgers, invoices, registers, attendance sheets), extracting tables or text, reading scanned or photographed pages, or checking figures against the document. Also use it before converting a PDF's content into Excel, Word or PowerPoint. Not for creating, merging, splitting or rotating PDFs: use the pdf skill for those."
 category: analysis
 scope: builtin
 autoload: false
+requires:
+  tools:
+    - bash_tool
 metadata:
   source: arcnave
 ---
@@ -21,29 +24,32 @@ A count, a total or a complete list is different: dense rows read from a page im
 skipped or merged without any sign of it. Get those rows into a file, check them against the
 document's own figures, and compute the answer; do not estimate it in prose.
 
-For a page or region you cannot read clearly (a figure, a small or faint value), open the file
-in `run_python` (it is in `input/`, path on its attachment line) and render a crop into `view/`:
+For a page or region you cannot read clearly (a figure, a small or faint value), render a crop
+of it with `bash_tool` (the file is in `input/`, path on its attachment line) and look at it
+with `view`:
 
 ```python
 import fitz  # pymupdf
 page = fitz.open("input/statement.pdf")[4]
-page.get_pixmap(dpi=250, clip=fitz.Rect(40, 300, 560, 420)).save("view/p5_rows.png")
+page.get_pixmap(dpi=250, clip=fitz.Rect(40, 300, 560, 420)).save("p5_rows.png")
 ```
+
+then `view` `p5_rows.png`.
 
 ## Choose the reading strategy by page type
 
 Check each page for a text layer first: `len(page.get_text().strip())` with pymupdf.
 
 - **Text layer (a statement downloaded from net banking, an exported report):** extract with
-  `pdfplumber` in `run_python`: `page.extract_tables()`, or words by position when columns are
+  `pdfplumber` (a script run with `bash_tool`): `page.extract_tables()`, or words by position when columns are
   not ruled. This is exact; do not read these pages from the image.
 - **Scanned or photographed pages you can see (no text layer, 100 pages or fewer):** the page
   images are already in front of you. Read every row from them in one pass, with no tool call
-  to look, and write the records into a file in `run_python`. Then run the checks below in
-  code. Only the rows a check flags need a second look: render those rows as a crop into
-  `view/` (above).
-- **Scanned pages you cannot see (past 100 pages, text only):** render the pages into `view/`
-  with `run_python`, at most 4 per call, and read them; use `pytesseract` only as a cross-check,
+  to look, and write the records into a file with `create_file`. Then run the checks below in
+  code. Only the rows a check flags need a second look: render those rows as a crop and
+  `view` it (above).
+- **Scanned pages you cannot see (past 100 pages, text only):** render the pages to PNG
+  with `bash_tool` and `view` them, a few at a time; use `pytesseract` only as a cross-check,
   because its digits are unreliable on photographed pages.
 - **Mixed PDFs:** use each page's own strategy.
 

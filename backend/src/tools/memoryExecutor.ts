@@ -1,56 +1,30 @@
 /**
- * Memory tool executor for Phase 5.2.
+ * The memory tools (ADR-0047): memory_list, memory_read, memory_write, memory_append,
+ * memory_str_replace and memory_delete, over the chat's store (the project's own inside a
+ * project, the user's otherwise). Every change is made against the version the model last read,
+ * and a conflict hands back the current file so it can merge and retry in the same turn.
  *
- * Implements:
- * - save_memory: create or replace a topic (memory is saved as topics while the user chats)
- * - search_memory: full-text search with rank-based scoring
- * - read_memory: direct lookup by canonical memoryId
- * - update_memory: optimistic concurrency control via expectedVersion
- * - forget_memory: active storage deletion with source chat preservation
- *
- * Invariant 1: Bad inputs or errors return explicit ToolResults (never throw).
+ * Invariant 1: bad inputs or errors return explicit ToolResults (never throw).
  */
 import { z } from 'zod';
+
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
-import { searchChats } from '../services/memory/chatSearch.js';
-import { MemoryConcurrencyError, type MemoryService } from '../services/memory/memoryService.js';
+import type { MemoryService, MemoryWriteResult } from '../services/memory/memoryService.js';
 
-const searchMemoryInput = z.object({
-  query: z.string().min(1),
-  scope: z.enum(['global', 'project']).optional(),
-  limit: z.number().int().min(1).max(10).optional(),
+const listInput = z.object({
+  path_prefix: z.string().nullish(),
+  include_preview: z.boolean().optional(),
+  cursor: z.string().nullish(),
 });
-
-const saveMemoryInput = z.object({
-  topic: z.string().trim().min(1).max(200),
-  content: z.string().trim().min(1),
-  scope: z.enum(['global', 'project']).optional(),
+const readInput = z.object({ path: z.union([z.string().min(1), z.array(z.string().min(1)).min(1).max(20)]) });
+const writeInput = z.object({ path: z.string().min(1), content: z.string(), if_version: z.string().min(1) });
+const replaceInput = z.object({
+  path: z.string().min(1),
+  old_str: z.string().min(1),
+  new_str: z.string(),
+  if_version: z.string().min(1),
 });
-
-const searchChatsInput = z.object({
-  query: z.string().trim().min(1),
-  limit: z.number().int().min(1).max(10).optional(),
-});
-
-const readMemoryInput = z.object({
-  memoryId: z.string().uuid(),
-});
-
-const updateMemoryInput = z.object({
-  memoryId: z.string().uuid(),
-  expectedVersion: z.number().int().min(1),
-  content: z.string().optional(),
-  summary: z.string().optional(),
-  isStanding: z.boolean().optional(),
-});
-
-const forgetMemoryInput = z
-  .object({
-    topic: z.string().trim().min(1).optional(),
-    memoryId: z.string().uuid().optional(),
-    expectedVersion: z.number().int().min(1).optional(),
-  })
-  .refine((v) => v.topic !== undefined || v.memoryId !== undefined, 'Give either topic or memoryId.');
+const deleteInput = z.object({ path: z.string().min(1), if_version: z.string().min(1) });
 
 function textResult(toolCallId: string, ok: boolean, text: string): ToolResult {
   return { toolCallId, ok, content: [{ type: 'text', text }] };
@@ -60,208 +34,73 @@ function jsonResult(toolCallId: string, data: unknown, ok = true): ToolResult {
   return { toolCallId, ok, content: [{ type: 'json', data }] };
 }
 
+function writeResult(toolCallId: string, res: MemoryWriteResult): ToolResult {
+  if (res.ok) return jsonResult(toolCallId, res.file ? { path: res.file.path, version: res.file.version } : { deleted: true });
+  return jsonResult(toolCallId, { error: res.error, ...(res.current ? { current: res.current } : {}) }, false);
+}
+
 export class MemoryToolExecutor implements ToolExecutor {
   constructor(
     private readonly memoryService: MemoryService,
     private readonly userId: string,
     private readonly projectId: string | null = null,
-    /** The chat this turn belongs to, left out of search_chats. */
-    private readonly chatId: string | null = null,
   ) {}
 
   async execute(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
-    if (signal.aborted) {
-      return textResult(call.id, false, 'The request was aborted before this tool ran.');
-    }
-
+    if (signal.aborted) return textResult(call.id, false, 'The request was aborted before this tool ran.');
+    const m = this.memoryService;
+    const [u, p] = [this.userId, this.projectId];
     try {
       switch (call.name) {
-        case 'save_memory':
-          return await this.saveMemory(call);
-        case 'search_chats':
-          return await this.searchChats(call);
-        case 'search_memory':
-          return await this.searchMemory(call);
-        case 'read_memory':
-          return await this.readMemory(call);
-        case 'update_memory':
-          return await this.updateMemory(call);
-        case 'forget_memory':
-          return await this.forgetMemory(call);
+        case 'memory_list': {
+          const x = listInput.safeParse(call.input ?? {});
+          if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
+          const res = await m.listFiles(u, p, {
+            pathPrefix: x.data.path_prefix ?? undefined,
+            cursor: x.data.cursor ?? undefined,
+          });
+          return jsonResult(call.id, {
+            files: res.files.map(({ description, ...f }) => (x.data.include_preview ? { ...f, preview: description } : f)),
+            nextCursor: res.nextCursor,
+          });
+        }
+        case 'memory_read': {
+          const x = readInput.safeParse(call.input);
+          if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
+          const paths = typeof x.data.path === 'string' ? [x.data.path] : x.data.path;
+          const files = await Promise.all(
+            paths.map(async (path) => (await m.readFile(u, p, path)) ?? { path, error: `${path} does not exist.` }),
+          );
+          return jsonResult(call.id, { files }, files.some((f) => !('error' in f)));
+        }
+        case 'memory_write': {
+          const x = writeInput.safeParse(call.input);
+          if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
+          return writeResult(call.id, await m.writeFile(u, p, x.data.path, x.data.content, x.data.if_version));
+        }
+        case 'memory_append': {
+          const x = writeInput.safeParse(call.input);
+          if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
+          return writeResult(call.id, await m.appendFile(u, p, x.data.path, x.data.content, x.data.if_version));
+        }
+        case 'memory_str_replace': {
+          const x = replaceInput.safeParse(call.input);
+          if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
+          return writeResult(
+            call.id,
+            await m.strReplaceFile(u, p, x.data.path, x.data.old_str, x.data.new_str, x.data.if_version),
+          );
+        }
+        case 'memory_delete': {
+          const x = deleteInput.safeParse(call.input);
+          if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
+          return writeResult(call.id, await m.deleteFile(u, p, x.data.path, x.data.if_version));
+        }
         default:
           return textResult(call.id, false, `Unknown tool "${call.name}".`);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return textResult(call.id, false, `Memory tool execution error: ${message}`);
+      return textResult(call.id, false, `${call.name} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }
-
-  private async searchMemory(call: ToolCall): Promise<ToolResult> {
-    const parsed = searchMemoryInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
-
-    const results = await this.memoryService.searchMemory(this.userId, {
-      query: parsed.data.query,
-      scope: parsed.data.scope,
-      projectId: this.projectId,
-      limit: parsed.data.limit ?? 5,
-    });
-
-    if (results.length === 0) {
-      return jsonResult(call.id, {
-        results: [],
-        message: 'No matching persistent memories found.',
-      });
-    }
-
-    return jsonResult(call.id, {
-      results: results.map((r) => ({
-        memoryId: r.id,
-        key: r.key,
-        summary: r.summary,
-        content: r.content,
-        scope: r.scope,
-        kind: r.kind,
-        isStanding: r.isStanding,
-        version: r.version,
-        score: r.score,
-        updatedAt: r.updatedAt,
-      })),
-    });
-  }
-
-  private async saveMemory(call: ToolCall): Promise<ToolResult> {
-    const parsed = saveMemoryInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
-    const scope = parsed.data.scope ?? (this.projectId ? 'project' : 'global');
-    if (scope === 'project' && !this.projectId) {
-      return textResult(call.id, false, 'This chat is not in a project; save it with scope "global".');
-    }
-    // "Work" and "work" are one topic to the user: keep the stored spelling.
-    const existing = await this.memoryService.findByTopic(this.userId, parsed.data.topic, this.projectId);
-    const saved = await this.memoryService.createMemory({
-      userId: this.userId,
-      scope,
-      projectId: scope === 'project' ? this.projectId : null,
-      key: existing && existing.scope === scope ? existing.key : parsed.data.topic,
-      content: parsed.data.content,
-      sourceType: 'user_statement',
-    });
-    return jsonResult(call.id, {
-      saved: true,
-      memoryId: saved.id,
-      topic: saved.key,
-      scope: saved.scope,
-      version: saved.version,
-    });
-  }
-
-  private async searchChats(call: ToolCall): Promise<ToolResult> {
-    const parsed = searchChatsInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
-    const hits = await searchChats(
-      this.userId,
-      parsed.data.query,
-      { projectId: this.projectId, excludeChatId: this.chatId },
-      parsed.data.limit ?? 5,
-    );
-    return jsonResult(call.id, hits.length > 0 ? { results: hits } : { results: [], message: 'No earlier conversation matched.' });
-  }
-
-  private async readMemory(call: ToolCall): Promise<ToolResult> {
-    const parsed = readMemoryInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
-
-    const item = await this.memoryService.getMemoryById(this.userId, parsed.data.memoryId);
-    if (!item) {
-      return textResult(call.id, false, `Memory item not found with id "${parsed.data.memoryId}".`);
-    }
-
-    return jsonResult(call.id, {
-      memoryId: item.id,
-      key: item.key,
-      summary: item.summary,
-      content: item.content,
-      scope: item.scope,
-      kind: item.kind,
-      isStanding: item.isStanding,
-      version: item.version,
-      createdAt: item.createdAt.toISOString(),
-      updatedAt: item.updatedAt.toISOString(),
-    });
-  }
-
-  private async updateMemory(call: ToolCall): Promise<ToolResult> {
-    const parsed = updateMemoryInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
-
-    try {
-      const updated = await this.memoryService.updateMemory(
-        this.userId,
-        parsed.data.memoryId,
-        parsed.data.expectedVersion,
-        {
-          content: parsed.data.content,
-          summary: parsed.data.summary,
-          isStanding: parsed.data.isStanding,
-        },
-      );
-
-      return jsonResult(call.id, {
-        updated: true,
-        memoryId: updated.id,
-        key: updated.key,
-        version: updated.version,
-        isStanding: updated.isStanding,
-      });
-    } catch (err) {
-      if (err instanceof MemoryConcurrencyError) {
-        return textResult(
-          call.id,
-          false,
-          `Concurrency error: expected version ${err.expectedVersion}, but actual version is ${err.actualVersion}. Please re-read the memory item before updating.`,
-        );
-      }
-      throw err;
-    }
-  }
-
-  private async forgetMemory(call: ToolCall): Promise<ToolResult> {
-    const parsed = forgetMemoryInput.safeParse(call.input);
-    if (!parsed.success) {
-      return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
-    }
-
-    const memoryId =
-      parsed.data.memoryId ??
-      (await this.memoryService.findByTopic(this.userId, parsed.data.topic!, this.projectId))?.id;
-    const deleted = memoryId
-      ? await this.memoryService.forgetMemory(this.userId, memoryId, parsed.data.expectedVersion)
-      : false;
-
-    if (!deleted) {
-      return textResult(
-        call.id,
-        false,
-        `Could not forget memory "${parsed.data.memoryId ?? parsed.data.topic}": item not found or version mismatch.`,
-      );
-    }
-
-    return jsonResult(call.id, {
-      forgotten: true,
-      memoryId,
-      message: 'Memory removed from active storage. Original chat messages remain intact.',
-    });
   }
 }

@@ -4,6 +4,7 @@
 - Date: 2026-09-26
 - Replaces: the per-prompt "relevant memory" search into the system prompt, and the memory
   policy that told the model to "store" with tools it did not have (audit C2, C3).
+- Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): memory is Markdown files by path with six memory_* tools and version tokens; topics saved before moved to /topics/<slug>.md (migration 0022); search_chats became conversation_search, read_conversation and recent_chats.
 
 ## Context
 

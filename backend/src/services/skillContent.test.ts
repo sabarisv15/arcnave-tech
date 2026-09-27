@@ -10,11 +10,11 @@ import path from 'node:path';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { TOOL_CATALOG_ENTRIES } from '../tools/catalog.js';
+import { routeTurn } from './routing/turnRouter.js';
 import { SkillService } from './skills.js';
 
 const ROOT = path.resolve(__dirname, '../..');
-const TOOLS = new Set(TOOL_CATALOG_ENTRIES.map((e) => e.name));
+const TOOLS = new Set(routeTurn({ hasProject: true, codeEnabled: true, webEnabled: true, memoryEnabled: true, generativeUiEnabled: true }).allowedTools);
 const CAPABILITIES = new Set(
   [...readFileSync(path.join(ROOT, 'src/capabilities/factory.ts'), 'utf8').matchAll(/id: '([a-z.]+)'/g)].map((m) => m[1]!),
 );
@@ -52,6 +52,10 @@ const STALE = [
   'datasetHandle',
   'data URI',
   'materializeInputFiles',
+  // Tools the computer replaced (ADR-0047).
+  'run_python',
+  'load_skill',
+  'read_skill',
 ];
 
 const skills = readdirSync(path.join(ROOT, 'skills'))

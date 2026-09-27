@@ -28,30 +28,3 @@ export interface UpdateMemoryInput {
   kind?: MemoryKind;
   isStanding?: boolean;
 }
-
-export interface SearchMemoryFilter {
-  query: string;
-  scope?: MemoryScope;
-  projectId?: string | null;
-  kind?: MemoryKind;
-  limit?: number;
-}
-
-export interface MemorySearchResult {
-  id: string;
-  key: string;
-  content: string;
-  summary: string;
-  scope: MemoryScope;
-  kind: MemoryKind;
-  isStanding: boolean;
-  version: number;
-  score: number;
-  updatedAt: string;
-}
-
-export interface MemoryContextPayload {
-  standingContext: string;
-  relevantContext: string;
-  retrievedCount: number;
-}

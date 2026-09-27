@@ -3,7 +3,7 @@
  * by fileId, for this turn's files and earlier ones.
  *
  * The provider is faked; its `onRequest` hook calls the real `toolExecutor` from the request,
- * which is exactly what a provider adapter does when the model emits a `run_python` call. The
+ * which is exactly what a provider adapter does when the model emits a `bash_tool` call. The
  * sandbox is the real local process sandbox, so a file is only "materialised" if Python can
  * actually open it.
  */
@@ -67,9 +67,9 @@ async function generate(chatId: string, payload: Record<string, unknown>): Promi
   expect(response.statusCode).toBe(200);
 }
 
-/** Run one run_python call through the request's real executor, on the first request only. */
-function runPythonOnce(input: Record<string, unknown>): { result: () => ToolResult; toolNames: () => string[] } {
-  return runToolOnce('run_python', input);
+/** Run one bash_tool call through the request's real executor, on the first request only. */
+function runBashOnce(command: string): { result: () => ToolResult; toolNames: () => string[] } {
+  return runToolOnce('bash_tool', { command, description: 'read the files' });
 }
 
 function runToolOnce(
@@ -100,18 +100,17 @@ function data(result: ToolResult): { stdout: string; inputFiles?: Array<{ fileId
   return json!.data as { stdout: string; inputFiles?: Array<{ fileId: string; path: string }> };
 }
 
-const readAll = (paths: string[]) =>
-  paths.map((p) => `print(open(${JSON.stringify(p)}).read().strip())`).join('\n');
+const readAll = (paths: string[]) => paths.map((p) => `cat ${p}; echo`).join('; ');
 
-describe('G26: attachments reach the sandbox by fileId', () => {
-  it('every conversation file is already in input/ at the manifest path, with no input_files', async () => {
+describe('G26: every file of the chat is on the computer at its manifest path', () => {
+  it('every conversation file is already in input/ at the manifest path', async () => {
     const older = await upload(user, 'old ledger.csv', 'older-file');
     const chatId = await newChat();
     await generate(chatId, { prompt: 'Here is the old one', attachmentIds: [older] });
     const current = await upload(user, 'sales.csv', 'current-file');
 
     let prompt = '';
-    const run = runPythonOnce({ code: readAll(['input/old_ledger.csv', 'input/sales.csv']) });
+    const run = runBashOnce(readAll(['input/old_ledger.csv', 'input/sales.csv']));
     const capture = ctx.provider.onRequest!;
     ctx.provider.onRequest = async (request: GenerationRequest) => {
       prompt ||= request.prompt;
@@ -119,32 +118,31 @@ describe('G26: attachments reach the sandbox by fileId', () => {
     };
     await generate(chatId, { prompt: 'Compare both files', attachmentIds: [current] });
 
-    expect(prompt).toContain('run_python path: input/old_ledger.csv');
-    expect(prompt).toContain('run_python path: input/sales.csv');
-    expect(prompt).toContain('already in run_python\'s working directory');
+    expect(prompt).toContain('path: input/old_ledger.csv');
+    expect(prompt).toContain('path: input/sales.csv');
+    expect(prompt).toContain('also on the computer at its path');
     const result = run.result();
     expect(result.ok).toBe(true);
     expect(data(result).stdout).toBe('older-file\ncurrent-file\n');
   });
 
-  it('chat path: this turn\'s attachment is materialised into input/', async () => {
+  it('chat path: this turn\'s attachment is in input/', async () => {
     const fileId = await upload(user, 'sales.csv', 'month,total\njan,10');
     const chatId = await newChat();
-    const run = runPythonOnce({ code: readAll(['input/sales.csv']), input_files: [fileId] });
+    const run = runBashOnce(readAll(['input/sales.csv']));
     await generate(chatId, { prompt: 'Sum the totals', attachmentIds: [fileId] });
 
     const result = run.result();
     expect(result.ok).toBe(true);
     expect(data(result).stdout).toContain('jan,10');
-    expect(data(result).inputFiles).toEqual([{ fileId, path: 'input/sales.csv' }]);
   });
 
-  it('historical attachment: a turn-1 file is materialised on turn 2 by its fileId', async () => {
+  it('historical attachment: a turn-1 file is still in input/ on turn 2', async () => {
     const fileId = await upload(user, 'ledger.csv', 'row,amount\n1,99');
     const chatId = await newChat();
     await generate(chatId, { prompt: 'Here is my ledger', attachmentIds: [fileId] });
 
-    const run = runPythonOnce({ code: readAll(['input/ledger.csv']), input_files: [fileId] });
+    const run = runBashOnce(readAll(['input/ledger.csv']));
     await generate(chatId, { prompt: 'Use that file and count the rows' });
 
     const result = run.result();
@@ -157,26 +155,24 @@ describe('G26: attachments reach the sandbox by fileId', () => {
     const second = await upload(user, 'data.csv', 'second-file');
     const chatId = await newChat();
     const suffixed = `input/data_${second.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}.csv`;
-    const run = runPythonOnce({ code: readAll(['input/data.csv', suffixed]), input_files: [first, second] });
+    const run = runBashOnce(readAll(['input/data.csv', suffixed]));
     await generate(chatId, { prompt: 'Compare them', attachmentIds: [first, second] });
 
     const result = run.result();
     expect(result.ok).toBe(true);
-    expect(data(result).inputFiles).toEqual([
-      { fileId: first, path: 'input/data.csv' },
-      { fileId: second, path: suffixed },
-    ]);
     expect(data(result).stdout).toBe('first-file\nsecond-file\n');
   });
 
-  it('another user\'s fileId is refused and nothing is materialised', async () => {
-    const foreign = await upload(other, 'secret.csv', 'not yours');
+  it('another user\'s file never reaches this chat\'s input/', async () => {
+    await upload(other, 'secret.csv', 'not yours');
     const chatId = await newChat();
-    const run = runPythonOnce({ code: 'print(1)', input_files: [foreign] });
-    await generate(chatId, { prompt: 'Read it' });
+    const mine = await upload(user, 'mine.csv', 'mine');
+    const run = runBashOnce('ls input/');
+    await generate(chatId, { prompt: 'Read it', attachmentIds: [mine] });
 
     const result = run.result();
-    expect(result.ok).toBe(false);
-    expect(JSON.stringify(result.content)).toContain('was not found, or you do not have access to it');
+    expect(result.ok).toBe(true);
+    expect(data(result).stdout).toContain('mine.csv');
+    expect(data(result).stdout).not.toContain('secret.csv');
   });
 });

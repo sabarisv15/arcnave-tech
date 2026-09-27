@@ -26,7 +26,7 @@ import type {
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
 import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
-import { CLEARED_TOOL_RESULT, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
+import { CLEARED_TOOL_RESULT, isSkillRead, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -105,7 +105,15 @@ export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclar
  * parts and their thought signatures are untouched; only the result is replaced.
  */
 export function clearOldFunctionResponses(contents: Content[], policy: ContextEditingPolicy): Content[] {
-  const clearable = (p: Part) => Boolean(p.functionResponse) && !policy.excludeTools.includes(p.functionResponse!.name ?? '');
+  // A result names its call only by id; the call's arguments say whether it read a skill.
+  const kept = new Set<string>();
+  for (const c of contents) {
+    for (const p of c.parts ?? []) {
+      const call = p.functionCall;
+      if (call?.id && policy.keepResultOf(call.name ?? '', (call.args ?? {}) as Record<string, unknown>)) kept.add(call.id);
+    }
+  }
+  const clearable = (p: Part) => Boolean(p.functionResponse) && !kept.has(p.functionResponse!.id ?? '');
   const total = contents.reduce((n, c) => n + (c.parts ?? []).filter(clearable).length, 0);
   let remaining = resultsToClear(total, policy);
   if (remaining === 0) return contents;
@@ -375,7 +383,7 @@ export class GeminiProvider implements Provider {
       triggerTokens: this.cfg.CONTEXT_EDIT_TRIGGER_TOKENS,
       keep: this.cfg.CONTEXT_EDIT_KEEP_TOOL_RESULTS,
       batch: this.cfg.CONTEXT_EDIT_CLEAR_BATCH,
-      excludeTools: ['load_skill'],
+      keepResultOf: isSkillRead,
     };
     // The exact prompt size of the latest request, which decides whether the next is edited.
     let lastPromptTokens = request.previousContextTokens ?? 0;

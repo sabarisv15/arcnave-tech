@@ -228,7 +228,6 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     skills,
     capabilities,
     executionRuntime,
-    providers.google,
     options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined),
   );
 

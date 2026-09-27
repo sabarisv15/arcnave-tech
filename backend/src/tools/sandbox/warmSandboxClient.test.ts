@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { toolImages, withoutImageBytes } from '../../providers/types.js';
+import { ExecutionRuntime } from '../execution/executionRuntime.js';
 import { CodeExecutionToolExecutor } from '../codeExecutionExecutor.js';
 import { CloudRunSandboxClient } from './cloudRunSandboxClient.js';
 import { WarmSandboxClient, workspaceIdFor } from './warmSandboxClient.js';
@@ -113,18 +114,26 @@ describe.runIf(canRun)('WarmSandboxClient with the real sandbox server', () => {
     expect(await fs.readFile(path.join(dir, 'output', 'report.csv'), 'utf8')).toBe('a,b\n1,2\n');
   });
 
-  it('shows images saved to view/ to the model, and keeps their bytes out of what is stored', async () => {
+  it('view shows an image to the model through the real server, and keeps its bytes out of what is stored', async () => {
     const dir = await workspace({});
-    const executor = new CodeExecutionToolExecutor(client, 10_000, {
+    // A chat session keeps the workspace between the two calls, as it does in a turn.
+    const executor = new CodeExecutionToolExecutor(new ExecutionRuntime(client), 10_000, {
       workspace: { workspaceDir: dir, inputDir: path.join(dir, 'input'), outputDir: path.join(dir, 'output'), tempDir: dir },
+      userId: 'u-view',
+      chatId: 'c-view',
     });
     const png = '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4f70000000049454e44ae426082';
-    const result = await executor.execute(
+    const made = await executor.execute(
       {
-        id: 'c1',
-        name: 'run_python',
-        input: { code: `import os\nos.makedirs('view',exist_ok=True)\nopen('view/p3.png','wb').write(bytes.fromhex('${png}'))` },
+        id: 'c0',
+        name: 'bash_tool',
+        input: { command: `python3 -c "open('p3.png','wb').write(bytes.fromhex('${png}'))"`, description: 'x' },
       },
+      new AbortController().signal,
+    );
+    expect(made.ok).toBe(true);
+    const result = await executor.execute(
+      { id: 'c1', name: 'view', input: { path: 'p3.png', description: 'x' } },
       new AbortController().signal,
     );
     expect(toolImages(result)).toEqual([

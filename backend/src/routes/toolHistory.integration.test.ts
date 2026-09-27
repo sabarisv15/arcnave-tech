@@ -79,7 +79,7 @@ describe('tool calls in the history (ADR-0022)', () => {
 
   it('gives the next turn the earlier calls and results, and Gemini its signed functionCall back', async () => {
     const { send } = await newChat();
-    scriptCall('c1', 'run_python', 'Federal: 244 debits, 33 credits');
+    scriptCall('c1', 'bash_tool', 'Federal: 244 debits, 33 credits');
     await send('count the entries');
     plainAnswer();
     const request = await send('federal bank la evalo entries?');
@@ -89,26 +89,26 @@ describe('tool calls in the history (ADR-0022)', () => {
     expect(earlier.toolCalls).toEqual([
       {
         id: 'c1',
-        name: 'run_python',
+        name: 'bash_tool',
         input: { code: "print('c1')" },
         result: { toolCallId: 'c1', ok: true, content: [{ type: 'text', text: 'Federal: 244 debits, 33 credits' }] },
         thoughtSignature: 'sig-c1',
       },
     ]);
 
-    // run_python is declared on every turn, so the call goes back natively.
-    expect((request.tools ?? []).map((t) => t.name)).toContain('run_python');
+    // bash_tool is declared on every turn, so the call goes back natively.
+    expect((request.tools ?? []).map((t) => t.name)).toContain('bash_tool');
     const gemini = buildGeminiContents(request);
     expect(gemini[1]).toEqual({
       role: 'model',
-      parts: [{ functionCall: { id: 'c1', name: 'run_python', args: { code: "print('c1')" } }, thoughtSignature: 'sig-c1' }],
+      parts: [{ functionCall: { id: 'c1', name: 'bash_tool', args: { code: "print('c1')" } }, thoughtSignature: 'sig-c1' }],
     });
     expect(JSON.stringify(gemini[2])).toContain('functionResponse');
     expect(JSON.stringify(gemini[2])).toContain('244 debits');
     expect(gemini[3]).toEqual({ role: 'model', parts: [{ text: 'answer c1' }] });
 
     const anthropic = buildAnthropicMessages(request);
-    expect(anthropic[1]).toMatchObject({ role: 'assistant', content: [{ type: 'tool_use', id: 'hist_1_0', name: 'run_python' }] });
+    expect(anthropic[1]).toMatchObject({ role: 'assistant', content: [{ type: 'tool_use', id: 'hist_1_0', name: 'bash_tool' }] });
     expect(anthropic[2]).toMatchObject({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'hist_1_0', content: 'Federal: 244 debits, 33 credits' }] });
   });
 
@@ -127,7 +127,7 @@ describe('tool calls in the history (ADR-0022)', () => {
       grounded: false,
       codeExecution: false,
       signal: new AbortController().signal,
-      tools: [{ name: 'run_python', description: '', inputSchema: { type: 'object' } }],
+      tools: [{ name: 'bash_tool', description: '', inputSchema: { type: 'object' } }],
     };
     for (const wire of [JSON.stringify(buildGeminiContents(request)), JSON.stringify(buildAnthropicMessages(request))]) {
       expect(wire).toContain('Historical execution data');
@@ -142,11 +142,11 @@ describe('tool calls in the history (ADR-0022)', () => {
   it('keeps every result past 100,000 tokens, and restores one an earlier revision cleared', async () => {
     const { send } = await newChat();
     for (const id of ['k1', 'k2', 'k3', 'k4']) {
-      scriptCall(id, 'run_python', `result ${id}`);
+      scriptCall(id, 'bash_tool', `result ${id}`);
       await send(`turn ${id}`);
     }
     // 100,000 was the context-editing trigger ADR-0023 removed; compaction is further off.
-    scriptCall('k5', 'run_python', 'result k5', 100_000);
+    scriptCall('k5', 'bash_tool', 'result k5', 100_000);
     await send('turn k5');
     await ctx.db.update(toolCalls).set({ resultCleared: true }).where(eq(toolCalls.toolCallId, 'k1'));
     plainAnswer();
@@ -158,7 +158,7 @@ describe('tool calls in the history (ADR-0022)', () => {
 
   it('gives the summarizer what older turns ran and found, as Claude compacts the whole transcript', async () => {
     const { send } = await newChat();
-    scriptCall('s1', 'run_python', 'Federal: 244 debits, 33 credits');
+    scriptCall('s1', 'bash_tool', 'Federal: 244 debits, 33 credits');
     await send('turn 1');
     plainAnswer();
     await send('turn 2');
@@ -183,21 +183,21 @@ describe('tool calls in the history (ADR-0022)', () => {
     ctx.provider.onRequest = null;
     const summary = ctx.provider.seen.slice(before).find((r) => r.prompt === SUMMARY_PROMPT)!;
     const text = summary.history.map((t) => t.text).join('\n');
-    expect(text).toContain('run_python');
+    expect(text).toContain('bash_tool');
     expect(text).toContain('244 debits');
   });
-  it('gives a skill loaded before a compaction back in full after it (ADR-0027)', async () => {
+  it('gives a skill read before a compaction back in full after it (ADR-0027)', async () => {
     const { send } = await newChat();
     ctx.provider.script = [
-      { type: 'tool_use', toolCallId: 'ls1', name: 'load_skill', input: { name: 'pdf' }, thoughtSignature: 'sig-ls1' },
-      { type: 'tool_result', toolCallId: 'ls1', name: 'load_skill', result: { toolCallId: 'ls1', ok: true, content: [{ type: 'text', text: 'pdf skill' }] } },
+      { type: 'tool_use', toolCallId: 'ls1', name: 'view', input: { path: '/skills/pdf/SKILL.md', description: 'read the skill' }, thoughtSignature: 'sig-ls1' },
+      { type: 'tool_result', toolCallId: 'ls1', name: 'view', result: { toolCallId: 'ls1', ok: true, content: [{ type: 'text', text: 'pdf skill' }] } },
       { type: 'delta', text: 'read it' },
       { type: 'completed', usage: { inputTokens: 1000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
     ] satisfies ProviderEvent[];
     await send('turn 1');
     plainAnswer();
     const beforeCompaction = await send('turn 2');
-    expect(beforeCompaction.systemInstruction).not.toContain('### Loaded Skill: pdf');
+    expect(beforeCompaction.systemInstruction).not.toContain('### Skill read earlier: /skills/pdf/SKILL.md');
     await send('turn 3');
     ctx.provider.script = [
       { type: 'delta', text: 'ok' },
@@ -216,8 +216,8 @@ describe('tool calls in the history (ADR-0022)', () => {
     };
     const after = await send('turn 5');
     ctx.provider.onRequest = null;
-    expect(after.history.some((t) => t.toolCalls?.some((c) => c.name === 'load_skill'))).toBe(false);
-    expect(after.systemInstruction).toContain('### Loaded Skill: pdf');
+    expect(after.history.some((t) => t.toolCalls?.some((c) => c.name === 'view'))).toBe(false);
+    expect(after.systemInstruction).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
   });
 
   it('replays a turn-ending ask_user_options call and its {status:"shown"} result on the next turn (ADR-0034)', async () => {

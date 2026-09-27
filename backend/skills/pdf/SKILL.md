@@ -6,7 +6,7 @@ category: artifact
 scope: builtin
 requires:
   tools:
-    - run_python
+    - bash_tool
 autoload: false
 metadata:
   source: arcnave
@@ -17,8 +17,9 @@ metadata:
 Reading what is inside a PDF (counts, totals, tables, scanned pages) is the pdf-reading
 skill. This one produces and changes PDF files.
 
-Every step below runs in `run_python`. Uploaded files are in `input/`; a file saved to
-`output/` reaches the user as a download.
+Work on the sandbox computer: write a script with `create_file` and run it with `bash_tool`
+(`python3 build.py`), or run a short command directly. Uploaded files are in `input/`
+(read-only). Save the finished file to `output/<name>` and give it with `present_files`.
 
 ## Page count and metadata
 
@@ -43,7 +44,7 @@ PDF is fixed-layout: do not edit its bytes.
 - Merge: add every page of each file, in the order asked, to one `PdfWriter`.
 - Rotate: `page.rotate(90)`.
 - Rewrite content: extract it, edit it, and build a new PDF.
-- The same filename uploaded twice: each file has its own `run_python path` and `fileId`.
+- The same filename uploaded twice: each file has its own path in `input/`.
 
 ## Convert a PDF
 
@@ -52,5 +53,5 @@ xlsx for Excel, docx for Word, pptx for PowerPoint.
 
 ## Checking the file
 
-Open the saved PDF again: page count, and render the pages that matter into `view/` with
-`pdftoppm -r 80 -png` to look at them. Fix and save again when something is wrong.
+Open the saved PDF again: page count, and render the pages that matter to PNG with
+`pdftoppm -r 80 -png` and `view` them. Fix and save again when something is wrong.

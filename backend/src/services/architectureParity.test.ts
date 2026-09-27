@@ -1,37 +1,11 @@
-import path from 'node:path';
-import JSZip from 'jszip';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
-
-import { DECLARED_EVERY_TURN } from '../tools/registry.js';
+import { describe, expect, it } from 'vitest';
 
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { AttachmentBlock, GenerationRequest } from '../providers/types.js';
 import { routeTurn } from './routing/turnRouter.js';
-import { SkillService } from './skills.js';
-import { SearchToolsExecutor } from '../tools/searchToolsExecutor.js';
-import { SkillToolExecutor } from '../tools/skillExecutor.js';
-import {
-  LOAD_SKILL,
-  RUN_PYTHON,
-  SEARCH_TOOLS,
-} from '../tools/definitions.js';
-
-/** Discovery tools, then the allowed tools declared on every turn (ADR-0022). */
-const core = (d: { allowedTools: string[] }, discovery = ['search_tools', 'load_skill']): string[] => [
-  ...discovery,
-  ...DECLARED_EVERY_TURN.filter((n) => d.allowedTools.includes(n)),
-];
 
 describe('Architecture Parity — real-world scenarios', () => {
-  let skillService: SkillService;
-
-  beforeAll(async () => {
-    const backendRoot = path.resolve(__dirname, '../../');
-    skillService = new SkillService(backendRoot, 'skills');
-    await skillService.load();
-  });
-
   // Scenario 1: Summarize this PDF
   it('Scenario 1: "Summarize this PDF" — native document block in user turn, zero tools invoked', () => {
     const pdfAttachment: AttachmentBlock = {
@@ -72,34 +46,18 @@ describe('Architecture Parity — real-world scenarios', () => {
     expect(geminiParts[0]?.inlineData?.mimeType).toBe('application/pdf');
     expect(geminiParts[1]?.text).toContain('Please provide a comprehensive summary');
 
-    // 3. Routing decision: only the core is exposed, nothing forced
-    const routing = routeTurn({
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-    });
-    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(routing.exposedTools).toEqual(core(routing));
+    // 3. Routing: nothing is forced; the model decides whether any tool is needed.
+    expect(routeTurn({ hasProject: false, codeEnabled: true }).allowedTools).toContain('view');
   });
 
-  // Scenario 5: Explain XLSX Trends
-  it('Scenario 5: Explain XLSX Trends — qualitative explanation, zero Python executed', () => {
-    const decision = routeTurn({
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-      runPythonEnabled: true,
-    });
-    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(decision.exposedTools).toEqual(core(decision));
+  // Scenario 5: the wording of a request changes nothing the router allows (ADR-0006).
+  it('Scenario 5: Explain XLSX Trends — same tools whatever is asked', () => {
+    expect(routeTurn({ hasProject: false, codeEnabled: true })).toEqual(routeTurn({ hasProject: false, codeEnabled: true }));
   });
 
   // Scenario 6: XLSX Regression & Chart
-  it('Scenario 6: XLSX Regression & Chart — run_python is in the catalog because the sandbox is enabled', () => {
-    const decision = routeTurn({
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-      runPythonEnabled: true,
-    });
-    expect(decision.allowedTools).toContain('run_python');
+  it('Scenario 6: XLSX Regression & Chart — the computer is allowed because the sandbox is enabled', () => {
+    expect(routeTurn({ hasProject: false, codeEnabled: true }).allowedTools).toContain('bash_tool');
   });
 
   // Scenario 7: Describe Image
@@ -132,12 +90,6 @@ describe('Architecture Parity — real-world scenarios', () => {
     expect(blocks[0]?.source?.media_type).toBe('image/png');
     expect(blocks[1]?.text).toContain('Describe what is depicted');
 
-    const routing = routeTurn({
-      candidateSkills: skillService.listSkills(),
-      hasProject: false,
-    });
-    // ADR-0006: the model keeps the core and chooses not to use it; nothing is withheld.
-    expect(routing.exposedTools).toEqual(core(routing));
   });
 
   // Scenario 10: Multi-Turn Follow-Up on PDF

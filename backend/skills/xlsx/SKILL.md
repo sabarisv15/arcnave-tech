@@ -6,7 +6,7 @@ category: artifact
 scope: builtin
 requires:
   tools:
-    - run_python
+    - bash_tool
 autoload: false
 metadata:
   source: arcnave
@@ -14,8 +14,9 @@ metadata:
 
 # Spreadsheets (XLSX)
 
-Every step below runs in `run_python`. Uploaded files are in `input/`; a file saved to
-`output/` reaches the user as a download.
+Work on the sandbox computer: write a script with `create_file` and run it with `bash_tool`
+(`python3 build.py`), or run a short command directly. Uploaded files are in `input/`
+(read-only). Save the finished file to `output/<name>` and give it with `present_files`.
 
 ## Reading an uploaded workbook
 
