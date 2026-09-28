@@ -1,18 +1,36 @@
 /**
  * A Markdown record of one reply (ADR-0050): the model that answered, what the request carried
  * (a PDF's page images included), the tools and skills on offer, and every step the model took
- * with its input and result. Kept so what a reply did is read, not guessed.
+ * with its reason, what it ran and its result, uncut. Kept so what a reply did is read, not guessed.
  *
  * The system prompt's text is not written out, only its size and sections: the log is shown to
  * the person who sent the message.
  */
 import type { AttachmentBlock, GenerationRequest, ToolResult, Turn } from '../providers/types.js';
 
-/** Tool inputs and results longer than this are cut in the log, with the cut said. */
-const MAX_BLOCK_CHARS = 6_000;
-
-function clip(text: string, max = MAX_BLOCK_CHARS): string {
-  return text.length > max ? `${text.slice(0, max)}\n… [${String(text.length - max)} more characters not shown]` : text;
+/**
+ * What a call ran, written the way it ran: a command as a shell block, a file's text as the
+ * file, anything else as JSON. The `description` a call gives is its reason, shown as "Why".
+ */
+function callBody(name: string, input: unknown): string[] {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  const out: string[] = [];
+  const why = str(i.description);
+  out.push(`Why: ${why ?? '(the call gave no reason; see the thinking above)'}`, '');
+  if (name === 'bash_tool' && str(i.command) !== undefined) {
+    out.push('Ran:', '', fence(str(i.command)!, 'bash'), '');
+  } else if (name === 'create_file' && str(i.path) !== undefined) {
+    out.push(`Created: ${str(i.path)!}`, '', fence(str(i.file_text) ?? ''), '');
+  } else if (name === 'str_replace' && str(i.path) !== undefined) {
+    out.push(`Edited: ${str(i.path)!}`, '', 'Replaced:', '', fence(str(i.old_str) ?? ''), '', 'With:', '', fence(str(i.new_str) ?? ''), '');
+  } else if (name === 'view' && str(i.path) !== undefined) {
+    out.push(`Viewed: ${str(i.path)!}${Array.isArray(i.view_range) ? ` lines ${JSON.stringify(i.view_range)}` : ''}`, '');
+  } else {
+    const { description: _why, ...rest } = i;
+    out.push('Input:', '', fence(JSON.stringify(rest, null, 2), 'json'), '');
+  }
+  return out;
 }
 
 /** A fenced block whose fence no line of the text can close. */
@@ -116,7 +134,7 @@ export class TurnLog {
       lines.push('', '**Attachments carried from earlier turns**', '');
       lines.push(...earlier.map((a) => `- ${describeSentAttachment(a)}`));
     }
-    lines.push('', '**The user message as sent**', '', fence(clip(request.prompt)));
+    lines.push('', '**The user message as sent**', '', fence(request.prompt));
     this.request = { lines };
   }
 
@@ -169,12 +187,13 @@ export class TurnLog {
     out.push(`${String(calls)} tool call${calls === 1 ? '' : 's'}.`, '');
     let n = 0;
     for (const s of this.steps) {
-      if (s.kind === 'thinking') out.push('**Thinking**', '', fence(clip(s.text)), '');
-      else if (s.kind === 'text') out.push('**Reply text**', '', fence(clip(s.text)), '');
+      // The provider returns a summary of the model's thinking, not the thinking itself.
+      if (s.kind === 'thinking') out.push("**Thinking** (the model's thought summary)", '', fence(s.text), '');
+      else if (s.kind === 'text') out.push('**Reply text**', '', fence(s.text), '');
       else {
         n += 1;
-        out.push(`### ${String(n)}. ${s.name} (at ${(s.at / 1000).toFixed(1)} s)`, '', 'Input:', '', fence(clip(JSON.stringify(s.input, null, 2)), 'json'), '');
-        if (s.result) out.push(`Result (${s.result.ok ? 'ok' : 'failed'}):`, '', fence(clip(resultText(s.result))), '');
+        out.push(`### ${String(n)}. ${s.name} (at ${(s.at / 1000).toFixed(1)} s)`, '', ...callBody(s.name, s.input));
+        if (s.result) out.push(`Result (${s.result.ok ? 'ok' : 'failed'}):`, '', fence(resultText(s.result)), '');
         else out.push('Result: none (the turn ended before it came back)', '');
       }
     }

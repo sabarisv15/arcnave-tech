@@ -145,7 +145,9 @@ describe('a turn log under every reply (ADR-0050)', () => {
       expect(md).toContain('"scan.pdf" (application/pdf): 3 pages, 3 page images sent (3 by Cloud Storage URI); a text layer on 1 of 3');
       expect(md).toContain('- Client: mobile');
       expect(md).toContain('### 1. bash_tool');
-      expect(md).toContain('pdfinfo input/scan.pdf');
+      expect(md).toContain('Why: count pages');
+      expect(md).toContain('Ran:\n\n```bash\npdfinfo input/scan.pdf\n```');
+      expect(md).toContain("**Thinking** (the model's thought summary)");
       expect(md).toContain('Result (ok):');
       expect(md).toContain('Pages: 3');
       expect(md).toContain('The pages are in view.');

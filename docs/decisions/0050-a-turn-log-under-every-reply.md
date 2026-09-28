@@ -22,9 +22,11 @@ inference from code. The existing debug event names the tools allowed and called
    and section names (not its text); how many earlier turns went; the declared tools; the skills
    listed; each attachment as it was sent (for a PDF: pages, page images and whether by Cloud
    Storage URI or inline, pages with a text layer; or the reason it was left out); the user
-   message as sent, with the attachment manifest; then thinking, reply text and every tool call
-   in order with its input and result (6,000 characters each, the cut said); then status,
-   finish reason, usage and phase timings.
+   message as sent, with the attachment manifest; then, in order, the model's thought summary
+   (providers return a summary, not the thinking itself), the reply text, and every tool call
+   with why it was made (its `description`), what it ran (a command as a shell block, a file's
+   text as the file) and its result as the model received it. Nothing is cut: the owner asked
+   for no limit. Then status, finish reason, usage and phase timings.
 3. `GET /v1/chats/:id/messages/:messageId/log` returns it as a `.txt` download (`text/plain`,
    Markdown inside) to the chat's owner only: the same bytes as `.md`, but a phone opens a
    `.txt` in its own viewer. Every reply shows a "Download turn log" button beside copy and
