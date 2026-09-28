@@ -9,6 +9,7 @@
   [ADR-0036](0036-sandboxed-visuals-inherit-arcnave-theme.md) (render_ui becomes show_widget and
   read_me), [ADR-0037](0037-visuals-drawn-while-written.md) (drafts come from show_widget),
   [ADR-0047](0047-tools-and-skills-match-the-reference.md) (the tool list).
+- Amended by [ADR-0049](0049-prompt-and-skills-line-by-line-with-the-reference.md): the preamble sentence its audit kept is replaced by the reference app prompt's "do not explain or justify a search out loud".
 
 ## Reference
 

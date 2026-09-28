@@ -1,7 +1,7 @@
 ---
 name: pdf-reading
-version: 3.0.0
-description: "Use whenever an answer depends on reading what is inside a PDF exactly: counting, totalling or listing every row or entry (bank statements, ledgers, invoices, registers, attendance sheets), extracting tables or text, reading scanned or photographed pages, or checking figures against the document. Also use it before converting a PDF's content into Excel, Word or PowerPoint. Not for creating, merging, splitting or rotating PDFs: use the pdf skill for those."
+version: 4.0.0
+description: "Use when you need to read, inspect or extract content from a PDF, especially when its content is not in your context and has to be read from the file in input/. Covers a content inventory, text and table extraction, rendering pages to look at them, embedded images, attachments and form fields, and choosing a reading strategy by document type (text-heavy, scanned, slide decks, forms, data-heavy). Not for creating, filling, merging, splitting or rotating PDFs: use the pdf skill for those."
 category: analysis
 scope: builtin
 autoload: false
@@ -14,81 +14,68 @@ metadata:
 
 # Reading a PDF
 
-## What you already see
+## First: is it already in your context?
 
-A PDF of up to 100 pages reaches you as an image of every page plus that page's text; past 100
-pages, text only (the attachment line says which). A summary, or a question one visible
-passage answers, needs no tool call.
+A PDF of up to 100 pages is already in front of you: an image of every page, that page's text,
+and a note on any page that has no text layer. Read what you can see. Looking at those pages
+again through tool calls, or checking them for a text layer with code, adds steps and nothing
+else. This skill is for what you cannot see: a PDF past 100 pages (text only), a region too small
+or faint to read, or content the page images do not show (attachments, form fields, embedded
+files).
 
-A count, a total or a complete list is different: dense rows read from a page image can be
-skipped or merged without any sign of it. Get those rows into a file, check them against the
-document's own figures, and compute the answer; do not estimate it in prose.
+The file itself is in `input/`, at the path on its attachment line. Work on it with a script run
+by `bash_tool`.
 
-For a page or region you cannot read clearly (a figure, a small or faint value), render a crop
-of it with `bash_tool` (the file is in `input/`, path on its attachment line) and look at it
-with `view`:
+## Content inventory
 
 ```python
-import fitz  # pymupdf
-page = fitz.open("input/statement.pdf")[4]
-page.get_pixmap(dpi=250, clip=fitz.Rect(40, 300, 560, 420)).save("p5_rows.png")
+import pymupdf
+doc = pymupdf.open("input/file.pdf")
+print(doc.page_count, doc.metadata)
+for i, page in enumerate(doc):
+    print(i + 1, len(page.get_text().strip()), len(page.get_images()))
 ```
 
-then `view` `p5_rows.png`.
+Characters per page tell text-layer pages from scanned ones; `pdfinfo input/file.pdf` gives the
+page count and size from the shell.
 
-## Choose the reading strategy by page type
+## Text and tables
 
-Check each page for a text layer first: `len(page.get_text().strip())` with pymupdf.
+- Text: `page.get_text()` (pymupdf), or `pdftotext -layout input/file.pdf -` for columns kept
+  in place.
+- Tables: `pdfplumber`, `page.extract_tables()`; when columns are not ruled, words by position
+  (`page.extract_words()`), grouped by their `top` and `x0`.
 
-- **Text layer (a statement downloaded from net banking, an exported report):** extract with
-  `pdfplumber` (a script run with `bash_tool`): `page.extract_tables()`, or words by position when columns are
-  not ruled. This is exact; do not read these pages from the image.
-- **Scanned or photographed pages you can see (no text layer, 100 pages or fewer):** the page
-  images are already in front of you. Read every row from them in one pass, with no tool call
-  to look, and write the records into a file with `create_file`. Then run the checks below in
-  code. Only the rows a check flags need a second look: render those rows as a crop and
-  `view` it (above).
-- **Scanned pages you cannot see (past 100 pages, text only):** render the pages to PNG
-  with `bash_tool` and `view` them, a few at a time; use `pytesseract` only as a cross-check,
-  because its digits are unreliable on photographed pages.
-- **Mixed PDFs:** use each page's own strategy.
+Print summaries, not whole documents: long output is cut.
 
-Do not look at pages you can already see through tool calls a few at a time: each look costs a
-tool step, and a turn has a limited number.
+## Looking at pages
 
-## Exact counts, totals and complete lists
+Render a page, or a crop of one, to PNG and look at it with `view`:
 
-```
-Progress:
-- [ ] 1. Page type for every page (above)
-- [ ] 2. Every record in a file, with named fields
-- [ ] 3. Records checked against the document's own figures
-- [ ] 4. Answer computed from the checked records
+```python
+page = pymupdf.open("input/file.pdf")[4]
+page.get_pixmap(dpi=200, clip=pymupdf.Rect(40, 300, 560, 420)).save("p5_rows.png")
 ```
 
-**2. Records.** Choose fields from the document (date, description, debit, credit, balance; or
-item, qty, rate, amount). Give each record a `kind` (`data`, `opening`, `subtotal`, `total`,
-`header`) and its `page`; count only `data` records. A narration that wraps onto a second line
-is part of the row above it, not a new row. When one PDF holds several documents, add a
-`source` field and report each one separately as well as combined.
+For scanned pages you cannot see (past 100 pages), render them a few at a time and `view` them.
+`pytesseract` is only a cross-check: its digits are unreliable on photographed pages.
 
-**3. Check.** Use the checks the document offers:
-- running balance: previous + credits − debits = balance;
-- printed totals, counts, and opening and closing balances;
-- arithmetic inside a row (qty × rate = amount).
+## Images, attachments and form fields
 
-Run these checks in code over the records file, and compare with the document's printed
-figures. A failed check means a record is wrong: read that row again from a crop, correct the
-record, and re-run the check. Do not change a number just to make a check pass.
+- Embedded images: `page.get_images()`, then `pymupdf.Pixmap(doc, xref).save(...)`.
+- Attached files: `doc.embfile_names()` and `doc.embfile_get(name)`.
+- Form fields: `pypdf.PdfReader(path).get_fields()`, or `page.widgets()` in pymupdf.
 
-**4. Answer.** Compute counts, sums and splits in code, never in prose. For a classification,
-apply written rules and keep anything they do not cover as `UNKNOWN`. Report which checks
-passed and anything that is unreconciled (with page and row), and any row you could not read
-clearly. Show at most about 50 rows in chat. When the user asks
-for the full list as a file, build it with the xlsx skill.
+## Strategy by document type
 
-## Follow-up questions
+- **Text-heavy** (reports, papers): the text layer, section by section.
+- **Scanned or photographed:** the page images; render a crop for anything unclear.
+- **Slide decks exported to PDF:** one page per slide; read each page's text and look at the
+  image for charts and diagrams.
+- **Forms:** the form fields first, then the page for labels.
+- **Data-heavy** (statements, ledgers, invoices): tables by position; where the document prints
+  totals, counts or balances, compare with them.
+- **Mixed:** each page by its own type.
 
-A later question about the same file ("total Federal entries?") is answered from the records
-already extracted in this conversation, not by reading the pages again. If a new figure differs
-from one you gave earlier, say so and say which one is right and why.
+A later question about the same file is answered from what you already read, not by reading the
+pages again.

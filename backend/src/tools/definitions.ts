@@ -228,6 +228,20 @@ export const IMAGE_SEARCH: ToolDefinition = {
   },
 };
 
+/**
+ * web_fetch on a turn whose search is the model's built-in one: those results reach the model as
+ * grounded text, not as URLs the fetch gate has seen, so the description must not promise them
+ * (ADR-0049).
+ */
+export const WEB_FETCH_WITH_BUILT_IN_SEARCH: ToolDefinition = {
+  ...WEB_FETCH,
+  description:
+    'Fetches the readable text of a web page. Only a URL that already appears in this conversation can be ' +
+    'fetched: one the user gave, or one an earlier fetch result in this conversation returned. Results of the ' +
+    'built-in web search are not URLs this tool can open. A URL recalled from memory or made by editing a seen ' +
+    'URL is refused. Pages behind a login cannot be read. The URL must include https://.',
+};
+
 export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH, IMAGE_SEARCH];
 
 /* -------------------------------------------------------------------------- Memory (ADR-0047) */

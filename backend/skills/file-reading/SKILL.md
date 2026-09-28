@@ -1,7 +1,7 @@
 ---
 name: file-reading
-version: 1.0.0
-description: "Use when an uploaded file's content is not in your context and you have to open it on the computer: Word, Excel, CSV, PowerPoint, JSON, archives, ebooks, code or any other file listed with a path in input/. It says how to read each type, and how much, instead of printing a binary. Not needed for a file whose content you can already see (a PDF's text and page images, an image, a plain-text file); for reading a PDF exactly, use pdf-reading."
+version: 1.0.1
+description: "Use when an uploaded file's content is not in your context and you have to open it on the computer: Word, Excel, CSV, PowerPoint, JSON, archives, ebooks, code or any other file listed with a path in input/. It says how to read each type, and how much, instead of printing a binary. Not needed for a file whose content you can already see (a PDF's text and page images, an image, a plain-text file); for a PDF that is not in your context, use pdf-reading."
 category: analysis
 scope: builtin
 requires:
@@ -26,7 +26,7 @@ ls -la input/
 
 | File | How to read it |
 |---|---|
-| PDF | Read the pdf-reading skill. |
+| PDF | Up to 100 pages it is already in your context; past that, read the pdf-reading skill. |
 | .docx, .doc | `pandoc input/f.docx -t markdown \| head -200`; for tables, styles or editing, the docx skill. |
 | .xlsx, .xls, .csv, .tsv | pandas: sheet names, `df.shape`, `df.head()`, column types; then compute. The xlsx skill for anything beyond a look. |
 | .pptx, .ppt | `python-pptx`, slide by slide: titles, text, tables, notes. The pptx skill for more. |

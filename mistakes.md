@@ -1285,3 +1285,14 @@ practice, not canon.
   search". (2) I wrote into the prompt that web_fetch can open "a source cited in an earlier
   reply"; history does not carry source URLs, so it cannot. Rule: every capability sentence in
   the prompt is traced to the code path that makes it true before it is written.
+- **2026-09-28 (line-by-line audit, ADR-0049)** — No new heading (at the cap). After ADR-0048's
+  audit I told the owner the prompt, tools and skills had no conflict. A live scanned-PDF turn
+  then ran seven commands on pages already in view: the prompt mapped "reading a PDF exactly" to
+  pdf-reading, our own exact-figure rule sent counts to tools, and the skill said to check the
+  text layer in code first. The audit had checked the prompt against the tools, never our own
+  skills (rewritten earlier, so assumed right) against the reference's text, where pdf-reading
+  is "especially when file content is NOT in your context". Rule: an audit against the reference
+  reads every skill description and body beside the reference's, including the ones we wrote,
+  and reads how the prompt and a skill combine on one real request; "no conflict" is said only
+  after that. Verify: `skills.test.ts` "splits PDF reading from PDF building" and
+  `behaviorEvaluation.test.ts` Eval 11b2.

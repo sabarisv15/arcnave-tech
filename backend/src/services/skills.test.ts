@@ -33,13 +33,17 @@ describe('SkillService', () => {
     expect(reading).not.toBeNull();
     // Skills are read with view, so a skill is offered only on a turn with the computer.
     expect(reading?.missingTools).toEqual([]);
-    // Pages already in view are read from the view in one pass, not looked at again through
-    // tool calls a few at a time: those ran a turn out of tool steps (2026-09-27).
-    expect(reading?.content).toContain('Read every row from them in one pass');
-    expect(reading?.content).not.toContain('read the pages yourself a few at a time');
+    // As the reference's pdf-reading (ADR-0049): for a PDF not in context. A PDF in view is read
+    // from the view; no text-layer check in code first (it sent a scanned statement through
+    // seven commands, 2026-09-28).
+    expect(reading?.description).toContain('especially when its content is not in your context');
+    expect(reading?.content).toContain('A PDF of up to 100 pages is already in front of you');
+    expect(reading?.content).not.toContain('Check each page for a text layer first');
+    expect(reading?.content).not.toContain('## Exact counts, totals and complete lists');
 
     const building = service.getSkill('pdf', ['bash_tool']);
-    expect(building?.content).not.toContain('## Exact counts, totals and complete lists');
+    expect(building?.description).toContain('filling a PDF form');
+    expect(building?.content).toContain('## Fill a form');
     expect(building?.description).toContain('use the pdf-reading skill');
   });
 

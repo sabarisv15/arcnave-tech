@@ -1,6 +1,21 @@
 # ArcNave — current checkpoint
 
-> **2026-09-27 (latest): artifacts, question card, visuals and display cards work as the reference's; merged to main on the owner's request ("commit push merge panitu"), which starts both deploy triggers (Cloudflare frontend, Cloud Build backend). Live behaviour not yet checked.**
+> **2026-09-28 (latest): prompt and skills read line by line against the Opus 5.5 app prompt and anthropics/skills; conflicts A + B fixed. Tested locally; not merged or deployed.**
+> [ADR-0049](../decisions/0049-prompt-and-skills-line-by-line-with-the-reference.md).
+> - Cause of the live scanned-PDF turn that ran seven commands (answer right: 48 / 277 / 325):
+>   the prompt's pdf-reading mapping, our exact-figure rule and the skill's text-layer check.
+>   All three removed; pdf-reading takes the reference's scope (a PDF not in context).
+> - Prompt: reply language restated at the end of thinking; no explaining a search or tool out
+>   loud; minimum formatting; the reference's file_creation_advice; mobile clients told to the
+>   model (and read_me). web_fetch's description matches the prompt on built-in-search turns.
+>   pdf skill gains form filling.
+> - Backend typecheck clean, **905/905 tests**.
+> - Left for the owner (listed in ADR-0049): xlsx recalculation, pptx design/QA,
+>   frontend-design, docx helpers, memory background pass, safety sections.
+> - Next: owner approval to merge and deploy; then the same scanned-PDF question live (expect no
+>   text-layer or OCR commands, and a Tanglish reply to a Tanglish question).
+
+> **2026-09-27: artifacts, question card, visuals and display cards work as the reference's; merged to main on the owner's request ("commit push merge panitu"), which starts both deploy triggers (Cloudflare frontend, Cloud Build backend). Live behaviour not yet checked.**
 > [ADR-0048](../decisions/0048-artifacts-questions-visuals-and-cards-as-the-reference.md),
 > checked against the Fable 5.1, Opus 5.5 and Sonnet 5 app prompts and the read_me capture.
 > - Artifacts are files: `create_artifact`/`read_artifact`/`update_artifact` removed. A presented

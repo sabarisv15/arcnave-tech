@@ -7,6 +7,7 @@
   over-work"
 - Decision 3's scanned-page routing superseded by [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md): pages in view are read from the view and checked in code; `extract_scanned_table_rows` is removed.
 - Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): the order "reading skill first, building skill once the material is in hand" is replaced by the reference's: see what is in context, then view every relevant SKILL.md before any code or file. The manifest no longer names a skill per file.
+- Amended by [ADR-0049](0049-prompt-and-skills-line-by-line-with-the-reference.md): the exact-figure rule is removed, and pdf-reading takes the reference's scope (a PDF not in context); its records-file checklist is gone.
 
 ## Context
 

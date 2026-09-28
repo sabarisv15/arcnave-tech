@@ -628,6 +628,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             codeExecution,
             effort,
             styleId,
+            clientPlatform: clientPlatform(request.headers),
             signal: controller.signal,
           })) {
             run.publish(event);
@@ -805,6 +806,17 @@ async function streamRun(
     );
   });
   return true;
+}
+
+/**
+ * The device a request came from: Chromium's mobile client hint, else the user agent. A visual
+ * drawn for a phone is sized for a ~380 px frame (ADR-0049).
+ */
+export function clientPlatform(headers: FastifyRequest['headers']): 'mobile' | 'desktop' {
+  const hint = headers['sec-ch-ua-mobile'];
+  if (hint === '?1') return 'mobile';
+  if (hint === '?0') return 'desktop';
+  return /Mobi|Android|iPhone|iPad/i.test(String(headers['user-agent'] ?? '')) ? 'mobile' : 'desktop';
 }
 
 function toChatDto(row: ChatRow): {

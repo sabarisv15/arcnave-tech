@@ -22,7 +22,11 @@ interface Trace {
   allowedTools: string[];
 }
 
-async function turn(ctx: TestContext, prompt: string): Promise<{ system: string; allowed: Set<string>; grounded: boolean; declared: Set<string> }> {
+async function turn(
+  ctx: TestContext,
+  prompt: string,
+  headers: Record<string, string> = {},
+): Promise<{ system: string; allowed: Set<string>; grounded: boolean; declared: Set<string>; descriptions: Map<string, string> }> {
   const user = await signUp(ctx);
   const chat = await ctx.app.inject({
     method: 'POST',
@@ -34,7 +38,7 @@ async function turn(ctx: TestContext, prompt: string): Promise<{ system: string;
   const response = await ctx.app.inject({
     method: 'POST',
     url: `/v1/chats/${chatId}/generate`,
-    headers: { cookie: user.cookie },
+    headers: { cookie: user.cookie, ...headers },
     payload: { prompt },
   });
   expect(response.statusCode).toBe(200);
@@ -49,6 +53,7 @@ async function turn(ctx: TestContext, prompt: string): Promise<{ system: string;
     allowed: new Set(trace.allowedTools),
     grounded: seen.grounded,
     declared: new Set((seen.tools ?? []).map((t) => t.name)),
+    descriptions: new Map((seen.tools ?? []).map((t) => [t.name, t.description])),
   };
 }
 
@@ -112,6 +117,8 @@ describe('the system prompt names only tools the turn allows', () => {
     expect([...t.declared]).not.toContain('web_search');
     expect([...t.declared]).not.toContain('image_search');
     expect(t.system).toContain('the built-in search\'s results are not links you can fetch');
+    // The tool says the same as the prompt (ADR-0049): no search result is a URL it can open.
+    expect(t.descriptions.get('web_fetch')).toContain('Results of the built-in web search are not URLs this tool can open');
     await ctx.close();
 
     // Built-in search on and a live provider: images come from the provider, search stays built in.
@@ -128,7 +135,23 @@ describe('the system prompt names only tools the turn allows', () => {
     expect(t.grounded).toBe(false);
     expect([...t.declared]).toEqual(expect.arrayContaining(['web_search', 'web_fetch', 'image_search']));
     expect(t.system).toContain('Use web_search when information is');
+    expect(t.descriptions.get('web_fetch')).toContain('one a search or fetch result in this conversation returned');
     expect(t.system).not.toContain('not links you can fetch');
+  });
+
+  it('tells the model the user is on a phone, and names read_me only when it is declared (ADR-0049)', async () => {
+    const phone = { 'user-agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Mobile Safari/537.36' };
+    ctx = await createTestApp(CONFIGS['with generative UI']!);
+    let t = await turn(ctx, 'hi', phone);
+    expect(t.system).toContain('The user is on a mobile device: a narrow screen, about 380 px wide. Pass platform "mobile" to read_me.');
+    t = await turn(ctx, 'hi', { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/130', 'sec-ch-ua-mobile': '?0' });
+    expect(t.system).not.toContain('mobile device');
+    await ctx.close();
+
+    ctx = await createTestApp({ ...CONFIGS['tools and skills only']!, ENABLE_GENERATIVE_UI: 'false' });
+    t = await turn(ctx, 'hi', { 'sec-ch-ua-mobile': '?1' });
+    expect(t.system).toContain('The user is on a mobile device');
+    expect(t.system).not.toContain('to read_me');
   });
 
   it('does not offer research guidance while web search is off', async () => {

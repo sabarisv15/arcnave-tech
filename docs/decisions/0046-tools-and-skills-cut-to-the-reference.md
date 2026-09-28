@@ -9,6 +9,7 @@
   [ADR-0043](0043-contextual-chat-follow-ups-and-safe-answer-rendering.md) (follow-up tool),
   [ADR-0044](0044-pdf-reading-and-exact-figures.md) decision 3 (scanned-page routing).
 - Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): the plan left open here is done; artifact-design is replaced by frontend-design.
+- Amended by [ADR-0049](0049-prompt-and-skills-line-by-line-with-the-reference.md): pages in view are read from the view, with no standing check in code.
 
 This is the clean-up step only. The plan (bash / view / create_file / str_replace in place of
 run_python, file-reading skill, the prompt's order of seeing, then skills, then code) comes next

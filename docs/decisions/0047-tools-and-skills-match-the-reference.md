@@ -11,6 +11,7 @@
   (a skill read with view comes back after compaction), [ADR-0044](0044-pdf-reading-and-exact-figures.md)
   (skill order), [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md) (the plan it left open).
 - Amended by [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md): artifacts are files, the question card is ask_user_input_v0, render_ui is show_widget and read_me, and 13 display cards are added.
+- Amended by [ADR-0049](0049-prompt-and-skills-line-by-line-with-the-reference.md): the skill mapping is the reference's, naming no reading skill.
 
 ## Reference
 

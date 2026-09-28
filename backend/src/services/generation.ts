@@ -77,7 +77,7 @@ import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
 import type { MessageSegment } from '../db/schema.js';
-import { buildBaseSystemPrompt, buildDynamicRuntimeContext, currentDateLine } from './systemPrompt.js';
+import { buildBaseSystemPrompt, buildDynamicRuntimeContext, currentDateLine, mobileClientLine } from './systemPrompt.js';
 import { assemblePrompt } from './promptCache/promptAssembly.js';
 import { loadToolCalls, toolCallChars } from './history/toolHistory.js';
 import type { PromptAssembly } from './promptCache/types.js';
@@ -89,7 +89,7 @@ import { toAttachmentRef } from './attachments/attachmentRef.js';
 import { enforceModelLimits } from './attachments/modelLimits.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { ChatToolExecutor } from '../tools/chatExecutor.js';
-import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS, UI_TOOL_DEFINITIONS } from '../tools/definitions.js';
+import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS, UI_TOOL_DEFINITIONS, WEB_FETCH_WITH_BUILT_IN_SEARCH } from '../tools/definitions.js';
 import { UIToolExecutor } from '../tools/uiExecutor.js';
 import { AskUserInputExecutor } from '../tools/optionsExecutor.js';
 import { UIAuthorizer } from './ui/authorizer.js';
@@ -275,6 +275,8 @@ export interface GenerateInput {
   effort?: ReasoningEffort;
   /** Optional style override for this turn (preset name or custom style UUID). */
   styleId?: string;
+  /** The device the request came from, so visuals are sized for it (ADR-0049). */
+  clientPlatform?: 'mobile' | 'desktop';
   signal: AbortSignal;
 }
 
@@ -536,7 +538,8 @@ export class GenerationService {
     const allowCode = routingDecision.allowedTools.includes('bash_tool');
     const availableTools = toolRegistry
       .getAvailableTools({ userId: input.userId, projectId: project?.id ?? null, allowCode })
-      .filter((t) => routingDecision.allowedTools.includes(t.name));
+      .filter((t) => routingDecision.allowedTools.includes(t.name))
+      .map((t) => (t.name === 'web_fetch' && grounded ? WEB_FETCH_WITH_BUILT_IN_SEARCH : t));
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
 
     // --- skills: names and descriptions up front, each read with view when needed ---------
@@ -1865,7 +1868,9 @@ export class GenerationService {
 
     // 7. Assemble prompt separating stable prefix from dynamic suffix
     const promptAssembly = assemblePrompt(availableTools, {
-      currentDate: currentDateLine(new Date(), prefs.timezone),
+      currentDate:
+        currentDateLine(new Date(), prefs.timezone) +
+        (input.clientPlatform === 'mobile' ? '\n' + mobileClientLine(availableTools.some((t) => t.name === 'read_me')) : ''),
       runtimeCapabilities: buildDynamicRuntimeContext(this.cfg, this.capabilities, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
       standingPreferences: combinedStandingPrefs || undefined,
       projectInstructions: project?.instructions?.trim() || undefined,

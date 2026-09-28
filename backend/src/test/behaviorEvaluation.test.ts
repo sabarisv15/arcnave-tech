@@ -156,8 +156,9 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('Match your effort to the ask. A simple question gets a direct answer');
       // Help Center: files are created when asked for.
       expect(masterPrompt).toContain('Create a file when the user asks for one');
-      // Opus 5 guide, progress updates sample.
-      expect(masterPrompt).toContain('Before your first tool call, say in one sentence');
+      // Reference app prompt (ADR-0049): no explaining a search or tool choice out loud.
+      expect(masterPrompt).toContain('Do not explain or justify a search or a tool call out loud');
+      expect(masterPrompt).not.toContain('Before your first tool call, say in one sentence');
       // Removed: anti-laziness and standing verification (they over-trigger current models).
       expect(masterPrompt).not.toContain('time spent do not by themselves mean the task is done');
       expect(masterPrompt).not.toContain('Difficulty or slowness is not a blocked state');
@@ -167,15 +168,20 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('own them and work to fix them');
     });
 
-    it('Eval 11b2: Exact figures are computed, not estimated (ADR-0044)', () => {
-      expect(masterPrompt).toContain('do not estimate figures in prose');
-      expect(masterPrompt).toContain('compute the figure with a tool');
-      // Scoped to exact figures: a summary still needs no computation (mistakes.md, 2026-09-26).
-      expect(masterPrompt).toContain('A summary, or a question one visible passage answers, needs no computation.');
+    it('Eval 11b2: No standing rule sends a figure the model can see through a tool (ADR-0049)', () => {
+      // The reference has no such rule; it sent a scanned statement in view through seven commands.
+      expect(masterPrompt).not.toContain('compute the figure with a tool');
+      expect(masterPrompt).not.toContain("reading a PDF's content exactly");
+      // The reference's thinking_behavior: the reply language is restated before answering.
+      expect(masterPrompt).toContain('At the end of your thinking, restate which language and script you will answer in.');
+      // The reference's lists_and_bullets and file_creation_advice.
+      expect(masterPrompt).toContain('Use the minimum formatting needed for clarity.');
+      expect(masterPrompt).toContain('The reply is the default.');
+      expect(masterPrompt).toContain('An article, blog post or essay is usually headed elsewhere');
     });
 
     it('Eval 11b3: What is in context is seen first; skills are read before any code or file (ADR-0047)', () => {
-      expect(masterPrompt).toContain('Transcribing or summarising what you can see needs no tool');
+      expect(masterPrompt).toContain('Reading, counting, transcribing or summarising what you can see needs no tool');
       expect(masterPrompt).toContain('Before creating any file, writing any code or running any command');
       expect(masterPrompt).not.toContain('load_skill');
     });

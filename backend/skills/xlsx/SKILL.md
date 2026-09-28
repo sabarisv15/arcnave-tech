@@ -1,6 +1,6 @@
 ---
 name: xlsx
-version: 4.0.1
+version: 4.0.2
 description: "Use whenever a task touches spreadsheet data: any question about an uploaded .xlsx/.xls (read from the file with code), analysing or computing over a .xlsx/.xls/.csv, cleaning or restructuring tabular data, formulas, charts, or producing an Excel file."
 category: artifact
 scope: builtin
@@ -54,8 +54,8 @@ never because its values match.
 
 ## From a PDF or document
 
-Read the source first (for every row of a PDF table, see the pdf-reading skill). Then build the
-workbook from the rows you read.
+Read the source first (a PDF's pages and text are in your context up to 100 pages; past that,
+see the pdf-reading skill). Then build the workbook from the rows you read.
 
 ## Charts
 
