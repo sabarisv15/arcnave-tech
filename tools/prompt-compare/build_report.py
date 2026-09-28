@@ -14,6 +14,8 @@ import json
 import re
 from pathlib import Path
 
+import plain as PL
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 WORK = HERE / 'work'
@@ -325,7 +327,10 @@ def verdict_arcnave(code):
     return status, (f'{words}: {ref}' if ref else words)
 
 
-def build():
+def build(plain=False):
+    P = PL.plainify if plain else (lambda t: t)
+    FT = PL.plain_fable if plain else (lambda t: t)
+    Q = PL.plain_quote if plain else (lambda t: t)
     units = json.load(open(WORK / 'units.json'))
     fable, arcnave = units['R'], units['A']
     vf, va, vt = load('verdicts-fable.psv'), load('verdicts-arcnave.psv'), load('verdicts-tools.psv')
@@ -347,7 +352,12 @@ def build():
 
     d = []
     d.append(('h1', 'ArcNave vs Claude (Fable 5.1): system prompt, rule by rule'))
-    d.append(('p', 'Compared on 2026-09-28. Fable 5.1 = the Claude app prompt captured in '
+    if plain:
+        d.append(('p', 'Compared on 2026-09-28. Fable 5.1 = the instructions the Claude app gives Claude. '
+                       'ArcNave = the instructions ArcNave really gives its AI when every feature is on. Every '
+                       'rule on both sides was read and given one status. Nothing in this report is shortened.'))
+    else:
+      d.append(('p', 'Compared on 2026-09-28. Fable 5.1 = the Claude app prompt captured in '
                    '`tools/Anthropic/claude-fable-5.1.md`. ArcNave = the prompt ArcNave really sends '
                    'to the model on a turn with every feature on, produced from the code. Every rule '
                    'on both sides was read and given one status. Nothing in this report is shortened.'))
@@ -378,8 +388,9 @@ def build():
         ['Tools both have', f'{len(common)}: {tool_status["R"]} same meaning, {tool_status["P"]} partly, '
                             f'{tool_status["X"]} opposite, {tool_status["D"]} different on purpose. Details in Part 3.'],
         ['Tools only Fable has', f'{len(fable_only_tools)}: Gmail, Calendar, Drive, Docs, connectors, plugins, '
-                                 'weather, sports, places, maps, end_conversation, Artifact publishing.'],
-        ['Tools only ArcNave has', '2: search_project_files, read_project_file.'],
+                                 'weather, sports, places, maps, ending a chat, publishing artifacts as web pages.'],
+        ['Tools only ArcNave has', '2: project search and project file reading.' if plain
+                                   else '2: search_project_files, read_project_file.'],
         ['Skills', 'All 8 ArcNave skills are in Fable\'s list. 4 descriptions differ in scope (docx, pdf, '
                    'pptx, xlsx). Fable also has product-self-knowledge, docs, import-memory, morning and two '
                    'plugin skills.'],
@@ -389,12 +400,12 @@ def build():
     d.append(('caption', 'Ranked by how much each one changes what the model does. Line numbers are '
                          'Fable\'s (left) and ArcNave\'s rendered prompt (right).'))
     d.append(('table', ['#', 'Difference', 'Fable says', 'ArcNave says', 'What it causes'],
-              [list(r) for r in TOP10], [4, 14, 30, 32, 20]))
+              [list(r) for r in (PL.TOP10 if plain else TOP10)], [4, 14, 30, 32, 20]))
 
     d.append(('h3', 'Why the Word request took 15 steps'))
     d.append(('caption', 'The turn log of "Word ah maathi intha file ah" (a one-page scanned PDF). '
                          'Problems 1 and 2 above caused 11 of the 15 steps. Neither line is in Fable.'))
-    d.append(('table', ['Steps', 'What the model did', 'Needed?', 'Why'], [list(r) for r in WORD_TURN],
+    d.append(('table', ['Steps', 'What the model did', 'Needed?', 'Why'], [list(r) for r in (PL.WORD_TURN if plain else WORD_TURN)],
               [9, 36, 10, 45]))
 
     d.append(('h2', 'Part 1: Fable\'s rules, topic by topic'))
@@ -411,12 +422,14 @@ def build():
         all_units = [u for us in subs.values() for u in us]
         if all(v(u)[0] == 'N' for u in all_units):
             for sub, us in subs.items():
-                na_rows += [[main, str(u['line']), u['text'], fable_refs(v(u)[2])] for u in us]
+                na_rows += [[main, str(u['line']), FT(u['text']), P(fable_refs(v(u)[2]))] for u in us
+                            if not (plain and PL.is_code(u['text']))]
             continue
         d.append(('h3', main))
         for sub, us in subs.items():
             shown = [u for u in us if v(u)[0] != 'N']
-            na_rows += [[f'{main}: {sub}', str(u['line']), u['text'], fable_refs(v(u)[2])] for u in us if v(u)[0] == 'N']
+            na_rows += [[f'{main}: {sub}', str(u['line']), FT(u['text']), P(fable_refs(v(u)[2]))] for u in us
+                        if v(u)[0] == 'N' and not (plain and PL.is_code(u['text']))]
             if not shown:
                 continue
             c = collections.Counter(v(u)[0] for u in shown)
@@ -429,7 +442,7 @@ def build():
             for u in shown:
                 status, where, note = v(u)
                 text = (f'Where: {fable_refs(where)}\n' if where else '') + fable_refs(note)
-                rows.append([str(u['line']), u['text'], ('badge', status), text])
+                rows.append([str(u['line']), FT(u['text']), ('badge', status), P(text)])
             d.append(('table', ['Line', 'What Fable says', 'Status', 'In ArcNave'], rows, [6, 49, 13, 32]))
 
     d.append(('h2', 'Part 2: ArcNave\'s prompt, read back against Fable'))
@@ -454,8 +467,8 @@ def build():
     for u in own:
         level, text = risk(u)
         why = text.split(':', 1)[1].strip() if ':' in text else ''
-        rows.append([str(u['line']), u['text'], ('risk', level),
-                     fable_refs(va[f"L{u['line']}"][1]) + (f'\nRisk: {why}' if why else '')])
+        rows.append([str(u['line']), Q(u['text']), ('risk', level),
+                     P(fable_refs(va[f"L{u['line']}"][1]) + (f'\nRisk: {why}' if why else ''))])
     d.append(('table', ['Line', 'What ArcNave says', 'Risk', 'Where it came from'], rows, [6, 52, 9, 33]))
 
     rest = [u for u in arcnave if va[f"L{u['line']}"][0] != 'O']
@@ -469,8 +482,28 @@ def build():
         fields = va[f"L{u['line']}"] + ['', '']
         status, words = verdict_arcnave(fields[0])
         note = '\n'.join(x for x in (fable_refs(fields[1]), f'Risk: {fable_refs(fields[2])}' if fields[2] else '') if x)
-        rows.append([str(u['line']), u['text'], ('badge', status), words + (f'\n{note}' if note else '')])
+        rows.append([str(u['line']), Q(u['text']), ('badge', status), P(words + (f'\n{note}' if note else ''))])
     d.append(('table', ['Line', 'What ArcNave says', 'Status', 'Fable'], rows, [6, 50, 13, 31]))
+
+    if plain:
+        d.append(('h2', 'Part 3: tools, skills and settings'))
+        d.append(('h3', 'Tools both have'))
+        d.append(('caption', 'The actions the AI can take. Only the tools that differ get their own row.'))
+        d.append(('table', ['Tool', 'Status', 'What differs'],
+                  [[r[0], ('badge', r[1]), r[2]] for r in PL.TOOLS_TABLE], [20, 13, 67], True))
+        d.append(('h3', 'Skills, sandbox and what is sent with each message'))
+        d.append(('caption', 'The other parts of Fable\'s instructions.'))
+        d.append(('table', ['Fable part', 'Line', 'Status', 'In ArcNave'],
+                  [[r[0], r[1], ('badge', r[2]), r[3]] for r in PL.PART_C], [24, 8, 13, 55]))
+        code = sum(1 for u in fable if v(u)[0] == 'N' and PL.is_code(u['text']))
+        d.append(('h2', 'Appendix A: rules that do not apply to ArcNave'))
+        d.append(('p', f'{len(na_rows)} rules about features ArcNave does not have (connected apps, web-page '
+                       'artifacts, ending a chat, plugins, Google data) or about Claude itself. '
+                       f'{code} more are code samples for those features; they are in the developer version.'))
+        d.append(('table', ['Topic', 'Line', 'What Fable says', 'Why it does not apply'], na_rows, [16, 6, 56, 22]))
+        d.append(('h2', 'Appendix B: how this was done, and its limits'))
+        d.append(('table', ['Question', 'Answer'], PL.METHOD, [22, 78]))
+        return d
 
     d.append(('h2', 'Part 3: tools, skills and settings'))
     d.append(('h3', 'Tools both have'))
@@ -560,10 +593,9 @@ METHOD = [
 
 
 def main():
-    doc = build()
-    MD_OUT.write_text(render_md(doc))
+    MD_OUT.write_text(render_md(build()))
     WORK.mkdir(exist_ok=True)
-    HTML_OUT.write_text(render_html(doc, 'ArcNave vs Fable 5.1 prompt audit'))
+    HTML_OUT.write_text(render_html(build(plain=True), 'ArcNave vs Claude instructions'))
     print(f'wrote {MD_OUT.relative_to(ROOT)} and {HTML_OUT.relative_to(ROOT)}')
 
 
