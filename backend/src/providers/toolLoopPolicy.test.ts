@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  finalRoundFinishReason,
   hasTerminalToolCall,
   isLastRound,
   isTerminalTool,
@@ -12,6 +13,15 @@ describe('toolLoopPolicy', () => {
     expect(resolveMaxRounds(5, true)).toBe(5);
     expect(resolveMaxRounds(5, false)).toBe(1);
     expect(resolveMaxRounds(0, true)).toBe(1);
+  });
+
+  it('reports the last allowed round as tool_limit, except an output cut-off or a refusal', () => {
+    for (const r of ['stop', 'STOP', 'end_turn', 'tool_use', 'UNEXPECTED_TOOL_CALL', 'OTHER']) {
+      expect(finalRoundFinishReason(r)).toBe('tool_limit');
+    }
+    for (const r of ['max_tokens', 'MAX_TOKENS', 'refusal', 'SAFETY', 'PROHIBITED_CONTENT']) {
+      expect(finalRoundFinishReason(r)).toBe(r);
+    }
   });
 
   it('determines if current round is the last round', () => {

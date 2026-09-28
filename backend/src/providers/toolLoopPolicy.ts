@@ -18,6 +18,19 @@ export function isLastRound(round: number, maxRounds: number): boolean {
   return round === maxRounds - 1;
 }
 
+/** Finish reasons the user must see as they are: an output cut-off, or a refusal or block. */
+const KEPT_ON_FINAL_ROUND = /^(max_tokens|length|refusal|safety|recitation|blocklist|prohibited_content|spii|image_safety)$/i;
+
+/**
+ * The finish reason of a turn whose last allowed round ran. Every earlier round made calls, so
+ * the turn used its tool budget, whether or not that round wrote an answer: it is reported as
+ * tool_limit, so the reply shows the limit and offers Continue (ADR-0051). An output cut-off or a
+ * refusal on that round is reported as itself.
+ */
+export function finalRoundFinishReason(providerFinishReason: string): string {
+  return KEPT_ON_FINAL_ROUND.test(providerFinishReason) ? providerFinishReason : 'tool_limit';
+}
+
 /** Tools that end the provider round loop immediately after execution (ADR-0034). */
 export const TERMINAL_TOOLS = new Set<string>(['ask_user_input_v0']);
 

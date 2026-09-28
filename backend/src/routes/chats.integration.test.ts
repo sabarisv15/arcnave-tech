@@ -14,6 +14,7 @@ import { toolCalls } from '../db/schema.js';
 import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import { ModelNotFoundError } from '../providers/types.js';
+import type { ProviderEvent } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { png } from '../test/fixtures/files.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp, sleep, sseText } from '../test/harness.js';
@@ -240,6 +241,57 @@ describe('thinking (audit B8)', () => {
       { type: 'thinking', text: 'Now answer.' },
       { type: 'text', text: 'Done.' },
     ]);
+  });
+});
+
+const USAGE = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true };
+
+describe('a turn that ends with no text (ADR-0051)', () => {
+  const toolRound = (id: string): ProviderEvent[] => [
+    { type: 'tool_use', toolCallId: id, name: 'search_tools', input: { query: id } },
+    { type: 'tool_result', toolCallId: id, name: 'search_tools', result: { toolCallId: id, ok: true, content: [{ type: 'text', text: 'none' }] } },
+  ];
+
+  it('at the tool limit is kept as cut off, with no second request that lacks the tool results', async () => {
+    ctx.provider.script = [
+      ...toolRound('t1'),
+      ...toolRound('t2'),
+      {
+        type: 'completed',
+        usage: USAGE,
+        finishReason: 'tool_limit',
+        finalRound: { functionCallingOff: true, callsNotRun: ['search_tools'], textCharacters: 0, providerFinishReason: 'STOP' },
+      },
+    ];
+    const requestsBefore = ctx.provider.seen.length;
+    const chatId = await newChat();
+    const { body } = await generate(chatId);
+    const frames = parseSse(body);
+
+    expect(ctx.provider.seen.length - requestsBefore).toBe(1);
+    expect(frames.some((f) => f.event === 'error')).toBe(false);
+    expect(frames.at(-1)).toMatchObject({ event: 'done', data: { finishReason: 'tool_limit' } });
+    const message = (await transcript(chatId)).messages.find((m) => m.role === 'assistant')!;
+    // Kept as cut off: the reply shows the limit and Continue, and the calls stay in history.
+    expect(message).toMatchObject({ status: 'complete', finishReason: 'tool_limit', text: '' });
+    expect(message.toolCalls.map((c) => c.toolCallId)).toEqual(['t1', 't2']);
+
+    const messageId = (frames.find((f) => f.event === 'start')!.data as { messageId: string }).messageId;
+    const log = (await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}/messages/${messageId}/log`, headers: auth() })).body;
+    expect(log).toContain('"callsNotRun":["search_tools"]');
+    expect(log).toContain('shown as cut off, with Continue');
+  });
+
+  it('for any other reason is empty_response, again with no second request', async () => {
+    ctx.provider.script = [...toolRound('t1'), { type: 'completed', usage: USAGE, finishReason: 'stop' }];
+    const requestsBefore = ctx.provider.seen.length;
+    const chatId = await newChat();
+    const { body } = await generate(chatId);
+
+    expect(ctx.provider.seen.length - requestsBefore).toBe(1);
+    expect(parseSse(body).find((f) => f.event === 'error')?.data).toMatchObject({ code: 'empty_response' });
+    const message = (await transcript(chatId)).messages.find((m) => m.role === 'assistant')!;
+    expect(message).toMatchObject({ status: 'error', errorCode: 'empty_response' });
   });
 });
 

@@ -16,6 +16,7 @@ import type { Config } from '../config.js';
 import { logger } from '../logger.js';
 import { sourcesFromAnthropicBlocks } from './grounding.js';
 import type {
+  FinalRoundReport,
   GenerationRequest,
   Provider,
   ProviderEvent,
@@ -24,7 +25,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
-import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { finalRoundFinishReason, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
@@ -357,6 +358,7 @@ export class AnthropicVertexProvider implements Provider {
     // Summed over the rounds: each round is its own request, billed on its own.
     let usage: ProviderUsage | null = null;
     let finishReason = 'stop';
+    let finalRound: FinalRoundReport | undefined;
     const searchBlocks: SearchResultBlock[] = [];
     let messages = buildAnthropicMessages(request);
     const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
@@ -492,6 +494,18 @@ export class AnthropicVertexProvider implements Provider {
         const toolUseBlocks = (final.content ?? []).filter(
           (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
         );
+        // The last allowed round went out without tools: the turn used its tool budget whether or
+        // not this round answered (ADR-0051).
+        if (isFinalRound && useTools && round > 0) {
+          finalRound = {
+            functionCallingOff: true,
+            callsNotRun: toolUseBlocks.map((b) => b.name),
+            textCharacters: (final.content ?? []).reduce((n, b) => n + (b.type === 'text' ? b.text.length : 0), 0),
+            providerFinishReason: finishReason,
+          };
+          finishReason = finalRoundFinishReason(finishReason);
+          break;
+        }
         if (!useTools || toolUseBlocks.length === 0) break;
 
         messages = [...messages, { role: 'assistant', content: final.content }];
@@ -538,7 +552,6 @@ export class AnthropicVertexProvider implements Provider {
           break;
         }
 
-        if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (request.signal.aborted) throw err;
@@ -582,7 +595,7 @@ export class AnthropicVertexProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason, ...(finalRound ? { finalRound } : {}) };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

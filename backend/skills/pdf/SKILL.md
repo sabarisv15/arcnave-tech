@@ -1,7 +1,7 @@
 ---
 name: pdf
-version: 6.1.0
-description: "Use whenever the user wants a PDF file produced or changed: creating a PDF from content, filling a PDF form, merging PDFs, splitting or extracting pages, rotating, rewriting a PDF's content, or converting a PDF into an Excel, Word or PowerPoint file. For reading a PDF that is not in your context, use the pdf-reading skill."
+version: 7.0.0
+description: "Use whenever the user wants anything done with a PDF: reading it or extracting its text, tables or figures, scanned pages and OCR, creating a PDF from content, filling a PDF form, merging PDFs, splitting or extracting pages, rotating, rewriting a PDF's content, or converting a PDF into an Excel, Word or PowerPoint file. If the user mentions a .pdf file or asks for one, use this skill. For a PDF whose content is not in your context, the pdf-reading skill says how to read it from the file."
 category: artifact
 scope: builtin
 requires:
@@ -14,8 +14,27 @@ metadata:
 
 # PDF
 
-This skill produces and changes PDF files. A PDF of up to 100 pages is already in your context
-as page images and text; for one that is not, the pdf-reading skill says how to read it.
+This skill reads, produces and changes PDF files.
+
+## Reading a PDF
+
+A PDF of up to 100 pages is already in your context: an image of every page, with that page's
+text. Read, count, total and transcribe from what you see; that needs no command. For a PDF that
+is not in your context (past 100 pages), the pdf-reading skill says how to read it from the file.
+
+When one region is too small, faint or covered to read (a stamp over a total, a smudged digit),
+render only that region larger and `view` it:
+
+```python
+import pymupdf
+page = pymupdf.open("input/file.pdf")[11]          # page 12
+page.get_pixmap(dpi=300, clip=pymupdf.Rect(300, 640, 590, 700)).save("p12_total.png")
+```
+
+If it still cannot be read, say which figure could not be read and why. A figure worked out
+from others (a total from a balance) is given as worked out, never as read. OCR (tesseract) makes
+a scanned PDF searchable; it does not replace reading the page images, and its digits are
+unreliable on scans and under stamps.
 
 Work on the sandbox computer: write a script with `create_file` and run it with `bash_tool`
 (`python3 build.py`), or run a short command directly. Uploaded files are in `input/`

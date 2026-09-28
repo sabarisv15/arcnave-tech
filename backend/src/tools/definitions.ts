@@ -81,14 +81,12 @@ export function codeToolDefinitions(persistent: boolean): ToolDefinition[] {
   return [
     {
       name: 'bash_tool',
+      // As the reference's, the description names no library (ADR-0051): a list here offered OCR
+      // on every turn, and a scanned PDF already in view went through 15 OCR calls. What the
+      // machine has is in the skills that use it; its locations are in the prompt's computer section.
       description:
         'Runs a bash command on ' + machine.charAt(0).toLowerCase() + machine.slice(1) +
-        'No network access, and nothing can be installed. Python 3 with pandas, numpy, scipy, matplotlib, ' +
-        'openpyxl, xlrd, xlsxwriter, pdfplumber, pypdf, pymupdf (fitz), python-docx, python-pptx, pillow, ' +
-        'opencv and pytesseract; poppler (pdftoppm, pdftotext), pandoc and LibreOffice. The files in the ' +
-        'conversation are in input/ (read-only), at the path on each file\'s attachment line. Write files ' +
-        'for the user to output/ and hand them over with present_files. Output is truncated when long, ' +
-        'so print summaries, not whole tables.',
+        'Output is truncated when long, so print summaries, not whole tables.',
       inputSchema: {
         type: 'object',
         properties: {

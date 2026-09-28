@@ -55,7 +55,6 @@ import type {
   Turn,
 } from '../providers/types.js';
 import {
-  addRequestUsage,
   EMPTY_USAGE,
   isAbort,
   ModelNotFoundError,
@@ -999,7 +998,12 @@ export class GenerationService {
             usage = event.usage;
             finishReason = event.finishReason;
             this.registry.recordOutcome(entry.alias, { available: true });
-            turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: toolsCalled.length, stream: split.summary() });
+            turnLog.stage('provider completed', {
+              finishReason: event.finishReason,
+              toolCalls: toolsCalled.length,
+              stream: split.summary(),
+              ...(event.finalRound ? { finalRound: event.finalRound } : {}),
+            });
             break;
         }
       }
@@ -1061,51 +1065,17 @@ export class GenerationService {
     }
 
     // --- persist ----------------------------------------------------------
-    let text = collectedText.join('');
+    const text = collectedText.join('');
 
-    // Guaranteed Final Outcome: synthesize text if tool loop finished blank
+    // A turn that ends with no text is reported as what it is. It is never answered by a second
+    // request: that request would not carry the loop's tool results, and its finish reason would
+    // hide the tool limit (ADR-0051, Invariant 1). A turn that used every tool round shows the
+    // limit with Continue; the next turn carries the calls in its history.
     if (status === 'complete' && text.trim().length === 0) {
-      turnLog.stage('empty reply', { note: 'the tool loop ended with no text; one more request, without tools, asks for the answer' });
-      try {
-        const synthesisRequest: GenerationRequest = {
-          ...request,
-          tools: [],
-          toolExecutor: undefined,
-          prompt: `${input.prompt}\n\n[System Instruction: Synthesize a complete final answer based on the previous tool results above. Do not call any further tools.]`,
-        };
-        const synthesisStream = provider.stream(synthesisRequest);
-        for await (const event of synthesisStream) {
-          if (event.type === 'delta' && event.text) {
-            const safe = answerGuard.push(event.text);
-            collectedText.push(safe);
-            addSegment('text', safe);
-            turnLog.text(safe);
-            if (safe) yield { type: 'delta', text: safe };
-          } else if (event.type === 'completed') {
-            const tail = answerGuard.finish();
-            if (tail) {
-              collectedText.push(tail);
-              addSegment('text', tail);
-              turnLog.text(tail);
-              yield { type: 'delta', text: tail };
-            }
-            // A second request of the same turn: billed on top of the first.
-            usage = addRequestUsage(usage, event.usage);
-            finishReason = event.finishReason;
-          }
-        }
-        text = collectedText.join('');
-      } catch (synthErr) {
-        log.warn({ err: synthErr }, 'Forced synthesis round failed');
-        if (synthErr instanceof ApiError && synthErr.code === 'tool_protocol_in_text') {
-          status = 'error';
-          errorCode = synthErr.code;
-          text = collectedText.join('');
-          yield { type: 'error', code: synthErr.code, title: synthErr.title, detail: synthErr.detail, usage: toUsageDto(usage, null) };
-        }
-      }
-
-      if (status !== 'error' && text.trim().length === 0) {
+      if (finishReason === 'tool_limit') {
+        turnLog.stage('empty reply', { note: 'every tool round was used and no text came; shown as cut off, with Continue' });
+      } else {
+        turnLog.stage('empty reply', { note: 'the model ended the turn with no text', finishReason });
         status = 'error';
         errorCode = 'empty_response';
         const emptyApi = new ApiError('empty_response');

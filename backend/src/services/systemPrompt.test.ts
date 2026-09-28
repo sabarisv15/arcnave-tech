@@ -13,3 +13,24 @@ describe('systemPrompt runtime capabilities', () => {
     );
   });
 });
+
+describe('the skill rule and the tool rule (ADR-0051)', () => {
+  const cfg = { ENABLE_TOOL_USE: true } as Config;
+  const caps = (skills: boolean) =>
+    new InMemoryCapabilityRegistry([
+      { id: 'python.execute', status: 'full' },
+      ...(skills ? [{ id: 'skills.discover', status: 'full' as const }] : []),
+    ]);
+
+  it('repeats the skill rule, with the examples, after the file guidance', () => {
+    const prompt = buildDynamicRuntimeContext(cfg, caps(true));
+    const reminder = prompt.indexOf('<skills_reminder>');
+    expect(reminder).toBeGreaterThan(prompt.indexOf('</files>'));
+    expect(prompt.slice(reminder)).toContain('answer from what you see; no tool, no view');
+    expect(prompt.slice(reminder)).toContain('does not depend on whether the task seems to need a skill');
+  });
+
+  it('leaves the reminder out when there are no skills', () => {
+    expect(buildDynamicRuntimeContext(cfg, caps(false))).not.toContain('<skills_reminder>');
+  });
+});

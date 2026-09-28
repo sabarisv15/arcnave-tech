@@ -4,6 +4,7 @@
   [ADR-0016](0016-gemini-reads-page-images-by-uri.md).
 - Date: 2026-09-25
 - Builds on: [ADR-0011](0011-upload-follows-claude.md) (the upload-time `reading` value)
+- Amended by [ADR-0051](0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md): Gemini reads each page image at `MEDIA_RESOLUTION_ULTRA_HIGH` (`GEMINI_PDF_PAGE_RESOLUTION`), falling back to the default if Vertex rejects it.
 
 ## Context
 

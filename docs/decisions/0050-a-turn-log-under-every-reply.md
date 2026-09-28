@@ -5,6 +5,7 @@
 - Date: 2026-09-28
 - Ours: the reference has no such log. Its steps show tool calls; they do not show what a
   request carried.
+- Amended by [ADR-0051](0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md): the `provider completed` stage records the final round (function calling off, calls not run, text length, provider finish reason).
 
 ## Context
 

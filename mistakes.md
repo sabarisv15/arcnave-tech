@@ -1296,3 +1296,22 @@ practice, not canon.
   and reads how the prompt and a skill combine on one real request; "no conflict" is said only
   after that. Verify: `skills.test.ts` "splits PDF reading from PDF building" and
   `behaviorEvaluation.test.ts` Eval 11b2.
+- **2026-09-28 (turn-log audit, upload to answer)** — No new heading (at the cap). Two of mine.
+  (1) Asked "why", I started editing `generation.ts` before the owner had seen the root cause;
+  the owner stopped it. Rule: when the owner asks for a cause or an audit, report first and
+  change code only after an explicit OK; revert anything started early. (2) I told the owner
+  the skill was skipped because of "a model gap, not a prompt gap", before reading the tool
+  descriptions and skill scopes against the reference. The audit then found `bash_tool`
+  advertising pytesseract/opencv (the reference's description names no library) and our `pdf`
+  skill scoped to building only (the reference's covers reading), so no skill matched the
+  request. Rule: blame the model only after the tool descriptions, skill descriptions and
+  prompt sentences the turn saw have each been read beside the reference's. Verify:
+  `docs/audits/2026-09-28-claude-vs-arcnave-upload-to-answer.md` G2, G4, G5 and S6.
+- **2026-09-28 (ADR-0051)** — No new heading (at the cap). A fresh cloud sandbox has no
+  poppler: 19 PDF tests failed on the untouched baseline (`pdfinfo`/`pdftoppm` not found), which
+  reads like a regression if the baseline is skipped. Rule: in a new container run the suite once
+  before changing anything; if PDF tests fail, `apt-get install -y poppler-utils` (next to the
+  Postgres step above) and re-run. Verify: `which pdfinfo pdftoppm`, then 907/907 before edits.
+  Also: I first wrote a comment on an Anthropic-adapter line calling it reachable at one round;
+  the final round sends no tools, so it was dead code. Removed rather than re-explained. Rule:
+  read what the round sends before commenting on what it can return.

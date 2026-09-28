@@ -154,6 +154,10 @@ const envSchema = z.object({
   ENABLE_GEMINI_CODE_EXECUTION: bool(false),
   /** ADR-0037: ask Vertex to stream function-call arguments so a visual draws while written. */
   GEMINI_STREAM_TOOL_ARGS: bool(true),
+  /** ADR-0051: how finely Gemini reads a PDF page image. Gemini 3's default for an image is 1,120
+   *  tokens; the reference reads the same page at about 3,600. `ultra_high` (2,240, set per part)
+   *  is the closest Gemini offers; `default` sends no setting. */
+  GEMINI_PDF_PAGE_RESOLUTION: z.enum(['default', 'high', 'ultra_high']).default('ultra_high'),
 
   /**
    * Master gate for the item-9 tool-calling loop. Off by default: a deployment gains nothing

@@ -82,6 +82,15 @@ describe('ProjectToolRegistry', () => {
     expect(bash(false)).toMatch(/each call starts from an empty machine/);
   });
 
+  it('names no library in bash_tool, as the reference does: the skills say what the machine has (ADR-0051)', () => {
+    for (const persistent of [true, false]) {
+      const bash = codeToolDefinitions(persistent).find((t) => t.name === 'bash_tool')!.description;
+      for (const lib of ['pytesseract', 'opencv', 'pandas', 'pymupdf', 'pdfplumber', 'LibreOffice']) {
+        expect(bash).not.toContain(lib);
+      }
+    }
+  });
+
   it('offers project tools only inside a project', () => {
     const registry = new ProjectToolRegistry(true);
     expect(names(registry, { projectId: null })).not.toContain('search_project_files');
