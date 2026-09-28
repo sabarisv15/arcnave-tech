@@ -1,5 +1,21 @@
 # ArcNave — current checkpoint
 
+> **2026-09-28: Google Start Tier public-site readiness on `codex/startup-site-readiness`; local only.**
+> Founder confirmed founding date (15 September 2025), no Google Cloud credits beyond free
+> credits, planned institution subscription with pricing unset, and intent to seek venture
+> funding within 12 months. Public copy now explains the independent startup, customer and
+> payer, current product, planned faculty workflows, roadmap, and growth direction. Auth copy
+> and prerendered SEO metadata align with the campus product. Application answer draft and
+> submission checks: [`2026-09-28-google-start-tier-site.md`](../handover/2026-09-28-google-start-tier-site.md)
+> and [`2026-09-28-google-start-tier-answers.md`](../handover/2026-09-28-google-start-tier-answers.md).
+> Frontend build and 195/195 tests pass; local desktop and 320/390px phone preview checked
+> for home, About, roadmap, business model, login, and mobile navigation. No horizontal
+> overflow at 320, 390, 768, or 1280px. Backend typecheck passes; backend suite has 872 passed,
+> 25 failed, 10 skipped due local Windows process/PDF tool environment (`pdftotext` absent,
+> `python3` absent, command newline differences). No backend code was changed.
+> Authenticated production MVP, billing/email alignment, and live release remain to verify.
+> No deployment or application submission performed.
+
 > **2026-09-28 (latest): a turn log under every reply ([ADR-0050](../decisions/0050-a-turn-log-under-every-reply.md)). Tested locally; not deployed.**
 > - Each reply stores a Markdown log: model, what the request carried (PDF page images, by URI
 >   or inline, text-layer pages), tools and skills offered, the user message as sent, thinking,
