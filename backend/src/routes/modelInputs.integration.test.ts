@@ -139,7 +139,8 @@ describe('a turn log under every reply (ADR-0050)', () => {
 
       const log = await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}/messages/${messageId}/log`, headers });
       expect(log.statusCode).toBe(200);
-      expect(log.headers['content-type']).toContain('text/markdown');
+      expect(log.headers['content-type']).toContain('text/plain');
+      expect(log.headers['content-disposition']).toContain('.txt');
       const md = log.body;
       expect(md).toContain('"scan.pdf" (application/pdf): 3 pages, 3 page images sent (3 by Cloud Storage URI); a text layer on 1 of 3');
       expect(md).toContain('- Client: mobile');

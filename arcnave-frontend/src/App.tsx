@@ -1122,6 +1122,7 @@ function MessageView({
           >
             <ThumbsDown size={15} />
           </IconButton>
+          <TurnLogButton chatId={chatId} messageId={m.id} />
           <Dropdown
             label="Response actions"
             trigger={
@@ -1144,11 +1145,6 @@ function MessageView({
                 onSelect: () => saveResponseAsArtifact(chatId, m.id),
               },
               {
-                label: "Download turn log",
-                icon: <FileText size={15} />,
-                onSelect: () => void downloadAuthenticated(api.chats.logUrl(chatId, m.id), `turn-log-${m.id}.md`),
-              },
-              {
                 label: "View research details",
                 icon: <Telescope size={15} />,
                 disabled: m.mode === "chat",
@@ -1158,6 +1154,11 @@ function MessageView({
             ]}
           />
           {copied && <span className="copy-label">Copied</span>}
+        </div>
+      )}
+      {!loading && !m.text && !pending && (m.status === "error" || m.status === "stopped") && (
+        <div className="message-actions assistant-actions">
+          <TurnLogButton chatId={chatId} messageId={m.id} />
         </div>
       )}
       {usage && !loading && (
@@ -1255,6 +1256,22 @@ function ImageCard({ item }: { item: ImageData }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** Downloads what this reply sent and did (ADR-0050), so it is read rather than guessed. */
+function TurnLogButton({ chatId, messageId }: { chatId: string; messageId: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <IconButton
+      label={failed ? "No turn log for this reply" : "Download turn log"}
+      onClick={() => {
+        setFailed(false);
+        void downloadAuthenticated(api.chats.logUrl(chatId, messageId), `turn-log-${messageId}.txt`).catch(() => setFailed(true));
+      }}
+    >
+      {failed ? <TriangleAlert size={15} /> : <FileText size={15} />}
+    </IconButton>
   );
 }
 

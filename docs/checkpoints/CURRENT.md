@@ -4,7 +4,8 @@
 > - Each reply stores a Markdown log: model, what the request carried (PDF page images, by URI
 >   or inline, text-layer pages), tools and skills offered, the user message as sent, thinking,
 >   every tool call with input and result, status, usage, timings. Migration 0023 (`turn_logs`).
-> - "Download turn log" in each reply's more menu; `GET /v1/chats/:id/messages/:messageId/log`.
+> - "Download turn log" button under every reply (a `.txt`, Markdown inside, so phones open it);
+>   `GET /v1/chats/:id/messages/:messageId/log`.
 > - ADR-0049 (below) is merged to main (`4719882`); its live check is still open.
 > - Backend **906/906**; frontend typecheck, **195/195**, build.
 > - Next: owner approval to merge and deploy; then the scanned-statement question again, and

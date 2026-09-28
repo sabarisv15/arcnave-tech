@@ -1921,7 +1921,7 @@
     },
     "/chats/{id}/messages/{messageId}/log": {
       "get": {
-        "summary": "A reply's turn log, as Markdown (ADR-0050)",
+        "summary": "A reply's turn log, as a text file (ADR-0050)",
         "tags": [
           "chats"
         ],

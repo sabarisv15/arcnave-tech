@@ -753,7 +753,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     {
       schema: {
         tags: ['chats'],
-        summary: "A reply's turn log, as Markdown (ADR-0050)",
+        summary: "A reply's turn log, as a text file (ADR-0050)",
         description:
           'What the reply sent and did: the model, the attachments as they went (PDF page images included), ' +
           'the tools and skills offered, and every tool call with its input and result.',
@@ -772,8 +772,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         .limit(1);
       if (!row) throw notFound('turn log');
       return reply
-        .header('Content-Type', 'text/markdown; charset=utf-8')
-        .header('Content-Disposition', `attachment; filename="turn-log-${request.params.messageId}.md"`)
+        .header('Content-Type', 'text/plain; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="turn-log-${request.params.messageId}.txt"`)
         .send(row.markdown);
     },
   );

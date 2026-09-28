@@ -25,8 +25,10 @@ inference from code. The existing debug event names the tools allowed and called
    message as sent, with the attachment manifest; then thinking, reply text and every tool call
    in order with its input and result (6,000 characters each, the cut said); then status,
    finish reason, usage and phase timings.
-3. `GET /v1/chats/:id/messages/:messageId/log` returns it as a Markdown download to the chat's
-   owner only. The reply's "more" menu has "Download turn log".
+3. `GET /v1/chats/:id/messages/:messageId/log` returns it as a `.txt` download (`text/plain`,
+   Markdown inside) to the chat's owner only: the same bytes as `.md`, but a phone opens a
+   `.txt` in its own viewer. Every reply shows a "Download turn log" button beside copy and
+   regenerate; a reply that failed or stopped with no text shows it on its own.
 
 ## Consequences
 
@@ -34,5 +36,3 @@ inference from code. The existing debug event names the tools allowed and called
 - The prompt text stays out of the log, so the log can be shown to every user.
 - Each reply stores a few kilobytes more; the log goes with its message when the chat is
   deleted.
-- A reply that failed before any text has no action row, so its log is not yet offered in the
-  menu; the route serves it.
