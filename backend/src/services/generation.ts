@@ -405,8 +405,14 @@ export class GenerationService {
     const runId = `${input.chatId}_${input.messageId}`;
     const workspace = await this.executionRuntime.createWorkspace(runId);
     timing.mark('workspace');
-    // ADR-0050: what this reply sent and did, stored for the person to read.
-    let turnLog: TurnLog | undefined;
+    // ADR-0050: what this reply sent and did, stage by stage, stored for the person to read.
+    const turnLog = new TurnLog({
+      messageId: input.messageId,
+      chatId: input.chatId,
+      startedAt,
+      ...(input.clientPlatform ? { clientPlatform: input.clientPlatform } : {}),
+    });
+    turnLog.stage('workspace', { runId });
     const logOutcome: { status: string; finishReason?: string | null; errorCode?: string | null; usage?: object } = {
       status: 'unfinished',
     };
@@ -431,6 +437,12 @@ export class GenerationService {
       input.modelAlias,
     );
     timing.mark('history');
+    turnLog.stage('history', {
+      earlierTurns: loaded.turns.length,
+      compactedThroughSeq: latestCompaction?.throughSeq ?? null,
+      prompt: `${String(input.prompt.length)} characters`,
+      attachmentsOfThisMessage: input.attachments.length || loaded.currentUserAttachments.length,
+    });
     let history = loaded.turns;
     const currentUserAttachments = loaded.currentUserAttachments;
     if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
@@ -449,6 +461,15 @@ export class GenerationService {
       project?.instructions.length ?? 0,
     );
     timing.mark('model_resolve');
+    turnLog.stage('model', {
+      requested: input.modelAlias,
+      resolved: entry.alias,
+      provider: entry.provider,
+      providerModelId: entry.providerModelId,
+      needsVision: requiresVision,
+      needsGrounding: requiresGrounding,
+      ...(routing ? { autoRule: routing.rule, considered: routing.considered } : {}),
+    });
     // A probe ran inside resolution when the alias's status was checked during this turn.
     timing.note('probed', (this.registry.lastProbedAt(entry.alias) ?? 0) >= timing.since);
     timing.note('model', entry.alias);
@@ -498,16 +519,8 @@ export class GenerationService {
       codeExecution,
     };
 
-    turnLog = new TurnLog({
-      messageId: input.messageId,
-      chatId: input.chatId,
-      startedAt,
-      requested: input.modelAlias,
-      resolved: entry.alias,
-      providerModelId: entry.providerModelId!,
-      grounded,
-      ...(input.clientPlatform ? { clientPlatform: input.clientPlatform } : {}),
-    });
+    turnLog.setModel({ requested: input.modelAlias, resolved: entry.alias, providerModelId: entry.providerModelId!, grounded });
+    turnLog.stage('capabilities', { builtInSearch: grounded, searchAvailable, codeExecution });
 
     yield {
       type: 'start',
@@ -525,6 +538,7 @@ export class GenerationService {
       compactedNow = compacted;
       timing.mark('compaction');
       timing.note('compacted', compacted);
+      turnLog.stage('compaction', { compacted });
       if (compacted) {
         latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
         ({ turns: history } = await this.loadHistory(input.chatId, input.messageId, latestCompaction?.throughSeq, input.modelAlias));
@@ -559,6 +573,15 @@ export class GenerationService {
       .filter((t) => routingDecision.allowedTools.includes(t.name))
       .map((t) => (t.name === 'web_fetch' && grounded ? WEB_FETCH_WITH_BUILT_IN_SEARCH : t));
     const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
+    turnLog.stage('routing', {
+      code: codeEnabled,
+      web: webEnabled,
+      searchProviderLive: webSearchAdapter.isLive,
+      memory: memoryEnabled,
+      generativeUi: generativeUiEnabled,
+      project: project !== null,
+      declared: availableTools.map((t) => t.name),
+    });
 
     // --- skills: names and descriptions up front, each read with view when needed ---------
     // Skills are listed only when view can read them (Invariant 1). After a compaction, the
@@ -608,6 +631,11 @@ export class GenerationService {
 
     // --- assemble context -------------------------------------------------
     timing.mark('skills_tools');
+    turnLog.stage('skills', {
+      enabled: skillsEnabled,
+      listed: skillsEnabled ? this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : [],
+      reinjectedAfterCompaction: loadedSkills.map((s) => s.name),
+    });
     const { systemInstruction, contextEvents, promptAssembly } = await this.buildSystemInstruction(
       input,
       prefs,
@@ -624,6 +652,12 @@ export class GenerationService {
     }
 
     timing.mark('system_prompt');
+    turnLog.stage('system prompt', {
+      characters: systemInstruction.length,
+      parts: Object.entries(promptAssembly.dynamicSuffix)
+        .filter(([, v]) => typeof v === 'string' && v.trim() !== '')
+        .map(([k, v]) => `${k} ${String((v as string).length)}`),
+    });
     const modelSpec = getModelCapability(entry.alias);
     const maxOutputTokens = Math.min(
       prefs.maxOutputTokens || this.cfg.DEFAULT_MAX_OUTPUT_TOKENS,
@@ -640,6 +674,7 @@ export class GenerationService {
     // The reservation is the worst case for this request; it is released as soon as the real
     // numbers land, so a large ceiling does not lock out the rest of the day.
     await this.usage.reserve(input.userId, prefs, maxOutputTokens);
+    turnLog.stage('budget', { maxOutputTokens, effortRequested: requestedEffort ?? null, effortUsed: reasoningEffort ?? null });
     let reservationHeld = true;
     const releaseReservation = async (): Promise<void> => {
       if (!reservationHeld) return;
@@ -723,6 +758,7 @@ export class GenerationService {
 
     const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
     timing.mark('tools_setup');
+    turnLog.stage('tool executors', { executors: [...new Set([...toolMap.values()].map((e) => e.constructor.name))] });
 
     const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
       entry.alias,
@@ -731,6 +767,16 @@ export class GenerationService {
       releaseReservation,
     );
     timing.mark('attachments');
+    {
+      const all = [...wireAttachments, ...wireHistory.flatMap((t) => t.attachments ?? [])];
+      turnLog.stage('attachments', {
+        current: wireAttachments.length,
+        fromHistory: all.length - wireAttachments.length,
+        pdfsAsPages: all.filter((a) => a.pages).length,
+        pageImages: all.reduce((n, a) => n + (a.pages?.filter((p) => p.image?.fileUri || p.image?.base64).length ?? 0), 0),
+        leftOut: all.filter((a) => a.omittedReason).map((a) => `${a.filename ?? a.id}: ${a.omittedReason!}`),
+      });
+    }
 
     const allAttachmentsMap = new Map<string, AttachmentBlock>();
     for (const h of wireHistory) {
@@ -779,6 +825,12 @@ export class GenerationService {
       signal: input.signal,
     };
 
+    turnLog.stage('request built', {
+      readWithCode: [...wire.current, ...wire.history.flatMap((t) => t.attachments ?? [])]
+        .filter((a) => a.omittedReason === 'read_with_code')
+        .map((a) => a.filename ?? a.id),
+      previousContextTokens,
+    });
     turnLog.sent(request, skillsEnabled ? this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : []);
 
     let usage: ProviderUsage = EMPTY_USAGE;
@@ -819,6 +871,7 @@ export class GenerationService {
         if (firstProviderEvent) {
           firstProviderEvent = false;
           timing.mark('provider_first_event');
+          turnLog.stage('provider first event', { event: event.type });
         }
         split.observe(event.type);
         timing.note('streamMs', split.summary());
@@ -946,6 +999,7 @@ export class GenerationService {
             usage = event.usage;
             finishReason = event.finishReason;
             this.registry.recordOutcome(entry.alias, { available: true });
+            turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: toolsCalled.length, stream: split.summary() });
             break;
         }
       }
@@ -960,6 +1014,8 @@ export class GenerationService {
         status = 'error';
         const mapped = mapProviderError(deadlineHit ? input.signal.reason : err);
         errorCode = mapped.code;
+        turnLog.fail(err);
+        turnLog.stage('provider failed', { code: mapped.code, deadline: deadlineHit, toolCalls: toolsCalled.length });
         log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
         await this.finalise(input, {
           text: collectedText.join(''),
@@ -1009,6 +1065,7 @@ export class GenerationService {
 
     // Guaranteed Final Outcome: synthesize text if tool loop finished blank
     if (status === 'complete' && text.trim().length === 0) {
+      turnLog.stage('empty reply', { note: 'the tool loop ended with no text; one more request, without tools, asks for the answer' });
       try {
         const synthesisRequest: GenerationRequest = {
           ...request,
@@ -1079,6 +1136,7 @@ export class GenerationService {
       effort: reasoningEffort,
     });
 
+    turnLog.stage('saved', { status, textCharacters: text.length, segments: segments.length });
     Object.assign(logOutcome, {
       status: status === 'cancelled' ? 'stopped' : status,
       finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
@@ -1120,10 +1178,16 @@ export class GenerationService {
         ...(reasoningEffort ? { effort: reasoningEffort } : {}),
       };
     }
+    } catch (err) {
+      // A failure outside the provider stream (model resolution, a limit, the budget, saving):
+      // the log says which stage it came after, then the error goes on as before.
+      turnLog.fail(err);
+      Object.assign(logOutcome, { status: 'error', errorCode: (err as { code?: string }).code ?? 'internal' });
+      throw err;
     } finally {
       timing.mark('stream_and_persist');
       log.info({ chatId: input.chatId, messageId: input.messageId, ...timing.summary() }, 'turn timing');
-      if (turnLog) {
+      {
         turnLog.finish({ ...logOutcome, timing: timing.summary() });
         const markdown = turnLog.markdown();
         await this.db

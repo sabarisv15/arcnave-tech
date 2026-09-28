@@ -152,6 +152,13 @@ describe('a turn log under every reply (ADR-0050)', () => {
       expect(md).toContain('Pages: 3');
       expect(md).toContain('The pages are in view.');
       expect(md).toContain('- Status: complete');
+      // The pipeline, stage by stage, with what each decided.
+      for (const stage of ['| history |', '| model |', '| routing |', '| skills |', '| system prompt |', '| attachments |', '| provider first event |', '| provider completed |', '| saved |']) {
+        expect(md).toContain(stage);
+      }
+      expect(md).toContain('pageImages: 3');
+      expect(md).toMatch(/### 1\. bash_tool \(at [\d.]+ s, took [\d.]+ s\)/);
+      expect(md).not.toContain('## Where it failed');
       expect(md).toContain('Evlo pages?');
       // The system prompt's size and sections, never its text.
       expect(md).toMatch(/- System prompt: \d+ characters; sections: /);
@@ -163,6 +170,27 @@ describe('a turn log under every reply (ADR-0050)', () => {
       expect(denied.statusCode).toBe(404);
     } finally {
       ctx.provider.script = script;
+    }
+  });
+});
+
+describe('a failed turn says where it failed (ADR-0050)', () => {
+  it('names the stage and the error', async () => {
+    const headers = { cookie: user.cookie };
+    const chatId = ((await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'fail' } })).json() as { id: string }).id;
+    ctx.provider.streamError = new Error('upstream exploded');
+    try {
+      const res = await ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers, payload: { prompt: 'hi', model: 'Gemini 3.8 Flash' } });
+      const frames = parseSse(res.body);
+      expect(frames.at(-1)!.event).toBe('error');
+      const messageId = (frames.find((f) => f.event === 'start')!.data as { messageId: string }).messageId;
+      const md = (await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}/messages/${messageId}/log`, headers })).body;
+      expect(md).toContain('## Where it failed');
+      expect(md).toContain('upstream exploded');
+      expect(md).toContain('| provider failed |');
+      expect(md).toContain('- Status: error');
+    } finally {
+      ctx.provider.streamError = null;
     }
   });
 });

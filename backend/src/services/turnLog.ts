@@ -97,26 +97,72 @@ export interface TurnLogHeader {
   messageId: string;
   chatId: string;
   startedAt: Date;
+  clientPlatform?: string;
+}
+
+export interface TurnLogModel {
   requested: string;
   resolved: string;
   providerModelId: string;
   grounded: boolean;
-  effort?: string;
-  clientPlatform?: string;
 }
 
 type Step =
   | { kind: 'thinking'; text: string }
   | { kind: 'text'; text: string }
-  | { kind: 'call'; id: string; name: string; input: unknown; result?: ToolResult; at: number };
+  | { kind: 'call'; id: string; name: string; input: unknown; result?: ToolResult; at: number; doneAt?: number };
+
+/** One stage of the backend pipeline: when it finished, how long it took, what it decided. */
+interface Stage {
+  name: string;
+  at: number;
+  ms: number;
+  facts: Record<string, unknown>;
+}
+
+function factText(v: unknown): string {
+  if (v === undefined || v === null) return String(v);
+  if (typeof v === 'string') return v;
+  return JSON.stringify(v);
+}
 
 export class TurnLog {
   private readonly started = Date.now();
+  private lastStage = this.started;
+  private model?: TurnLogModel;
   private request?: { lines: string[] };
   private readonly steps: Step[] = [];
+  private readonly stages: Stage[] = [];
+  private failure?: { stage: string; message: string; stack?: string };
   private end?: string[];
 
   constructor(private readonly header: TurnLogHeader) {}
+
+  setModel(model: TurnLogModel): void {
+    this.model = model;
+  }
+
+  /**
+   * Marks the end of a pipeline stage with what it decided. The stage's time runs from the
+   * previous mark, so the stages add up to the turn.
+   */
+  stage(name: string, facts: Record<string, unknown> = {}): void {
+    const now = Date.now();
+    this.stages.push({ name, at: now - this.started, ms: now - this.lastStage, facts });
+    this.lastStage = now;
+  }
+
+  /** The turn threw: where (the stage after the last one that finished) and what. */
+  fail(err: unknown): void {
+    const next = this.stages.at(-1)?.name;
+    const e = err instanceof Error ? err : new Error(String(err));
+    const code = (err as { code?: unknown }).code;
+    this.failure = {
+      stage: next ? `after "${next}"` : 'before the first stage',
+      message: `${e.name}${typeof code === 'string' ? ` (${code})` : ''}: ${e.message}`,
+      ...(e.stack ? { stack: e.stack.split('\n').slice(0, 8).join('\n') } : {}),
+    };
+  }
 
   /** What was sent: the prompt's shape, the attachments as they went, the tools and skills. */
   sent(request: GenerationRequest, skills: string[]): void {
@@ -152,7 +198,10 @@ export class TurnLog {
 
   result(id: string, result: ToolResult): void {
     const step = this.steps.find((s) => s.kind === 'call' && s.id === id);
-    if (step?.kind === 'call') step.result = result;
+    if (step?.kind === 'call') {
+      step.result = result;
+      step.doneAt = Date.now() - this.started;
+    }
   }
 
   finish(outcome: { status: string; finishReason?: string | null; errorCode?: string | null; usage?: object; timing?: object }): void {
@@ -167,14 +216,34 @@ export class TurnLog {
 
   markdown(): string {
     const h = this.header;
+    const m = this.model;
     const out = [
       `# Turn log ${h.messageId}`,
       '',
       `- Chat: ${h.chatId}`,
       `- Started: ${h.startedAt.toISOString()}`,
-      `- Model: ${h.resolved} (${h.providerModelId})${h.requested !== h.resolved ? `, asked for ${h.requested}` : ''}`,
-      ...(h.effort ? [`- Effort: ${h.effort}`] : []),
+      m
+        ? `- Model: ${m.resolved} (${m.providerModelId})${m.requested !== m.resolved ? `, asked for ${m.requested}` : ''}`
+        : '- Model: not resolved',
       ...(h.clientPlatform ? [`- Client: ${h.clientPlatform}`] : []),
+      '',
+    ];
+    if (this.failure) {
+      out.push('## Where it failed', '', `- Stage: ${this.failure.stage}`, `- Error: ${this.failure.message}`);
+      if (this.failure.stack) out.push('', fence(this.failure.stack));
+      out.push('');
+    }
+    out.push('## Pipeline', '', 'Each stage in order: when it finished, how long it took, and what it decided.', '');
+    out.push('| # | Stage | At | Took | Decided |', '|---|---|---|---|---|');
+    this.stages.forEach((st, i) => {
+      const facts = Object.entries(st.facts)
+        .map(([k, v]) => `${k}: ${factText(v)}`)
+        .join('; ')
+        .replace(/\|/g, '\\|')
+        .replace(/\n/g, ' ');
+      out.push(`| ${String(i + 1)} | ${st.name} | ${(st.at / 1000).toFixed(2)} s | ${String(st.ms)} ms | ${facts || '-'} |`);
+    });
+    out.push(
       '',
       '## What was sent',
       '',
@@ -182,7 +251,7 @@ export class TurnLog {
       '',
       '## What the model did',
       '',
-    ];
+    );
     const calls = this.steps.filter((s) => s.kind === 'call').length;
     out.push(`${String(calls)} tool call${calls === 1 ? '' : 's'}.`, '');
     let n = 0;
@@ -192,7 +261,8 @@ export class TurnLog {
       else if (s.kind === 'text') out.push('**Reply text**', '', fence(s.text), '');
       else {
         n += 1;
-        out.push(`### ${String(n)}. ${s.name} (at ${(s.at / 1000).toFixed(1)} s)`, '', ...callBody(s.name, s.input));
+        const took = s.doneAt !== undefined ? `, took ${((s.doneAt - s.at) / 1000).toFixed(1)} s` : '';
+        out.push(`### ${String(n)}. ${s.name} (at ${(s.at / 1000).toFixed(1)} s${took})`, '', ...callBody(s.name, s.input));
         if (s.result) out.push(`Result (${s.result.ok ? 'ok' : 'failed'}):`, '', fence(resultText(s.result)), '');
         else out.push('Result: none (the turn ended before it came back)', '');
       }

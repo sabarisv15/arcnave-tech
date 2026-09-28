@@ -4,6 +4,9 @@
 > - Each reply stores a Markdown log: model, what the request carried (PDF page images, by URI
 >   or inline, text-layer pages), tools and skills offered, the user message as sent, thinking,
 >   every tool call with input and result, status, usage, timings. Migration 0023 (`turn_logs`).
+> - A Pipeline table (every backend stage, its time and what it decided) and "Where it failed"
+>   (the stage and the error), so a fault is traced to its stage. Tool calls show why, what ran,
+>   the full result and how long each took; nothing is cut.
 > - "Download turn log" button under every reply (a `.txt`, Markdown inside, so phones open it);
 >   `GET /v1/chats/:id/messages/:messageId/log`.
 > - ADR-0049 (below) is merged to main (`4719882`); its live check is still open.
