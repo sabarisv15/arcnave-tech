@@ -98,21 +98,6 @@ failure mode of this pattern, not a sign it is working.
   bound to the concrete type verifies the wrong thing and misses interface drift.
 - **Verify:** `npx tsc --noEmit` is clean — tests are typechecked, not only executed.
 
-### 2026-09-17 — Invented an enum instead of reading the code that consumes it
-
-- **Symptom:** `PATCH /usage/limits` accepted `routingPreference: "fast"`, stored it, and echoed
-  it back. The router reads `'economy' | 'balanced' | 'quality'` and silently treats everything
-  else as `balanced`, so the setting did nothing.
-- **Cause:** I wrote the Zod enum from what the word ought to be rather than from
-  `normalizeTier()` in the generation service. Nothing failed — the value round-tripped
-  perfectly through the API and was discarded one layer below it.
-- **Rule:** **Never write a validator for a value you have not traced to its consumer.** An enum
-  at an API boundary is a promise the system acts on that value; grep for the reader first.
-- **Verify:** `src/routes/usage.integration.test.ts` requires `fast`, `cheap` and `best` to be
-  rejected and all three real tiers to be accepted.
-- **Note:** This is the same failure the project's own ADR-0002 exists to prevent — a label that
-  does not name what actually happens.
-
 ### 2026-09-17 — A devDependency the production image asks for but does not have
 
 - **Symptom:** The backend container crash-looped with
@@ -803,6 +788,21 @@ failure mode of this pattern, not a sign it is working.
   (`"chats"."id"`).
 - **Verify:** `chatVersions.integration.test.ts` fails when the subquery compares the wrong id.
 
+### 2026-09-28 — "How many variations?" was answered from section headings, not lines
+
+- **Symptom:** Asked how ArcNave's prompt differs from the Fable 5.1 capture, I answered "about
+  30 variations" after reading headings and skimming. The line-by-line pass found 414 in the
+  prompt body alone (315 missing, 88 partial, 4 conflicting, 7 by design), plus 86 lines of
+  ArcNave's own and 7 tools that differ.
+- **Cause:** A heading says a topic exists, not what its rules say. One Fable heading
+  (memory_filesystem) holds 193 separate rules; "we have a memory section" counted it as one
+  match. The estimate was stated as a count.
+- **Rule:** **Never give a count of prompt differences without comparing unit by unit.** Render
+  the prompt ArcNave actually sends (not the source files), split both into units, give every
+  unit a verdict, and let a script count. An estimate is labelled an estimate.
+- **Verify:** `python3 tools/prompt-compare/build_report.py` refuses to build unless every unit
+  of both prompts has a verdict (`tools/prompt-compare/README.md`).
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -827,6 +827,10 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-28** — Added the prompt-count entry. Retired "Invented an enum instead of reading
+  the code that consumes it": its rule is in `CLAUDE.md` word for word ("Never write a
+  validator for a value you have not traced to its consumer") and
+  `usage.integration.test.ts` fails if it regresses (pruning criteria 1 and 2). **40 entries.**
 - **2026-09-27** — No new heading (WP-12). I re-stamped a generated migration with
   `sed 's/"when": 17904[0-9]*/…/'`, and the pattern also matched 0010's stamp. The test
   database then tried to create 0010's table again. The rule from the 2026-09-25 entry stands:

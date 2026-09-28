@@ -1,0 +1,33 @@
+ask_user_input_v0|R|Same rules condensed: when to use, when not, check the conversation first, 1-3 questions, 2-4 options, turn ends. Worked examples list shortened to two. Schema identical (type default single_select not declared).
+memory_list|R|Same. "Results are capped; narrow or page", "include_preview is slower: use it when deciding what to read" absent. path_prefix/cursor not nullable (cosmetic).
+memory_read|R|Same; ArcNave's result also returns the version token.
+memory_write|X|Mechanics same. Missing: "save durable patterns, not today's events"; "new on an existing path is rejected"; "empty content rejected; size cap in the error". PRIVACY list lacks "violence", "conduct violating the usage policy" and "for anyone". The second half is absent: Fable says stated health, orientation, gender identity, race, religion, politics, union membership, disability and finances are written only where a save-time consent check decides, "otherwise leave them out". ArcNave has no consent check and no such line, so it files these freely.
+memory_append|X|Same as memory_write's PRIVACY gap. Also missing: cheaper than write; "files are size-capped, prefer editing and condensing"; content minLength 1.
+memory_str_replace|X|Same PRIVACY gap as memory_write. "Match including whitespace and newlines", "widen old_str until unique" and "a failed match returns the current content" absent from the tool (widen is in Fable's prompt too, not in ArcNave's). old_str minLength 1 absent.
+memory_delete|R|Same; ArcNave says remove one line with memory_str_replace (Fable's tool says memory_write, its prompt says str_replace: ArcNave follows the prompt). "Deletes are irrecoverable" absent.
+conversation_search|R|ArcNave's description is longer than Fable's. Param text shorter: "extract keywords from a pasted passage" moved to the description; within_conversation_id usage (find a spot, then read at page_token) absent.
+read_conversation|R|Near verbatim. conversation_id: "or a claude.ai link the person gave" dropped (N).
+recent_chats|R|Same; ArcNave adds "newest first, with an excerpt". date-time format not declared.
+read_me|R|Near verbatim.
+show_widget|D|Same, except sendPrompt: Fable "sends a message as if the user typed it"; ArcNave "puts a follow-up in the message box for them to send" (ADR-0035). loading_messages serious-topic list shortened.
+chart_display_v0|R|Same content condensed. "Matches the app's design system" and "iterate on" dropped; param texts shortened.
+comparison_card_display_v0|R|Same.
+featured_card_display_v0|R|Same.
+itinerary_display_v0|R|Same; references to places_map_display_v0 removed (not built).
+link_preview_display_v0|R|Same; url "must start with https:// or http://" dropped from the param text.
+message_compose_v1|R|Same; "Test: would a user choose between these?" dropped; kind 'other': Fable shows a Copy button, ArcNave says "neither".
+options_card_display_v0|R|Same; "if you can't write two steps the card isn't the fit" shortened.
+places_list_display_v0|R|Same; Google/places_search lines removed (N). Place description param: Fable "one or two short sentences" vs ArcNave description text "can run to a paragraph" (Fable's tool text says paragraph too).
+product_carousel_display_v0|R|Same.
+quiz_display_v0|P|Same core. Feedback labels lose "same language as the question, vary them, encouraging never mocking"; options lose "at least 2; frontend may shuffle"; summary loses "no trailing period"; flashcards "use when the user asks to study/review" shortened.
+recipe_display_v0|R|Same; unit list same; "weight/volume unit families" dropped.
+step_card_display_v0|R|Same; view 'list' loses "for checklists the user will scan".
+translation_display_v0|R|Same.
+web_search|R|Fable's text is about cost vs web_search_fast (N); ArcNave's says what it returns.
+web_fetch|P|Same URL rule. "Do not add www.", "call web_search or fetch a linking page instead" absent. Fable's extra params are server-side (N).
+image_search|X|Same trigger/skip. Schema: Fable minimum 3, default 3 (and prompt says max 4); ArcNave allows 3 to 5.
+bash_tool|R|ArcNave's description is longer (libraries, no network, input/output). Fable's is one line.
+view|R|Same; ArcNave adds the /skills path. "Non-UTF-8 shows hex escapes" absent.
+create_file|R|Same; ArcNave makes parent folders and orders params (description, path, file_text).
+str_replace|R|Same rules; ArcNave's paths differ (input/, /skills read-only).
+present_files|R|Same meaning condensed; ArcNave adds which types open beside the chat. "Output paths returned in order" dropped.

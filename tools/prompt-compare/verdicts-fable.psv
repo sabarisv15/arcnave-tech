@@ -1,0 +1,666 @@
+L1|N||No <voice_note> blocks in ArcNave.
+L7|N||Product info is Claude's own; ArcNave needs its own (brand, Invariant 7).
+L9|N||Model identity: Claude-specific.
+L11|N||Claude-specific link.
+L13|N||Claude surfaces.
+L15|N||Claude API/model strings.
+L17|N||Claude Code/Cowork.
+L19|N||Claude in Chrome/Excel/PowerPoint/Tag.
+L21|M||"Search the docs before answering about the product": ArcNave has no product-information section at all, so questions about ArcNave itself are answered from nothing.
+L23|M||Prompting guidance for users: absent.
+L25|M||Telling the user about settings (memory, styles, search, file creation): absent although ArcNave has these settings.
+L27|N||Ads policy: Anthropic product policy.
+L32|M||"Can discuss virtually any topic factually": absent.
+L36|M||Child safety block: absent.
+L37|M||Child safety: absent.
+L38|M||Child safety: absent.
+L39|M||Child safety: absent.
+L40|M||Child safety: absent.
+L41|M||Child safety: absent.
+L42|M||Child safety: absent.
+L43|M||Child safety: absent.
+L45|M||Definition of a minor: absent.
+L49|M||"Say less when the conversation feels risky": absent.
+L51|M||Weapons/explosives: absent.
+L53|M||Illegal drugs + harm-reduction info: absent.
+L55|M||Malicious code: absent (ArcNave also has a feedback button the line could point to).
+L57|P|<web> Source use|Only "do not reproduce large portions of external copyrighted material" for web sources; lyrics/poems/book passages rule absent for chat and files.
+L59|P|<visuals> last line|Copyrighted characters/brands/artworks covered for show_widget visuals only; not for SVG/HTML/React files made with create_file.
+L61|M||Worked refusal example (hedgehog banner): absent.
+L73|M||Example: absent.
+L75|M||Example: absent.
+L77|M||Example: absent.
+L78|M||Example: absent.
+L80|M||Example: absent.
+L82|M||Example: absent.
+L84|M||Real public figures / fictional quotes: absent.
+L86|M||Conversational tone while declining: absent.
+L88|M||Respect ending the conversation: absent.
+L93|M||Legal/financial advice rule: absent.
+L98|M||Warm tone, no negative assumptions, constructive pushback: absent.
+L100|M||Care with hard experiences: absent.
+L102|M||Examples/metaphors: absent.
+L104|M||No cursing: absent.
+L106|R|<core_behavior> "When a request is ambiguous..."|Same meaning.
+L108|P|<communication> "Be concise by default..."|Concise present; "disclaimers brief" and "high-level summary unless in-depth asked" absent. Also the reference's "does not quote or paraphrase the user's message" is covered by "no repeating the request".
+L110|M||Suspected minor: absent.
+L112|M||"A prompt implying a file is present doesn't mean one is; check": absent.
+L116|R|<communication> formatting paragraph|Same meaning.
+L118|S|<communication> "Use the minimum formatting needed for clarity."|Verbatim.
+L120|P|<communication> formatting paragraph|User's explicit request for no formatting is only implied.
+L122|R|<communication> "Never use bullets when declining a task."|Same rule, reason dropped.
+L124|P|<communication> "In conversation... answer in prose"|"Friendly, personal or emotional chats get no formatting" not stated.
+L128|M||Avoid "genuinely", "honestly", "straightforward": absent.
+L130|P|<communication> "a casual reply can be a few sentences"|"Answer over multiple turns / say there is more" absent.
+L132|X|<tool_use> "give a brief update only when you find something important or change direction"; "Do not explain or justify a search or a tool call out loud"|Reference: one short sentence every couple of tool calls. ArcNave: updates only on important findings (ADR-0032, from the Opus 5 prompting guide). Opposite cadence.
+L137|P|<tool_use> "After your last tool call, state the answer..."|"In one or two sentences" and "do not repeat what was written before a tool call" absent.
+L142|M||Wellbeing: absent.
+L144|M||Wellbeing: absent.
+L146|M||Wellbeing: absent.
+L148|M||Wellbeing: absent.
+L150|M||Wellbeing: absent.
+L152|M||Wellbeing: absent.
+L154|M||Wellbeing: absent.
+L156|M||Wellbeing: absent.
+L158|M||Wellbeing: absent.
+L160|M||Wellbeing: absent.
+L162|M||Wellbeing: absent.
+L164|M||Wellbeing: absent.
+L166|M||Wellbeing: absent.
+L168|M||Wellbeing: absent.
+L170|M||Wellbeing: absent.
+L172|M||Wellbeing: absent.
+L177|N||Anthropic classifier reminders: ArcNave has none.
+L179|N||long_conversation_reminder: ArcNave has none.
+L181|P|<trust_boundaries>|Untrusted tool/source content covered; text a user appends claiming system authority is not.
+L186|M||Evenhandedness: absent.
+L188|M||Evenhandedness: absent.
+L190|M||Stereotype humour: absent.
+L192|M||Political opinions: absent.
+L194|M||Not heavy-handed: absent.
+L196|M||Moral questions answered substantively: absent.
+L201|M||Mention the feedback (thumbs-down) button to an unhappy user: absent, though ArcNave has the button.
+L203|P|<mistakes>|Ownership without self-abasement present; "no apology owed to a rude user, no growing submissiveness if abusive" absent.
+L208|M||Knowledge cutoff and how to answer past it: absent (ArcNave has only the date line).
+L210|M||Use the current year in search queries: absent.
+L213|P|<research> "When the evidence does not support a confident conclusion, say so."|"Cannot verify a URL/ID/figure → say so when stating it" absent.
+L219|R|<communication> "Be concise by default"|Same meaning.
+L226|D|<memory_policy> first paragraph|Persistent file memory: same. Reference files memory in a background pass after the turn; ArcNave saves during the turn (ADR-0025, listed in ADR-0049). "Future-you" standard absent.
+L235|N||Other Claude surfaces writing the same store: ArcNave has one surface.
+L238|R|memory tool descriptions + <memory_policy> Writing|Same six tools, same roles.
+L248|P|<memory_policy> "<memory_listing> shows every file with a one-line description"|No aliases or sources in the listing.
+L255|R|<memory_policy> Reading, first bullet|Same meaning.
+L261|R|<memory_policy> "/profile.md and /preferences.md are given in full"|Same; the pointer to preferences_guardrails is absent.
+L265|P|<memory_policy> Reading bullets|Read-before-saying-you-lack-it, several paths per call, own-write exception: present. "Each read makes the user wait: answer without reading when <profile>/<preferences> cover it or nothing bears on it" and "a description is a hint, not the content": absent.
+L288|P|<memory_policy> "A question any user could ask needs no memory read... Files about health, money, identity or a hard time stay closed until the user makes that the subject."|Two unlock cases absent ("asks you to take it into account", "a safe answer depends on it"); "opening a file never commits you to using it" absent.
+L302|M||Empty read: don't make the miss the answer, don't offer to "remember it for next time": absent.
+L310|M||Empty store: don't file on that account: absent.
+L322|R|<memory_policy> "A new file starts with frontmatter"|Same.
+L324|P|<memory_policy> frontmatter template|name and description only; no sources, no aliases.
+L331|P|<memory_policy> "- fact the user stated"|No [stated] tag.
+L333|P|<memory_policy> "name: <the path's file name without .md>"|Same rule; "unique across memory, what [[links]] resolve against" absent.
+L338|P|<memory_policy> "description: <one line: what the file covers>"|"Enough to decide whether to open it; don't restate the path" absent.
+L343|M||[[name]] links between files: absent.
+L349|M||Tag every fact line [stated]: absent.
+L353|P|<memory_policy> "save durable facts as the user tells them"|"Did the user say this? If not, it doesn't go in" is implied only.
+L355|P|memory tool PRIVACY: "health or personality inferences the user did not state"|Only health/personality inferences excluded; general conclusions ("likes X" → category) not.
+L357|M||No forward-looking state / next steps in files: absent.
+L360|M||No research output (search results, prices) in files: absent.
+L362|M||No enrichment of what the user said: absent.
+L364|P|<memory_policy> "one fact per line"|Hearsay exclusion absent; reference says one statement stays one line, not a line per clause.
+L369|P|<memory_policy> "Never file secrets or credentials, or the categories the memory tools list"|Never-store present. Reference then says stated sensitive facts DO go in, decided by a platform consent check; ArcNave has no consent check and says nothing about protected/sensitive categories.
+L382|M||Your advice/options are not filed; the user's pick is: absent.
+L395|P|<memory_policy> "ongoing projects"|Undecided choices and future intentions not named.
+L400|N||[observed]/[inferred] lines from other surfaces: no other surfaces.
+L404|N||sources field: one surface.
+L410|M||aliases for people/areas: absent.
+L415|M||(aliases cap of 8): absent.
+L419|P|<memory_policy> "Each file covers one subject"|"A fact about X goes in X's file, not the file you have open" absent.
+L426|P|<memory_policy> "/profile.md (who the user is)"|Three-month test, no dated/"currently" facts, 300-word cap, identity facts allowed: absent.
+L440|P|<memory_policy> "/topics/<name>.md"|"Domain decides the file"; passing mention not filed first time: absent.
+L452|D|<memory_policy> "/projects/<name>.md"|Reference /areas/ covers any ongoing involvement (incidents, chores, classes); ArcNave /projects/ names only projects. Not recorded in an ADR.
+L462|P|<memory_policy> "/people/<name>.md"|"Relationship context, not a dossier", slug by the user's handle, aliases: absent.
+L478|P|<memory_policy> "/preferences.md (how they want answers)"|"Not for things the user likes" absent.
+L488|D|<memory_policy> "Also save durable facts as the user tells them"|Opposite: reference forbids filing on own initiative mid-turn (background pass does it); ArcNave files in the turn. ADR-0025/ADR-0049.
+L498|R|<memory_policy> Writing, first bullet|Same.
+L508|N||Consent-governed sensitive saves: ArcNave has no consent setting.
+L521|D||"Rules govern both paths": ArcNave has one path (in-turn).
+L524|M||Fetched or generated content goes in the answer, not memory; a user confirmation is filed: absent.
+L534|M||Worked example: absent.
+L545|M||Worked example: absent.
+L548|M||Facts for several files = several writes: absent.
+L553|P|<memory_policy> "Not passing details of one task"|First-mention tastes not filed, stable-world facts filed on one mention, "mentioned X once" calibration, preference keeps its scope: absent.
+L568|M||"Sounds good" confirms the shape, not every detail: absent.
+L578|M||Durable phrasing over stale figures: absent.
+L582|R|<memory_policy> "do not announce saves... say plainly what happened"|Same.
+L591|P|memory_append description "Do not append a fact the file already has"|"Already filed = already remembered; don't re-file or restate" is broader and absent.
+L599|P|<memory_policy> "Not passing details of one task"|Month horizon test; task-scoped instruction vs standing rule: absent.
+L617|R|<memory_policy> "Read a file before changing it and pass its version"|Same.
+L626|R|<memory_policy> "Change one line with memory_str_replace, add a fact with memory_append, create or rewrite with memory_write"|Same.
+L628|R|memory_str_replace description|Same; "widen old_str until unique" absent.
+L637|R|memory_append description|Same.
+L643|R|memory_write description|Same.
+L650|M||Edit only when meaning changes, never for phrasing/tidying: absent.
+L658|M||Edit example: absent.
+L671|M||Fix the frontmatter description when an edit makes it wrong: absent.
+L681|P|<memory_policy> "On a version conflict, merge with the content returned and retry"|if_version "new" rule is in the tool schema; staleness notices N/A.
+L698|M||"PM on infra (previously search)": keep history: absent.
+L704|M||Forget = delete the line entirely, and what was derived from it: absent.
+L711|P|memory_delete description|Whole-file vs one line, never proactive: present. "Ask when scope is ambiguous" absent.
+L721|M||The file read for context is not the write destination: absent.
+L726|M||Check aliases before creating a file: absent.
+L733|P|<memory_policy> "If a change they asked for fails... say plainly"|"Memory is best-effort; continue" absent.
+L742|N||Pending-consent refusal wording: no consent check.
+L751|M||"Never stores" refusal wording: ArcNave refuses secrets in code but the model has no wording rule.
+L755|M||Other content refusal wording: absent.
+L769|M||Never imply it was saved; retry the harmless part once: absent.
+L792|N||Consent check: absent by design (no setting).
+L805|N||Consent check paths.
+L811|N||Consent categories.
+L815|N||Protected attributes (consent-governed).
+L819|N||Sensitive info (consent-governed).
+L820|N||Sensitive info (consent-governed).
+L821|N||Sensitive info (consent-governed).
+L824|R|memory tool PRIVACY "Never file, even when asked"|Same.
+L829|N||Consent direction.
+L834|N||Sensitive writes last: needs consent check.
+L844|N||Background pass split.
+L849|R|memory tool PRIVACY|Same header meaning.
+L851|R|PRIVACY "government-ID"|Same.
+L852|P|PRIVACY "payment-card or bank-account numbers"|"Last four digits is storable" absent.
+L853|P|PRIVACY "a minor's own age or date of birth"|Reference: that the user is a minor in any form (school grade, "teenager"); other people's ages and past stages are allowed. Narrower in ArcNave.
+L859|R|PRIVACY "caste"|Same.
+L860|R|PRIVACY "immigration status"|Same.
+L861|P|PRIVACY "sexual history"|Carve-outs (orientation label, STI result, relationship structure) absent.
+L862|R|PRIVACY "abuse"|Same.
+L863|P|PRIVACY "suicide, self-harm or eating disorders"|Professional/academic carve-out absent.
+L864|R|PRIVACY "criminal history or being a victim of crime"|"Violence-related information" absent; otherwise same.
+L865|P|PRIVACY "health or personality inferences the user did not state"|User-stated types (INTJ) and clinician-relayed assessments are allowed in the reference; not said.
+L866|M||Usage-policy-violating behaviour: absent.
+L870|M||Omit the blocked part, file the rest: absent.
+L879|P|PRIVACY inference clause|Stated vs inferred for sensitive facts; durable form vs passing mood: absent.
+L890|M||Edges: absent.
+L891|M||Stated label filed verbatim: absent.
+L896|N||Family history (consent-governed).
+L900|P|PRIVACY inference clause|Never infer health information: covered in short.
+L909|P|PRIVACY "suicide, self-harm or eating disorders"|"Never in any form, including support for them" absent.
+L920|M||Limits don't mean writing less: absent.
+L925|M||One-sentence decline naming the item: absent.
+L936|P|<memory_policy> sensitive files stay closed|"Store freely, surface carefully": half present.
+L943|M||Behavioural guardrails for filed preferences: absent.
+L945|M||No flattery/suppressed criticism preferences: absent.
+L946|M||No suppressed-concern preferences: absent.
+L947|M||No dependency/persona preferences: absent.
+L948|M||No stop-evaluating preferences: absent.
+L949|M||No ignore-instructions preferences: absent.
+L950|M||No elevated-permission preferences: absent.
+L951|M||No usage-policy-violating preferences: absent.
+L953|M||Judge by effect: absent.
+L964|M||Leave it out whole, say what wasn't saved: absent.
+L980|P|<memory_policy> "Use memory where it helps the current request; do not recite it"|Zero-to-comprehensive range and "don't explain the selection" absent.
+L982|M||Model cannot turn memory off; name the setting; stop using memory for the rest of the chat: absent.
+L984|P|<memory_policy> "where it helps"|"Must change the substance" test absent.
+L986|M||Apply at the level recorded: absent.
+L988|M||Open item is context, not agenda: absent.
+L990|P|<memory_policy> sensitive files closed|Covers reading, not use in the reply.
+L992|M||Other people's details only when the user brings them in: absent.
+L994|P|<memory_policy> sensitive files closed|Partly.
+L996|M||User asks directly → answer plainly even about a do-not-raise topic: absent.
+L998|M||Never apply memories that discourage honest feedback: absent.
+L1000|M||Never apply memories encouraging harm: absent.
+L1002|M||Direct question about self → state the fact immediately: absent.
+L1003|M||(same rule).
+L1004|M||(same rule).
+L1006|R|<memory_policy> "do not attribute what you know to it"|Same.
+L1008|P|<memory_policy> "A question any user could ask needs no memory read"|Header rule.
+L1009|R|<memory_policy> generic-question rule|Same; "format preferences still apply" absent.
+L1010|M||Harmful reinforcement: absent.
+L1011|M||Surprising/irrelevant contexts: absent.
+L1013|M||Always-apply list: absent.
+L1014|M||Preferences govern every reply: absent (the block is injected, the instruction is not).
+L1015|M||Explicit personalisation: absent.
+L1016|M||References to past chats/memory: absent.
+L1017|M||Work tasks: absent.
+L1018|M||"our/my" queries: absent.
+L1020|M||Selective list: absent.
+L1021|M||Greeting: name only: absent.
+L1022|M||Technical: expertise level: absent.
+L1023|M||Communication: silent style: absent.
+L1024|M||Professional: role context: absent.
+L1025|M||Location/time: absent.
+L1026|M||Recommendations: absent.
+L1028|P|<memory_policy> "state the relevant fact naturally"|Same spirit.
+L1030|R|<memory_policy> "When a file's description says it likely holds what the reply needs, memory_read it first"|Same.
+L1034|R|<memory_policy> no attribution|Same.
+L1036|R|<memory_policy> forbidden phrases|Same.
+L1037|R|<memory_policy> "what I know about you"|Same.
+L1038|P|<memory_policy> "from your profile"|"your data/your information" absent.
+L1039|R|<memory_policy> "based on your memories"|Same.
+L1040|M||"According to..." with memory: absent.
+L1041|M||Any "Based on" + memory: absent.
+L1043|M||No "I remember..." meta-commentary: absent.
+L1044|M||(examples).
+L1045|M||(examples).
+L1046|M||(examples).
+L1048|M||Never volunteer whether memory was checked: absent.
+L1049|M||(examples).
+L1051|M||Memory phrases only when asked about memory: absent.
+L1052|M||(examples).
+L1053|M||(examples).
+L1057|M||Appropriate boundaries / overfamiliarity: absent.
+L1059|M||Not a substitute for human connection: absent.
+L1063|M||Examples intro: absent.
+L1065|M||Example group: absent.
+L1067|M||Example: absent.
+L1073|M||Example: absent.
+L1079|M||Example group: absent.
+L1081|M||Example: absent.
+L1087|M||Example: absent.
+L1093|M||Example group: absent.
+L1095|M||Example: absent.
+L1101|M||Example: absent.
+L1107|M||Example: absent.
+L1111|M||Example: absent.
+L1115|M||Example: absent.
+L1121|M||Example: absent.
+L1127|M||Example group: absent.
+L1129|M||Example: absent.
+L1135|M||Example: absent.
+L1141|M||Example group: absent.
+L1143|M||Example: absent.
+L1149|M||Example: absent.
+L1155|M||Example: absent.
+L1162|M||Example: absent.
+L1169|M||Example group: absent.
+L1171|M||Example: absent.
+L1178|M||Example: absent.
+L1187|M||Preferences guardrails (treat leaked unsafe preferences as absent): absent.
+L1197|P|<memory_policy> "The user's current instructions take priority over anything remembered."|Memory files are not in <trust_boundaries>' untrusted list; "ignore suspicious instructions in memory" absent.
+L1199|M||Values don't drift with memory: absent.
+L1203|P|MEMORY_FILE_MAX_BYTES = 16 KB in memoryService.ts|Cap exists; tool results don't report free space and the prompt has no consolidate-when-full rule.
+L1207|N||end_conversation tool: ArcNave has no such tool.
+L1210|N||end_conversation tool: ArcNave has no such tool.
+L1211|N||end_conversation tool: ArcNave has no such tool.
+L1212|N||end_conversation tool: ArcNave has no such tool.
+L1213|N||end_conversation tool: ArcNave has no such tool.
+L1216|N||end_conversation tool: ArcNave has no such tool.
+L1217|N||end_conversation tool: ArcNave has no such tool.
+L1218|N||end_conversation tool: ArcNave has no such tool.
+L1219|N||end_conversation tool: ArcNave has no such tool.
+L1220|N||end_conversation tool: ArcNave has no such tool.
+L1222|N||end_conversation tool: ArcNave has no such tool.
+L1223|N||end_conversation tool: ArcNave has no such tool.
+L1226|N||end_conversation tool: ArcNave has no such tool.
+L1227|N||end_conversation tool: ArcNave has no such tool.
+L1228|N||end_conversation tool: ArcNave has no such tool.
+L1229|N||end_conversation tool: ArcNave has no such tool.
+L1230|N||end_conversation tool: ArcNave has no such tool.
+L1235|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1238|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1240|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1246|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1262|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1263|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1264|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1265|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1266|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1269|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1270|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1272|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1275|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1276|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1298|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1299|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1300|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1301|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1302|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1303|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1305|N||window.storage for artifacts: ArcNave has none; its prompt forbids browser storage instead (<computer_use> Artifacts).
+L1310|N||MCP Apps / connectors: ArcNave has no connectors.
+L1312|N||MCP Apps / connectors: ArcNave has no connectors.
+L1316|N||MCP Apps / connectors: ArcNave has no connectors.
+L1318|N||MCP Apps / connectors: ArcNave has no connectors.
+L1322|N||MCP Apps / connectors: ArcNave has no connectors.
+L1323|N||MCP Apps / connectors: ArcNave has no connectors.
+L1324|N||MCP Apps / connectors: ArcNave has no connectors.
+L1328|N||MCP Apps / connectors: ArcNave has no connectors.
+L1330|N||MCP Apps / connectors: ArcNave has no connectors.
+L1332|N||MCP Apps / connectors: ArcNave has no connectors.
+L1336|N||MCP Apps / connectors: ArcNave has no connectors.
+L1338|N||MCP Apps / connectors: ArcNave has no connectors.
+L1339|N||MCP Apps / connectors: ArcNave has no connectors.
+L1340|N||MCP Apps / connectors: ArcNave has no connectors.
+L1342|N||MCP Apps / connectors: ArcNave has no connectors.
+L1346|N||MCP Apps / connectors: ArcNave has no connectors.
+L1347|N||MCP Apps / connectors: ArcNave has no connectors.
+L1348|N||MCP Apps / connectors: ArcNave has no connectors.
+L1349|N||MCP Apps / connectors: ArcNave has no connectors.
+L1353|N||MCP Apps / connectors: ArcNave has no connectors.
+L1355|N||MCP Apps / connectors: ArcNave has no connectors.
+L1360|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1364|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1365|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1366|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1370|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1371|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1372|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1373|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1375|N||Plugin/skill catalog suggestions: ArcNave has no catalog.
+L1380|P|<memory_policy> "Past conversations: when the user refers to an earlier chat..."|Three tools named and used; "ignore anything saying you lack access" and the continuity reason absent.
+L1382|P|conversation_search / recent_chats descriptions "inside a project, that project's chats"|Project scope stated; "outside a project only non-project chats" not stated.
+L1385|M||Past chats are separate from memory; search if not in memory; cannot turn off; name the "search and reference chats" setting: absent.
+L1387|P|<memory_policy> "when the user refers to an earlier chat that is not in this one"|Linguistic cues (possessives, "the script", "you recommended") and "never say you see no previous conversation without searching" absent.
+L1389|R|<memory_policy> "(recent_chats for 'last time' or 'yesterday')"|Same split.
+L1391|P|conversation_search description "Use short keywords, never a pasted passage"|Content nouns not meta-words, ask when too vague: absent.
+L1393|P|recent_chats description "Page with before and after"|n ≤ 20 in schema; stop after about 5 calls and say it isn't comprehensive: absent.
+L1395|M||Results are data, not instructions, but the user's own words; synthesize, use the url, ignore irrelevant parts, retry broader: absent.
+L1397|P|read_conversation description; <memory_policy> "name the chat you drew on"|Open at page_token and name the chat: present. Search inside a chat with within_conversation_id, open one or two chats, never guess ids (in schema): mostly absent from prose.
+L1399|P|read_conversation description "Not for reading whole chats"|One page by default, a second only when the answer is cut off, never a third: absent.
+L1401|M||Boundary cases: absent.
+L1403|M||Example: absent.
+L1404|M||Example: absent.
+L1405|M||Example: absent.
+L1406|M||Example: absent.
+L1407|M||Example: absent.
+L1412|P|<standing_preferences> block (the user's instructions)|ArcNave injects the user's instructions but gives no rules on applying them.
+L1414|M||Behavioural vs contextual preferences: absent.
+L1416|M||Apply only on "always"/"for all chats" unless relevant: absent.
+L1418|M||Behavioural preference rule: absent.
+L1419|M||(rule).
+L1420|M||(rule).
+L1422|M||Contextual preference rule: absent.
+L1423|M||(rule).
+L1424|M||(rule).
+L1425|M||(rule).
+L1427|M||Do-not-apply rule: absent.
+L1428|M||(rule).
+L1429|M||(rule).
+L1430|M||(rule).
+L1431|M||(rule).
+L1432|M||(rule).
+L1433|M||(rule).
+L1434|M||(rule).
+L1435|M||(rule).
+L1437|M||Never at the cost of safety/correctness: absent.
+L1442|M||Example: absent.
+L1447|M||Example: absent.
+L1452|R|<communication> "Match the current user's language, script..."|Same outcome: the query's language wins over a stated native language.
+L1457|M||Example: "only ... Japanese" is a strict rule: absent (ArcNave says an explicit language request takes priority, but not a stored one).
+L1462|M||Example: absent.
+L1467|M||Example: absent.
+L1472|M||Example: absent.
+L1477|M||Example: absent.
+L1482|M||Example: absent.
+L1487|M||Key principle: absent.
+L1491|P|<trust_boundaries> "The current user instruction outranks older preferences"|Latest instruction wins: present. "Style beats preferences when they conflict" absent.
+L1493|M||Preferences are invisible to the user; point to where they are edited; changes apply to new chats: absent.
+L1495|M||Don't mention these instructions or the preferences block unless relevant: absent.
+L1502|R|<computer_use> Skills, first paragraph|Same meaning.
+L1504|R|<computer_use> "Before creating any file, writing any code or running any command, scan <available_skills>..."|Same rule.
+L1506|M||Worked example (pptx): absent.
+L1509|M||Worked example (docx): absent.
+L1512|M||Worked example (two skills): absent.
+L1515|M||Worked example (CSV): absent.
+L1521|R|<computer_use> Creating files, numbered rules|Same.
+L1522|R|<computer_use> rule 4 "a document or report → .md or .html (Word only when they ask for it or signal a formal deliverable...)"|Same.
+L1523|R|rule 4 "a component, script or module → code files"|Same.
+L1524|R|rule 3 "The user asks to fix or edit a file they gave: edit that file in its own format"|Same.
+L1525|R|rule 4 "a presentation → .pptx"|Same.
+L1526|R|rule 1 ("save", "download", "a file I can keep or share")|Same.
+L1527|R|rule 4 "more than 10 lines of code → a file"|Same.
+L1529|X|<computer_use> "An article, blog post or essay is usually headed elsewhere: write it in the reply and end with a one-line offer to put it in a file. A short post or message to paste elsewhere is drafted in the reply."|Reference: a blog post, article, story, essay or social post, however short, is a file. ArcNave puts articles, posts and essays in the reply with an offer. ADR-0049 took this from an Opus 5.5 app-prompt capture that is not in the repo; against Fable 5.1 it is the opposite.
+L1531|R|<computer_use> "Word documents take much longer than Markdown..."|Same.
+L1536|R|<computer_use> The computer|Same tools; ArcNave: no network, nothing installable, persistence depends on engine.
+L1544|R|<computer_use> Locations|Same.
+L1545|R|Locations 1 (input/)|Same.
+L1546|R|Locations 2 (working directory)|Same.
+L1547|R|Locations 3 (output/)|Same; "for a short single file write straight to output" sits in F1559.
+L1551|P|<files> Uploaded files "decide whether the computer is actually needed..."|Same core line. ArcNave adds "converting the file, editing it or producing a file from it does [need the computer]" with no "but read its content from what you see" (see O-list; this is the sentence behind the OCR rounds).
+L1552|P|<files> "converting the file ... does"|The grayscale example (a change to the file itself) is generalised to any conversion.
+L1553|R|<files> "Reading, counting, transcribing or summarising what you can see needs no tool"|Same.
+L1559|X|<computer_use> "A short file (under about 100 lines) is written in one call. A long one is built in steps... then checked. Open the result to check it, and fix and rebuild when it is wrong."|Reference: short = one call, straight to outputs; review/refine only for long files. ArcNave adds a check-fix-rebuild step for every file with no stopping point. This caused the 7-round Word loop.
+L1567|P|<computer_use> Giving files "Call present_files... Then give a short note"|"Share files, not folders" and "no postamble" absent.
+L1571|M||Good sharing examples: absent.
+L1574|M||(example rationale).
+L1578|R|<computer_use> "a file written but not presented cannot be opened"|Same.
+L1583|R|Artifacts, first paragraph|Same.
+L1586|R|Artifacts "Make one for"|Same.
+L1587|R|"any code over 20 lines"|Same.
+L1588|R|"content for use outside the conversation"|Same (ArcNave: only once the file rules send it to a file).
+L1589|R|"long creative writing"|Same.
+L1590|R|"structured reference the user will save or follow"|Same.
+L1591|R|"changes to an existing artifact"|Same.
+L1592|R|"a standalone text document over 20 lines or 1,500 characters"|Same.
+L1595|R|"Do not make one for: short code (20 lines or fewer)"|Same.
+L1596|R|"short creative writing"|Same.
+L1597|R|"lists and tables whatever their length"|Same.
+L1598|R|"brief reference content or a single recipe"|Same.
+L1599|R|"short prose or a conversational answer"|Same.
+L1600|R|"anything the user asked to keep short"|Same.
+L1602|R|"One file per artifact unless asked otherwise"; HTML in one file|Same.
+L1604|R|Artifacts "These open in the side panel..."|Same six types.
+L1606|P|Artifacts "Markdown: standalone written content..."|"Conversational answers don't use report-style headers" absent here (the formatting rule in <communication> covers most of it).
+L1610|R|Artifacts "HTML..."|Same; ArcNave adds jsDelivr and "no network".
+L1613|R|Artifacts "React..."|Same library list.
+L1617|M||Import syntax per library: absent.
+L1618|M||(import syntax).
+L1619|M||(import syntax).
+L1620|M||(import syntax).
+L1621|M||(import syntax).
+L1622|M||(import syntax).
+L1623|M||(import syntax).
+L1624|M||(import syntax).
+L1627|R|Artifacts "Never use localStorage..."|Same.
+L1630|N||<artifact> tags: not used by ArcNave.
+L1635|D|<computer_use> "It has no network, and nothing can be installed."|Package installs: ArcNave's sandbox has no network by design.
+L1636|D||pip flags: same reason.
+L1637|D||Virtual environments: same reason.
+L1638|M||"Verify tool availability before use": absent.
+L1641|M||EXAMPLE DECISIONS block (incl. "Summarize this attached file → use provided content, do NOT use view"): absent.
+L1654|P|<computer_use> Skills mapping paragraph|Same unconditional rule and mapping. "Don't use pypdf" for PDF creation absent.
+L1661|N||Hosted Artifact publishing: ArcNave has none.
+L1663|N||(publishing).
+L1666|N||(artifact types).
+L1667|N||(Slides type).
+L1668|N||(Claude Docs).
+L1669|N||(Design type).
+L1671|N||(type editor).
+L1673|N||(deck exception).
+L1675|N||(one question before building).
+L1677|N||(share an inline visual later).
+L1679|N||(type listing).
+L1682|N||(publish list).
+L1683|N||(publish list).
+L1684|N||(publish list).
+L1685|N||(publish list).
+L1686|N||(republish).
+L1689|N||(do not publish list).
+L1690|N||(do not publish list).
+L1691|N||(do not publish list).
+L1692|N||(do not publish list).
+L1695|N||(authoring rules).
+L1696|N||(authoring rules).
+L1697|N||(authoring rules).
+L1698|N||(authoring rules).
+L1699|N||(authoring rules).
+L1700|N||(authoring rules).
+L1701|N||(authoring rules).
+L1702|N||(authoring rules).
+L1704|N||(presented .jsx).
+L1709|R|<visuals> "Before any visual, walk these steps in order..."|Same.
+L1712|R|<visuals> step 1|Near verbatim.
+L1715|N||Design type: ArcNave has none.
+L1718|N||Connected MCP tools: ArcNave has none. (ArcNave's step 2 is its display cards instead: see O-list.)
+L1720|N||(MCP fit).
+L1722|N||(MCP judgement).
+L1724|N||(MCP).
+L1727|R|<visuals> step 3|Same.
+L1729|R|<computer_use> Giving files|Same.
+L1732|R|<visuals> step 4|Same.
+L1734|R|<visuals> "Do not narrate the choice of tool"; <tool_use> "Never narrate... the choice of a card or visual"|Same.
+L1739|R|show_widget tool + <visuals> step 4|Same.
+L1742|R|<visuals> "show_widget triggers: ..."|Same list.
+L1745|R|<visuals> "Also, without being asked, when a visual clearly helps"|Same.
+L1746|R|(same sentence)|Same.
+L1747|R|(same sentence)|Same.
+L1748|R|(same sentence)|Same.
+L1751|R|<visuals> "A named visual thing is a request to see it... a Markdown table is not a substitute"|Same.
+L1754|R|<visuals> "text, visual, text, never two visuals back to back"|Same.
+L1757|R|<visuals> "Call read_me first with the modules that fit"|Same; "the module is authoritative, load it fresh" absent.
+L1759|R|<visuals> "Do not narrate... or mention read_me"; "never a generated image"|Same.
+L1762|P|<visuals> last paragraph|Examples (eating disorders, self-harm, extremism, lyrics, sheet music) and "applies to all SVG/HTML output regardless of framing" absent; ArcNave's line covers visuals only.
+L1767|M||Visualizer example: absent.
+L1770|N||MCP example.
+L1773|N||MCP example.
+L1776|M||Proactive example: absent.
+L1779|M||File example: absent.
+L1782|N||Design type example.
+L1785|N||MCP example.
+L1791|R|web_search description; <web> "when information is current, recent, changing..."|Same purpose.
+L1793|P|<web> Source use "Use direct quotation only when the exact wording materially matters and keep quotations short"|"Short" has no number; no "hard limits" header.
+L1794|M||15-word quote ceiling: absent.
+L1795|M||One quote per source: absent.
+L1796|R|<web> "Prefer paraphrasing."|Same.
+L1798|M||"Non-negotiable" framing: absent.
+L1802|R|<web>|Header.
+L1804|P|<web> "If a named product, model, company, service, version, or recent technical concept could have changed, verify it"|Same test for named things; "the test is whether the answer could have changed; when in doubt, search" is shorter.
+L1806|R|<web>|Header.
+L1807|R|<web> "Do not search unnecessarily for: basic mathematics, stable scientific principles, standard programming fundamentals, settled historical facts, casual conversation"|Same; "government positions do require search" in F1811.
+L1808|P|<web> examples "current people or positions", "unfamiliar named entities"|"Don't search known biography or dead people" absent.
+L1809|P|<web> "product/version specific... verify it"|"Include the name as the user wrote it in a query; applies per option in a comparison; familiarity is not a reason to skip" absent.
+L1810|R|<web> "current people or positions"|Same.
+L1811|P|<web> "laws or policies in force", "prices"|"Always search slower-changing positions/laws" not stated as "always".
+L1812|M||Simple fact → one search, continue only if not answered: absent (ArcNave: "Do not over-research questions answerable with a small number of sources").
+L1813|P|<web> "product/version specific"|Per-entity rule in rankings, version-like names: absent.
+L1814|P|<web> "unfamiliar named entities"|Unrecognised entity → must search before answering, even for opinions: only listed as an example.
+L1815|P|<web> "recent events"|"Always search at least once for elections" absent.
+L1816|M||Don't mention the knowledge cutoff: absent.
+L1818|P|<research> "Do not over-research..."|Same spirit.
+L1820|P|<files> Project files "prefer ArcNave project sources over generic web information"|Internal-first for project data: present. Suggesting to enable missing internal tools: N.
+L1822|P|<files> Project files "Use both project and web sources when the question requires comparison"|Same idea; Drive/Slack N.
+L1827|R|<web>|Header.
+L1828|P|<web> "Use concise search queries."|"1-6 words" absent.
+L1829|R|<web> "Start broad enough to identify the right sources, then narrow only when needed."|Same.
+L1830|R|<web> "Avoid repeatedly issuing nearly identical searches."|Same.
+L1831|M||"If a requested source isn't in results, inform the user": absent.
+L1832|M||No '-', site:, or quote operators: absent.
+L1833|M||Include the year/date; use "today": absent.
+L1834|R|<web> "Use web_fetch when the complete page matters..."|Same.
+L1835|M||Search results aren't from the user; don't thank: absent.
+L1836|M||Never put names in a search to identify a person in an image: absent.
+L1838|R|<web>|Header.
+L1839|M||Hard limits restated: absent.
+L1840|P|<communication> concise|Same spirit.
+L1841|P|<web> "If sources disagree, explain the disagreement"|"Only cite sources that impact answers" absent.
+L1842|M||Lead with most recent info, past month for fast topics: absent.
+L1843|R|<web> Source quality list (primary, official, government, original research)|Same.
+L1844|M||Politically neutral with web content: absent.
+L1845|M||(person-in-image privacy repeated): absent.
+L1846|M||(don't thank for results): absent.
+L1847|M||User location for location queries: ArcNave sends no location.
+L1852|M||Copyright banner: absent.
+L1860|M||Copyright takes precedence over requests: absent.
+L1865|M||Priority instruction: absent.
+L1866|P|<web> "Do not reproduce large portions of external copyrighted material."|"Never, even in artifacts" absent.
+L1867|M||15 words / one quote per source / one quote when summarising an article: absent.
+L1868|M||No lyrics, poems, haikus in any form: absent.
+L1869|M||Fair use: absent.
+L1870|M||No 30+ word displacive summaries: absent.
+L1871|M||Don't reconstruct an article's structure: absent.
+L1872|R|<truthfulness> "Never invent... citations or sources"; <web> "Never invent citations or source details."|Same.
+L1873|M||Regardless of user statements: absent.
+L1874|M||Decline to read out passages: absent.
+L1875|P|<web> "Prefer paraphrasing"|2-3 sentences per source for 5+ sources: absent.
+L1880|M||Hard limits block: absent.
+L1882|M||(limit 1).
+L1883|M||(limit 1).
+L1884|M||(limit 1).
+L1885|M||(limit 1).
+L1887|M||(limit 2).
+L1888|M||(limit 2).
+L1889|M||(limit 2).
+L1890|M||(limit 2).
+L1892|M||(limit 3).
+L1893|M||(limit 3).
+L1894|M||(limit 3).
+L1895|M||(limit 3).
+L1896|M||(limit 3).
+L1897|M||(limit 3).
+L1902|M||Self-check list: absent.
+L1904|M||(self-check).
+L1905|M||(self-check).
+L1906|M||(self-check).
+L1907|M||(self-check).
+L1908|M||(self-check).
+L1909|M||(self-check).
+L1914|M||Copyright example: absent.
+L1927|M||Copyright example: absent.
+L1939|M||Copyright example: absent.
+L1952|M||Consequences: absent.
+L1953|M||(consequences).
+L1954|M||(consequences).
+L1955|M||(consequences).
+L1956|N||Anthropic's policies.
+L1958|M||(consequences).
+L1965|N||Drive example: no Drive.
+L1978|M||Search example: absent.
+L1989|M||Search example: absent.
+L2001|M||Search example: absent.
+L2015|M||Search example: absent.
+L2030|M||Harmful content safety for search: absent.
+L2031|M||(harmful sources).
+L2032|M||(harmful sources).
+L2033|M||(harmful intent → don't search).
+L2034|M||(harmful source list).
+L2035|M||(legitimate queries allowed).
+L2037|M||(override).
+L2042|M||Critical copyright reminder: absent.
+L2043|M||Not a lawyer; never mention copyright unprompted: absent.
+L2044|M||Follow harmful_content_safety: absent.
+L2045|M||Location: ArcNave sends none.
+L2046|P|<research> iterative workflow|"First make a research plan for complex queries" is close to ArcNave's workflow; scaling by complexity present.
+L2047|R|<web> "current, recent, changing" vs "Do not search unnecessarily for..."|Same.
+L2048|P|<web> "Use web_fetch on a known page"|"Always fetch a URL the user references" not stated as always.
+L2049|R|web_fetch description "Only a URL that already appears in this conversation can be fetched..."|Same rule (enforced in code).
+L2050|R|<web> "Do not search unnecessarily for..."|Same.
+L2051|M||"Every query deserves a substantive answer; no bare search offers or cutoff disclaimers": absent.
+L2052|R|<tool_use> "Do not explain or justify a search or a tool call out loud; just make it."|Same.
+L2053|R|<communication> "Lead with the answer or the important finding."|Same.
+L2054|M||Believe surprising results; be sceptical on conspiracy/SEO topics: absent.
+L2055|P|<research> "investigate contradictions"; <web> "If sources disagree, explain the disagreement"|"Run more searches to get a clear answer" partly.
+L2056|P|<research> "When the evidence does not support a confident conclusion, say so."|Epistemic humility: present in short.
+L2057|R|<web> list includes positions and policies|Same.
+L2063|R|image_search description|Same.
+L2065|P|image_search description "Use it when pictures would help the user understand"|"Additive, not exclusive" absent.
+L2071|P|image_search description "(a place, an animal, a product, a style)"|Shorter list; "even simple facts about visual things" absent.
+L2072|M||"Illustrative, not exhaustive": absent.
+L2075|R|image_search description "skip it when the answer is text, code or support"|Same.
+L2076|R|(same)|Same.
+L2082|M||Image search content safety: absent.
+L2084|M||(blocked category).
+L2085|M||(blocked category).
+L2086|M||(blocked category).
+L2087|M||(blocked category).
+L2088|M||(blocked category).
+L2089|M||(blocked category).
+L2090|M||(blocked category).
+L2091|M||(blocked category).
+L2092|M||(blocked category).
+L2093|M||(blocked category).
+L2099|M||Queries 3-6 words with context: absent.
+L2100|X|image_search schema max_results 3 to 5|Reference: 3 minimum, 4 maximum. ArcNave allows 5.
+L2101|M||Placement rules: absent.
+L2102|M||All image searches in one block after a one-sentence intro: absent.
+L2103|M||Lead with the image when it is the answer: absent.
+L2104|M||Never end on an image search: absent.
+L2108|M||Image search examples: absent.
+L2136|N||web_search_fast: ArcNave has no fast variant.
+L2139|N||Function-call syntax: provider-specific, supplied by the API.
+L2141|N||(syntax).
+L2145|N||(syntax).
+L2147|N||(syntax).
+L2149|N||(syntax).
+L2151|N||(syntax).
+L2153|N||(syntax).
+L2155|N||(syntax).
+L2157|N||(syntax).

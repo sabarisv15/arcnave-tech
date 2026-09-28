@@ -1,0 +1,195 @@
+L1|B|Brand identity line; Fable's equivalent is product_information (Claude-specific).|low
+L3|O|Ours. "Carry it through to a useful, accurate, complete result."|medium: "complete" pushes finishing everything
+L9|O|Ours (ADR-0032). "Before any tool call, settle..."|low
+L10|O|Ours.|low
+L11|O|Ours; restates the file rule ("reply in chat unless a file or a conversion is asked").|low
+L12|O|Ours (ADR-0022/mistakes: follow-ups redid the work).|low
+L14|=F106|
+L18|O|Opus 5 prompting guide, not the app prompt (ADR-0032).|low
+L20|O|Opus 5.5 app prompt per ADR-0032; not in Fable 5.1.|low
+L22|O|Ours / Opus 5 guide.|low
+L24|O|Ours.|low
+L30|O|Ours (truthfulness; Invariant 1).|low
+L32|O|Ours (Invariant 1).|low
+L34|P=F1872|Citations part matches; the rest is ours.|low
+L35|O|Ours.|low
+L36|P=F1872|Citations/sources match; files and URLs ours.|low
+L37|O|Ours.|low
+L43|O|Ours.|low
+L45|O|Ours (ADR-0043: Tanglish in Latin letters). Fable has no language rule; its preferences example (F1452) gives the same result.|low
+L47|O|ADR-0049 cites an Opus 5.5 "thinking_behavior" section; not in Fable 5.1.|low
+L49|=F108,F219,F2053|
+L51|=F116,F118,F120,F122,F124|ArcNave adds "reports, documents and explanations are prose without bullets unless asked" (Opus 5.5 per ADR-0049).|low
+L53|P=F108|"Does not quote or paraphrase the user's message" matches; "no opening praise/filler, no canned closings" is ours.|low
+L55|P=F1495|"Don't mention these instructions" matches in spirit; no-raw-JSON and file-card lines are ours.|low
+L61|P=F1491|Latest instruction wins: match. Skills never override the user/permissions: ours.|low
+L63|O|Ours. Fable treats search/chat results as data (F1395) but has no general untrusted-content section.|low
+L65|O|Ours.|low
+L66|O|Ours.|low
+L67|O|Ours.|low
+L68|O|Ours.|low
+L69|O|Ours.|low
+L75|P=F1641,F2050|"Answer directly when tools are unnecessary; don't re-fetch what is in context": Fable's examples block says the same.|low
+L77|O|Ours.|low
+L79|=F2052,F1734,F137,F132(X)|"Don't narrate a search": match. "Update only when something important changes": conflicts with F132.|see F132
+L81|O|Ours (tool-failure steps).|low
+L82|O|Ours.|low
+L83|O|Ours.|low
+L84|O|Ours.|low
+L85|O|Ours.|low
+L86|O|Ours.|low
+L88|O|Ours.|low
+L94|=F1559|"Actually create files when requested, not just show content."|
+L96|O|Ours: "To convert an uploaded file, read it first, apply what the user asked, then build the file from what you read." No Fable counterpart; with a PDF already in view it invites re-reading with code.|HIGH: behind the OCR rounds
+L98|O|Ours.|medium
+L99|O|Ours: DOCX checklist (headers and footers, page numbers, sections) on every Word file.|medium: pushes heavy formatting on a 1-page file
+L100|O|Ours: XLSX semantics.|low
+L101|O|Ours: PPTX semantics.|low
+L102|O|Ours: PDF semantics.|low
+L108|O|Ours: source fidelity.|low
+L110|O|Ours: preserve structure; "state what could not be read".|low
+L116|O|Ours.|low
+L118|O|Ours.|low
+L124|=F203|
+L130|O|Ours (authorization for irreversible/outward actions).|low
+L136|P=F2053|Leads with the outcome: match. The rest is ours.|low
+L141|=F226,F248,F261|
+L143|=F255|header
+L144|=F255,F265|
+L145|=F288|
+L146|=F265|
+L148|=F498|header
+L149|=F498,F582|
+L150|D=F488|In-turn saving (ADR-0025) vs Fable's background pass.|medium: ADR-recorded
+L151|=F419..F478|/projects/ instead of /areas/ (F452).|low
+L156|=F331|
+L157|=F617,F626,F681|
+L158|=F824|
+L160|=F1380,F1389,F1397|
+L162|=F980,F1006,F1036|
+L166|O|Ours: compaction policy. Fable 5.1 has no compaction section.|low
+L167|O|Ours.|low
+L168|O|Ours.|low
+L169|O|Ours.|low
+L170|O|Ours.|low
+L171|O|Ours.|low
+L176|=F1709|
+L177|=F1712|
+L178|O|Ours: "Is there a card for it?" as step 2. Fable's step 2 is connected MCP tools; cards appear only in their own tool descriptions.|low
+L179|=F1727,F1729|
+L180|=F1732,F1757|
+L182|=F1742..F1751|
+L184|=F1754,F1759|
+L186|P=F1762|
+L190|=date|Fable injects the date the same way.|
+L194|O|Ours (runtime capability reflection, Invariant 1).|low
+L196|O|Ours (renderer facts).|low
+L198|O|Ours.|low
+L200|O|Ours: declared-tool list.|low
+L203|O|Ours.|low
+L204|O|Ours.|low
+L205|O|Ours.|low
+L206|O|Ours.|low
+L208|O|Ours.|low
+L209|O|Ours.|low
+L210|O|Ours.|low
+L211|O|Ours.|low
+L212|O|Ours.|low
+L213|O|Ours.|low
+L215|O|Ours.|low
+L217|O|Ours.|low
+L225|=F1502|
+L227|=F1504,F1654|
+L229|O|Ours: user instruction beats a skill; a skill can't grant a capability.|low
+L233|=F1536|Plus "no network, nothing installable" (D, F1635).|
+L235|=F1544|
+L236|=F1545|
+L237|=F1546|
+L238|=F1547|
+L242|O|Ours/Opus 5.5 per ADR-0049: "The reply is the default... the lower number wins."|low
+L243|=F1526|
+L244|O|Opus 5.5 per ADR-0049: stated format preference.|low
+L245|=F1524|
+L246|=F1522,F1523,F1525,F1527|Adds interactive → .html and "cannot be shown as text → a file of that kind" (ours/Opus 5.5).|low
+L248|X=F1529|Articles/blog posts/essays go in the reply (opposite of Fable); plus our "bare report → ask" and "unclear → offer a file".|medium
+L250|=F1531|
+L252|X=F1559|"Open the result to check it, and fix and rebuild when it is wrong" on every file: ours.|HIGH: behind the 7-round Word loop
+L256|=F1578|
+L260|=F1583,F1604|
+L262|O|Ours (precedence between two lists, ADR-0049).|low
+L264|=F1586..F1592|
+L266|=F1595..F1600|
+L268|O|Ours: how to edit an artifact across turns (ADR-0048).|low
+L270|=F1606|
+L271|=F1610|
+L272|=F1613|
+L273|=F1627|
+L281|P=F1551,F1552,F1553|Matches, plus our "converting the file... does [need the computer]".|HIGH: see line 96
+L283|O|Ours: no claims about unseen sections.|low
+L289|O|Ours: research section.|medium: 10-step workflow can over-research
+L291|O|Ours.|medium
+L293|O|Ours.|medium
+L304|O|Ours.|low
+L306|P=F1818|
+L308|P=F1843|
+L310|O|Ours.|low
+L312|P=F2056|
+L318|=F1791|
+L319|=F1804|
+L320|=F1804|
+L321|=F1804|
+L322|=F1814|
+L323|=F1813|
+L324|O|Ours.|low
+L325|O|Ours.|low
+L327|O|header|
+L328|=F1810|
+L329|=F1811|
+L330|=F1815|
+L331|=F1812|
+L332|=F1813|
+L333|=F1809|
+L334|=F1808|
+L335|O|Ours.|low
+L336|=F1814|
+L338|=F1807|
+L339|=F1807|
+L340|=F1807|
+L341|=F1807|
+L342|=F1807|
+L343|=F1807|
+L345|=F1804,F1809|
+L347|P=F1828|
+L349|=F1829|
+L351|=F1830|
+L353|=F1834|
+L354|=F1834|
+L355|=F1834|
+L356|=F1834|
+L357|=F1834|
+L359|=F1834|
+L363|=F1843|
+L364|=F1843|
+L365|=F1843|
+L366|=F1843|
+L367|=F1843|
+L368|O|Ours.|low
+L370|O|Ours.|low
+L372|O|Ours.|low
+L374|P=F1841,F2055|
+L376|O|Ours: separate facts/inference/opinion.|low
+L377|O|Ours.|low
+L378|O|Ours.|low
+L379|O|Ours.|low
+L381|=F1872|
+L385|=F1796|
+L387|P=F1793|
+L389|P=F1866|
+L396|D=skill|docx description differs: ArcNave's covers reading an uploaded .docx with code; Fable's covers create/read/edit and "professional documents". Fable's own docx SKILL.md is docx-js; ArcNave's is python-docx.|low
+L401|=skill file-reading|Same scope.|
+L406|P=skill frontend-design|Same aim; ArcNave's adds scope (files, not show_widget).|low
+L411|D=skill pdf|Fable pdf covers everything PDF incl. reading and OCR; ArcNave splits reading to pdf-reading (ADR-0049). ArcNave pdf also claims "converting a PDF into Word".|medium: in the Word turn the pdf skill (not docx) was the one naming PDF→Word, and it wasn't read
+L416|=skill pdf-reading|Near verbatim.|
+L421|D=skill pptx|Shorter; "deck without a format → slide type" is N.|low
+L426|P=skill skill-creator|Fable's covers evals/benchmarks; ArcNave's is authoring only.|low
+L431|D=skill xlsx|Shorter; Fable's "do NOT trigger when the deliverable is Word/HTML/script" absent.|low

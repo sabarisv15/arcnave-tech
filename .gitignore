@@ -53,3 +53,6 @@ arcnave-frontend.zip
 # Python bytecode
 __pycache__/
 Python/
+
+# Prompt comparison scratch (tools/prompt-compare/render.mts, split.py)
+tools/prompt-compare/work/

@@ -1,5 +1,19 @@
 # ArcNave — current checkpoint
 
+> **2026-09-28: the prompt compared with the Fable 5.1 capture, line by line. Audit only; no prompt or code changed.**
+> [`2026-09-28-fable-5.1-prompt-line-by-line.md`](../audits/2026-09-28-fable-5.1-prompt-line-by-line.md),
+> reproducible with `tools/prompt-compare/`.
+> - Fable prompt body: 666 units. ArcNave matches 106, partly 88, lacks 315, contradicts 4, by
+>   design 7; 146 not applicable. ArcNave has 86 lines of its own. 33 tools in common: 26 match,
+>   4 conflict (memory privacy x3, image_search count), 2 partial, 1 by design.
+> - The Word turn (a 1-page scanned PDF → Word, 15 tool calls, hit the 16-round limit, file never
+>   presented): 11 calls came from two ArcNave-only lines, "open the result, fix and rebuild" on
+>   every file and "to convert, read it first" with the PDF already in view. Neither is in Fable.
+> - Found, not fixed: after `tool_limit` the no-tools synthesis request overwrites `finishReason`
+>   with STOP (`generation.ts`), so Continue is hidden and an unpresented file is lost silently.
+> - Next: owner decides which gaps to close (the two over-work lines and the tool-limit bug
+>   first); then fix, test locally, and re-run the Word turn.
+
 > **2026-09-28: Google Start Tier public-site readiness on `codex/startup-site-readiness`; local only.**
 > Founder confirmed founding date (15 September 2025), no Google Cloud credits beyond free
 > credits, planned institution subscription with pricing unset, and intent to seek venture
