@@ -1,6 +1,16 @@
 # ArcNave — current checkpoint
 
-> **2026-09-28 (latest): a turn log under every reply ([ADR-0050](../decisions/0050-a-turn-log-under-every-reply.md)). Tested locally; not deployed.**
+> **2026-09-28 (latest): audit of turn log `8931cd51` against the reference, upload to answer. No code changed.**
+> [`docs/audits/2026-09-28-claude-vs-arcnave-upload-to-answer.md`](../audits/2026-09-28-claude-vs-arcnave-upload-to-answer.md).
+> - Bug: when the tool loop ends empty, `generation.ts` sends a second request without the loop's tool results and
+>   turns `tool_limit` into `STOP`, so the answer is made up and Continue is hidden (G6, G7).
+> - Pulls toward OCR: `bash_tool` lists pytesseract/opencv (G2), the tool rule says "verification" (G4), and our `pdf`
+>   skill covers building only (S6). Page images reach Gemini at default resolution, about a third of Claude's (G1).
+> - Owner decisions: hard-coded Gemini-only registry (U1), proprietary skill copies in `tools/Anthropic/skills` (U2),
+>   sandbox network (G3), web search off (G9). The KVB + Federal live eval named in ADR-0044 does not exist (G10).
+> - Next: the owner's OK on the fix order in section 5, then fixes, local tests, and the live eval.
+
+> **2026-09-28: a turn log under every reply ([ADR-0050](../decisions/0050-a-turn-log-under-every-reply.md)). Tested locally; not deployed.**
 > - Each reply stores a Markdown log: model, what the request carried (PDF page images, by URI
 >   or inline, text-layer pages), tools and skills offered, the user message as sent, thinking,
 >   every tool call with input and result, status, usage, timings. Migration 0023 (`turn_logs`).
