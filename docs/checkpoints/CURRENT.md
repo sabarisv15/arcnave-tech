@@ -1,6 +1,17 @@
 # ArcNave — current checkpoint
 
-> **2026-09-28 (latest): audit of turn log `8931cd51` against the reference, upload to answer. No code changed.**
+> **2026-09-28 (latest): the tool limit is shown, and a PDF in view is read by eye ([ADR-0051](../decisions/0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md)). Tested locally; not deployed.**
+> - No second request after an empty tool loop. A turn that reaches its last round reports `tool_limit` (Continue
+>   shows) in both adapters. The turn log records what that round did.
+> - bash_tool names no library. pdf 7.0.0 covers reading, as the reference's does. The skill rule is repeated
+>   after `<files>` with examples. The tool rule has no "verification".
+> - Gemini PDF page images at ULTRA_HIGH (`GEMINI_PDF_PAGE_RESOLUTION`), with a fallback to the default on
+>   INVALID_ARGUMENT.
+> - Backend typecheck clean, **917/917** (10 new). The server boots locally.
+> - Next: the owner's approval to deploy; write the KVB + Federal live eval (audit G10) and run it; owner
+>   decisions U1, U2, G3, G9.
+
+> **2026-09-28: audit of turn log `8931cd51` against the reference, upload to answer. No code changed.**
 > [`docs/audits/2026-09-28-claude-vs-arcnave-upload-to-answer.md`](../audits/2026-09-28-claude-vs-arcnave-upload-to-answer.md).
 > - Bug: when the tool loop ends empty, `generation.ts` sends a second request without the loop's tool results and
 >   turns `tool_limit` into `STOP`, so the answer is made up and Continue is hidden (G6, G7).

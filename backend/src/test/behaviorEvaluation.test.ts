@@ -74,6 +74,9 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
   describe('12 Model-Level Behavioral Contracts', () => {
     it('Eval 1: Casual greeting ("Hi") -> Instructs direct response, no tools/AgentLoop overhead', () => {
       expect(masterPrompt).toContain('Answer directly when tools are unnecessary');
+      // ADR-0051: no "verification" reason for a tool; it licensed an OCR loop over pages in view.
+      expect(masterPrompt).not.toMatch(/Use a tool when[^.]*verification/);
+      expect(masterPrompt).not.toContain('materially improves correctness');
       expect(masterPrompt).toContain('short prose or a conversational answer');
       expect(masterPrompt).toContain('casual conversation');
     });

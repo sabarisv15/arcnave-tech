@@ -1307,3 +1307,11 @@ practice, not canon.
   request. Rule: blame the model only after the tool descriptions, skill descriptions and
   prompt sentences the turn saw have each been read beside the reference's. Verify:
   `docs/audits/2026-09-28-claude-vs-arcnave-upload-to-answer.md` G2, G4, G5 and S6.
+- **2026-09-28 (ADR-0051)** — No new heading (at the cap). A fresh cloud sandbox has no
+  poppler: 19 PDF tests failed on the untouched baseline (`pdfinfo`/`pdftoppm` not found), which
+  reads like a regression if the baseline is skipped. Rule: in a new container run the suite once
+  before changing anything; if PDF tests fail, `apt-get install -y poppler-utils` (next to the
+  Postgres step above) and re-run. Verify: `which pdfinfo pdftoppm`, then 907/907 before edits.
+  Also: I first wrote a comment on an Anthropic-adapter line calling it reachable at one round;
+  the final round sends no tools, so it was dead code. Removed rather than re-explained. Rule:
+  read what the round sends before commenting on what it can return.

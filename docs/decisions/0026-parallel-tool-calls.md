@@ -4,6 +4,7 @@
 - Date: 2026-09-26
 - Replaces: the one-call-per-round policy (`deferredCallResult`, `disable_parallel_tool_use:
   true`) from item 9 phase 1.
+- Amended by [ADR-0051](0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md): a turn that reaches its last allowed round is reported as `tool_limit` whether or not that round answered (an output cut-off or a refusal excepted).
 
 ## Context
 

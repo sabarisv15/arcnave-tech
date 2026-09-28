@@ -8,6 +8,7 @@
   checked in code), [ADR-0047](0047-tools-and-skills-match-the-reference.md) (the skill
   mapping), [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md) (the
   preamble sentence its audit kept).
+- Amended by [ADR-0051](0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md): pdf covers anything with a PDF, reading included, as the reference's does; the skill rule is repeated after `<files>` with examples; bash_tool names no library.
 
 ## Context
 

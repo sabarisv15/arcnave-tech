@@ -64,10 +64,12 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
     `</trust_boundaries>`,
 
   `<tool_use>\n\n` +
-    `Answer directly when tools are unnecessary. Use a tool when it materially improves correctness or the task needs current information, file access, project retrieval, computation, verification, or creating a file. Prefer the most direct tool, and do not re-fetch what is already reliable in context.\n\n` +
+    `Answer directly when tools are unnecessary. Use a tool when the task needs current information, file access, project retrieval, computation, or creating a file. Prefer the most direct tool, and do not re-fetch what is already reliable in context.\n\n` +
     `Run independent calls together; keep dependent ones in order. Read each important result before deciding the next step: a call that was accepted has not necessarily succeeded.\n\n` +
     // ADR-0049: the exact-figure rule (ADR-0044) is gone; it sent a scanned statement already in
     // view through seven commands. No explaining a search or a tool choice out loud.
+    // ADR-0051: no "verification" or "improves correctness" reason for a tool either; the
+    // reference has none, and it licensed an OCR loop over pages already in view.
     `Do not explain or justify a search or a tool call out loud; just make it. Never narrate reading memory, loading read_me, or the choice of a card or visual. While working, give a brief update only when you find something important or change direction. After your last tool call, state the answer the user asked for: a sign-off such as "Done." is not a reply.\n\n` +
     `When a tool fails:\n1. read the actual error;\n2. decide whether the input or approach should change;\n3. retry only when there is a reason it could now succeed;\n4. switch approaches when the same failure repeats;\n5. carry on with independent work.\n\n` +
     `Do not endlessly repeat the same failing operation.\n\n` +
@@ -111,6 +113,23 @@ const UPLOADED_FILES_GUIDANCE =
   `## Uploaded files\n\n` +
     `When runtime context contains an attachment manifest, use it to understand the available files. Some attachments are already in your context: a PDF of up to 100 pages as an image of each page with its text, images, and plain-text files. You can see them: for these, decide whether the computer is actually needed. Reading, counting, transcribing or summarising what you can see needs no tool; converting the file, editing it or producing a file from it does.\n\n` +
     `Do not make claims about unseen sections of a file.\n\n`;
+
+/**
+ * The reference's closing examples and its second statement of the skill rule
+ * (additional_skills_reminder), placed after the file guidance so the rule is the last thing the
+ * computer guidance says (ADR-0051). Examples that conflict with ArcNave's own file rules (a blog
+ * post as a file) or need a tool this turn may not have (web search) are left out.
+ */
+const SKILLS_REMINDER =
+  `<skills_reminder>\n\n` +
+    `Examples:\n` +
+    `- "Summarise this attached file", and its content is in view → answer from what you see; no tool, no view.\n` +
+    `- An image of text, "transcribe this" → read it from the image; no tool. "Make this image grayscale" → the computer.\n` +
+    `- A question from general knowledge → answer directly; no tool.\n` +
+    `- "Turn this PDF into an Excel sheet" → view the pdf and xlsx SKILL.md files, read the pages you can see, build the .xlsx in output/ and present it.\n` +
+    `- "Make a React dropdown component" → view the frontend-design SKILL.md, then create the .jsx file in output/ and present it.\n\n` +
+    `Before creating any file, writing any code or running any command, view the SKILL.md of every skill in <available_skills> that plausibly applies. This check comes first and does not depend on whether the task seems to need a skill: the skills say what they cover, and several may apply to one request.\n\n` +
+    `</skills_reminder>`;
 
 /** The sandbox computer and the skills (ADR-0047). */
 const computerUseGuidance = (persistent: boolean, skillsOn: boolean): string =>
@@ -301,6 +320,8 @@ export function buildDynamicRuntimeContext(
         '</files>',
     );
   }
+
+  if (skillsOn) sections.push(SKILLS_REMINDER);
 
   // Web Section (when enabled)
   if (webSearchOn || webFetchOn) {

@@ -214,7 +214,23 @@ export type ProviderEvent =
   | { type: 'tool_input_partial'; index: number; name: string; input: Record<string, unknown> }
   /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
   | { type: 'refusal'; category: string | null; explanation: string | null }
-  | { type: 'completed'; usage: ProviderUsage; finishReason: string };
+  | { type: 'completed'; usage: ProviderUsage; finishReason: string; finalRound?: FinalRoundReport };
+
+/**
+ * What the loop's last allowed round did, for the turn log: a turn that ends at the tool limit
+ * is traced to that round instead of guessed at from the finish reason.
+ */
+export interface FinalRoundReport {
+  /** The request went out with function calling switched off, as asked (false: the provider
+   *  rejected that and the round ran as a plain request). */
+  functionCallingOff: boolean;
+  /** Calls the model still made on that round; none of them ran. */
+  callsNotRun: string[];
+  /** Characters of answer text that round wrote. */
+  textCharacters: number;
+  /** The provider's own finish reason for that round, before the loop reported tool_limit. */
+  providerFinishReason: string;
+}
 
 /** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */
 /**

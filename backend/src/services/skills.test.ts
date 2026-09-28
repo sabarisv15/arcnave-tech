@@ -28,7 +28,7 @@ describe('SkillService', () => {
     expect(names).toContain('skill-creator');
   });
 
-  it('splits PDF reading from PDF building', () => {
+  it('pdf covers anything with a PDF; pdf-reading, a PDF not in context', () => {
     const reading = service.getSkill('pdf-reading', ['bash_tool']);
     expect(reading).not.toBeNull();
     // Skills are read with view, so a skill is offered only on a turn with the computer.
@@ -41,10 +41,16 @@ describe('SkillService', () => {
     expect(reading?.content).not.toContain('Check each page for a text layer first');
     expect(reading?.content).not.toContain('## Exact counts, totals and complete lists');
 
-    const building = service.getSkill('pdf', ['bash_tool']);
-    expect(building?.description).toContain('filling a PDF form');
-    expect(building?.content).toContain('## Fill a form');
-    expect(building?.description).toContain('use the pdf-reading skill');
+    const pdf = service.getSkill('pdf', ['bash_tool']);
+    expect(pdf?.description).toContain('filling a PDF form');
+    expect(pdf?.content).toContain('## Fill a form');
+    // As the reference's pdf skill (ADR-0051): anything with a PDF, reading included, so the
+    // skill-first rule has a skill to match before a command runs on an in-context PDF.
+    expect(pdf?.description).toContain('reading it or extracting its text');
+    expect(pdf?.description).toContain('If the user mentions a .pdf file');
+    expect(pdf?.description).toContain('the pdf-reading skill says how to read it from the file');
+    expect(pdf?.content).toContain('that needs no command');
+    expect(pdf?.content).toContain('never as read');
   });
 
   it('never shows a half-loaded registry, during a reload or before the first load finishes', async () => {

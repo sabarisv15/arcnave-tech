@@ -5,7 +5,7 @@
  * See docs/backend-research.md section 1.
  */
 import { StreamedCallAssembler } from './streamedCall.js';
-import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { FunctionCallingConfigMode, GoogleGenAI, PartMediaResolutionLevel, ThinkingLevel } from '@google/genai';
 import type { Content, FunctionDeclaration, Part, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
@@ -15,6 +15,7 @@ import { sourcesFromGeminiMetadata } from './grounding.js';
 import type {
   ReasoningEffort,
   AttachmentBlock,
+  FinalRoundReport,
   GenerationRequest,
   HistoryToolCall,
   Provider,
@@ -24,7 +25,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
-import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { finalRoundFinishReason, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 import { CLEARED_TOOL_RESULT, isSkillRead, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
 
@@ -35,17 +36,47 @@ const FINAL_ROUND_NOTE =
 
 const log = logger.child({ module: 'provider:gemini' });
 
-function attachmentParts(attachments: GenerationRequest['attachments']): Part[] {
+/** Options for building a Gemini request's contents. */
+export interface GeminiContentOptions {
+  /** How finely each PDF page image is read (ADR-0051). Unset: Gemini's default. */
+  pageResolution?: PartMediaResolutionLevel;
+}
+
+const PAGE_RESOLUTION: Record<Config['GEMINI_PDF_PAGE_RESOLUTION'], PartMediaResolutionLevel | undefined> = {
+  default: undefined,
+  high: PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
+  ultra_high: PartMediaResolutionLevel.MEDIA_RESOLUTION_ULTRA_HIGH,
+};
+
+/** True when some part of the request asks for a page resolution. */
+export function hasPageResolution(contents: Content[]): boolean {
+  return contents.some((c) => (c.parts ?? []).some((p) => p.mediaResolution !== undefined));
+}
+
+/** The same contents at Gemini's default resolution. */
+export function withoutPageResolution(contents: Content[]): Content[] {
+  return contents.map((c) => ({
+    ...c,
+    parts: (c.parts ?? []).map((p) => {
+      if (p.mediaResolution === undefined) return p;
+      const { mediaResolution: _resolution, ...rest } = p;
+      return rest;
+    }),
+  }));
+}
+
+function attachmentParts(attachments: GenerationRequest['attachments'], pageResolution?: PartMediaResolutionLevel): Part[] {
   if (!attachments || attachments.length === 0) return [];
+  const resolution = pageResolution ? { mediaResolution: { level: pageResolution } } : {};
   return attachments.flatMap((a): Part[] => {
     // 0. A PDF as its pages: each page's image, then its text (ADR-0013). Never the PDF itself.
     if (a.pages) {
       return a.pages.flatMap((page): Part[] => [
         { text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
         ...(page.image?.fileUri
-          ? [{ fileData: { mimeType: page.image.mimeType, fileUri: page.image.fileUri } }]
+          ? [{ fileData: { mimeType: page.image.mimeType, fileUri: page.image.fileUri }, ...resolution }]
           : page.image?.base64
-            ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob }]
+            ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob, ...resolution }]
             : []),
         { text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.` },
       ]);
@@ -179,13 +210,13 @@ export function responseGroups(calls: HistoryToolCall[]): HistoryToolCall[][] {
   return groups;
 }
 
-export function buildGeminiContents(request: GenerationRequest): Content[] {
+export function buildGeminiContents(request: GenerationRequest, options: GeminiContentOptions = {}): Content[] {
   const turns = request.history.filter(
     (turn) => turn.text.trim() !== '' || (turn.attachments?.length ?? 0) > 0 || (turn.toolCalls?.length ?? 0) > 0,
   );
 
   const historyContents: Content[] = turns.flatMap((turn): Content[] => {
-    const parts: Part[] = [...attachmentParts(turn.attachments)];
+    const parts: Part[] = [...attachmentParts(turn.attachments, options.pageResolution)];
     const calls = turn.role === 'assistant' ? (turn.toolCalls ?? []) : [];
     // Each earlier call goes back as the in-turn loop sent it: the model's signed functionCall,
     // then the functionResponse (ADR-0022). Unsigned or undeclared calls go as text instead.
@@ -208,7 +239,7 @@ export function buildGeminiContents(request: GenerationRequest): Content[] {
     return [{ role: turn.role === 'user' ? 'user' : 'model', parts }];
   });
 
-  const currentParts: Part[] = [...attachmentParts(request.attachments), { text: request.prompt }];
+  const currentParts: Part[] = [...attachmentParts(request.attachments, options.pageResolution), { text: request.prompt }];
   const allContents = [...historyContents, { role: 'user', parts: currentParts }];
 
   // Merge adjacent same-role turns so multi-turn requests alternate between 'user' and 'model' (e.g. after a terminal tool result)
@@ -282,6 +313,8 @@ export class GeminiProvider implements Provider {
   private client: Pick<GoogleGenAI, 'models'> | undefined;
   // Models Vertex refused `streamFunctionCallArguments` for; they get whole calls from then on.
   private readonly wholeCallModels = new Set<string>();
+  // Models Vertex refused a per-part page resolution for; they get the default from then on.
+  private readonly defaultResolutionModels = new Set<string>();
 
   constructor(
     private readonly cfg: Config,
@@ -376,9 +409,13 @@ export class GeminiProvider implements Provider {
     // Summed over the rounds: each round is its own request, billed on its own.
     let usage: ProviderUsage | null = null;
     let finishReason = 'stop';
+    let finalRound: FinalRoundReport | undefined;
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
-    let contents = buildGeminiContents(request);
+    const pageResolution = this.defaultResolutionModels.has(request.providerModelId)
+      ? undefined
+      : PAGE_RESOLUTION[this.cfg.GEMINI_PDF_PAGE_RESOLUTION];
+    let contents = buildGeminiContents(request, { pageResolution });
     const editing: ContextEditingPolicy = {
       triggerTokens: this.cfg.CONTEXT_EDIT_TRIGGER_TOKENS,
       keep: this.cfg.CONTEXT_EDIT_KEEP_TOOL_RESULTS,
@@ -449,21 +486,42 @@ export class GeminiProvider implements Provider {
         });
 
         let stream: Awaited<ReturnType<typeof open>>;
+        let callingOff = finalToolRound;
+        const invalid = (e: unknown) => !request.signal.aborted && String(e).includes('INVALID_ARGUMENT');
         try {
           stream = await open(finalToolRound, streamArgs && !finalToolRound);
-        } catch (err) {
-          // Switching calls off, or streaming their arguments, is the one thing this round asks
-          // for beyond the plain request. If Vertex rejects it, the round runs as a plain request
-          // rather than failing the whole turn; a call made on the final round is not run (below).
-          const asked = finalToolRound || streamArgs;
-          if (!asked || request.signal.aborted || !String(err).includes('INVALID_ARGUMENT')) throw err;
-          if (!finalToolRound) {
-            this.wholeCallModels.add(request.providerModelId);
-            log.warn({ err: String(err), model: request.providerModelId }, 'streamed function-call arguments were rejected; using whole calls for this model');
-          } else {
-            log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
+        } catch (firstErr) {
+          let err = firstErr;
+          let resent: Awaited<ReturnType<typeof open>> | undefined;
+          // A page resolution Vertex does not take for this model: the round goes again at the
+          // default resolution, and the model keeps the default from then on (ADR-0051).
+          if (invalid(err) && hasPageResolution(contents)) {
+            contents = withoutPageResolution(contents);
+            try {
+              resent = await open(finalToolRound, streamArgs && !finalToolRound);
+              this.defaultResolutionModels.add(request.providerModelId);
+              log.warn({ err: String(firstErr), model: request.providerModelId }, 'page resolution was rejected; using the default for this model');
+            } catch (secondErr) {
+              err = secondErr;
+            }
           }
-          stream = await open(false, false);
+          if (resent) {
+            stream = resent;
+          } else {
+            // Switching calls off, or streaming their arguments, is the one thing this round asks
+            // for beyond the plain request. If Vertex rejects it, the round runs as a plain request
+            // rather than failing the whole turn; a call made on the final round is not run (below).
+            const asked = finalToolRound || streamArgs;
+            if (!asked || !invalid(err)) throw err;
+            if (!finalToolRound) {
+              this.wholeCallModels.add(request.providerModelId);
+              log.warn({ err: String(err), model: request.providerModelId }, 'streamed function-call arguments were rejected; using whole calls for this model');
+            } else {
+              log.warn({ err: String(err) }, 'final round with function calling off was rejected; retrying without toolConfig');
+              callingOff = false;
+            }
+            stream = await open(false, false);
+          }
         }
 
         let roundText = '';
@@ -525,6 +583,18 @@ export class GeminiProvider implements Provider {
         assembler.close();
         const roundCalls = assembler.calls;
 
+        // The last allowed round: every earlier round made calls, so the turn used its tool budget
+        // whether or not this round answered (ADR-0051). A call made here is not run.
+        if (finalToolRound && round > 0) {
+          finalRound = {
+            functionCallingOff: callingOff,
+            callsNotRun: roundCalls.map((c) => c.name),
+            textCharacters: roundText.length,
+            providerFinishReason: finishReason,
+          };
+          finishReason = finalRoundFinishReason(finishReason);
+          break;
+        }
         if (!useTools || roundCalls.length === 0) break;
         // A call on the final round is not run: there is no round left to answer after it.
         if (finalToolRound) {
@@ -628,7 +698,7 @@ export class GeminiProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason, ...(finalRound ? { finalRound } : {}) };
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

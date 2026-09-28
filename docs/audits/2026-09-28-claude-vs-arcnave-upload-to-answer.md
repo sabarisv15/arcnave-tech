@@ -1,5 +1,9 @@
 # Claude vs ArcNave audit: upload to answer, 2026-09-28
 
+> **Status:** items 1 to 7 of section 5 (G1, G2, G4, G5, G6, G7, G8, S6) are fixed in
+> [ADR-0051](../decisions/0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md). They are tested
+> locally, not deployed, and have no live eval. Still open: U1, U2, G3, G9, G10.
+
 Triggered by turn log `8931cd51` (scanned 12-page KVB + Federal statement, "Total the kvb and
 federal entries", Auto → Gemini 3.8 Flash, 15 tool calls, 292 s, wrong answer). The model itself
 is out of scope, because ArcNave runs Gemini only. Everything else was checked: infrastructure,

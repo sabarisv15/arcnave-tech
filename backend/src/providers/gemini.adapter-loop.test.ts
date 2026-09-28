@@ -296,6 +296,8 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'tool_limit' });
     // A call the model still makes on the final round is not run: no round is left to answer.
     expect(executor.calls).toHaveLength(1);
+    // The turn log is told what that round did (ADR-0051).
+    expect(events.at(-1)).toMatchObject({ finalRound: { functionCallingOff: true, callsNotRun: ['search_project_files'], textCharacters: 0 } });
   });
 
   it('the final round refuses tool calls and asks for the answer, so the turn ends in text', async () => {
@@ -324,6 +326,13 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(last.role).toBe('user');
     expect(last.parts.every((p) => p.functionResponse !== undefined)).toBe(true);
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Here is the answer.');
+    // An answer on the last allowed round still used the whole tool budget: the limit is reported,
+    // so the reply shows it with Continue, as the reference does (ADR-0051).
+    expect(events.at(-1)).toMatchObject({
+      type: 'completed',
+      finishReason: 'tool_limit',
+      finalRound: { functionCallingOff: true, callsNotRun: [], textCharacters: 'Here is the answer.'.length },
+    });
   });
 
   it('a final round rejected with INVALID_ARGUMENT is retried once without toolConfig', async () => {
@@ -348,6 +357,37 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(finalAttempts).toBe(2);
     expect(retried.config.toolConfig).toBeUndefined();
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Answer anyway.');
+    expect(events.at(-1)).toMatchObject({ finishReason: 'tool_limit', finalRound: { functionCallingOff: false } });
+  });
+
+  it('a page resolution Vertex rejects is sent again at the default, and the model keeps the default (ADR-0051)', async () => {
+    const client = new FakeGeminiClient();
+    const partsOf = (req: unknown) =>
+      (req as { contents: { parts: { mediaResolution?: unknown; fileData?: unknown }[] }[] }).contents.flatMap((c) => c.parts);
+    const asksResolution = (req: unknown) => partsOf(req).some((p) => p.mediaResolution !== undefined);
+    client.models.generateContentStream = vi.fn(async (req: unknown) => {
+      client.calls.push(req);
+      if (asksResolution(req)) throw new Error('ApiError: {"status":"INVALID_ARGUMENT"}');
+      return fakeStream([{ text: 'Read.' }]);
+    });
+    const cfg = loadConfig({ NODE_ENV: 'test', GEMINI_PDF_PAGE_RESOLUTION: 'ultra_high' });
+    const provider = new GeminiProvider(cfg, client as never);
+    const pdf = {
+      mimeType: 'application/pdf',
+      filename: 's.pdf',
+      pages: [{ num: 1, text: '', image: { mimeType: 'image/jpeg' as const, fileUri: 'gs://b/p1.jpg' } }],
+    };
+
+    const first = await collect(provider.stream(baseRequest({ attachments: [pdf] })));
+    expect(client.calls).toHaveLength(2);
+    expect(asksResolution(client.calls[0])).toBe(true);
+    expect(asksResolution(client.calls[1])).toBe(false);
+    expect(partsOf(client.calls[1]).some((p) => p.fileData !== undefined)).toBe(true);
+    expect(first.at(-1)).toMatchObject({ type: 'completed' });
+
+    await collect(provider.stream(baseRequest({ attachments: [pdf] })));
+    expect(client.calls).toHaveLength(3);
+    expect(asksResolution(client.calls[2])).toBe(false);
   });
 
   it('stops issuing provider requests once the signal is aborted', async () => {

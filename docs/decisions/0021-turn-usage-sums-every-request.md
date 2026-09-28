@@ -3,6 +3,7 @@
 - Status: accepted. Tested locally; not live.
 - Date: 2026-09-25
 - Amends: [ADR-0019](0019-long-chats-follow-claude.md) (the compaction trigger)
+- Amended by [ADR-0051](0051-tool-limit-shown-and-in-view-pdfs-read-by-eye.md): the forced-synthesis request is removed; a turn that ends with no text is not answered by a second request.
 
 ## Context
 

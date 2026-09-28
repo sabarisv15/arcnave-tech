@@ -9,7 +9,16 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildGeminiContents, toGeminiFunctionDeclaration, toGeminiFunctionResponsePart, usageFrom } from './gemini.js';
+import { PartMediaResolutionLevel } from '@google/genai';
+
+import {
+  buildGeminiContents,
+  hasPageResolution,
+  toGeminiFunctionDeclaration,
+  toGeminiFunctionResponsePart,
+  usageFrom,
+  withoutPageResolution,
+} from './gemini.js';
 import { UI_TOOL_DEFINITIONS } from '../tools/definitions.js';
 import type { GenerationRequest } from './types.js';
 
@@ -240,5 +249,38 @@ describe('usageFrom', () => {
     expect(usage.cacheReadTokens).toBe(8_000);
     // The next request still resends the whole prompt, cached part included.
     expect(usage.lastRequest).toEqual({ inputTokens: 10_000, outputTokens: 100 });
+  });
+});
+
+describe('PDF page resolution (ADR-0051)', () => {
+  const pdf = {
+    id: 'f1',
+    filename: 'statement.pdf',
+    mimeType: 'application/pdf',
+    pages: [
+      { num: 1, text: '', image: { mimeType: 'image/jpeg' as const, fileUri: 'gs://inputs/p1.jpg' } },
+      { num: 2, text: 'Total 10', image: { mimeType: 'image/jpeg' as const, base64: 'AAAA' } },
+    ],
+  };
+  const imageParts = (contents: ReturnType<typeof buildGeminiContents>) =>
+    contents.flatMap((c) => c.parts ?? []).filter((p) => p.fileData || p.inlineData);
+
+  it('asks for the given resolution on every page image, and on nothing else', () => {
+    const contents = buildGeminiContents(baseRequest({ attachments: [pdf] }), {
+      pageResolution: PartMediaResolutionLevel.MEDIA_RESOLUTION_ULTRA_HIGH,
+    });
+    expect(imageParts(contents)).toHaveLength(2);
+    for (const part of imageParts(contents)) {
+      expect(part.mediaResolution).toEqual({ level: 'MEDIA_RESOLUTION_ULTRA_HIGH' });
+    }
+    const textParts = contents.flatMap((c) => c.parts ?? []).filter((p) => p.text !== undefined);
+    expect(textParts.every((p) => p.mediaResolution === undefined)).toBe(true);
+    expect(hasPageResolution(contents)).toBe(true);
+    expect(hasPageResolution(withoutPageResolution(contents))).toBe(false);
+  });
+
+  it('sends no setting when none is given', () => {
+    const contents = buildGeminiContents(baseRequest({ attachments: [pdf] }));
+    expect(imageParts(contents).every((p) => p.mediaResolution === undefined)).toBe(true);
   });
 });

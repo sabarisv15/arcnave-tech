@@ -21,7 +21,7 @@ interface FakeStreamEvent {
 }
 
 interface FakeFinalMessage {
-  content: { type: string; id?: string; name?: string; input?: unknown }[];
+  content: { type: string; id?: string; name?: string; input?: unknown; text?: string }[];
   usage: Record<string, number>;
   stop_reason: string;
 }
@@ -309,6 +309,37 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     );
     expect(client.calls).toHaveLength(2);
     expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'tool_limit' });
+    // The final round went out without tools; a call it still returned is not run (ADR-0051).
+    expect(executor.calls).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ finalRound: { functionCallingOff: true, callsNotRun: ['search_project_files'] } });
+  });
+
+  it('an answer on the last allowed round is still reported as tool_limit, and an output cut-off as itself', async () => {
+    const run = async (stopReason: string) => {
+      const client = new FakeAnthropicClient();
+      client.responses = [
+        fakeMessageStream([], {
+          content: [{ type: 'tool_use', id: 't0', name: 'search_project_files', input: {} }],
+          usage: { input_tokens: 10, output_tokens: 2 },
+          stop_reason: 'tool_use',
+        }),
+        fakeMessageStream([], {
+          content: [{ type: 'text', text: 'The answer.' }],
+          usage: { input_tokens: 10, output_tokens: 2 },
+          stop_reason: stopReason,
+        }),
+      ];
+      const executor = new ScriptedExecutor();
+      executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'ok' }] });
+      const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
+      const provider = new AnthropicVertexProvider(cfg, client as never);
+      return collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+    };
+    expect((await run('end_turn')).at(-1)).toMatchObject({
+      finishReason: 'tool_limit',
+      finalRound: { callsNotRun: [], textCharacters: 'The answer.'.length, providerFinishReason: 'end_turn' },
+    });
+    expect((await run('max_tokens')).at(-1)).toMatchObject({ finishReason: 'max_tokens' });
   });
 
   it('stops issuing provider requests once the signal is aborted', async () => {
