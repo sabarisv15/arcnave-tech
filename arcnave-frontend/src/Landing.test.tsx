@@ -22,6 +22,9 @@ it("exposes product content and real authentication entries without a session", 
   expect(host.querySelector('a[href="/login"]')).not.toBeNull();
   expect(host.querySelector("form")).toBeNull();
   expect(host.textContent).toContain("Illustrative example · sample content");
+  expect(host.textContent).toContain("recurring college or institution subscription");
+  expect(host.textContent).toContain("Pricing has not been set");
+  expect(host.textContent).toContain("planned areas, not features available today");
 });
 
 it("switches the example workflow and its output together", () => {
@@ -39,6 +42,8 @@ it("uses confirmed company facts on the public about page", () => {
   expect(host.textContent).toContain("Bootstrapped");
   expect(host.textContent).toContain("Coimbatore, Tamil Nadu, India");
   expect(host.textContent).toContain("end of 2026");
+  expect(host.textContent).toContain("15 September 2025");
+  expect(host.textContent).toContain("venture funding within the next 12 months");
   expect(host.querySelector('a[href="mailto:admin@arcnave.tech"]')).not.toBeNull();
 });
 

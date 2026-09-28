@@ -12,8 +12,8 @@ await build({ entryPoints: ['src/Landing.tsx'], outfile: resolve(temporary, 'sit
 const { default: Site } = await import(pathToFileURL(resolve(temporary, 'site.mjs')).href);
 const template = await readFile('dist/index.html', 'utf8');
 const pages = [
-  ['/', 'ArcNave — Academic Campus AI', 'Academic Campus AI for colleges. Organise evidence, review documents, and prepare working drafts for NAAC, NBA, and AICTE preparation.'],
-  ['/about', 'About ArcNave — Built in Coimbatore', 'ArcNave is a bootstrapped Academic Campus AI product in development in Coimbatore, Tamil Nadu, India. Product questions and early access: admin@arcnave.tech.'],
+  ['/', 'ArcNave — Academic Campus AI for College Teams', 'ArcNave is an independent AI software product for college teams to organise documents, review evidence, and prepare academic drafts with human verification.'],
+  ['/about', 'About ArcNave — Independent Academic Software Startup', 'ArcNave is a bootstrapped software startup in Coimbatore building AI tools for college teams. Explore its current product and development roadmap.'],
   ['/privacy', 'Privacy & data — ArcNave', 'Learn how ArcNave handles account information, workspace data, AI processing, and public sharing.'],
   ['/terms', 'Using ArcNave — Product guidance', 'Practical guidance for using the development-stage ArcNave workspace and reviewing AI outputs.'],
 ];

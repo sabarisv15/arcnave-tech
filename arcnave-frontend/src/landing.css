@@ -227,3 +227,16 @@
 @media(min-width:1101px) { .site-campus-paths h3 { min-height:2.7lh; }.site-path-output { min-height:3.5lh; } }
 @media(min-width:760px) and (max-width:1100px) and (max-height:800px) { .site-hero { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); padding:22px; gap:24px; }.site-hero .site-preview-project { display:none; }.site-hero .site-preview-prompt { padding:9px; font-size:10px; }.site-hero .site-preview-answer > p { font-size:10px; }.site-hero .site-preview-output { padding:10px; }.site-hero .site-preview-output h3 { font-size:18px; }.site-hero .site-preview-output li { font-size:9px; }.site-hero .site-preview-tabs button { font-size:9px; }.site-hero .site-preview-caption { font-size:8px; } }
 @media(max-width:759px) { .site-hero h1 { font-size:40px; } }
+.site-roadmap { border-top:1px solid var(--site-line); }
+.site-roadmap-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px; margin-top:36px; }
+.site-roadmap-grid article { background:#fff; border:1px solid var(--site-line); border-radius:10px; padding:26px; min-width:0; }
+.site-roadmap-grid span { color:#638055; font-size:10px; font-weight:650; letter-spacing:1px; }
+.site-roadmap-grid h3 { font-size:21px; line-height:1.25; margin:18px 0 12px; font-weight:500; }
+.site-roadmap-grid p,.site-roadmap-note,.site-business-detail p { color:var(--site-muted); font-size:13px; line-height:1.8; }
+.site-roadmap-note { margin:24px 0 0; max-width:850px; }
+.site-business { border-top:1px solid var(--site-line); }
+.site-business-detail { display:flex; justify-content:space-between; align-items:center; gap:36px; margin-top:30px; padding:26px 30px; background:#e7eddf; border-radius:10px; }
+.site-business-detail p { max-width:720px; margin:0; }
+.site-business-detail .site-text-link { flex-shrink:0; }
+@media(max-width:900px) { .site-roadmap-grid { grid-template-columns:1fr; }.site-business-detail { align-items:flex-start; flex-direction:column; gap:15px; } }
+@media(max-width:759px) { .site-roadmap-grid { gap:14px; margin-top:24px; }.site-roadmap-grid article { padding:20px; }.site-business-detail { padding:22px; }.site-nav { gap:12px; } }

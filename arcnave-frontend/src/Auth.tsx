@@ -57,14 +57,14 @@ export default function Auth({ initialMode = "in" }: { initialMode?: "in" | "up"
       <main className="auth-layout">
       <section className="auth-welcome" aria-labelledby="auth-title">
         <div className="auth-headline" key={mode}>
-          <p className="auth-kicker">A LITTLE ROOM TO THINK</p>
-          <h1 id="auth-title">{mode === "in" ? <>Good ideas<br /> start here.</> : <>Make room<br /> for what’s next.</>}</h1>
-          <p>{mode === "in" ? "A quiet space for your most ambitious thoughts." : "Bring your questions. Find your own direction."}</p>
+          <p className="auth-kicker">ACADEMIC CAMPUS AI</p>
+          <h1 id="auth-title">{mode === "in" ? <>Your campus work,<br /> connected.</> : <>Bring your work<br /> together.</>}</h1>
+          <p>{mode === "in" ? "Continue with your projects, documents, and drafts." : "Create a workspace for academic questions and evidence-led work."}</p>
         </div>
       <div className="auth-card">
         <div className="auth-intro">
-          <h2>{mode === "in" ? "Welcome back" : "Your next chapter starts here"}</h2>
-          <p>{mode === "in" ? "Sign in to pick up your train of thought." : "Create your ArcNave account."}</p>
+          <h2>{mode === "in" ? "Welcome back" : "Start with ArcNave"}</h2>
+          <p>{mode === "in" ? "Sign in to continue your workspace." : "Create your ArcNave account. Access may be limited during development."}</p>
         </div>
 
         {expired && mode === "in" && !error && (
@@ -155,18 +155,18 @@ export default function Auth({ initialMode = "in" }: { initialMode?: "in" | "up"
           </button>
         </p>
       </div>
-      <p className="auth-understated">Think deeply. Connect the dots. Create something new.</p>
+      <p className="auth-understated">Source documents, working drafts, and your next step in one place.</p>
       </section>
       <aside className="auth-art auth-study" aria-label="An illustrative workspace with a laptop and project notes">
         <div className="auth-art-top"><span>YOUR WORK, CONNECTED</span><span>↗</span></div>
         <div className="study-scene" aria-hidden="true">
-          <div className="study-note"><span>THE NEXT STEP</span><p>Bring the context.<br />Work through the idea.<br />Make something useful.</p><span className="study-note-star">✳</span></div>
-          <div className="study-laptop"><div className="study-screen"><div className="study-screen-brand">ArcNave<span>✦</span></div><span className="study-screen-label">LET’S FIGURE IT OUT</span><h3>One question.<br />A new perspective.</h3><div className="study-answer"><i /><i /><i /></div><div className="study-input">Explain this concept…<span>↑</span></div></div><div className="study-keyboard" /></div>
-          <div className="study-books"><div>IDEAS & EXPLORATIONS</div><div>THE EVERYDAY NOTEBOOK</div></div>
+          <div className="study-note"><span>THE NEXT STEP</span><p>Bring the records.<br />Review the gaps.<br />Prepare a draft.</p><span className="study-note-star">✳</span></div>
+          <div className="study-laptop"><div className="study-screen"><div className="study-screen-brand">ArcNave<span>✦</span></div><span className="study-screen-label">WORK WITH YOUR SOURCES</span><h3>One question.<br />A reviewable draft.</h3><div className="study-answer"><i /><i /><i /></div><div className="study-input">Review these files…<span>↑</span></div></div><div className="study-keyboard" /></div>
+          <div className="study-books"><div>PROJECT RECORDS</div><div>WORKING DRAFTS</div></div>
           <div className="study-pencil" />
         </div>
-        <div className="auth-art-copy"><span>FROM THE FIRST QUESTION TO A USEFUL DRAFT</span><h2>Your work.<br />Room to move.</h2><p>Questions, documents, and ideas.<br />One workspace to keep going.</p></div>
-        <div className="auth-art-bottom"><span>ArcNave</span><span>THINK · EXPLORE · CREATE</span></div>
+        <div className="auth-art-copy"><span>FROM SOURCE RECORDS TO A USEFUL DRAFT</span><h2>Your work.<br />Room to move.</h2><p>Questions, documents, and projects.<br />One workspace to keep going.</p></div>
+        <div className="auth-art-bottom"><span>ArcNave</span><span>REVIEW · DRAFT · VERIFY</span></div>
       </aside>
       </main>
       <footer className="auth-footer">
