@@ -25,6 +25,7 @@ import {
   projects,
   researchEvents,
   toolCalls as toolCallsTable,
+  turnLogs,
 } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
@@ -742,6 +743,38 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         .returning({ id: messages.id });
       if (result.length === 0) throw notFound('message');
       return reply.status(204).send(null);
+    },
+  );
+
+  /* ---------------------------------------------------------------- turn log */
+
+  typed.get(
+    '/chats/:id/messages/:messageId/log',
+    {
+      schema: {
+        tags: ['chats'],
+        summary: "A reply's turn log, as Markdown (ADR-0050)",
+        description:
+          'What the reply sent and did: the model, the attachments as they went (PDF page images included), ' +
+          'the tools and skills offered, and every tool call with its input and result.',
+        params: z.object({ id: z.string().uuid(), messageId: z.string().uuid() }),
+        response: { 200: z.string() },
+      },
+    },
+    async (request, reply) => {
+      const { db } = request.services;
+      const chat = await loadChat(request, request.params.id);
+      const [row] = await db
+        .select({ markdown: turnLogs.markdown })
+        .from(turnLogs)
+        .innerJoin(messages, eq(turnLogs.messageId, messages.id))
+        .where(and(eq(turnLogs.messageId, request.params.messageId), eq(messages.chatId, chat.id)))
+        .limit(1);
+      if (!row) throw notFound('turn log');
+      return reply
+        .header('Content-Type', 'text/markdown; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="turn-log-${request.params.messageId}.md"`)
+        .send(row.markdown);
     },
   );
 }

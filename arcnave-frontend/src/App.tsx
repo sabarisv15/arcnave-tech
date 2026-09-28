@@ -1144,6 +1144,11 @@ function MessageView({
                 onSelect: () => saveResponseAsArtifact(chatId, m.id),
               },
               {
+                label: "Download turn log",
+                icon: <FileText size={15} />,
+                onSelect: () => void downloadAuthenticated(api.chats.logUrl(chatId, m.id), `turn-log-${m.id}.md`),
+              },
+              {
                 label: "View research details",
                 icon: <Telescope size={15} />,
                 disabled: m.mode === "chat",

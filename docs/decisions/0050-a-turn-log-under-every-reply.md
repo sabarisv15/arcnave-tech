@@ -1,0 +1,38 @@
+# ADR-0050: A turn log under every reply
+
+- Status: accepted by the owner on 2026-09-28 ("ovoru reply ku keela athu enenea panuthunu oru md
+  file log kudukra mari panu"). Tested locally; not deployed.
+- Date: 2026-09-28
+- Ours: the reference has no such log. Its steps show tool calls; they do not show what a
+  request carried.
+
+## Context
+
+After ADR-0049 a scanned statement still drew seven commands, and the owner asked whether the
+model read the page images or made its own. The code says the images go (ADR-0013, ADR-0016),
+but nothing a person could open showed what a given request carried, so each answer was an
+inference from code. The existing debug event names the tools allowed and called, nothing more.
+
+## Decision
+
+1. Every reply that reaches a model writes one Markdown log (`services/turnLog.ts`), stored in
+   `turn_logs` keyed by the message (migration 0023), written in the turn's `finally` so a
+   failed or stopped turn is logged too.
+2. The log holds: the model asked for and used, the client platform; the system prompt's size
+   and section names (not its text); how many earlier turns went; the declared tools; the skills
+   listed; each attachment as it was sent (for a PDF: pages, page images and whether by Cloud
+   Storage URI or inline, pages with a text layer; or the reason it was left out); the user
+   message as sent, with the attachment manifest; then thinking, reply text and every tool call
+   in order with its input and result (6,000 characters each, the cut said); then status,
+   finish reason, usage and phase timings.
+3. `GET /v1/chats/:id/messages/:messageId/log` returns it as a Markdown download to the chat's
+   owner only. The reply's "more" menu has "Download turn log".
+
+## Consequences
+
+- "Did the model get the images?" is read in the log's "What was sent" section.
+- The prompt text stays out of the log, so the log can be shown to every user.
+- Each reply stores a few kilobytes more; the log goes with its message when the chat is
+  deleted.
+- A reply that failed before any text has no action row, so its log is not yet offered in the
+  menu; the route serves it.

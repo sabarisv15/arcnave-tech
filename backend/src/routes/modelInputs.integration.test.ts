@@ -111,3 +111,55 @@ describe('earlier files over the inline budget (ADR-0019)', () => {
     expect(JSON.stringify(buildAnthropicMessages(claude))).toContain('"type":"base64"');
   });
 });
+
+describe('a turn log under every reply (ADR-0050)', () => {
+  it('records the page images sent, each tool call with its input and result, and the outcome', async () => {
+    const headers = { cookie: user.cookie };
+    const part = multipart('scan.pdf', await pdfWithPages(3, ['', 'Row 2', '']), 'application/pdf');
+    const fileId = ((await ctx.app.inject({ method: 'POST', url: '/v1/files', headers: { ...part.headers, ...headers }, payload: part.payload })).json() as { id: string }).id;
+    const chatId = ((await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'log' } })).json() as { id: string }).id;
+    const script = ctx.provider.script;
+    ctx.provider.script = [
+      { type: 'thinking', text: 'The pages are in view.' },
+      { type: 'tool_use', toolCallId: 't1', name: 'bash_tool', input: { command: 'pdfinfo input/scan.pdf', description: 'count pages' } },
+      { type: 'tool_result', toolCallId: 't1', name: 'bash_tool', result: { toolCallId: 't1', ok: true, content: [{ type: 'text', text: 'Pages: 3' }] } },
+      { type: 'delta', text: 'Three pages.' },
+      { type: 'completed', usage: { inputTokens: 5, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true }, finishReason: 'stop' },
+    ];
+    try {
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: `/v1/chats/${chatId}/generate`,
+        headers: { ...headers, 'sec-ch-ua-mobile': '?1' },
+        payload: { prompt: 'Evlo pages?', model: 'Gemini 3.8 Flash', attachmentIds: [fileId] },
+      });
+      const frames = parseSse(res.body);
+      expect(frames.at(-1)!.event).toBe('done');
+      const messageId = (frames.find((f) => f.event === 'start')!.data as { messageId: string }).messageId;
+
+      const log = await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}/messages/${messageId}/log`, headers });
+      expect(log.statusCode).toBe(200);
+      expect(log.headers['content-type']).toContain('text/markdown');
+      const md = log.body;
+      expect(md).toContain('"scan.pdf" (application/pdf): 3 pages, 3 page images sent (3 by Cloud Storage URI); a text layer on 1 of 3');
+      expect(md).toContain('- Client: mobile');
+      expect(md).toContain('### 1. bash_tool');
+      expect(md).toContain('pdfinfo input/scan.pdf');
+      expect(md).toContain('Result (ok):');
+      expect(md).toContain('Pages: 3');
+      expect(md).toContain('The pages are in view.');
+      expect(md).toContain('- Status: complete');
+      expect(md).toContain('Evlo pages?');
+      // The system prompt's size and sections, never its text.
+      expect(md).toMatch(/- System prompt: \d+ characters; sections: /);
+      expect(md).not.toContain('You are ArcNave');
+
+      // Another user cannot read it.
+      const other = await signUp(ctx);
+      const denied = await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}/messages/${messageId}/log`, headers: { cookie: other.cookie } });
+      expect(denied.statusCode).toBe(404);
+    } finally {
+      ctx.provider.script = script;
+    }
+  });
+});

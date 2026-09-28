@@ -912,6 +912,8 @@ export const api = {
     stop: (id: string) => post<{ stopped: boolean }>(`/chats/${id}/stop`),
     feedback: (id: string, messageId: string, feedback: "up" | "down" | null) =>
       post<void>(`/chats/${id}/messages/${messageId}/feedback`, { feedback }),
+    /** A reply's turn log, as a Markdown download (ADR-0050). */
+    logUrl: (id: string, messageId: string) => url(`/chats/${id}/messages/${messageId}/log`),
   },
 
   projects: {

@@ -1,6 +1,16 @@
 # ArcNave — current checkpoint
 
-> **2026-09-28 (latest): prompt and skills read line by line against the Opus 5.5 app prompt and anthropics/skills; conflicts A + B fixed. Tested locally; not merged or deployed.**
+> **2026-09-28 (latest): a turn log under every reply ([ADR-0050](../decisions/0050-a-turn-log-under-every-reply.md)). Tested locally; not deployed.**
+> - Each reply stores a Markdown log: model, what the request carried (PDF page images, by URI
+>   or inline, text-layer pages), tools and skills offered, the user message as sent, thinking,
+>   every tool call with input and result, status, usage, timings. Migration 0023 (`turn_logs`).
+> - "Download turn log" in each reply's more menu; `GET /v1/chats/:id/messages/:messageId/log`.
+> - ADR-0049 (below) is merged to main (`4719882`); its live check is still open.
+> - Backend **906/906**; frontend typecheck, **195/195**, build.
+> - Next: owner approval to merge and deploy; then the scanned-statement question again, and
+>   read its turn log.
+
+> **2026-09-28: prompt and skills read line by line against the Opus 5.5 app prompt and anthropics/skills; conflicts A + B fixed. Merged to main (`4719882`) on the owner's request; deploy result not seen here.**
 > [ADR-0049](../decisions/0049-prompt-and-skills-line-by-line-with-the-reference.md).
 > - Cause of the live scanned-PDF turn that ran seven commands (answer right: 48 / 277 / 325):
 >   the prompt's pdf-reading mapping, our exact-figure rule and the skill's text-layer check.

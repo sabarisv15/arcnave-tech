@@ -29,6 +29,7 @@ import {
   projects,
   researchEvents,
   toolCalls,
+  turnLogs,
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
@@ -71,6 +72,7 @@ import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 import { SKILLS_ROOT } from '../tools/codeExecutionExecutor.js';
+import { TurnLog } from './turnLog.js';
 import { WebToolExecutor } from '../tools/webExecutor.js';
 import { WebFetchService } from './webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from './webSearch.js';
@@ -403,6 +405,11 @@ export class GenerationService {
     const runId = `${input.chatId}_${input.messageId}`;
     const workspace = await this.executionRuntime.createWorkspace(runId);
     timing.mark('workspace');
+    // ADR-0050: what this reply sent and did, stored for the person to read.
+    let turnLog: TurnLog | undefined;
+    const logOutcome: { status: string; finishReason?: string | null; errorCode?: string | null; usage?: object } = {
+      status: 'unfinished',
+    };
 
     try {
       // Attachments are not copied into the workspace up front. A tool that needs one names its
@@ -490,6 +497,17 @@ export class GenerationService {
       grounded,
       codeExecution,
     };
+
+    turnLog = new TurnLog({
+      messageId: input.messageId,
+      chatId: input.chatId,
+      startedAt,
+      requested: input.modelAlias,
+      resolved: entry.alias,
+      providerModelId: entry.providerModelId!,
+      grounded,
+      ...(input.clientPlatform ? { clientPlatform: input.clientPlatform } : {}),
+    });
 
     yield {
       type: 'start',
@@ -761,6 +779,8 @@ export class GenerationService {
       signal: input.signal,
     };
 
+    turnLog.sent(request, skillsEnabled ? this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : []);
+
     let usage: ProviderUsage = EMPTY_USAGE;
     let finishReason = 'stop';
     let status: 'complete' | 'cancelled' | 'error' = 'complete';
@@ -808,11 +828,13 @@ export class GenerationService {
             const safe = answerGuard.push(event.text);
             collectedText.push(safe);
             addSegment('text', safe);
+            turnLog.text(safe);
             if (safe) yield { type: 'delta', text: safe };
             break;
           }
 
           case 'thinking':
+            turnLog.thinking(event.text);
             collectedThinking.push(event.text);
             addSegment('thinking', event.text);
             yield { type: 'thinking', text: event.text };
@@ -860,12 +882,14 @@ export class GenerationService {
               else segments.push({ type: 'tools', toolCallIds: [event.toolCallId] });
             }
             pendingToolInputs.set(event.toolCallId, event.input);
+            turnLog.call(event.toolCallId, event.name, event.input);
               if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
             yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
             break;
           }
 
           case 'tool_result': {
+            turnLog.result(event.toolCallId, event.result);
             const preview = toolResultPreview(event.result, this.cfg.TOOL_RESULT_PREVIEW_CHARS);
             const files = presentedFiles(event.name, event.result);
             yield {
@@ -915,6 +939,7 @@ export class GenerationService {
               if (tail) {
                 collectedText.push(tail);
                 addSegment('text', tail);
+                turnLog.text(tail);
                 yield { type: 'delta', text: tail };
               }
             }
@@ -965,6 +990,7 @@ export class GenerationService {
           status: 'error',
           errorCode: mapped.code,
         });
+        Object.assign(logOutcome, { status: 'error', errorCode: mapped.code, usage });
         yield {
           type: 'error',
           code: mapped.code,
@@ -996,12 +1022,14 @@ export class GenerationService {
             const safe = answerGuard.push(event.text);
             collectedText.push(safe);
             addSegment('text', safe);
+            turnLog.text(safe);
             if (safe) yield { type: 'delta', text: safe };
           } else if (event.type === 'completed') {
             const tail = answerGuard.finish();
             if (tail) {
               collectedText.push(tail);
               addSegment('text', tail);
+              turnLog.text(tail);
               yield { type: 'delta', text: tail };
             }
             // A second request of the same turn: billed on top of the first.
@@ -1051,6 +1079,12 @@ export class GenerationService {
       effort: reasoningEffort,
     });
 
+    Object.assign(logOutcome, {
+      status: status === 'cancelled' ? 'stopped' : status,
+      finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
+      errorCode,
+      usage,
+    });
     await this.usage.record({
       userId: input.userId,
       prefs,
@@ -1089,6 +1123,15 @@ export class GenerationService {
     } finally {
       timing.mark('stream_and_persist');
       log.info({ chatId: input.chatId, messageId: input.messageId, ...timing.summary() }, 'turn timing');
+      if (turnLog) {
+        turnLog.finish({ ...logOutcome, timing: timing.summary() });
+        const markdown = turnLog.markdown();
+        await this.db
+          .insert(turnLogs)
+          .values({ messageId: input.messageId, userId: input.userId, markdown })
+          .onConflictDoUpdate({ target: turnLogs.messageId, set: { markdown } })
+          .catch((err: unknown) => log.warn({ err, messageId: input.messageId }, 'turn log not saved'));
+      }
       await this.executionRuntime.cleanupWorkspace(workspace);
     }
   }

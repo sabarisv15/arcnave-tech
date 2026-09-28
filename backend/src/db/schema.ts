@@ -504,6 +504,21 @@ export const accountExports = pgTable(
   (t) => [index('ix_account_exports_user').on(t.userId), index('ix_account_exports_expires').on(t.expiresAt)],
 );
 
+/**
+ * What each reply did, as Markdown: the model, what the request carried (page images included),
+ * the tools declared and every call with its input and result (ADR-0050). One per reply.
+ */
+export const turnLogs = pgTable('turn_logs', {
+  messageId: uuid('message_id')
+    .primaryKey()
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  markdown: text('markdown').notNull(),
+  createdAt: createdAt(),
+});
+
 /* -------------------------------------------------------------------------- artifacts */
 
 export const artifacts = pgTable(

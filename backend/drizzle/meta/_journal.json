@@ -162,6 +162,13 @@
       "when": 1791600000000,
       "tag": "0022_memory_files",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0023_turn_logs",
+      "breakpoints": true
     }
   ]
 }
