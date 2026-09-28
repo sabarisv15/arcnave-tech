@@ -124,7 +124,7 @@ def main():
             continue
         schema = ref[name]['schema'] or {}
         a, b = flatten(schema.get('parameters', schema)), flatten(tool.get('inputSchema', {}))
-        diffs = [k for k in sorted(set(a) | set(b)) if not k.endswith('#desc') and a.get(k) != b.get(k)]
+        diffs = [k for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)]
         rows.append({
             'tool': name, 'ref_line': ref[name]['line'],
             'desc_similarity': round(difflib.SequenceMatcher(None, ref[name]['desc'].split(), tool['description'].split()).ratio(), 2),

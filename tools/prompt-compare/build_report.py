@@ -28,11 +28,13 @@ VERDICTS = {
 }
 
 
-def cell(text, n=None):
-    text = ' '.join(text.split())
-    if n and len(text) > n:
-        text = text[:n - 1] + '…'
-    return text.replace('|', '\\|')
+def cell(text):
+    """One table cell, whole: nothing is shortened. Line breaks become <br>; characters that
+    Markdown or HTML would swallow (<tag>, `, *, _, |) are escaped so the text reads as written."""
+    text = text.strip().replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    for ch in ('\\', '`', '*', '_', '|'):
+        text = text.replace(ch, '\\' + ch)
+    return '<br>'.join(line.strip() for line in text.split('\n'))
 
 
 def load(name):
@@ -124,7 +126,7 @@ def main():
             w(f'\n### {sec}\n\n| Line | Fable text | Verdict | ArcNave | Note |\n|---|---|---|---|---|')
             last = sec
         v = vf[f"L{u['line']}"]
-        w(f'| {u["line"]} | {cell(u["text"], 110)} | {v[0]} | {cell(v[1])} | {cell(v[2])} |')
+        w(f'| {u["line"]} | {cell(u["text"])} | {v[0]} | {cell(v[1])} | {cell(v[2])} |')
     w('')
 
     w('## Part B: tools\n')
@@ -133,10 +135,22 @@ def main():
         if t['tool'] not in vt:
             continue
         v = vt[t['tool']]
-        facts = ', '.join(k for k in t['schema_diffs'] if not k.endswith('.type') and '<anyOf' not in k) or 'none (types only)'
-        w(f'| {t["tool"]} | {t["ref_line"]} | {v[0]} | {t["desc_similarity"]} | {cell(facts, 160)} | {cell(v[1])} |')
+        facts = ', '.join(k for k in t['schema_diffs'] if not k.endswith(('.type', '#desc')) and '<anyOf' not in k) or 'none (types only)'
+        w(f'| {t["tool"]} | {t["ref_line"]} | {v[0]} | {t["desc_similarity"]} | {cell(facts)} | {cell(v[1])} |')
     w('\n"Description similarity" is a word-sequence ratio: a low number with verdict R means the same '
       'rules in fewer words. Schema differences in `type` only are Fable\'s nullable `anyOf` forms.\n')
+    w('### Full tool texts, side by side\n')
+    w('Each shared tool\'s whole description in both prompts, then every schema fact that differs '
+      '(Fable value → ArcNave value; parameter descriptions included).\n')
+    for t in common_tools:
+        w(f'#### {t["tool"]} (Fable line {t["ref_line"]})\n')
+        w('| Fable | ArcNave |\n|---|---|')
+        w(f'| {cell(t["ref_desc"])} | {cell(t["arcnave_desc"])} |\n')
+        if t['schema_diffs']:
+            w('| Schema fact | Fable | ArcNave |\n|---|---|---|')
+            for k, (a, b) in t['schema_diffs'].items():
+                w(f'| {cell(k)} | {cell(str(a))} | {cell(str(b))} |')
+            w('')
     w('**ArcNave only:** search_project_files, read_project_file (projects).\n')
     w('**Fable only (N):** ' + ', '.join(t['tool'] for t in fable_only_tools) + '.\n')
 
@@ -150,7 +164,7 @@ def main():
     w('| Line | ArcNave text | Verdict | Note | Risk |\n|---|---|---|---|---|')
     for u in arcnave:
         v = va[f"L{u['line']}"] + ['', '']
-        w(f'| {u["line"]} | {cell(u["text"], 110)} | {cell(v[0])} | {cell(v[1])} | {cell(v[2])} |')
+        w(f'| {u["line"]} | {cell(u["text"])} | {cell(v[0])} | {cell(v[1])} | {cell(v[2])} |')
     w('')
     OUT.write_text('\n'.join(o))
     print(f'wrote {OUT.relative_to(ROOT)}: Fable {dict(total)}, ArcNave {dict(ours_kind)}, tools {dict(tool_kind)}')
