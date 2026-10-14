@@ -5,7 +5,7 @@ import "./landing.css";
 
 export const publicPaths = new Set(["/", "/about", "/privacy", "/terms"]);
 export const cleanPath = (path: string) => path.replace(/\/+$/, "") || "/";
-export const siteContact = "admin@arcnave.tech";
+export const siteContact = "admin@arcnave.in";
 function BrandMark() { return <span className="arcnave-mark" aria-hidden="true"><span /><span /><span /></span>; }
 
 const examples = [
@@ -73,7 +73,7 @@ function HomePage() {
     <section className="site-section site-faq"><div><p className="site-eyebrow">A FEW GOOD QUESTIONS</p><h2>Before you<br />get started.</h2></div><div>{[
       ["What is ArcNave?", "ArcNave is Academic Campus AI: a software workspace for colleges that brings conversations, source documents, project context, and working drafts together. It is currently in development."],
       ["What can I use it for?", "Organise evidence, review source documents, and prepare working drafts for campus teams. The previews illustrate intended workflows; available tools and exports depend on the product rollout."],
-      ["Is ArcNave available yet?", "The product is in development, with a broader release planned for the end of 2026. You can use the signup entry to check access, or contact admin@arcnave.tech about early access."],
+      ["Is ArcNave available yet?", "The product is in development, with a broader release planned for the end of 2026. You can use the signup entry to check access, or contact admin@arcnave.in about early access."],
       ["How will colleges pay for ArcNave?", "We plan a recurring college or institution subscription. Pricing has not been set while we develop the product and validate the offering with users."],
       ["How do I access my workspace?", "Use Log in for an existing account or Get started to open the signup form. Authentication takes you to your workspace, where your conversations and projects live."],
       ["Does ArcNave provide accreditation or approval?", "ArcNave helps with preparation and is not affiliated with or endorsed by NAAC, NBA, or AICTE. Institutions must verify current requirements and review every output. Decisions remain with the relevant bodies."],

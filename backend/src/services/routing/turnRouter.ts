@@ -22,6 +22,8 @@ export interface RouteTurnInput {
   /** The model's own web search is on this turn (Gemini grounding, Anthropic's server tool). */
   builtInSearch?: boolean;
   memoryEnabled?: boolean;
+  /** Past-chat search, its own user setting (ADR-0052). Follows memoryEnabled when not given. */
+  chatSearchEnabled?: boolean;
 }
 
 export interface TurnRoutingDecision {
@@ -50,6 +52,8 @@ export function routeTurn(input: RouteTurnInput): TurnRoutingDecision {
     for (const t of ['memory_list', 'memory_read', 'memory_write', 'memory_append', 'memory_str_replace', 'memory_delete']) {
       allowed.add(t);
     }
+  }
+  if (input.chatSearchEnabled ?? input.memoryEnabled) {
     for (const t of ['conversation_search', 'read_conversation', 'recent_chats']) allowed.add(t);
   }
   if (input.hasProject) {

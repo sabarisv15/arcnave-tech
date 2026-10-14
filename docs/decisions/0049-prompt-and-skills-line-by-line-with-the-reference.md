@@ -2,6 +2,9 @@
 
 - Status: accepted by the owner on 2026-09-28 ("A + B fix pannu, rule-a Claude maadhiri
   eduthudu"). Tested locally; not deployed.
+- Superseded in part by [ADR-0052](0052-prompt-gaps-closed-from-the-audit-and-turn-logs.md):
+  articles and posts are files, a short file is written once, and the safety sections left for the
+  owner are in the prompt.
 - Date: 2026-09-28
 - Amends: [ADR-0044](0044-pdf-reading-and-exact-figures.md) (the exact-figure rule and the
   pdf-reading skill), [ADR-0046](0046-tools-and-skills-cut-to-the-reference.md) (pages in view

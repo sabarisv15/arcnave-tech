@@ -13,7 +13,7 @@ import type { WebSearchAdapter, WebSearchService } from '../services/webSearch.j
 
 const searchInput = z.object({ query: z.string().min(1) });
 const fetchInput = z.object({ url: z.string().url() });
-const imageInput = z.object({ query: z.string().min(1), max_results: z.number().int().min(3).max(5).optional() });
+const imageInput = z.object({ query: z.string().min(1), max_results: z.number().int().min(3).max(4).optional() });
 
 const URL_PATTERN = /https?:\/\/[^\s"'<>\\)\]}]+/g;
 

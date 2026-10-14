@@ -29,8 +29,10 @@ export interface ToolRegistryFlags {
   /** The engine keeps a chat's files between calls (the warm service). */
   persistentSandbox?: boolean;
   webEnabled?: boolean;
-  /** Memory, and the past-chat tools with it. */
+  /** The memory tools. */
   memoryEnabled?: boolean;
+  /** The past-chat tools; their own user setting (ADR-0052). Follows memoryEnabled when not given. */
+  chatSearchEnabled?: boolean;
   /** show_widget, read_me and the display cards. */
   generativeUiEnabled?: boolean;
 }
@@ -48,7 +50,8 @@ export class ProjectToolRegistry implements ToolRegistry {
   getAvailableTools(context: ToolContext): ToolDefinition[] {
     if (!this.enabled) return [];
     const tools: ToolDefinition[] = [...QUESTION_TOOL_DEFINITIONS];
-    if (this.flags.memoryEnabled) tools.push(...MEMORY_TOOL_DEFINITIONS, ...CHAT_TOOL_DEFINITIONS);
+    if (this.flags.memoryEnabled) tools.push(...MEMORY_TOOL_DEFINITIONS);
+    if (this.flags.chatSearchEnabled ?? this.flags.memoryEnabled) tools.push(...CHAT_TOOL_DEFINITIONS);
     if (this.flags.generativeUiEnabled) tools.push(...UI_TOOL_DEFINITIONS);
     if (this.flags.webEnabled) tools.push(...WEB_TOOL_DEFINITIONS);
     // Code execution is visible only when both the deployment and this turn allow it.

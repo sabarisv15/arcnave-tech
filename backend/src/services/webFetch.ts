@@ -75,7 +75,7 @@ export class WebFetchService {
       const response = await fetch(parsedUrl.toString(), {
         method: 'GET',
         headers: {
-          'User-Agent': 'ArcNave-Bot/1.0 (+https://arcnave.tech)',
+          'User-Agent': 'ArcNave-Bot/1.0 (+https://arcnave.in)',
           Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
         },
         signal: controller.signal,

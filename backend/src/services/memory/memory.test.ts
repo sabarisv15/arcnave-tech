@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkPrivacy, redactSecrets } from './privacy.js';
+import { checkPrivacy, neverStoredMessage, redactSecrets } from './privacy.js';
 
 describe('Phase 5.2 Persistent Memory - Privacy & Secrets', () => {
   it('detects OpenAI API keys', () => {
@@ -44,5 +44,40 @@ describe('Phase 5.2 Persistent Memory - Privacy & Secrets', () => {
     expect(result.hasSecret).toBe(false);
     expect(result.violations).toHaveLength(0);
     expect(redactSecrets(text)).toBe(text);
+  });
+});
+
+// ADR-0052: the identifier numbers memory never stores, for anyone, under any setting. The
+// Aadhaar values were derived with an independent Verhoeff check-digit generator, not by hand.
+describe('never-stored identifier numbers', () => {
+  it.each([
+    ['my card is 4111 1111 1111 1111', 'payment card number'],
+    ['card 4111111111111111', 'payment card number'],
+    ['aadhaar 2345 6789 0124', 'Aadhaar number'],
+    ['PAN ABCPE1234F', 'PAN number'],
+    ['ssn 123-45-6789', 'social security number'],
+    ['passport number: K1234567', 'passport number'],
+    ['driving licence TN01 20110012345', 'driving licence number'],
+    ['voter id ABC1234567', 'voter ID number'],
+    ['account no 123456789012', 'bank account number'],
+  ])('refuses %s', (text, name) => {
+    const result = checkPrivacy(text);
+    expect(result.hasSecret).toBe(true);
+    expect(result.violations).toContain(name);
+    expect(result.secrets).toEqual([]);
+    expect(neverStoredMessage(result)).toBe(`Memory never stores ${name}. Leave that detail out and save the rest.`);
+  });
+
+  it.each([
+    'call me on +91 98765 43210',
+    'the Visa ending in 4417',
+    'visited in 2019 and 2023',
+    'order 1234567890123',
+    'ref 2345 6789 0125',
+    'passport renewal next month, 2 weeks',
+    'driving license renewal next month 2',
+    'banks with SBI; account opened in 2021',
+  ])('keeps %s, which names no identifier', (text) => {
+    expect(checkPrivacy(text).violations).toEqual([]);
   });
 });

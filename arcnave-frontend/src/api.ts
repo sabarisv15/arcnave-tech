@@ -682,6 +682,8 @@ export interface PreferencesDto {
   defaultMode: string;
   sourceScope: string;
   saveHistory: boolean;
+  memoryEnabled: boolean;
+  chatSearchEnabled: boolean;
   styleId?: string;
   maxOutputTokens: number;
   dailyTokenBudget: number | null;

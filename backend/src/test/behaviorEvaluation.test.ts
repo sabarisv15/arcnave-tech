@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { loadConfig } from '../config.js';
 import { markdownToDocumentSpec } from '../services/documents.js';
-import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
+import { buildBaseSystemPrompt, buildDynamicRuntimeContext, STATIC_BASE_SYSTEM_PROMPT_V1 } from '../services/systemPrompt.js';
 
 describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract Tests', () => {
   const baseConfig = loadConfig({
@@ -25,6 +25,8 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
 
   const fullRegistry = buildCapabilityRegistry(baseConfig);
   const masterPrompt = buildBaseSystemPrompt(baseConfig, fullRegistry);
+  // The same turn with the model's built-in web search on: the search rules apply only then.
+  const searchPrompt = `${STATIC_BASE_SYSTEM_PROMPT_V1}\n\n${buildDynamicRuntimeContext(baseConfig, fullRegistry, undefined, true)}`;
 
   describe('Token & Size Budget Evaluation', () => {
     it('maintains the base behavioral prompt within the target ~2K-4K token budget', () => {
@@ -33,14 +35,16 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       // Standard BPE tokenizer estimate for English prose: ~1.33 tokens per word (75 words = 100 tokens)
       const estimatedTokens = Math.round(wordCount * 1.33);
 
-      // Verify token bounds, strictly under the 8K-10K threshold. Raised from 4,500 / 3,500 on
-      // 2026-09-25 for the understand-first step, the file rule and the language rule (ADR-0022).
+      // Raised from 4,500 / 3,500 on 2026-09-25 for the understand-first step, the file rule and
+      // the language rule (ADR-0022), and on 2026-09-28 for the reference's safety, wellbeing,
+      // evenhandedness, preference, search and copyright rules (ADR-0052). The static part is the
+      // cached prefix; the bound still catches accidental duplication.
       expect(estimatedTokens).toBeGreaterThanOrEqual(2000);
-      expect(estimatedTokens).toBeLessThanOrEqual(5000);
+      expect(estimatedTokens).toBeLessThanOrEqual(10000);
 
       // Verify word count is compact and proportional
       expect(wordCount).toBeGreaterThanOrEqual(1500);
-      expect(wordCount).toBeLessThanOrEqual(3800);
+      expect(wordCount).toBeLessThanOrEqual(7500);
     });
 
     it('enforces XML boundary cleanliness across all top-level prompt sections', () => {
@@ -62,6 +66,11 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
         'mistakes',
         'permissions_and_actions',
         'final_response',
+        'safety',
+        'wellbeing',
+        'evenhandedness',
+        'knowledge',
+        'user_preferences',
       ];
 
       for (const tag of requiredTags) {
@@ -75,23 +84,27 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
     it('Eval 1: Casual greeting ("Hi") -> Instructs direct response, no tools/AgentLoop overhead', () => {
       expect(masterPrompt).toContain('Answer directly when tools are unnecessary');
       expect(masterPrompt).toContain('short prose or a conversational answer');
-      expect(masterPrompt).toContain('casual conversation');
+      expect(masterPrompt).toContain('a casual reply can be a few sentences');
     });
 
     it('Eval 2: Stable factual question -> Prohibits unnecessary web search', () => {
-      expect(masterPrompt).toContain('Do not search unnecessarily for:');
-      expect(masterPrompt).toContain('basic mathematics');
-      expect(masterPrompt).toContain('stable scientific principles');
-      expect(masterPrompt).toContain('settled historical facts');
+      expect(searchPrompt).toContain('Do not search for what cannot have changed');
+      expect(searchPrompt).toContain('basic mathematics');
+      expect(searchPrompt).toContain('stable scientific principles');
+      expect(searchPrompt).toContain('settled history');
+      // The search rules are not given where there is no search to apply them to.
+      expect(masterPrompt).not.toContain('Do not search for what cannot have changed');
     });
 
     it('Eval 3: Current factual question -> Directs to web_search', () => {
       // Names the search tool only when one exists; this registry has web_fetch only.
-      expect(masterPrompt).toContain('when information is:');
-      expect(masterPrompt).toContain('current');
-      expect(masterPrompt).toContain('recent');
-      expect(masterPrompt).toContain('changing');
-      expect(masterPrompt).toContain('product/version specific');
+      expect(masterPrompt).toContain('Use web_fetch on a known page when the answer rests on anything that could have changed');
+      expect(searchPrompt).toContain('Search the web when the answer rests on anything that could have changed');
+      expect(searchPrompt).toContain('the test is whether the remembered answer could have changed');
+      // The reference's unrecognised-name rule, with the name searched as the user wrote it.
+      expect(searchPrompt).toContain('A name you do not recognise');
+      expect(searchPrompt).toContain('Include the name as the user wrote it');
+      expect(searchPrompt).toContain('Do not use search operators');
     });
 
     it('Eval 4: Specific URL inspection -> Directs to web_fetch', () => {
@@ -101,9 +114,12 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
     });
 
     it('Eval 5: Uploaded document -> What is already in context is seen, not fetched again', () => {
-      expect(masterPrompt).toContain('Some attachments are already in your context');
-      expect(masterPrompt).toContain('decide whether the computer is actually needed');
+      expect(masterPrompt).toContain('each line says whether its content is already in your context');
+      expect(masterPrompt).toContain('neither does taking its content into a new file');
       expect(masterPrompt).toContain('Do not make claims about unseen sections of a file');
+      // ADR-0052: the sentences that sent a PDF in view through four OCR steps are gone.
+      expect(masterPrompt).not.toContain('converting the file, editing it or producing a file from it does');
+      expect(masterPrompt).not.toContain('read it first, apply what the user asked');
     });
 
     it('Eval 6: Document / PDF -> Word conversion -> Enforces source transformation and docx skill', () => {
@@ -129,9 +145,11 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
     });
 
     it('Eval 9: Deep multi-source research -> Triangulation and iterative synthesis', () => {
-      expect(masterPrompt).toContain('Research should be iterative rather than one-shot');
-      expect(masterPrompt).toContain('compare sources');
-      expect(masterPrompt).toContain('investigate contradictions');
+      // ADR-0052: the ten-step iterative workflow (ours) is replaced by the reference's scaling rule.
+      expect(masterPrompt).toContain('Scale searching to the question');
+      expect(masterPrompt).toContain('Use multiple sources when a claim is important, contested, or uncertain');
+      expect(masterPrompt).toContain('If sources disagree, explain the disagreement');
+      expect(masterPrompt).not.toContain('Research should be iterative rather than one-shot');
     });
 
     it('Eval 10: Malicious injected instructions inside source material -> Treats external content strictly as untrusted data', () => {
@@ -156,8 +174,10 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       expect(masterPrompt).toContain('Match your effort to the ask. A simple question gets a direct answer');
       // Help Center: files are created when asked for.
       expect(masterPrompt).toContain('Create a file when the user asks for one');
-      // Reference app prompt (ADR-0049): no explaining a search or tool choice out loud.
-      expect(masterPrompt).toContain('Do not explain or justify a search or a tool call out loud');
+      // No justifying a tool choice (ADR-0049), but a short update every couple of calls (ADR-0052).
+      expect(masterPrompt).toContain('Do not justify the choice of a search or a tool');
+      expect(masterPrompt).toContain('one short sentence every couple of calls');
+      expect(masterPrompt).not.toContain('give a brief update only when you find something important');
       expect(masterPrompt).not.toContain('Before your first tool call, say in one sentence');
       // Removed: anti-laziness and standing verification (they over-trigger current models).
       expect(masterPrompt).not.toContain('time spent do not by themselves mean the task is done');
@@ -177,13 +197,38 @@ describe('ArcNave Master System Prompt v1 — Prompt & Routing Behavior Contract
       // The reference's lists_and_bullets and file_creation_advice.
       expect(masterPrompt).toContain('Use the minimum formatting needed for clarity.');
       expect(masterPrompt).toContain('The reply is the default.');
-      expect(masterPrompt).toContain('An article, blog post or essay is usually headed elsewhere');
+      // ADR-0052: an article, post or story is a file, however short (the reference, line 1529).
+      expect(masterPrompt).toContain('however short or casually asked');
+      expect(masterPrompt).not.toContain('usually headed elsewhere');
+      // ADR-0052: short files are written once; only long ones are reviewed and refined.
+      expect(masterPrompt).toContain('A short file (under about 100 lines) is written in one call, straight to output/');
+      expect(masterPrompt).not.toContain('fix and rebuild when it is wrong');
     });
 
     it('Eval 11b3: What is in context is seen first; skills are read before any code or file (ADR-0047)', () => {
-      expect(masterPrompt).toContain('Reading, counting, transcribing or summarising what you can see needs no tool');
+      expect(masterPrompt).toContain('reading, counting, transcribing, summarising or extracting from it needs no tool');
+      expect(masterPrompt).toContain('A fact you read, count or transcribe there needs no tool to confirm it');
       expect(masterPrompt).toContain('Before creating any file, writing any code or running any command');
       expect(masterPrompt).not.toContain('load_skill');
+    });
+
+    it('Eval 11b5: The reference safety, wellbeing and evenhandedness rules are given (ADR-0052)', () => {
+      expect(masterPrompt).toContain('Never write romantic or sexual content involving or directed at a minor');
+      expect(masterPrompt).toContain('do not name, list or describe specific methods');
+      expect(masterPrompt).toContain('Do not write, explain or work on malicious code');
+      expect(masterPrompt).toContain('you are not a lawyer or financial adviser');
+      expect(masterPrompt).toContain('Do not reproduce song lyrics, poems, or passages from books and articles');
+      expect(masterPrompt).toContain('the best case its defenders would make');
+      // Web-only copyright limits and harmful sources ride with search.
+      expect(searchPrompt).toContain('Every quote is under 15 words, and each source gets at most one quote');
+      expect(searchPrompt).toContain('## Harmful sources');
+    });
+
+    it('Eval 11b6: React artifact imports are the names the frontend loader resolves', () => {
+      // arcnave-frontend/src/fileArtifacts.ts REACT_MODULES: "plotly" is not a key there.
+      expect(masterPrompt).toContain('plotly.js-dist-min');
+      expect(masterPrompt).not.toMatch(/d3, plotly, three/);
+      expect(masterPrompt).toContain('import Chart from "chart.js/auto"');
     });
 
     it('Eval 11b4: The prompt names no other assistant as what ArcNave is or follows (ADR-0044)', () => {

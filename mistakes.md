@@ -380,20 +380,6 @@ failure mode of this pattern, not a sign it is working.
   step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
   issue in the checkpoint rather than patched under time pressure.
 
-### 2026-09-18 — `pdf-parse`'s concatenated `.text` is never truly empty, even for a blank page
-
-- **Symptom:** A scanned (image-only) PDF's OCR fallback never triggered — `extractPdf`'s
-  `text.trim() === ''` check was always false, even against a hand-built PDF with zero real
-  content.
-- **Cause:** `PDFParse.getText()`'s top-level `.text` is the per-page strings joined with a
-  `-- N of M --` separator — inserted even when every page is blank, so the concatenated string
-  is never actually empty. Only `result.pages[i].text` is.
-- **Rule:** **Test "is there real text" against `result.pages[].text`, never the concatenated
-  `.text`.** Any pdf-parse boilerplate lives in the join, not the per-page values.
-- **Verify:** `extractText` on a hand-built blank-page PDF (no `/Contents`) with no vision
-  provider configured rejects with the OCR-unavailable message — see
-  `retrieval.test.ts`'s "fails with a typed reason rather than silently skipping OCR".
-
 ### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
 
 - **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
@@ -518,27 +504,6 @@ failure mode of this pattern, not a sign it is working.
   the old one (`gemini.adapter-loop.test.ts`: the final round falls back on INVALID_ARGUMENT).
 
 ---
-
-### 2026-09-19 — A Gemini tool loop only checked `AbortSignal` mid-stream, not before the next round's request
-
-- **Symptom:** Caught in Task 8's own adapter-loop test, never shipped — "stops issuing provider
-  requests once the signal is aborted" failed by asserting `client.calls.length`, not just that
-  the generator eventually threw.
-- **Cause:** The Gemini tool loop (Task 7) checked `request.signal.aborted` inside the
-  chunk-consuming loop, i.e. only while a stream was actively being read. An abort that fired
-  while `await request.toolExecutor!.execute(...)` was in flight — between rounds, with no
-  stream open to check anything against — was invisible to that check, so the loop went on to
-  issue one more `generateContentStream()` call before anything noticed the abort. A test that
-  only asserts "the generator throws eventually" cannot tell an immediate abort from one that
-  waited for a spurious extra round trip; asserting the call count can.
-- **Rule:** **A bounded, multi-round provider loop must check `signal.aborted` at the top of
-  *every* round, before issuing that round's request — not only inside the loop that consumes an
-  already-open stream.** Between-round work (a tool execution, a delay) is exactly where a
-  mid-stream-only check goes blind. The same gap was checked for and fixed proactively in the
-  Anthropic adapter (Task 9) before it ever shipped, once this pattern was known.
-- **Verify:** The adapter-loop test asserts `client.calls.length` stays at the pre-abort count
-  when the signal fires during tool execution, for both `gemini.ts` and `anthropic.ts`'s tool
-  loops — not just that the call under test eventually rejects.
 
 ### 2026-09-20 — Injected turn-specific context had no carry-forward story
 
@@ -803,6 +768,38 @@ failure mode of this pattern, not a sign it is working.
   (`"chats"."id"`).
 - **Verify:** `chatVersions.integration.test.ts` fails when the subquery compares the wrong id.
 
+### 2026-09-28 — A forced answer was told to use results its request did not carry
+
+- **Symptom:** Live (turn 531d000c): a 26-call loop ended at the tool-step limit with no text.
+  The answer came from one more request "based on the previous tool results above", took 86 s,
+  and the message was saved as `stop`, so no Continue button showed.
+- **Cause:** The loop's calls and results live only in the adapter's own request. The forced
+  request was built from the turn's `request` (history plus prompt), so it carried none of them
+  and the model re-derived the answer from the page images. Then `finishReason = event.finishReason`
+  replaced `tool_limit`. Separately, the Claude adapter's last round dropped every tool, and a
+  turn with only the search tool has one round, which is also the last.
+- **Rule:** **A request that tells the model to use something must carry it.** When a follow-up
+  request is built outside the adapter's loop, put the loop's results into it, and never let a
+  later request's status overwrite a limit the turn already hit. Switch tools off with the
+  provider's own control (`tool_choice: none`, Gemini `NONE`), not by removing them.
+- **Verify:** `npx vitest run src/routes/toolLimit.integration.test.ts
+  src/providers/anthropicVertex.adapter-loop.test.ts src/providers/gemini.adapter-loop.test.ts`.
+
+### 2026-09-28 — A tool description invited the work the prompt said to skip
+
+- **Symptom:** Live (turn 531d000c): with a scanned PDF already in view as 12 page images, the
+  model ran `fitz`, `pytesseract` and `cv2` 26 times. The prompt said counting what it can see
+  needs no tool. With "without using tesseract or any tools" it counted correctly in one request.
+- **Cause:** Three texts pulled the other way. `bash_tool`'s description listed "opencv and
+  pytesseract"; the attachment list said only that the file was on the computer, not that the
+  model could already see it; and the prompt said converting or producing a file from an upload
+  "does" need the computer. Tool descriptions are prompt too, and they sit next to the decision.
+- **Rule:** **Audit tool descriptions and the attachment list with the prompt, as one text.** A
+  capability list in a tool description is an invitation; put libraries in the skill that uses
+  them. Tell the model on each file's line whether it already sees the content.
+- **Verify:** `npx vitest run src/services/attachments/manifest.test.ts
+  src/test/behaviorEvaluation.test.ts`; live, the same question on the same PDF makes no OCR call.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -827,6 +824,31 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-09-29** — No new heading (at the cap). Writing the line-by-line Fable comparison, I keyed
+  the first rows from a head-of-file print without line numbers and was two lines off for the
+  whole product-information section; a script validator later also caught one ArcNave line cited
+  by the wrong number. Both were found before delivery only because every row was checked by
+  script. Rule: write line-keyed judgments only from a numbered print (`awk '{printf "%d| %s\n",
+  NR, $0}'`), and check coverage and every quoted excerpt by script, never by eye. Also: the
+  reference pack's code gap audit, one day old, was already stale on G5 (the last round now keeps
+  its tools with `tool_choice: none`); re-read each claimed gap in code before repeating it.
+  Verify: before handing over such a file, a script reports zero uncovered lines and zero
+  excerpts that are not verbatim substrings of the line they cite.
+- **2026-09-28 (later)** — No new heading (at the cap). The audit blamed "the Word skill repeats
+  it ('Fix and save again when something is wrong')" for the rebuild loop. I fixed the docx skill
+  and told the owner every conflict in the audit was fixed; the pdf, pptx and xlsx skills still
+  carried the same sentence, found only on a line-by-line reread. Rule: when an audit quotes a
+  sentence as a cause, grep every prompt, tool and skill file for that wording before calling it
+  fixed. Verify: `grep -rn "save again" backend/skills` lists only lines checked against the
+  reference skill's own check step (pptx: "re-render only the slides you changed, and stop").
+- **2026-09-28** — Added the forced-answer and tool-description entries (ADR-0052). Retired
+  "`pdf-parse`'s concatenated `.text` is never truly empty" (`retrieval.test.ts`, "fails with a
+  typed reason rather than silently skipping OCR", fails if it regresses) and "A Gemini tool loop
+  only checked `AbortSignal` mid-stream" (both adapter-loop tests assert the call count on abort):
+  pruning criterion 1. Not an entry: `drizzle-kit generate` stamped 0024 before 0023 again, and
+  the 2026-09-25 rule caught it (re-stamped by tag). Also not an entry: in this Windows shell a
+  quoted heredoc still mangled backslash escapes in inline Python, and a `;` chain deleted a temp file after
+  the step that needed it failed; write edit scripts to a file and chain with `&&`. **40 entries.**
 - **2026-09-27** — No new heading (WP-12). I re-stamped a generated migration with
   `sed 's/"when": 17904[0-9]*/…/'`, and the pattern also matched 0010's stamp. The test
   database then tried to create 0010's table again. The rule from the 2026-09-25 entry stands:

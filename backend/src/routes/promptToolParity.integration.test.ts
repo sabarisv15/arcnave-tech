@@ -134,7 +134,7 @@ describe('the system prompt names only tools the turn allows', () => {
     t = await turn(ctx, 'hi');
     expect(t.grounded).toBe(false);
     expect([...t.declared]).toEqual(expect.arrayContaining(['web_search', 'web_fetch', 'image_search']));
-    expect(t.system).toContain('Use web_search when information is');
+    expect(t.system).toContain('Use web_search when the answer rests on');
     expect(t.descriptions.get('web_fetch')).toContain('one a search or fetch result in this conversation returned');
     expect(t.system).not.toContain('not links you can fetch');
   });
@@ -177,7 +177,7 @@ describe('the system prompt names only tools the turn allows', () => {
     const { system, grounded } = await turn(ctx, 'hi');
     expect(grounded).toBe(true);
     expect(system).toContain('web search (built in: search whenever it helps');
-    expect(system).toContain('Search the web when information is');
+    expect(system).toContain('Search the web when the answer rests on');
   });
 
   it('does not offer web search in Chat while the web is off', async () => {

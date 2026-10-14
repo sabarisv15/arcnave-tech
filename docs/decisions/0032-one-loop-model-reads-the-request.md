@@ -1,6 +1,8 @@
 # ADR-0032: One loop; the model reads the request; guidance as Claude's docs give it
 
 - Status: accepted. Merged (79817d2) and deployed.
+- Superseded in part by [ADR-0052](0052-prompt-gaps-closed-from-the-audit-and-turn-logs.md):
+  progress updates are one short sentence every couple of tool calls, not only on important findings.
 - Amended 2026-09-26: the reply-language rule is removed. Claude's app prompt has none; the
   model chooses the language and script from the conversation.
 - Date: 2026-09-26

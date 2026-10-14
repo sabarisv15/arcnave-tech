@@ -54,7 +54,7 @@ export default function Settings() {
   const toggle = (
     label: string,
     desc: string,
-    key: "enterToSend" | "reducedMotion",
+    key: "enterToSend" | "reducedMotion" | "memoryEnabled" | "chatSearchEnabled",
   ) => (
     <div className="setting-row">
       <div>
@@ -276,8 +276,51 @@ function Personalization() {
 
       <hr style={{ margin: "24px 0", borderColor: "var(--border-subtle, #333)" }} />
 
+      {/* The assistant is told it cannot switch these off and names them by these labels. */}
+      <MemorySwitch
+        label="Use and update memory"
+        description="Chats read what is remembered about you and save what you ask them to. Off: nothing is read or saved; your memory stays below."
+        field="memoryEnabled"
+      />
+      <MemorySwitch
+        label="Search and reference past chats"
+        description="Chats can search and open your earlier conversations when you refer to them."
+        field="chatSearchEnabled"
+      />
+
       <MemoryTopics />
     </>
+  );
+}
+
+/** One of the two memory settings (ADR-0052), saved at once like the other switches. */
+function MemorySwitch({
+  label,
+  description,
+  field,
+}: {
+  label: string;
+  description: string;
+  field: "memoryEnabled" | "chatSearchEnabled";
+}) {
+  const { preferences, updatePreferences } = useWorkspace();
+  const on = preferences[field];
+  return (
+    <div className="setting-row">
+      <div>
+        <strong>{label}</strong>
+        <p>{description}</p>
+      </div>
+      <button
+        role="switch"
+        aria-label={label}
+        aria-checked={on}
+        className={`switch ${on ? "on" : ""}`}
+        onClick={() => updatePreferences({ [field]: !on } as Partial<Preferences>)}
+      >
+        <span />
+      </button>
+    </div>
   );
 }
 

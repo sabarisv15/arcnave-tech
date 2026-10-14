@@ -43,6 +43,7 @@ import type {
   AttachmentBlock,
   AttachmentRef,
   GenerationRequest,
+  HistoryToolCall,
   Mode,
   Provider,
   ProviderEvent,
@@ -60,11 +61,12 @@ import {
   isAbort,
   ModelNotFoundError,
   ProviderError,
+  toolCallAsText,
   toolResultPreview,
   totalTokens,
   withoutImageBytes,
 } from '../providers/types.js';
-import { buildAttachmentManifest, type ManifestFile } from './attachments/manifest.js';
+import { buildAttachmentManifest, contextNote, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
@@ -269,7 +271,6 @@ export interface GenerateInput {
   modelAlias: string;
   projectId: string | null;
   hasAttachments: boolean;
-  attachmentManifest?: string;
   /** This turn's attachments, normalised once by `toAttachmentRef`. */
   attachments: AttachmentRef[];
   /** Opt-in per request. Only Gemini has a code-execution sandbox on Vertex — see ADR-0004. */
@@ -292,6 +293,10 @@ export interface PreferencesRow {
   routingPreference: string;
   timezone: string;
   effort?: ReasoningEffort | null;
+  /** The user's memory setting (ADR-0052). */
+  memoryEnabled: boolean;
+  /** The user's past-chat search setting (ADR-0052). */
+  chatSearchEnabled: boolean;
 }
 
 /**
@@ -549,7 +554,10 @@ export class GenerationService {
     const codeEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
     const webEnabled = Boolean(this.cfg.ENABLE_WEB);
     const webSearchAdapter = buildWebSearchAdapter(this.cfg);
-    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY);
+    // The deployment allows memory; each user turns memory and past-chat search on or off in
+    // Settings (ADR-0052). Off means no tool and no memory text is sent, not just a promise.
+    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY) && prefs.memoryEnabled;
+    const chatSearchEnabled = Boolean(this.cfg.ENABLE_MEMORY) && prefs.chatSearchEnabled;
     const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
     const routingDecision = routeTurn({
       hasProject: project !== null,
@@ -559,12 +567,14 @@ export class GenerationService {
       searchProviderLive: webSearchAdapter.isLive,
       builtInSearch: grounded,
       memoryEnabled,
+      chatSearchEnabled,
     });
     const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, {
       codeEnabled,
       persistentSandbox: usesWarmSandbox(this.cfg),
       webEnabled,
       memoryEnabled,
+      chatSearchEnabled,
       generativeUiEnabled,
     });
     const allowCode = routingDecision.allowedTools.includes('bash_tool');
@@ -578,6 +588,7 @@ export class GenerationService {
       web: webEnabled,
       searchProviderLive: webSearchAdapter.isLive,
       memory: memoryEnabled,
+      chatSearch: chatSearchEnabled,
       generativeUi: generativeUiEnabled,
       project: project !== null,
       declared: availableTools.map((t) => t.name),
@@ -698,7 +709,7 @@ export class GenerationService {
     const memoryToolExecutor = memoryEnabled
       ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
       : undefined;
-    const chatToolExecutor = memoryEnabled
+    const chatToolExecutor = chatSearchEnabled
       ? new ChatToolExecutor(input.userId, project?.id ?? null, input.chatId)
       : undefined;
 
@@ -797,7 +808,16 @@ export class GenerationService {
       wireAttachments,
       wireHistory,
     );
-    const attachmentManifestBlock = buildAttachmentManifest(chatFiles, { sandbox: codeExecutor !== undefined });
+    // Each line says whether the model already sees the file, from what this request carries.
+    const sent = new Map<string, AttachmentBlock>();
+    for (const a of [...wire.history.flatMap((t) => t.attachments ?? []), ...wire.current]) if (a.id) sent.set(a.id, a);
+    const attachmentManifestBlock = buildAttachmentManifest(
+      chatFiles.map((f) => {
+        const block = sent.get(f.id);
+        return block ? { ...f, inContext: contextNote(block) } : f;
+      }),
+      { sandbox: codeExecutor !== undefined },
+    );
 
     const promptParts: string[] = [];
     if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
@@ -855,6 +875,9 @@ export class GenerationService {
     // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
     const pendingSignatures = new Map<string, string>();
     const toolsCalled: string[] = [];
+    // This turn's calls with their results. The adapter's loop keeps them in its own request; a
+    // forced answer after the loop is a new request, and without these it cannot see the work.
+    const turnCalls: HistoryToolCall[] = [];
     // Characters of each visual draft already sent, by draft id.
     const draftSent = new Map<string, number>();
 
@@ -943,6 +966,12 @@ export class GenerationService {
 
           case 'tool_result': {
             turnLog.result(event.toolCallId, event.result);
+            turnCalls.push({
+              id: event.toolCallId,
+              name: event.name,
+              input: pendingToolInputs.get(event.toolCallId),
+              result: { ...event.result, content: withoutImageBytes(event.result.content) },
+            });
             const preview = toolResultPreview(event.result, this.cfg.TOOL_RESULT_PREVIEW_CHARS);
             const files = presentedFiles(event.name, event.result);
             yield {
@@ -1067,11 +1096,18 @@ export class GenerationService {
     if (status === 'complete' && text.trim().length === 0) {
       turnLog.stage('empty reply', { note: 'the tool loop ended with no text; one more request, without tools, asks for the answer' });
       try {
+        // The loop's tool steps live only in the adapter's own request, so they are written into
+        // this one: an answer "from the results above" with no results in the request is a re-do.
+        const workDone = turnCalls.map((c) => toolCallAsText(c)).join('\n\n');
         const synthesisRequest: GenerationRequest = {
           ...request,
           tools: [],
           toolExecutor: undefined,
-          prompt: `${input.prompt}\n\n[System Instruction: Synthesize a complete final answer based on the previous tool results above. Do not call any further tools.]`,
+          prompt:
+            request.prompt +
+            (workDone ? `\n\n<this_turn_tool_steps>\n${workDone}\n</this_turn_tool_steps>` : '') +
+            `\n\n[System Instruction: Answer the user now from the conversation${workDone ? " and this turn's tool steps above" : ''}. ` +
+            'Do not call a tool. If the work is not finished, say what is done and what remains.]',
         };
         const synthesisStream = provider.stream(synthesisRequest);
         for await (const event of synthesisStream) {
@@ -1091,7 +1127,9 @@ export class GenerationService {
             }
             // A second request of the same turn: billed on top of the first.
             usage = addRequestUsage(usage, event.usage);
-            finishReason = event.finishReason;
+            // A loop that ran out of tool steps stays marked so: the user is offered Continue, and
+            // the forced answer's own "stop" must not hide that the work was cut short.
+            if (finishReason !== 'tool_limit') finishReason = event.finishReason;
           }
         }
         text = collectedText.join('');
@@ -1420,6 +1458,8 @@ export class GenerationService {
         routingPreference: preferencesTable.routingPreference,
         timezone: preferencesTable.timezone,
         effort: preferencesTable.effort,
+        memoryEnabled: preferencesTable.memoryEnabled,
+        chatSearchEnabled: preferencesTable.chatSearchEnabled,
       })
       .from(preferencesTable)
       .where(eq(preferencesTable.userId, userId))
@@ -1985,7 +2025,6 @@ export class GenerationService {
       relevantMemory: relevantMemoryText || undefined,
       compactionSummary: compactionText || undefined,
       retrievedContext: retrievedContextText,
-      attachmentManifest: input.attachmentManifest?.trim() || undefined,
       modePrompt: modeDirective,
       skillsContext,
     }, allowedToolNames);

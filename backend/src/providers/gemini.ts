@@ -525,12 +525,14 @@ export class GeminiProvider implements Provider {
         assembler.close();
         const roundCalls = assembler.calls;
 
-        if (!useTools || roundCalls.length === 0) break;
-        // A call on the final round is not run: there is no round left to answer after it.
+        // The final round is reached only while the model is still working, and it was made to
+        // answer: the turn used every tool step it may. A call it makes anyway is not run, since
+        // no round is left to answer after it. Either way the caller offers Continue.
         if (finalToolRound) {
           finishReason = 'tool_limit';
           break;
         }
+        if (!useTools || roundCalls.length === 0) break;
 
         const modelParts: Part[] = [];
         if (roundText) modelParts.push({ text: roundText });

@@ -309,6 +309,58 @@ describe('AnthropicVertexProvider tool-calling loop', () => {
     );
     expect(client.calls).toHaveLength(2);
     expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'tool_limit' });
+    // A call on the final round is not run: no round is left to answer after it.
+    expect(executor.calls).toHaveLength(1);
+  });
+
+  it('the final round keeps the tools declared, sets tool_choice none, and reports tool_limit', async () => {
+    const client = new FakeAnthropicClient();
+    client.responses = [
+      fakeMessageStream([], {
+        content: [{ type: 'tool_use', id: 't0', name: 'search_project_files', input: {} }],
+        usage: { input_tokens: 10, output_tokens: 2 },
+        stop_reason: 'tool_use',
+      }),
+      fakeMessageStream([{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'From what I found so far.' } }], {
+        content: [{ type: 'text' }],
+        usage: { input_tokens: 12, output_tokens: 6 },
+        stop_reason: 'end_turn',
+      }),
+    ];
+    const executor = new ScriptedExecutor();
+    executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'ok' }] });
+    const cfg = loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '2' });
+    const provider = new AnthropicVertexProvider(cfg, client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+
+    const first = client.calls[0] as { tools?: { name: string }[]; tool_choice?: { type: string } };
+    const final = client.calls[1] as { tools?: { name: string }[]; tool_choice?: { type: string } };
+    expect(first.tool_choice).toEqual({ type: 'auto' });
+    // Dropping the tools under a history of tool_use blocks is what this replaces.
+    expect(final.tools?.map((t) => t.name)).toEqual(['search_project_files']);
+    expect(final.tool_choice).toEqual({ type: 'none' });
+    expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'tool_limit' });
+  });
+
+  it('a searched turn with no other tools keeps its web search tool', async () => {
+    const client = new FakeAnthropicClient();
+    client.responses = [
+      fakeMessageStream([{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Answer.' } }], {
+        content: [{ type: 'text' }],
+        usage: { input_tokens: 10, output_tokens: 2 },
+        stop_reason: 'end_turn',
+      }),
+    ];
+    // Before: with no other tools the one round was also the last, and the last round dropped
+    // every tool, the web search tool included.
+    const cfg = loadConfig({ NODE_ENV: 'test', ENABLE_ANTHROPIC_WEB_SEARCH: 'true' });
+    const provider = new AnthropicVertexProvider(cfg, client as never);
+    const events = await collect(provider.stream(baseRequest({ grounded: true })));
+
+    const only = client.calls[0] as { tools?: { name?: string; type?: string }[]; tool_choice?: unknown };
+    expect(only.tools?.length).toBe(1);
+    expect(only.tool_choice).toBeUndefined();
+    expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'end_turn' });
   });
 
   it('stops issuing provider requests once the signal is aborted', async () => {

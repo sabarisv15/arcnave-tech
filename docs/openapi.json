@@ -5092,6 +5092,12 @@
                     "saveHistory": {
                       "type": "boolean"
                     },
+                    "memoryEnabled": {
+                      "type": "boolean"
+                    },
+                    "chatSearchEnabled": {
+                      "type": "boolean"
+                    },
                     "effort": {
                       "nullable": true,
                       "type": "string",
@@ -5144,6 +5150,8 @@
                     "defaultMode",
                     "sourceScope",
                     "saveHistory",
+                    "memoryEnabled",
+                    "chatSearchEnabled",
                     "effort",
                     "styleId",
                     "maxOutputTokens",
@@ -5223,6 +5231,12 @@
                   "saveHistory": {
                     "type": "boolean"
                   },
+                  "memoryEnabled": {
+                    "type": "boolean"
+                  },
+                  "chatSearchEnabled": {
+                    "type": "boolean"
+                  },
                   "effort": {
                     "nullable": true,
                     "type": "string",
@@ -5284,6 +5298,12 @@
                     "saveHistory": {
                       "type": "boolean"
                     },
+                    "memoryEnabled": {
+                      "type": "boolean"
+                    },
+                    "chatSearchEnabled": {
+                      "type": "boolean"
+                    },
                     "effort": {
                       "nullable": true,
                       "type": "string",
@@ -5336,6 +5356,8 @@
                     "defaultMode",
                     "sourceScope",
                     "saveHistory",
+                    "memoryEnabled",
+                    "chatSearchEnabled",
                     "effort",
                     "styleId",
                     "maxOutputTokens",

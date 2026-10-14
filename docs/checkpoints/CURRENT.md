@@ -1,5 +1,53 @@
 # ArcNave — current checkpoint
 
+> **2026-09-29: line-by-line comparison with Fable 5.1 delivered ([docs/audits/2026-09-29-arcnave-vs-fable-5.1-line-by-line.html](../audits/2026-09-29-arcnave-vs-fable-5.1-line-by-line.html)). Documentation only; no code changed.**
+> - Every line of `tools/Anthropic/claude-fable-5.1.md` (8,742) against the prompt captured today
+>   from the generate route, all tool declarations and all eight skills: 1,313 rows, 14 conflicts.
+>   Prompt rows: 313 same, 90 partly, 48 missing, 129 Claude-only features.
+> - Seven of the eight prompt conflicts are memory. They need a background memory pass and a
+>   save-time consent check, not wording. The eighth is whole-chat reading. The Research-mode line
+>   (generation.ts:2004) conflicts with the base prompt's no-report-headers rule.
+> - Checked in code for the final report: the last tool round already keeps its tools with
+>   `tool_choice: none` (the reference pack's G5 is stale). Still open: G1-G4, G6-G9, G11-G14, G19.
+>   New findings:
+>   - The memory block sits in the system prompt, where Fable sends it with the user turn.
+>   - Image search sends no SafeSearch parameter.
+>   - xlsx formulas are never recalculated, so the in-app sheet preview shows their totals blank.
+>   - `<active_goal>` is never filled.
+> - `.claude/launch.json` gains an `audit-docs` entry (python http.server on 8765) to view the file.
+
+> **2026-09-28 (latest): the audit's gaps and the three turn logs' causes fixed ([ADR-0052](../decisions/0052-prompt-gaps-closed-from-the-audit-and-turn-logs.md)). Tested locally; not deployed.**
+> - Tool-step limit: the forced answer now carries the turn's tool results and keeps `tool_limit`
+>   (Continue shows); both adapters report it; Claude's last round uses `tool_choice: none` and a
+>   search-only Claude turn keeps its search tool (was dropped).
+> - OCR loop causes removed: the attachment list says per file whether it is already in context;
+>   `bash_tool` lists no libraries; the prompt no longer says a conversion "does" need the computer.
+> - Prompt gains the reference's safety, wellbeing, evenhandedness, tone, knowledge, saved-preference,
+>   search, copyright and harmful-source rules; articles/posts are files; short files are written once;
+>   progress update every couple of calls. React artifact imports fixed (`plotly.js-dist-min`).
+> - Memory: reference filing/application/privacy rules; consent-governed facts saved only on request;
+>   `privacy.ts` refuses Aadhaar, PAN, card, account, passport, licence, voter ID, SSN; tool results
+>   show size against cap; listing shows aliases. New settings "Use and update memory" and "Search and
+>   reference past chats" (Settings > Personalization, migration 0024 stamped `1791800000000`).
+> - docx skill: table widths in grid and cells, render once, fix once.
+> - Backend typecheck clean (Windows and Linux); backend **940/940** in a Linux container (Node 22,
+>   Poppler, `python` on PATH; `arcnave-chat-sync-validation:local`, `npm ci` from the lockfile).
+>   On the Windows host 32 fail for the environment only: no `pdftoppm`/`pdfinfo`, and `python3` is
+>   the Store stub. Frontend typecheck, build, **196/196**. Browser-checked the two switches (save,
+>   reload, restore; no console or server errors). Local dev DB migrated to 0024; a throwaway
+>   `verify-…@example.test` account was created in it for the check.
+> - Owner decisions pending (ADR-0052 "Still different"): background memory pass; product
+>   self-knowledge content; per-model knowledge cutoff; location. Check with `gcloud`: deployed
+>   `TOOL_MAX_ROUNDS` (turn 531d000c ran 26 rounds against the code default 16), and whether Vertex
+>   rejects Gemini `NONE` on the final round.
+> - Rechecked unit by unit afterwards
+>   ([audit recheck](../audits/2026-09-28-fable-audit-recheck.md)): of the audit's 407 gaps, 268 in,
+>   44 partly, 85 missing. Not yet fixed: "Fix and save again" still in the pdf, pptx and xlsx
+>   skills; no image-search content categories; the copyright self-check and examples; memory
+>   F996/F920 and most reference examples. Also queued: remove the dead `saveHistory` and
+>   `sourceScope` preferences in two steps (owner's decision; step 1 code, step 2 column drop
+>   after step 1 is live).
+
 > **2026-09-28: Google Start Tier public-site readiness on `codex/startup-site-readiness`; local only.**
 > Founder confirmed founding date (15 September 2025), no Google Cloud credits beyond free
 > credits, planned institution subscription with pricing unset, and intent to seek venture

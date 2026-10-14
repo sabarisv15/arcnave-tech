@@ -288,6 +288,10 @@ export interface Preferences {
   reducedMotion: boolean;
   defaultMode: Mode;
   saveHistory: boolean;
+  /** Memory files are read and saved in chats (Settings > Personalization). */
+  memoryEnabled: boolean;
+  /** Past chats can be searched and opened in chats (Settings > Personalization). */
+  chatSearchEnabled: boolean;
   styleId: string;
   version: number;
 }
@@ -505,6 +509,8 @@ export function toPreferences(dto: PreferencesDto): Preferences {
       ? (dto.defaultMode as Mode)
       : "chat",
     saveHistory: dto.saveHistory,
+    memoryEnabled: dto.memoryEnabled ?? true,
+    chatSearchEnabled: dto.chatSearchEnabled ?? true,
     styleId: dto.styleId ?? "normal",
     version: dto.version,
   };
