@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>arcnave chat demo with AI states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@100..900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#134E45}a:hover{color:#142320}
+.s-btn:focus-visible{outline:3px solid #134E45;outline-offset:2px}
+@media (prefers-reduced-motion: reduce){.mroot *{animation:none !important}}
+.lf{transform-box:fill-box;transform-origin:50% 50%}
+.o0{transform-origin:0 0}
+.fb{transform-box:fill-box;transform-origin:50% 50%}
+.w-qin,.s-lin,.u-gear,.c-pin,.db-stamp,.ib-bub,.t1-cloud,.t3-piece{transform:scale(0)}
+.r-ptr,.eb-ptr,.t1-pos,.t3-pos,.t2-m{transform:translate(67px,33px)}
+.db-tick,.db-ring,.eb-block,.eb-ring,.t1-rain,.t1-soak,.t2-m,.t3-slot,.t3-flash{opacity:0}
+@keyframes cl-pos{0%{opacity:0;transform:translate(67px,33px) scale(.2)}3%{opacity:1;transform:translate(67px,26px) scale(.6)}7%{opacity:1;transform:translate(67px,6px) scale(1)}11%{opacity:1;transform:translate(67px,4px) scale(1)}19%,100%{opacity:0;transform:translate(67px,-3px) scale(1.12)}}
+@keyframes cl-bolt{0%,7.5%{opacity:0}9.5%,11%{opacity:1}14.5%,100%{opacity:0}}
+@keyframes cl-flash{0%,8%{opacity:0}10%{opacity:.14}15%,100%{opacity:0}}
+.cl{transform-origin:0 0;opacity:0;transform:scale(0);animation-name:cl-pos;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.bolt{opacity:0;animation-name:cl-bolt;animation-timing-function:linear;animation-iteration-count:infinite}
+.flash{opacity:0;animation-name:cl-flash;animation-timing-function:linear;animation-iteration-count:infinite}
+.d60{animation-duration:calc(var(--k) * 6s)}
+.d68{animation-duration:calc(var(--k) * 6.8s)}
+.d70{animation-duration:calc(var(--k) * 7s)}
+.d72{animation-duration:calc(var(--k) * 7.2s)}
+.d80{animation-duration:calc(var(--k) * 8s)}
+
+@keyframes w-leaf{0%,18%{transform:rotate(0deg)}26%,74%{transform:rotate(-5deg)}84%,100%{transform:rotate(0deg)}}
+@keyframes w-seed{0%{opacity:1;transform:scale(1)}5%,88%{opacity:0;transform:scale(.3)}97%,100%{opacity:1;transform:scale(1)}}
+@keyframes w-qin{0%,4%{transform:scale(0)}10%{transform:scale(1.15)}14%,82%{transform:scale(1)}90%,100%{transform:scale(0)}}
+@keyframes w-quill{0%,16%{transform:translate(67px,40px)}24%{transform:translate(24px,58px)}30%{transform:translate(31px,51px)}36%{transform:translate(38px,55px)}42%{transform:translate(46px,61px)}48%{transform:translate(54px,54px)}54%{transform:translate(62px,52px)}62%,74%{transform:translate(76px,56px)}84%,100%{transform:translate(67px,40px)}}
+@keyframes w-ink{0%,24%{stroke-dashoffset:100;opacity:0}25%{stroke-dashoffset:97;opacity:1}62%,86%{stroke-dashoffset:0;opacity:1}95%,100%{stroke-dashoffset:0;opacity:0}}
+.w-leaf{animation:w-leaf calc(var(--k) * 6.8s) ease-in-out infinite}
+.w-seed{animation:w-seed calc(var(--k) * 6.8s) ease-in-out infinite}
+.w-qin{animation:w-qin calc(var(--k) * 6.8s) ease-out infinite}
+.w-quill{animation:w-quill calc(var(--k) * 6.8s) ease-in-out infinite}
+.w-ink{animation:w-ink calc(var(--k) * 6.8s) linear infinite}
+
+@keyframes s-leaf{0%,10%{transform:rotate(0deg)}24%,34%{transform:rotate(-4deg)}48%,58%{transform:rotate(-6deg)}72%,82%{transform:rotate(5deg)}92%,100%{transform:rotate(0deg)}}
+@keyframes s-seed{0%{opacity:1;transform:scale(1)}6%,94%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes s-lens{0%,16%{transform:translate(67px,33px)}26%,34%{transform:translate(40px,40px)}48%,58%{transform:translate(32px,64px)}72%,82%{transform:translate(62px,66px)}92%,100%{transform:translate(67px,33px)}}
+@keyframes s-lin{0%,4%{transform:scale(0)}10%,28%{transform:scale(1)}31%{transform:scale(1.2)}34%,52%{transform:scale(1)}55%{transform:scale(1.2)}58%,76%{transform:scale(1)}79%{transform:scale(1.2)}82%,92%{transform:scale(1)}98%,100%{transform:scale(0)}}
+.s-leaf{animation:s-leaf calc(var(--k) * 6.8s) ease-in-out infinite}
+.s-seed{animation:s-seed calc(var(--k) * 6.8s) ease-in-out infinite}
+.s-lens{animation:s-lens calc(var(--k) * 6.8s) ease-in-out infinite}
+.s-lin{animation:s-lin calc(var(--k) * 6.8s) ease-in-out infinite}
+
+@keyframes r-leaf{0%,30%{transform:rotate(0deg)}32%{transform:rotate(-3deg)}34%,58%{transform:rotate(0deg)}60%{transform:rotate(-3deg)}62%,86%{transform:rotate(0deg)}88%{transform:rotate(-3deg)}90%,100%{transform:rotate(0deg)}}
+@keyframes r-ptr{0%,10%{transform:translate(67px,33px)}16%{transform:translate(26px,42px)}30%{transform:translate(70px,42px)}34%{transform:translate(22px,54px)}58%{transform:translate(74px,54px)}62%{transform:translate(22px,66px)}86%{transform:translate(66px,66px)}96%,100%{transform:translate(67px,33px)}}
+@keyframes r-pin{0%{transform:scale(1)}10%,90%{transform:scale(.55)}100%{transform:scale(1)}}
+@keyframes r-h1{0%,16%{stroke-dashoffset:100;opacity:0}17%{stroke-dashoffset:62;opacity:1}30%,90%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes r-h2{0%,34%{stroke-dashoffset:100;opacity:0}35%{stroke-dashoffset:96;opacity:1}58%,90%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes r-h3{0%,62%{stroke-dashoffset:100;opacity:0}63%{stroke-dashoffset:96;opacity:1}86%,90%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+.r-leaf{animation:r-leaf calc(var(--k) * 7.2s) ease-in-out infinite}
+.r-ptr{animation:r-ptr calc(var(--k) * 7.2s) linear infinite}
+.r-pin{animation:r-pin calc(var(--k) * 7.2s) ease-in-out infinite}
+.r-h1{animation:r-h1 calc(var(--k) * 7.2s) linear infinite}
+.r-h2{animation:r-h2 calc(var(--k) * 7.2s) linear infinite}
+.r-h3{animation:r-h3 calc(var(--k) * 7.2s) linear infinite}
+
+@keyframes u-hum{0%{transform:translate(0px,0px)}25%{transform:translate(.7px,0px)}75%{transform:translate(-.7px,0px)}100%{transform:translate(0px,0px)}}
+@keyframes u-seed{0%{opacity:1;transform:scale(1)}6%,94%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes u-gear{0%,4%{transform:scale(0)}10%{transform:scale(1.12)}14%,86%{transform:scale(1)}94%,100%{transform:scale(0)}}
+@keyframes u-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+@keyframes u-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes u-o1{0%,28%{stroke-dashoffset:100;opacity:0}29%{stroke-dashoffset:93;opacity:1}42%,88%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes u-o2{0%,48%{stroke-dashoffset:100;opacity:0}49%{stroke-dashoffset:92;opacity:1}60%,88%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+.u-leaf{animation:u-hum calc(var(--k) * .32s) linear infinite}
+.u-seed{animation:u-seed calc(var(--k) * 6s) ease-in-out infinite}
+.u-gear{animation:u-gear calc(var(--k) * 6s) ease-out infinite}
+.u-spin{animation:u-spin calc(var(--k) * 2s) linear infinite}
+.u-cursor{animation:u-blink calc(var(--k) * 1.6s) linear infinite}
+.u-o1{animation:u-o1 calc(var(--k) * 6s) linear infinite}
+.u-o2{animation:u-o2 calc(var(--k) * 6s) linear infinite}
+
+@keyframes c-leaf{0%,10%{transform:translateY(0px) scale(1)}18%,80%{transform:translateY(-3px) scale(1.04)}90%,100%{transform:translateY(0px) scale(1)}}
+@keyframes c-seed{0%{opacity:1;transform:scale(1)}6%,92%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes c-pin{0%,4%{transform:scale(0)}10%,84%{transform:scale(1)}92%,100%{transform:scale(0)}}
+@keyframes c-pen{0%,13%{transform:translate(67px,33px)}16%{transform:translate(30px,34px)}21.3%{transform:translate(54px,34px)}24.7%{transform:translate(62px,42px)}33.8%{transform:translate(62px,72px)}43.5%{transform:translate(30px,72px)}55%{transform:translate(30px,34px)}62%{transform:translate(36px,48px)}66%{transform:translate(56px,48px)}69%{transform:translate(36px,56px)}73%{transform:translate(56px,56px)}80%,100%{transform:translate(67px,33px)}}
+@keyframes c-outline{0%,14%{stroke-dashoffset:100;opacity:1}55%,90%{stroke-dashoffset:0;opacity:1}97%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes c-fill{0%,55%{opacity:0}62%,90%{opacity:.95}97%,100%{opacity:0}}
+@keyframes c-l1{0%,62%{stroke-dashoffset:100;opacity:0}63%{stroke-dashoffset:75;opacity:1}66%,90%{stroke-dashoffset:0;opacity:1}97%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes c-l2{0%,69%{stroke-dashoffset:100;opacity:0}70%{stroke-dashoffset:75;opacity:1}73%,90%{stroke-dashoffset:0;opacity:1}97%,100%{stroke-dashoffset:0;opacity:0}}
+.c-leaf{animation:c-leaf calc(var(--k) * 8s) ease-in-out infinite}
+.c-seed{animation:c-seed calc(var(--k) * 8s) ease-in-out infinite}
+.c-pin{animation:c-pin calc(var(--k) * 8s) ease-out infinite}
+.c-pen{animation:c-pen calc(var(--k) * 8s) linear infinite}
+.c-outline{animation:c-outline calc(var(--k) * 8s) linear infinite}
+.c-fill{animation:c-fill calc(var(--k) * 8s) ease-out infinite}
+.c-l1{animation:c-l1 calc(var(--k) * 8s) linear infinite}
+.c-l2{animation:c-l2 calc(var(--k) * 8s) linear infinite}
+
+@keyframes db-leaf{0%,35%{transform:scale(1,1)}39%{transform:scale(1.03,.95)}45%{transform:scale(.99,1.02)}50%,100%{transform:scale(1,1)}}
+@keyframes db-seed{0%{opacity:1;transform:scale(1)}6%,82%{opacity:0;transform:scale(.3)}92%,100%{opacity:1;transform:scale(1)}}
+@keyframes db-pos{0%,14%{transform:translate(67px,33px)}24%,30%{transform:translate(51px,36px)}36%,40%{transform:translate(51px,50px)}50%,64%{transform:translate(51px,26px)}78%,100%{transform:translate(67px,33px)}}
+@keyframes db-stamp{0%,4%{transform:scale(0)}10%,72%{transform:scale(1)}80%,100%{transform:scale(0)}}
+@keyframes db-tick{0%,35%{opacity:0}37%,86%{opacity:1}94%,100%{opacity:0}}
+@keyframes db-ring{0%,36%{opacity:0;transform:scale(.6)}42%{opacity:1;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.8)}}
+.db-leaf{animation:db-leaf calc(var(--k) * 6s) ease-out infinite}
+.db-seed{animation:db-seed calc(var(--k) * 6s) ease-in-out infinite}
+.db-pos{animation:db-pos calc(var(--k) * 6s) ease-in-out infinite}
+.db-stamp{animation:db-stamp calc(var(--k) * 6s) ease-out infinite}
+.db-tick{animation:db-tick calc(var(--k) * 6s) linear infinite}
+.db-ring{animation:db-ring calc(var(--k) * 6s) ease-out infinite}
+
+@keyframes ib-leaf{0%{transform:rotate(0deg)}100%{transform:rotate(-3deg)}}
+@keyframes ib-seed{0%{opacity:1;transform:scale(1)}6%,92%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes ib-bub{0%,4%{transform:scale(0)}10%{transform:scale(1.08)}14%,86%{transform:scale(1)}94%,100%{transform:scale(0)}}
+@keyframes ib-pulse{0%{transform:scale(1)}100%{transform:scale(1.06)}}
+@keyframes ib-dot{0%,60%,100%{transform:translateY(0px)}30%{transform:translateY(-3px)}}
+.ib-leaf{animation:ib-leaf calc(var(--k) * 1.8s) ease-in-out infinite alternate}
+.ib-seed{animation:ib-seed calc(var(--k) * 6s) ease-in-out infinite}
+.ib-bub{animation:ib-bub calc(var(--k) * 6s) ease-out infinite}
+.ib-pulse{animation:ib-pulse calc(var(--k) * 1.8s) ease-in-out infinite alternate}
+.ib-d1,.ib-d2,.ib-d3{animation:ib-dot calc(var(--k) * 1.4s) ease-in-out infinite}
+.ib-d2{animation-delay:calc(var(--k) * .2s)}
+.ib-d3{animation-delay:calc(var(--k) * .4s)}
+
+@keyframes eb-leaf{0%,21%{transform:rotate(0deg) scale(1)}23%{transform:rotate(-3deg)}25%{transform:rotate(2deg)}27%,64%{transform:rotate(0deg) scale(1)}68%{transform:scale(1.04)}72%,100%{transform:scale(1)}}
+@keyframes eb-ptr{0%,10%{transform:translate(67px,33px)}22%{transform:translate(59px,40px)}24%{transform:translate(61px,38px)}26%{transform:translate(59px,40px)}34%{transform:translate(64px,36px)}46%{transform:translate(68px,58px)}56%{transform:translate(48px,72px)}66%,78%{transform:translate(28px,66px)}92%,100%{transform:translate(67px,33px)}}
+@keyframes eb-pin{0%{transform:scale(1)}10%,21%{transform:scale(.6)}23%{transform:scale(.45,.7)}27%,88%{transform:scale(.6)}96%,100%{transform:scale(1)}}
+@keyframes eb-block{0%,6%{opacity:0}12%,70%{opacity:1}78%,100%{opacity:0}}
+@keyframes eb-ring{0%,64%{opacity:0;transform:scale(.5)}68%{opacity:1;transform:scale(1)}82%,100%{opacity:0;transform:scale(2)}}
+.eb-leaf{animation:eb-leaf calc(var(--k) * 7s) ease-in-out infinite}
+.eb-ptr{animation:eb-ptr calc(var(--k) * 7s) ease-in-out infinite}
+.eb-pin{animation:eb-pin calc(var(--k) * 7s) ease-in-out infinite}
+.eb-block{animation:eb-block calc(var(--k) * 7s) ease-out infinite}
+.eb-ring{animation:eb-ring calc(var(--k) * 7s) ease-out infinite}
+
+@keyframes t1-seed{0%{opacity:1;transform:scale(1)}6%,92%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes t1-pos{0%,6%{transform:translate(67px,33px)}18%{transform:translate(50px,2px)}50%{transform:translate(58px,2px)}80%{transform:translate(44px,2px)}92%,100%{transform:translate(67px,33px)}}
+@keyframes t1-cloud{0%,6%{transform:scale(0)}14%{transform:scale(1.1)}18%,84%{transform:scale(1)}92%,100%{transform:scale(0)}}
+@keyframes t1-rain{0%,20%{opacity:0}26%,76%{opacity:1}82%,100%{opacity:0}}
+@keyframes t1-drop{0%{transform:translateY(0px);opacity:0}15%{opacity:1}100%{transform:translateY(20px);opacity:0}}
+@keyframes t1-soak{0%,22%{opacity:0}70%{opacity:.22}80%{opacity:.32}92%,100%{opacity:0}}
+@keyframes t1-leaf{0%,74%{transform:scale(1)}80%{transform:scale(1.04)}86%,100%{transform:scale(1)}}
+.t1-seed{animation:t1-seed calc(var(--k) * 6.4s) ease-in-out infinite}
+.t1-pos{animation:t1-pos calc(var(--k) * 6.4s) ease-in-out infinite}
+.t1-cloud{animation:t1-cloud calc(var(--k) * 6.4s) ease-out infinite}
+.t1-rain{animation:t1-rain calc(var(--k) * 6.4s) linear infinite}
+.t1-dr{animation:t1-drop calc(var(--k) * 1s) linear infinite}
+.t1-b{animation-delay:calc(var(--k) * -.2s)}
+.t1-c{animation-delay:calc(var(--k) * -.4s)}
+.t1-d{animation-delay:calc(var(--k) * -.6s)}
+.t1-e{animation-delay:calc(var(--k) * -.8s)}
+.t1-soak{animation:t1-soak calc(var(--k) * 6.4s) ease-in-out infinite}
+.t1-leaf{animation:t1-leaf calc(var(--k) * 6.4s) ease-out infinite}
+
+@keyframes t2-seed{0%{opacity:1;transform:scale(1)}6%,80%{opacity:0;transform:scale(.4)}84%{opacity:1;transform:scale(1.35)}90%,100%{opacity:1;transform:scale(1)}}
+@keyframes t2-a{0%,6%{opacity:0;transform:translate(67px,33px)}10%{opacity:1;transform:translate(67px,33px)}30%,60%{opacity:1;transform:translate(30px,42px)}78%{opacity:1;transform:translate(67px,33px)}82%,100%{opacity:0;transform:translate(67px,33px)}}
+@keyframes t2-b{0%,6%{opacity:0;transform:translate(67px,33px)}10%{opacity:1;transform:translate(67px,33px)}30%,60%{opacity:1;transform:translate(34px,68px)}78%{opacity:1;transform:translate(67px,33px)}82%,100%{opacity:0;transform:translate(67px,33px)}}
+@keyframes t2-c{0%,6%{opacity:0;transform:translate(67px,33px)}10%{opacity:1;transform:translate(67px,33px)}30%,60%{opacity:1;transform:translate(66px,64px)}78%{opacity:1;transform:translate(67px,33px)}82%,100%{opacity:0;transform:translate(67px,33px)}}
+@keyframes t2-look{0%,30%{transform:scale(.5)}38%{transform:scale(.7)}46%{transform:scale(.5)}54%{transform:scale(.7)}60%,100%{transform:scale(.5)}}
+@keyframes t2-leaf{0%,82%{transform:scale(1)}86%{transform:scale(1.05)}92%,100%{transform:scale(1)}}
+.t2-seed{animation:t2-seed calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-a{animation:t2-a calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-b{animation:t2-b calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-c{animation:t2-c calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-look{transform:scale(.5);animation:t2-look calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-leaf{animation:t2-leaf calc(var(--k) * 6.4s) ease-out infinite}
+
+@keyframes t3-seed{0%{opacity:1;transform:scale(1)}6%,90%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes t3-pos{0%,6%{transform:translate(67px,33px)}20%,56%{transform:translate(46px,34px)}64%,84%{transform:translate(46px,56px)}94%,100%{transform:translate(67px,33px)}}
+@keyframes t3-piece{0%,6%{transform:scale(0)}14%,86%{transform:scale(1)}94%,100%{transform:scale(0)}}
+@keyframes t3-rot{0%,20%{transform:rotate(0deg)}26%{transform:rotate(90deg)}28%{transform:rotate(80deg)}30%{transform:rotate(90deg)}36%{transform:rotate(180deg)}38%{transform:rotate(170deg)}40%{transform:rotate(180deg)}46%{transform:rotate(270deg)}48%{transform:rotate(260deg)}50%{transform:rotate(270deg)}56%,100%{transform:rotate(360deg)}}
+@keyframes t3-slot{0%,8%{opacity:0}14%,62%{opacity:.75}66%,100%{opacity:0}}
+@keyframes t3-flash{0%,62%{opacity:0;transform:scale(.6)}68%{opacity:1;transform:scale(1)}82%,100%{opacity:0;transform:scale(1.8)}}
+@keyframes t3-leaf{0%,62%{transform:scale(1)}66%{transform:scale(1.04)}72%,100%{transform:scale(1)}}
+.t3-seed{animation:t3-seed calc(var(--k) * 6.4s) ease-in-out infinite}
+.t3-pos{animation:t3-pos calc(var(--k) * 6.4s) ease-in-out infinite}
+.t3-piece{animation:t3-piece calc(var(--k) * 6.4s) ease-out infinite}
+.t3-rot{animation:t3-rot calc(var(--k) * 6.4s) ease-in-out infinite}
+.t3-slot{animation:t3-slot calc(var(--k) * 6.4s) linear infinite}
+.t3-flash{animation:t3-flash calc(var(--k) * 6.4s) ease-out infinite}
+.t3-leaf{animation:t3-leaf calc(var(--k) * 6.4s) ease-out infinite}
+</style>
+</helmet>
+<div class="mroot" style="--k: {{k}}; width: 1440px; height: 1860px; box-sizing: border-box; padding: 48px 72px; background: #FFFFFF; color: #142320; font-family: 'Onest', sans-serif; font-weight: 500; display: flex; flex-direction: column; gap: 18px">
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+<defs>
+<path id="tP" d="M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z"></path>
+<path id="dP" d="M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z"></path>
+<path id="pzP" d="M-8 -8 H-2 A3 3 0 0 1 2 -8 H8 V-2 A3 3 0 0 1 8 2 V8 H-8 Z"></path>
+<radialGradient id="gl"><stop offset="0" stop-color="#9BDAF6" stop-opacity="0.95"></stop><stop offset="1" stop-color="#9BDAF6" stop-opacity="0"></stop></radialGradient>
+<filter id="gr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="7" result="n"></feTurbulence><feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.14 0"></feColorMatrix><feComposite in2="SourceGraphic" operator="in"></feComposite></filter>
+<g id="leafM"><use href="#tP" fill="#2E8B63"></use><use href="#tP" fill="#FFFFFF" filter="url(#gr)"></use></g>
+<g id="seedG"><circle r="15" fill="url(#gl)"></circle><g transform="rotate(225) scale(0.62)"><use href="#dP" fill="#FFFFFF"></use></g></g>
+<g id="cloudG"><path d="M-12 5 A6 6 0 0 1 -9 -5 A8 8 0 0 1 6 -7 A6 6 0 0 1 13 5 Z" fill="#9BDAF6" stroke="#0F3B33" stroke-width="1.4" stroke-linejoin="round"></path><path d="M-6 -3 A4 4 0 0 1 0 -5" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round"></path></g>
+<g id="boltG"><path d="M68 9 L63 19 L69 20 L64 31" fill="none" stroke="#9BDAF6" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round"></path><path d="M68 9 L63 19 L69 20 L64 31" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"></path></g>
+<g id="st-idle"><use href="#leafM"></use><g transform="translate(67 33)"><use href="#seedG"></use></g></g>
+
+<g id="st-write">
+<g class="lf w-leaf"><use href="#leafM"></use>
+<path class="w-ink" d="M24 58 Q28 50 31 51 Q35 52 38 55 Q42 60 46 61 Q50 60 54 54 Q57 50 62 52 Q69 56 76 56" pathLength="100" fill="none" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+</g>
+<g transform="translate(67 33)"><g class="o0 w-seed"><use href="#seedG"></use></g></g>
+<g class="o0 w-quill"><g class="o0 w-qin"><path d="M0 0 C6 -6 14 -18 27 -27 C23 -14 13 -6 3 -2 Z" fill="#FFFFFF" stroke="#0F3B33" stroke-width="1.6" stroke-linejoin="round"></path><path d="M0 0 L23 -23" stroke="#0F3B33" stroke-width="1.2" stroke-linecap="round"></path><path d="M10 -10 L15 -8 M15 -15 L20 -13" stroke="#0F3B33" stroke-width="1" stroke-linecap="round"></path></g></g>
+</g>
+
+<g id="st-search">
+<g class="lf s-leaf"><use href="#leafM"></use></g>
+<g transform="translate(67 33)"><g class="o0 s-seed"><use href="#seedG"></use></g></g>
+<g class="o0 s-lens"><g class="o0 s-lin"><circle r="11" fill="#FFFFFF" fill-opacity="0.3" stroke="#0F3B33" stroke-width="3"></circle><circle cx="-4" cy="-4" r="3" fill="#FFFFFF" opacity="0.8"></circle><path d="M8 8 L17 17" stroke="#0F3B33" stroke-width="4.5" stroke-linecap="round"></path></g></g>
+</g>
+
+<g id="st-read">
+<g class="lf r-leaf"><use href="#leafM"></use>
+<g opacity="0.35" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"><path d="M26 42 H70"></path><path d="M22 54 H74"></path><path d="M22 66 H66"></path></g>
+<path class="r-h1" d="M26 42 H70" pathLength="100" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+<path class="r-h2" d="M22 54 H74" pathLength="100" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+<path class="r-h3" d="M22 66 H66" pathLength="100" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+</g>
+<g class="o0 r-ptr"><g class="o0 r-pin"><use href="#seedG"></use></g></g>
+</g>
+
+<g id="st-run">
+<g class="u-leaf"><use href="#leafM"></use>
+<path d="M22 44 L30 50 L22 56" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"></path>
+<rect class="u-cursor" x="34" y="54" width="10" height="3.4" rx="1" fill="#FFFFFF"></rect>
+<path class="u-o1" d="M22 67 H54" pathLength="100" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100" opacity="0.85"></path>
+<path class="u-o2" d="M22 77 H42" pathLength="100" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100" opacity="0.85"></path>
+</g>
+<g transform="translate(67 33)"><g class="o0 u-seed"><use href="#seedG"></use></g><g class="o0 u-gear"><g class="o0 u-spin"><circle r="8.5" fill="none" stroke="#0F3B33" stroke-width="5" stroke-dasharray="3.34 3.34"></circle><circle r="6.6" fill="#FFFFFF" stroke="#0F3B33" stroke-width="2"></circle><circle r="2.4" fill="#0F3B33"></circle></g></g></g>
+</g>
+
+<g id="st-create">
+<g class="lf c-leaf"><use href="#leafM"></use>
+<path class="c-fill" d="M30 34 H54 L62 42 V72 H30 Z" fill="#FFFFFF" opacity="0"></path>
+<path class="c-outline" d="M30 34 H54 L62 42 V72 H30 Z" pathLength="100" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+<path class="c-l1" d="M36 48 H56" pathLength="100" stroke="#2E8B63" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+<path class="c-l2" d="M36 56 H56" pathLength="100" stroke="#2E8B63" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="100"></path>
+</g>
+<g transform="translate(67 33)"><g class="o0 c-seed"><use href="#seedG"></use></g></g>
+<g class="o0 c-pen"><g class="o0 c-pin"><path d="M0 0 L2 -6 L6 -2 Z" fill="#0F3B33"></path><path d="M2 -6 L18 -22 L22 -18 L6 -2 Z" fill="#FFFFFF" stroke="#0F3B33" stroke-width="1.4" stroke-linejoin="round"></path><path d="M18 -22 L21 -25 L25 -21 L22 -18 Z" fill="#7CC8EE" stroke="#0F3B33" stroke-width="1.4" stroke-linejoin="round"></path></g></g>
+</g>
+
+<g id="st-doneB">
+<g class="lf db-leaf"><use href="#leafM"></use>
+<path class="db-tick" d="M38 52 L47 61 L64 42" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></path>
+<circle class="fb db-ring" cx="51" cy="52" r="18" fill="none" stroke="#FFFFFF" stroke-width="2.4"></circle>
+</g>
+<g transform="translate(67 33)"><g class="o0 db-seed"><use href="#seedG"></use></g></g>
+<g class="o0 db-pos"><g class="o0 db-stamp"><circle cx="0" cy="-17" r="4.5" fill="#0F3B33"></circle><rect x="-2.2" y="-14" width="4.4" height="9" fill="#0F3B33"></rect><rect x="-10" y="-6" width="20" height="7" rx="2" fill="#0F3B33"></rect><rect x="-10" y="1" width="20" height="2.4" rx="1" fill="#7CC8EE"></rect></g></g>
+</g>
+
+<g id="st-inputB">
+<g class="lf ib-leaf"><use href="#leafM"></use></g>
+<g transform="translate(64 32)"><g class="o0 ib-seed"><g transform="translate(3 1)"><use href="#seedG"></use></g></g>
+<g class="o0 ib-bub"><g class="o0 ib-pulse"><path d="M-14 -10 H14 a5 5 0 0 1 5 5 V5 a5 5 0 0 1 -5 5 H-4 L-12 17 L-10 10 H-14 a5 5 0 0 1 -5 -5 V-5 a5 5 0 0 1 5 -5 Z" fill="#FFFFFF" stroke="#0F3B33" stroke-width="1.6" stroke-linejoin="round"></path><circle class="ib-d1" cx="-8" cy="0" r="2.6" fill="#2E8B63"></circle><circle class="ib-d2" cx="0" cy="0" r="2.6" fill="#2E8B63"></circle><circle class="ib-d3" cx="8" cy="0" r="2.6" fill="#2E8B63"></circle></g></g></g>
+</g>
+
+<g id="st-errorB">
+<g class="lf eb-leaf"><use href="#leafM"></use>
+<rect class="eb-block" x="45" y="40" width="10" height="20" rx="3" fill="#0F3B33"></rect>
+<circle class="fb eb-ring" cx="28" cy="66" r="8" fill="none" stroke="#FFFFFF" stroke-width="2.4"></circle>
+</g>
+<g class="o0 eb-ptr"><g class="o0 eb-pin"><use href="#seedG"></use></g></g>
+</g>
+
+<g id="st-t1">
+<g class="lf t1-leaf"><use href="#leafM"></use><use class="t1-soak" href="#tP" fill="#9BDAF6"></use></g>
+<g transform="translate(67 33)"><g class="o0 t1-seed"><use href="#seedG"></use></g></g>
+<g class="o0 t1-pos"><g class="o0 t1-cloud">
+<g class="t1-rain" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round">
+<path class="t1-dr" d="M-8 9 V13"></path><path class="t1-dr t1-b" d="M-4 9 V13"></path><path class="t1-dr t1-c" d="M0 9 V13"></path><path class="t1-dr t1-d" d="M4 9 V13"></path><path class="t1-dr t1-e" d="M8 9 V13"></path>
+</g>
+<path d="M-12 5 A6 6 0 0 1 -9 -5 A8 8 0 0 1 6 -7 A6 6 0 0 1 13 5 Z" fill="#9BDAF6" stroke="#0F3B33" stroke-width="1.4" stroke-linejoin="round"></path>
+<path d="M-6 -3 A4 4 0 0 1 0 -5" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round"></path>
+</g></g>
+</g>
+
+<g id="st-t2">
+<g class="lf t2-leaf"><use href="#leafM"></use></g>
+<g transform="translate(67 33)"><g class="o0 t2-seed"><use href="#seedG"></use></g></g>
+<g class="o0 t2-m t2-a"><g class="o0 t2-look"><use href="#seedG"></use></g></g>
+<g class="o0 t2-m t2-b"><g class="o0 t2-look"><use href="#seedG"></use></g></g>
+<g class="o0 t2-m t2-c"><g class="o0 t2-look"><use href="#seedG"></use></g></g>
+</g>
+
+<g id="st-t3">
+<g class="lf t3-leaf"><use href="#leafM"></use>
+<g transform="translate(46 56)"><use class="t3-slot" href="#pzP" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-dasharray="3 2"></use></g>
+<circle class="fb t3-flash" cx="46" cy="56" r="13" fill="none" stroke="#FFFFFF" stroke-width="2.4"></circle>
+</g>
+<g transform="translate(67 33)"><g class="o0 t3-seed"><use href="#seedG"></use></g></g>
+<g class="o0 t3-pos"><g class="o0 t3-piece"><g class="o0 t3-rot"><use href="#pzP" fill="#FFFFFF" stroke="#0F3B33" stroke-width="1.6" stroke-linejoin="round"></use></g></g></g>
+</g>
+</defs>
+</svg>
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #53625E">Round 14 · Thinking + chat demo</div>
+<h1 style="margin: 0; font-size: 40px; font-weight: 800; line-height: 1.05; letter-spacing: -0.035em">Every state, and the whole answer in chat</h1>
+</div>
+<div role="group" aria-label="Speed" style="display: flex; padding: 4px; gap: 4px; border-radius: 999px; background: #F6F9F8; border: 1px solid #EAF0EE">
+<button class="s-btn" type="button" onClick="{{normal}}" aria-pressed="{{normalPressed}}" style="min-height: 40px; padding: 0 16px; border-radius: 999px; border: 0; background: {{normalBg}}; color: {{normalFg}}; font: 700 14px 'Onest', sans-serif; cursor: pointer">Real speed</button>
+<button class="s-btn" type="button" onClick="{{fast}}" aria-pressed="{{fastPressed}}" style="min-height: 40px; padding: 0 16px; border-radius: 999px; border: 0; background: {{fastBg}}; color: {{fastFg}}; font: 700 14px 'Onest', sans-serif; cursor: pointer">2× quick preview</button>
+</div>
+</div>
+
+<div style="font-size: 15px; color: #3E4D47; line-height: 1.5">Thinking: the seed becomes a rain cloud. Every other job: the seed turns straight into the right tool, then back into the seed.</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px">
+<sc-for list="{{all}}" as="t" hint-placeholder-count="9">
+<div style="border: 1px solid #E3ECE9; border-radius: 20px; padding: 10px 16px; display: flex; align-items: center; gap: 14px">
+<svg width="130" height="130" viewBox="-20 -24 140 140" style="overflow: visible; flex: 0 0 auto" aria-label="{{t.name}} animation"><use href="{{t.ref}}"></use></svg>
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<div style="font-size: 17px; font-weight: 800">{{t.name}}</div>
+<div style="font-size: 13px; color: #53625E; line-height: 1.45">{{t.how}}</div>
+<div style="font-size: 12px; font-weight: 600; color: #3E4D47; padding: 5px 9px; border-radius: 9px; background: #F6F9F8; align-self: flex-start">{{t.status}}</div>
+</div>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+<span style="font-size: 15px; font-weight: 800; margin-right: 6px">Chat demos:</span>
+<button class="s-btn" type="button" onClick="{{playMain}}" style="min-height: 44px; padding: 0 20px; border-radius: 999px; border: 0; background: #134E45; color: #FFFFFF; font: 700 14px 'Onest', sans-serif; cursor: pointer">▶ Full answer</button>
+<button class="s-btn" type="button" onClick="{{playInput}}" style="min-height: 44px; padding: 0 20px; border-radius: 999px; border: 1px solid #134E45; background: #FFFFFF; color: #134E45; font: 700 14px 'Onest', sans-serif; cursor: pointer">▶ Needs your input</button>
+<button class="s-btn" type="button" onClick="{{playError}}" style="min-height: 44px; padding: 0 20px; border-radius: 999px; border: 1px solid #134E45; background: #FFFFFF; color: #134E45; font: 700 14px 'Onest', sans-serif; cursor: pointer">▶ Error and recover</button>
+<span style="font-size: 13px; color: #53625E">Thinking: <strong style="font-weight: 800; color: #142320">Mazhai cloud (locked)</strong></span>
+</div>
+
+<div style="flex: 1 1 auto; min-height: 0; display: flex; border: 1px solid #DCE6E2; border-radius: 22px; overflow: hidden; box-shadow: 0 10px 40px rgba(20,35,32,0.08)">
+<nav aria-label="Sidebar" style="width: 250px; flex: 0 0 250px; box-sizing: border-box; padding: 18px 12px; background: #F6F9F8; border-right: 1px solid #EAF0EE; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 6px; padding: 2px 6px"><svg width="28" height="28" viewBox="0 0 100 100" aria-hidden="true"><use href="#st-idle"></use></svg><span style="font-size: 22px; font-weight: 800; letter-spacing: -0.045em">arcnave</span></div>
+<a href="#new" style="display: flex; align-items: center; gap: 8px; min-height: 42px; box-sizing: border-box; padding: 0 12px; border-radius: 12px; background: #FFFFFF; border: 1px solid #E3ECE9; color: #142320; text-decoration: none; font-weight: 700; font-size: 14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2E8B63" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>New chat</a>
+<div style="display: flex; flex-direction: column; gap: 2px; font-size: 13px">
+<div style="padding: 4px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #53625E">Campus</div>
+<a href="#a" style="padding: 8px 10px; border-radius: 10px; color: #142320; text-decoration: none">Attendance</a>
+<a href="#b" style="padding: 8px 10px; border-radius: 10px; color: #142320; text-decoration: none">Subject log</a>
+<a href="#c" style="padding: 8px 10px; border-radius: 10px; color: #142320; text-decoration: none">Internals</a>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px; font-size: 13px">
+<div style="padding: 4px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #53625E">Recents</div>
+<a href="#e" style="padding: 8px 10px; border-radius: 10px; background: #EAF2EF; color: #142320; text-decoration: none; font-weight: 700">{{chatTitle}}</a>
+<a href="#f" style="padding: 8px 10px; border-radius: 10px; color: #3E4D47; text-decoration: none">Lab manual summary</a>
+</div>
+</nav>
+
+<main style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #FFFFFF">
+<div style="height: 52px; flex: 0 0 52px; box-sizing: border-box; padding: 0 22px; border-bottom: 1px solid #EEF3F1; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<span style="font-size: 15px; font-weight: 700">{{chatTitle}}</span>
+<span style="font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: #F6F9F8; color: #3E4D47">Auto · Normal</span>
+</div>
+
+<div style="flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; justify-content: center">
+<div style="width: 100%; max-width: 740px; box-sizing: border-box; padding: 24px 22px 12px; display: flex; flex-direction: column; gap: 14px">
+
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 80px 0; text-align: center; color: #53625E; font-size: 15px">Press one of the chat demo buttons above.</div>
+</sc-if>
+
+<sc-if value="{{started}}" hint-placeholder-val="{{ true }}">
+<div style="align-self: flex-end; max-width: 75%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px">
+<sc-if value="{{hasAttach}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; border: 1px solid #DCE6E2; background: #FFFFFF; font-size: 13px; font-weight: 700"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2E8B63" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>internals_sem5.xlsx</div>
+</sc-if>
+<div style="padding: 12px 16px; border-radius: 18px 18px 6px 18px; background: #E6F0EC; font-size: 15px; line-height: 1.55">{{userText}}</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 10px">
+<svg width="52" height="52" viewBox="-20 -24 140 140" style="overflow: visible; flex: 0 0 auto" aria-hidden="true"><use href="{{logoRef}}"></use></svg>
+<span role="status" style="font-size: 15px; font-weight: 600; color: #3E4D47">{{statusText}}</span>
+</div>
+
+<sc-if value="{{hasSteps}}" hint-placeholder-val="{{ true }}">
+<div style="margin-left: 62px; border: 1px solid #E3ECE9; border-radius: 14px; overflow: hidden">
+<button class="s-btn" type="button" onClick="{{toggleSteps}}" aria-expanded="{{stepsExpanded}}" style="width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border: 0; background: #F6F9F8; font: 700 13px 'Onest', sans-serif; color: #142320; cursor: pointer"><span>{{stepsLabel}}</span><span>{{stepsChevron}}</span></button>
+<sc-if value="{{stepsOpen}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; padding: 6px 14px 10px">
+<sc-for list="{{steps}}" as="st" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; color: #3E4D47"><span style="width: 8px; height: 8px; border-radius: 999px; background: {{st.dot}}; flex: 0 0 auto"></span>{{st.label}}</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{showSources}}" hint-placeholder-val="{{ false }}">
+<div style="margin-left: 62px; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{sources}}" as="so" hint-placeholder-count="3">
+<span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid #DCE6E2; font-size: 12px; font-weight: 700; color: {{so.color}}; text-decoration: {{so.deco}}"><span style="width: 14px; height: 14px; border-radius: 4px; background: {{so.chip}}"></span>{{so.t}}</span>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{showCalc}}" hint-placeholder-val="{{ false }}">
+<div style="margin-left: 62px; display: flex; gap: 10px">
+<div style="flex: 1 1 0; padding: 12px 14px; border-radius: 14px; background: #F6F9F8"><div style="font-size: 12px; color: #53625E">Class average</div><div style="font-size: 22px; font-weight: 800">72.4%</div></div>
+<div style="flex: 1 1 0; padding: 12px 14px; border-radius: 14px; background: #F6F9F8"><div style="font-size: 12px; color: #53625E">Below 50%</div><div style="font-size: 22px; font-weight: 800">6 students</div></div>
+<div style="flex: 1 1 0; padding: 12px 14px; border-radius: 14px; background: #F6F9F8"><div style="font-size: 12px; color: #53625E">Weakest unit</div><div style="font-size: 22px; font-weight: 800">Trees</div></div>
+</div>
+</sc-if>
+
+<sc-if value="{{showConfirm}}" hint-placeholder-val="{{ false }}">
+<div style="margin-left: 62px; border: 1px solid #2E8B63; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #F3FAF6">
+<div style="font-size: 15px; font-weight: 800">Mark today's attendance for CSE-A?</div>
+<div style="font-size: 14px; color: #3E4D47; line-height: 1.5">42 students · 39 present · absent: roll 12, 27, 33</div>
+<div style="display: flex; gap: 10px">
+<button class="s-btn" type="button" onClick="{{confirmYes}}" style="min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: #134E45; color: #FFFFFF; font: 700 14px 'Onest', sans-serif; cursor: pointer">Mark attendance</button>
+<button class="s-btn" type="button" onClick="{{confirmNo}}" style="min-height: 44px; padding: 0 18px; border-radius: 12px; border: 1px solid #DCE6E2; background: #FFFFFF; color: #142320; font: 700 14px 'Onest', sans-serif; cursor: pointer">Cancel</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{showDoc}}" hint-placeholder-val="{{ false }}">
+<div style="margin-left: 62px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid #DCE6E2; max-width: 420px">
+<div style="width: 40px; height: 48px; border-radius: 8px; background: #E6F2EE; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E8B63" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M9 11h7M9 15h7"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto"><span style="font-size: 14px; font-weight: 800">Remedial plan · Sem 5</span><span style="font-size: 12px; color: #53625E">Document · 3-week plan</span></div>
+<span style="font-size: 13px; font-weight: 700; color: #134E45">Open</span>
+</div>
+</sc-if>
+
+<sc-if value="{{showAnswer}}" hint-placeholder-val="{{ false }}">
+<div style="margin-left: 62px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.65">
+<sc-for list="{{answer}}" as="p" hint-placeholder-count="2">
+<p style="margin: 0">{{p.t}}</p>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</div>
+
+<div style="flex: 0 0 auto; padding: 10px 22px 18px; display: flex; justify-content: center">
+<div style="width: 100%; max-width: 740px; box-sizing: border-box; border: 1px solid #DCE6E2; border-radius: 18px; padding: 10px 10px 10px 16px; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 20px rgba(19,78,69,0.06)">
+<label for="askx" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message arcnave</label>
+<input id="askx" type="text" placeholder="Reply to arcnave…" style="flex: 1 1 auto; border: 0; outline: none; font: 500 15px 'Onest', sans-serif; color: #142320; background: transparent">
+<button type="button" style="min-height: 40px; padding: 0 18px; border-radius: 12px; border: 0; background: #134E45; color: #FFFFFF; font: 700 14px 'Onest', sans-serif">Send</button>
+</div>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1860}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { fast: false, think: 't1', scn: 'none', idx: -1, parts: 0, outcome: '', stepsOpen: true };
+this.timers = [];
+this.flows = {
+main: ['think', 'search', 'read', 'run', 'create', 'write', 'done'],
+input: ['think', 'input', 'done'],
+error: ['think', 'search', 'error', 'search', 'write', 'done']
+};
+this.dur = { think: 6400, search: 6800, read: 7200, run: 6000, create: 8000, write: 6800, done: 6000, error: 7000 };
+}
+componentWillUnmount() { this.clear(); }
+clear() { this.timers.forEach((t) => clearTimeout(t)); this.timers = []; }
+k() { return this.state.fast ? 0.625 : 1.25; }
+later(ms, fn) { this.timers.push(setTimeout(fn, ms * this.k())); }
+run(scn, startIdx, startAt) {
+const steps = this.flows[scn];
+let at = startAt || 0;
+for (let i = startIdx; i < steps.length; i++) {
+const id = steps[i];
+const t = at;
+this.later(t, () => this.setState({ idx: i }));
+if (id === 'write') {
+this.later(t, () => this.setState({ parts: 1 }));
+this.later(t + 2200, () => this.setState({ parts: 2 }));
+this.later(t + 4400, () => this.setState({ parts: 3 }));
+}
+if (id === 'input') return;
+at += this.dur[id];
+}
+this.later(at, () => this.setState({ idx: steps.length }));
+}
+start(scn) {
+this.clear();
+this.setState({ scn, idx: 0, parts: 0, outcome: '', stepsOpen: true });
+this.run(scn, 0, 0);
+}
+answer(st, cur) {
+if (st.scn === 'main') {
+const all = [
+{ t: '6 students are below 50% in Data Structures. The class average is 72.4%.' },
+{ t: 'Most of them lose marks in Trees and Graphs, so the plan starts with those two units.' },
+{ t: 'I have created "Remedial plan · Sem 5" with a 3-week schedule. Shall I share it with the HOD?' }
+];
+return all.slice(0, cur === 'idle' || cur === 'done' ? 3 : st.parts);
+}
+if (st.scn === 'error') {
+const all = [
+{ t: 'One source did not respond, so I checked the AICTE handbook instead.' },
+{ t: '[THE ANSWER FROM THE SOURCE, WITH ITS CITATION]' },
+{ t: 'All sources I used are listed above.' }
+];
+return all.slice(0, cur === 'idle' || cur === 'done' ? 3 : st.parts);
+}
+if (st.scn === 'input' && st.outcome) {
+return [{ t: st.outcome === 'yes' ? 'Attendance saved for CSE-A: 39 present, 3 absent (roll 12, 27, 33).' : 'Okay, I have not changed anything.' }];
+}
+return [];
+}
+renderVals() {
+const st = this.state;
+const k = this.k();
+const steps = st.scn === 'none' ? [] : this.flows[st.scn];
+const cur = st.idx < 0 ? 'none' : (st.idx >= steps.length ? 'idle' : steps[st.idx]);
+const doneUpTo = (id) => { const p = steps.lastIndexOf(id); return p >= 0 && st.idx > p; };
+const firstDone = (id) => { const p = steps.indexOf(id); return p >= 0 && st.idx > p; };
+const statusMap = {
+think: 'Thinking…', search: 'Searching the web…', read: 'Reading internals_sem5.xlsx…', run: 'Running a calculation…',
+create: 'Creating your document…', write: 'Writing…', done: 'Done', input: 'Waiting for you to confirm',
+error: 'That source did not respond. Trying another way…', idle: '', none: ''
+};
+const refMap = { think: '#st-' + st.think, search: '#st-search', read: '#st-read', run: '#st-run', create: '#st-create', write: '#st-write', done: '#st-doneB', input: '#st-inputB', error: '#st-errorB', idle: '#st-idle', none: '#st-idle' };
+const stepItems = [];
+if (st.scn === 'main') {
+if (firstDone('search')) stepItems.push({ label: 'Searched the web · 3 sources', dot: '#7CC8EE' });
+if (firstDone('read')) stepItems.push({ label: 'Read internals_sem5.xlsx', dot: '#7CC8EE' });
+if (firstDone('run')) stepItems.push({ label: 'Ran a calculation', dot: '#7CC8EE' });
+if (firstDone('create')) stepItems.push({ label: 'Created "Remedial plan · Sem 5"', dot: '#7CC8EE' });
+}
+if (st.scn === 'error') {
+if (firstDone('search')) stepItems.push({ label: 'Searched the web · 1 source failed', dot: '#C27C0E' });
+if (firstDone('error')) stepItems.push({ label: 'Found another route', dot: '#7CC8EE' });
+if (doneUpTo('search') && st.idx > 3) stepItems.push({ label: 'Searched the AICTE handbook', dot: '#7CC8EE' });
+}
+if (st.scn === 'input' && st.outcome === 'yes') stepItems.push({ label: 'Saved attendance for CSE-A', dot: '#7CC8EE' });
+const titles = { none: 'New chat', main: 'Sem 5 internals plan', input: 'CSE-A attendance', error: 'AICTE faculty ratio' };
+const users = {
+none: '', main: 'Sem 5 internals file-a padichu, weak students list + remedial plan doc ready pannu.',
+input: 'Today CSE-A attendance mark pannu. Absent: 12, 27, 33.', error: 'Latest AICTE faculty-student ratio rule enna?'
+};
+const ans = this.answer(st, cur);
+const thinkList = [
+{ id: 't1', code: 'T1', name: 'Mazhai cloud', how: 'Seed becomes a small cloud; gentle rain soaks the leaf and it glows' },
+{ id: 't2', code: 'T2', name: 'Gathering seeds', how: 'Seed splits in three, each looks around, they come back as one' },
+{ id: 't3', code: 'T3', name: 'Puzzle piece', how: 'Seed becomes a piece, tries each angle, then clicks into place' }
+];
+return {
+k: String(k),
+normalPressed: st.fast ? 'false' : 'true', fastPressed: st.fast ? 'true' : 'false',
+normalBg: st.fast ? 'transparent' : '#134E45', normalFg: st.fast ? '#142320' : '#FFFFFF',
+fastBg: st.fast ? '#134E45' : 'transparent', fastFg: st.fast ? '#FFFFFF' : '#142320',
+normal: () => this.setState({ fast: false }),
+fast: () => this.setState({ fast: true }),
+all: [
+{ ref: '#st-t1', name: 'Thinking', how: 'Seed becomes a cloud, gentle rain, the leaf drinks and glows', status: 'Thinking…' },
+{ ref: '#st-search', name: 'Searching', how: 'Seed becomes a lens and searches the leaf', status: 'Searching the web…' },
+{ ref: '#st-read', name: 'Reading files', how: 'Seed reads line by line, each line lights up', status: 'Reading 3 files…' },
+{ ref: '#st-run', name: 'Running a command', how: 'Seed becomes a gear, the leaf shows a terminal', status: 'Running a calculation…' },
+{ ref: '#st-create', name: 'Creating', how: 'Seed becomes a pencil and draws a document', status: 'Creating your document…' },
+{ ref: '#st-write', name: 'Writing', how: 'Seed becomes a quill and writes on the leaf', status: 'Writing…' },
+{ ref: '#st-doneB', name: 'Done', how: 'Seed becomes a stamp and seals a tick', status: 'Done' },
+{ ref: '#st-inputB', name: 'Needs your input', how: 'Seed becomes a chat bubble with typing dots', status: 'Waiting for you to confirm' },
+{ ref: '#st-errorB', name: 'Error', how: 'Seed hits a block and takes a detour', status: 'Trying another way…' }
+],
+playMain: () => this.start('main'),
+playInput: () => this.start('input'),
+playError: () => this.start('error'),
+empty: st.scn === 'none',
+started: st.scn !== 'none',
+chatTitle: titles[st.scn],
+userText: users[st.scn],
+hasAttach: st.scn === 'main',
+logoRef: refMap[cur],
+statusText: statusMap[cur],
+hasSteps: stepItems.length > 0,
+steps: stepItems,
+stepsOpen: st.stepsOpen,
+stepsExpanded: st.stepsOpen ? 'true' : 'false',
+stepsLabel: stepItems.length + (stepItems.length === 1 ? ' step' : ' steps'),
+stepsChevron: st.stepsOpen ? '▴' : '▾',
+toggleSteps: () => this.setState({ stepsOpen: !st.stepsOpen }),
+showSources: (st.scn === 'main' && firstDone('search')) || (st.scn === 'error' && firstDone('search')),
+sources: st.scn === 'error'
+? [{ t: 'Source 1 · no response', color: '#53625E', deco: 'line-through', chip: '#E3ECE9' }, { t: 'AICTE handbook', color: '#142320', deco: 'none', chip: '#7CC8EE' }]
+: [{ t: 'AICTE handbook', color: '#142320', deco: 'none', chip: '#7CC8EE' }, { t: 'Anna University regulations', color: '#142320', deco: 'none', chip: '#9BDAF6' }, { t: 'NBA manual', color: '#142320', deco: 'none', chip: '#2E8B63' }],
+showCalc: st.scn === 'main' && firstDone('run'),
+showDoc: st.scn === 'main' && firstDone('create'),
+showConfirm: st.scn === 'input' && cur === 'input',
+confirmYes: () => { this.clear(); this.setState({ outcome: 'yes', idx: 2 }); this.later(this.dur.done, () => this.setState({ idx: 3 })); },
+confirmNo: () => { this.clear(); this.setState({ outcome: 'no', idx: 3 }); },
+showAnswer: ans.length > 0,
+answer: ans
+};
+}
+}
+</script>
+</body>
+</html>

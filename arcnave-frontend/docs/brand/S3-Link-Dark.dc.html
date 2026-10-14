@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>arcnave link confirm dark</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300..800&amp;family=Newsreader:opsz,wght@6..72,300..600&amp;family=Noto+Sans+Tamil:wght@400..700&amp;family=Noto+Serif+Tamil:wght@400..600&amp;family=Noto+Sans+Devanagari:wght@400..700&amp;family=Source+Serif+4:opsz,wght@8..60,300..700&amp;family=JetBrains+Mono:wght@400..600&amp;display=swap">
+<style>
+body{margin:0}
+.t-light{--bg:#FFFFFF;--side:#F6F9F8;--surface:#FFFFFF;--raised:#FFFFFF;--hover:rgba(20,35,32,0.05);--press:rgba(20,35,32,0.08);--selected:#E5EFEB;--line:rgba(20,35,32,0.10);--line-2:rgba(20,35,32,0.16);--field:#7E918A;--text:#142320;--text-2:#3E4D47;--muted:#66756F;--placeholder:#66756F;--disabled:#A3B1AD;--brand:#2E8B63;--primary:#134E45;--primary-hover:#0E3D36;--on-primary:#FFFFFF;--link:#134E45;--focus:#2E8B63;--ring:rgba(46,139,99,0.22);--sky:#7CC8EE;--ok:#1E6E47;--ok-bg:#E6F4EC;--warn:#8A5300;--warn-bg:#FFF4DF;--err:#B3261E;--err-bg:#FDECEA;--on-err:#FFFFFF;--info:#1C6690;--info-bg:#E8F4FB;--inv-bg:#142320;--inv-text:#F2F6F4;--code-bg:#F7F9F8;--syn-key:#134E45;--syn-str:#9C4A2C;--syn-num:#1C6690;--syn-com:#66756F;--cite-bg:rgba(46,139,99,0.10);--shadow-1:0 1px 2px rgba(20,35,32,0.05);--shadow-2:0 0 0 1px rgba(20,35,32,0.10), 0 4px 18px rgba(20,35,32,0.06);--shadow-3:0 0 0 1px rgba(20,35,32,0.08), 0 18px 48px rgba(20,35,32,0.16);}.t-dark{--bg:#151C1A;--side:#19221F;--surface:#1C2522;--raised:#212B28;--hover:rgba(230,238,235,0.06);--press:rgba(230,238,235,0.09);--selected:#21352E;--line:rgba(230,238,235,0.10);--line-2:rgba(230,238,235,0.16);--field:#62746E;--text:#E8EEEB;--text-2:#BAC6C2;--muted:#94A39E;--placeholder:#8D9C97;--disabled:#52625D;--brand:#4FB585;--primary:#4FB585;--primary-hover:#63C495;--on-primary:#0F1615;--link:#6FCB9D;--focus:#6FCB9D;--ring:rgba(111,203,157,0.25);--sky:#7CC8EE;--ok:#8FD9B1;--ok-bg:#173526;--warn:#F3C77A;--warn-bg:#382B12;--err:#F2B8B5;--err-bg:#3E2120;--on-err:#2A0E0C;--info:#9BD3F2;--info-bg:#15303F;--inv-bg:#E8EEEB;--inv-text:#142320;--code-bg:#18201E;--syn-key:#6FCB9D;--syn-str:#F0B08F;--syn-num:#9BD3F2;--syn-com:#8D9C97;--cite-bg:rgba(79,181,133,0.16);--shadow-1:0 0 0 1px rgba(230,238,235,0.06);--shadow-2:0 0 0 1px rgba(230,238,235,0.12), 0 6px 20px rgba(0,0,0,0.30);--shadow-3:0 0 0 1px rgba(230,238,235,0.12), 0 24px 60px rgba(0,0,0,0.50);}
+.ds{box-sizing:border-box;font-family:'Plus Jakarta Sans',sans-serif;font-weight:400;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased;letter-spacing:-0.003em}
+.ds *{box-sizing:border-box}
+.serif .ans,.serif .greet{font-family:'Newsreader','Noto Serif Tamil',Georgia,serif}
+.serif .ans{font-size:17px;line-height:27px}
+.ta{font-family:'Noto Sans Tamil','Plus Jakarta Sans',sans-serif}
+.serif .ta{font-family:'Noto Serif Tamil','Newsreader',serif}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.k{font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sec{border:1px solid var(--line);border-radius:16px;padding:22px 24px;background:var(--surface);display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:8px}
+.note{font-size:12.5px;color:var(--muted);line-height:1.5}
+.btn{height:36px;padding:0 14px;border-radius:8px;font:500 14px/1 'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;white-space:nowrap}
+.btn-sm{height:30px;padding:0 10px;font-size:13px;border-radius:7px}
+.btn-lg{height:44px;padding:0 18px;font-size:15px;border-radius:10px}
+.btn-primary{background:var(--primary);color:var(--on-primary)}
+.btn-primary.is-hover{background:var(--primary-hover)}
+.btn-secondary{background:var(--surface);color:var(--text);border-color:var(--line-2)}
+.btn-secondary.is-hover{background:var(--hover)}
+.btn-ghost{background:transparent;color:var(--text)}
+.btn-ghost.is-hover{background:var(--hover)}
+.btn-danger{background:var(--err);color:var(--on-err)}
+.is-disabled{opacity:.42}
+.is-focus{outline:2px solid var(--focus);outline-offset:2px}
+.iconbtn{width:32px;height:32px;border-radius:8px;display:inline-grid;place-items:center;color:var(--text-2);flex:none}
+.iconbtn.sm{width:28px;height:28px;border-radius:7px}
+.iconbtn.is-hover{background:var(--hover);color:var(--text)}
+.spin{width:15px;height:15px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;opacity:.85}
+.label{font-size:13px;font-weight:500;color:var(--text-2)}
+.input{height:40px;border:1px solid var(--field);border-radius:8px;padding:0 12px;background:var(--surface);font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px}
+.input .ph{color:var(--placeholder)}
+.input.is-on{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
+.input.is-err{border-color:var(--err)}
+.help{font-size:12.5px;color:var(--muted)}
+.err-text{font-size:12.5px;color:var(--err);display:flex;gap:6px;align-items:center}
+.codebox{width:44px;height:52px;border:1px solid var(--field);border-radius:10px;display:grid;place-items:center;font:500 22px/1 'Plus Jakarta Sans',sans-serif;background:var(--surface);color:var(--text)}
+.toggle{width:36px;height:22px;border-radius:999px;background:var(--line-2);position:relative;flex:none}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle.on{background:var(--primary)}.toggle.on::after{left:17px}
+.t-dark .toggle.on::after{background:#0F1615}
+.check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--field);display:grid;place-items:center;flex:none;background:var(--surface)}
+.check.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.radio{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--field);display:grid;place-items:center;flex:none}
+.radio.on{border-color:var(--primary)}.radio.on::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--primary)}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:var(--hover);gap:2px}
+.seg span{height:28px;padding:0 12px;border-radius:7px;display:inline-flex;align-items:center;font-size:13px;color:var(--text-2)}
+.seg span.on{background:var(--surface);color:var(--text);font-weight:500;box-shadow:var(--shadow-1)}
+.chip{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--line-2);display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--text);background:var(--surface)}
+.badge{height:22px;padding:0 7px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-warn{background:var(--warn-bg);color:var(--warn)}.b-err{background:var(--err-bg);color:var(--err)}.b-info{background:var(--info-bg);color:var(--info)}.b-neutral{background:var(--hover);color:var(--text-2)}
+.cite{display:inline-flex;align-items:center;gap:4px;height:21px;padding:0 6px;border-radius:6px;background:var(--cite-bg);color:var(--link);font:500 12px/1 'Plus Jakarta Sans',sans-serif;vertical-align:2px}
+.avatar{width:28px;height:28px;display:grid;place-items:center;font-size:11.5px;font-weight:600;background:var(--selected);color:var(--link);border-radius:10px 3px 10px 3px;flex:none}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.dialog{background:var(--raised);border-radius:16px;box-shadow:var(--shadow-3);padding:22px;display:flex;flex-direction:column;gap:12px}
+.toast{background:var(--inv-bg);color:var(--inv-text);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:var(--shadow-3)}
+.tip{background:var(--inv-bg);color:var(--inv-text);border-radius:6px;padding:5px 8px;font-size:12px;display:inline-block}
+.tabs{display:flex;gap:4px}
+.tabs span{height:30px;padding:0 10px;border-radius:7px;display:inline-flex;align-items:center;font-size:14px;color:var(--text-2)}
+.tabs span.on{background:var(--hover);color:var(--text);font-weight:500}
+.codeblk{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--code-bg)}
+.codeblk .hd{display:flex;align-items:center;gap:4px;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.codeblk pre{margin:0;padding:12px 14px;font:400 13px/20px 'JetBrains Mono',ui-monospace,monospace;color:var(--text);white-space:pre;overflow:hidden}
+.codeblk .ln{color:var(--disabled);display:inline-block;width:22px}
+.kw{color:var(--syn-key)}.st{color:var(--syn-str)}.nu{color:var(--syn-num)}.cm{color:var(--syn-com);font-style:italic}
+.tbl{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tbl table{border-collapse:collapse;width:100%;font-size:14.5px}
+.tbl th{text-align:left;font-weight:600;color:var(--text);padding:8px 12px;border-bottom:1px solid var(--line);background:var(--hover)}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--line);color:var(--text)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+.ubub{background:var(--hover);border-radius:12px 4px 12px 12px;padding:11px 16px;font-size:15px;line-height:22px;color:var(--text);max-width:520px}
+.ans{font-size:16px;line-height:26px;color:var(--text)}
+.ans p{margin:0 0 12px}.ans b{font-weight:600}
+.thinkline{font-size:14px;line-height:20px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.steps{display:flex;flex-direction:column;border-left:1.5px solid var(--line-2);margin-left:6px;padding-left:14px}
+.steps div{font-size:13.5px;color:var(--text-2);padding:4px 0;display:flex;gap:8px;align-items:center}
+.status{font-size:14px;color:var(--text-2);display:flex;align-items:center;gap:8px}
+.comp-new{background:var(--raised);border-radius:16px;box-shadow:var(--shadow-2);padding:14px 10px 8px 16px;display:flex;flex-direction:column;gap:10px}
+.comp-reply{background:var(--raised);border-radius:14px;box-shadow:var(--shadow-2);height:48px;padding:0 8px 0 16px;display:flex;align-items:center;gap:8px}
+.send{width:32px;height:32px;border-radius:8px;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;flex:none}
+.under{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.side{background:var(--side);border-right:1px solid var(--line)}
+.side-item{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text)}
+.side-item svg{color:var(--text-2)}
+.side-item.on{background:var(--selected);font-weight:500}
+.side-item.on svg{color:var(--brand)}
+.side-label{font-size:12.5px;color:var(--muted);padding:16px 10px 4px}
+.recent{height:30px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text-2);display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent.on{background:var(--selected);color:var(--text);font-weight:500}
+.greet{font-size:30px;line-height:38px;font-weight:500;letter-spacing:-0.02em;color:var(--text)}
+.serif .greet{font-size:34px;font-weight:400;letter-spacing:-0.01em}
+.t-light{--muted:#53625E;--placeholder:#53625E;--text-2:#2F3D38}
+.w2 .side-item{font-weight:500}.w2 .side-item.on{font-weight:600}
+.w2 .recent{font-weight:500}.w2 .recent.on{font-weight:600}
+.w2 .side-label{font-weight:500}
+
+.si-btn{height:44px;border-radius:10px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;width:100%}
+
+.si5 .hero{font-family:'Source Serif 4',Georgia,serif;font-weight:500;font-size:66px;line-height:1.05;letter-spacing:-0.025em;color:var(--text);text-align:center}
+.si5 .sub{font-family:'Source Serif 4',Georgia,serif;font-weight:450;font-size:21px;line-height:1.4;color:var(--text-2);text-align:center}
+.si5 .card{width:560px;border:1px solid var(--line-2);border-radius:28px;padding:34px 36px;display:flex;flex-direction:column;gap:14px;background:transparent}
+.si5 .b{height:50px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:16.5px;font-weight:500}
+.si5 .b2{background:var(--hover);color:var(--text)}
+.t-dark.si5 .b2{background:#232D2A}
+.si5 .in{height:50px;border-radius:10px;border:1px solid var(--field);display:flex;align-items:center;padding:0 16px;font-size:16.5px;color:var(--placeholder);background:var(--surface)}
+.t-dark.si5 .in{background:#18201E}
+.si5 .b1{background:var(--primary);color:var(--on-primary);font-weight:600}
+.si5 .panel{position:absolute;left:786px;top:130px;width:517px;height:720px;border-radius:20px;overflow:hidden}
+.si5 .panel canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.cd .hero2{font-family:'Source Serif 4',Georgia,serif;font-weight:500;font-size:54px;line-height:1.06;letter-spacing:-0.025em;color:var(--text);text-align:center}
+.cd .sub2{font-family:'Source Serif 4',Georgia,serif;font-weight:450;font-size:19px;line-height:1.45;color:var(--text-2);text-align:center}
+.cd .lbl{font-size:14px;font-weight:600;color:var(--text)}
+.cd .boxes{position:relative;display:flex;gap:10px}
+.cd .cbx{flex:1 1 0;min-width:0;height:70px;border-radius:12px;border:1px solid var(--field);background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;transition:border-color .15s,box-shadow .15s}
+.t-dark.cd .cbx{background:#18201E}
+.cd .cbx.gap{margin-left:14px}
+.cd .cbx.on{border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
+.t-dark.cd .cbx.on{border-color:#6FCB9D}
+.cd .cbx.on:empty::after{content:'';width:2px;height:30px;background:var(--text);animation:cd-blink 1.05s steps(1) infinite}
+@keyframes cd-blink{50%{opacity:0}}
+.cd .cbx.err{border-color:var(--err);color:var(--err)}
+.cd .cbx.ok{border-color:var(--brand);color:var(--brand)}
+.cd .cbx.dim{opacity:.45}
+.cd .cbx.dis{background:var(--hover);color:var(--muted);border-style:dashed}
+.cd .boxes input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;font-size:16px;cursor:text}
+.cd .msg{min-height:22px;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px;text-align:center}
+.cd .msg.err{color:var(--err)} .cd .msg.ok{color:var(--brand)} .cd .msg.info{color:var(--text-2)}
+.cd .b1.dis{background:var(--disabled);color:var(--muted);cursor:default}
+.cd .spin{width:16px;height:16px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:cd-spin .8s linear infinite}
+@keyframes cd-spin{to{transform:rotate(360deg)}}
+.cd .lnk{color:var(--link);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.cd .lnk.off{color:var(--muted);text-decoration:none;cursor:default;font-weight:500}
+@media (prefers-reduced-motion: reduce){.cd .spin,.cd .cbx.on:empty::after{animation:none}}
+/* compact card for the states board */
+.cd .mini .card{width:100%;padding:22px 22px;border-radius:22px;gap:12px}
+.cd .mini .cbx{height:52px;font-size:22px;border-radius:10px}
+.cd .mini .cbx.gap{margin-left:10px}
+.cd .mini .boxes{gap:7px}
+.cd .mini .b{height:44px;font-size:15px}
+.cd .mini .cbx.on:empty::after{height:22px}
+.cd .mini .msg{font-size:13px}
+
+.lc .big{height:54px;font-size:17px}
+.lc .tick{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--ok-bg);color:var(--brand);margin:0 auto}
+.lc .warnc{background:var(--err-bg);color:var(--err)}
+.lc .b2x{background:var(--hover);color:var(--text);font-weight:600}
+.t-dark.lc .b2x{background:#232D2A}
+
+
+/* LOCKED 2026-10-12: sign-in flow pages use Source Serif for all text */
+.ds, .ds *{font-family:'Source Serif 4','Noto Serif Tamil','Noto Serif Devanagari',Georgia,serif !important;font-optical-sizing:auto}
+.ds code,.ds pre,.ds kbd,.ds .mono,.ds .key,.ds .rc{font-family:'JetBrains Mono',ui-monospace,monospace !important}
+.ds .gbtn,.ds .gbtn *{font-family:'Google Sans Flex','Google Sans',Roboto,Arial,sans-serif !important}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400..700&amp;display=swap">
+</helmet>
+<div class="ds t-dark w2 si5 cd lc" style="width: 1440px; height: 900px; position: relative; background: #121816; font-weight: 500">
+<svg width="0" height="0" style="position: absolute" aria-hidden="true"><defs><path id="tL" d="M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z"></path>
+<path id="dL" d="M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z"></path>
+<mask id="mL" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#FFFFFF"></rect><use href="#dL" transform="translate(67 33) rotate(225) scale(0.62)" fill="#000000"></use></mask>
+<radialGradient id="glL" cx="0.67" cy="0.33" r="0.24"><stop offset="0" stop-color="#9BDAF6" stop-opacity="0.95"></stop><stop offset="1" stop-color="#9BDAF6" stop-opacity="0"></stop></radialGradient>
+<filter id="grL" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="7" result="n"></feTurbulence><feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.16 0"></feColorMatrix><feComposite in2="SourceGraphic" operator="in"></feComposite></filter>
+<symbol id="rich" viewBox="0 0 100 100"><g mask="url(#mL)"><use href="#tL" fill="#2E8B63"></use><use href="#tL" fill="#FFFFFF" filter="url(#grL)"></use><use href="#tL" fill="url(#glL)"></use></g></symbol>
+<symbol id="flatL" viewBox="0 0 100 100"><g mask="url(#mL)"><use href="#tL" fill="currentColor"></use></g></symbol><symbol id="wmL4" viewBox="-16 -20 692 140"><clipPath id="L4v"><rect x="-20" y="0" width="200" height="100"/></clipPath><g fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="butt" stroke-linejoin="round"><g transform="translate(0 0)"><path d="M48.8 10 A36.8 40 0 1 0 48.8 90 A36.8 40 0 1 0 48.8 10Z"/><path d="M73.6 100 V10 L97.6 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(109.6 0)"><path d="M0 100 V10 L24 0 V100Z" fill="currentColor" stroke="none"/><path d="M12 58 C12 28 26 12.0 50 12.0"/></g><g transform="translate(168.6 0)"><path d="M76.1 23.2 A36.8 40 0 1 0 76.1 76.8"/></g><g transform="translate(268.7 0)"><path d="M0 100 V10 L24 0 V100Z" fill="currentColor" stroke="none"/><path d="M12 46 C12 24 25.2 12.0 41.4 12.0 C57.6 12.0 70.9 24 70.9 46 V100"/></g><g transform="translate(360.6 0)"><path d="M48.8 10 A36.8 40 0 1 0 48.8 90 A36.8 40 0 1 0 48.8 10Z"/><path d="M73.6 100 V10 L97.6 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(466.2 0)"><g clip-path="url(#L4v)"><path d="M8.2 -12 L43.2 100 L78.3 -12" stroke-linejoin="miter"/></g></g><g transform="translate(562.4 0)"><path d="M12 50 H85.6 A36.8 40 0 1 0 77 75.7"/></g></g></symbol><symbol id="wmL4L" viewBox="-16 -20 646.4 140"><clipPath id="L4Lv"><rect x="-20" y="0" width="200" height="100"/></clipPath><g fill="none" stroke="currentColor" stroke-width="19" stroke-linecap="butt" stroke-linejoin="round"><g transform="translate(0 0)"><path d="M44.7 10 A35.2 40 0 1 0 44.7 90 A35.2 40 0 1 0 44.7 10Z"/><path d="M70.4 100 V10 L89.4 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(101.4 0)"><path d="M0 100 V10 L19 0 V100Z" fill="currentColor" stroke="none"/><path d="M9.5 58 C9.5 28 23.5 9.5 47.5 9.5"/></g><g transform="translate(157.9 0)"><path d="M70.9 23.2 A35.2 40 0 1 0 70.9 76.8"/></g><g transform="translate(250.3 0)"><path d="M0 100 V10 L19 0 V100Z" fill="currentColor" stroke="none"/><path d="M9.5 46 C9.5 24 22.2 9.5 37.7 9.5 C53.1 9.5 65.8 24 65.8 46 V100"/></g><g transform="translate(334.6 0)"><path d="M44.7 10 A35.2 40 0 1 0 44.7 90 A35.2 40 0 1 0 44.7 10Z"/><path d="M70.4 100 V10 L89.4 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(432 0)"><g clip-path="url(#L4Lv)"><path d="M7.8 -12 L41.4 100 L74.9 -12" stroke-linejoin="miter"/></g></g><g transform="translate(525 0)"><path d="M9.5 50 H79.9 A35.2 40 0 1 0 71.7 75.7"/></g></g></symbol><symbol id="wmTAL" viewBox="-16 -76 1068.1 274"><g fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="butt" stroke-linejoin="miter"><g transform="translate(3.0 0)"><circle cx="95" cy="36" r="19.5"/><path d="M75.5 36 C75.5 14 93 4 112 4 C136 4 153 26 153 53 C153 88 112 113 70 113 C36 113 7 102 7 88 C7 77 13 71 24 71 H190"/><path d="M182 104 V10 L198 0 V104Z" fill="currentColor" stroke="none"/><path d="M190 100 C190 86 204 79 221 79 C235 79 244 90 244 104 C244 132 208 149 170 149 C140 149 122 140 122 129 C122 121 131 117 143 117 C157 117 167 121 175 128"/></g><g transform="translate(268.0 0)"><path d="M9 116 V9 H113"/><path d="M63 9 V96 C63 118 30 128 14 158"/><circle cx="63" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g><g transform="translate(396.0 0)"><path d="M38 58 V9 H124"/><path d="M82 9 V76 C82 98 68 110 49 110 C26 110 9 95 9 80 C9 67 20 58 36 58 H110 C122 58 127.5 68 127.5 82 C127.5 100 119 110 107 110 C101 110 97 107 94 104"/><circle cx="60" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g><g transform="translate(548.5 0)"><circle cx="103" cy="-14" r="24"/><circle cx="103" cy="82" r="24"/><path d="M103 -38 C46 -38 11 0 11 34 C11 72 46 106 103 106"/></g><g transform="translate(699.5 0)"><path d="M16 116 V9 H116"/><path d="M62 9 V116"/><path d="M62 72 C62 60 74 53 89 53 C108 53 121.6 70 121.6 92 C121.6 118 102 136 76 136 H30 C17 136 8 144 8 155 C8 163 12 168 18 172"/></g><g transform="translate(848.1 0)"><path d="M33 86 C33 71 43 61 56 61 C71 61 81 72 81 87 C81 103 70 113 55 113 C28 113 9 93 9 68 C9 32 34 6 66 6 C98 6 122 30 122 57 C122 77 113 93 100 105"/><path d="M96 106 H178"/><path d="M170 116 V10 L186 0 V116Z" fill="currentColor" stroke="none"/><circle cx="120" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g></g></symbol></defs></svg>
+<div class="row" style="position: absolute; left: 66px; top: 44px; gap: 8px"><span style="position: relative; width: 36px; height: 36px; flex: none; display: inline-block"><canvas data-ll="tl" data-size="36" data-pad="1.6" data-theme="dark" data-mode="none" data-intro="1" aria-hidden="true" style="position: absolute; left: -10.8px; top: -10.8px; width: 57.6px; height: 57.6px; pointer-events: none"></canvas></span><svg width="90.0" height="18.2" style="flex: none; display: block; color: var(--text)" role="img" aria-label="arcnave"><use href="#wmL4"></use></svg></div>
+<div class="row" style="position: absolute; left: 66px; bottom: 36px; gap: 18px; font-size: 13px; color: var(--muted)"><span>Terms</span><span>Privacy</span><span>Help</span><span style="display: inline-flex; gap: 6px; align-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>English · தமிழ்</span></div>
+<div style="position: absolute; left: 0; width: 774px; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding-top: 10px">
+<div class="col" style="gap: 14px; align-items: center"><div class="hero2" data-h="1">One tap to sign in</div>
+<div class="sub2" data-s="1" style="max-width: 640px">You opened the sign-in link from your e-mail.<br>Tap the button to finish.</div></div>
+<div data-slot="1"><div class="card" data-lc="1" aria-live="polite"><span class="b b1 big" role="button" data-go="1" style="cursor: pointer">Sign in to arcnave</span>
+<div style="text-align: center; font-size: 13.5px; color: var(--muted); line-height: 1.5">Signs you in on this device only. The link works once, for 10 minutes.</div></div></div>
+<div data-foot="1" style="font-size: 13.5px; color: var(--muted); text-align: center; line-height: 1.6; max-width: 520px">Didn’t ask for this? Just close this page.<br>Nothing happens unless you tap the button.</div>
+<div style="font-size: 12px; color: var(--muted); opacity: .8">Prototype: tap the button, or <span class="lnk" data-exp="1" style="font-weight: 500">open an old link</span>.</div></div>
+<div class="panel" style="background: #0C2219"><canvas data-fx="1" ref="{{setCv}}" aria-hidden="true"></canvas></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  llInit() { this.LL = this.LL || {}; document.querySelectorAll('canvas[data-ll]').forEach((cv) => { if (cv.dataset.on) return; cv.dataset.on = '1';
+    const o = { size: +cv.dataset.size, pad: +cv.dataset.pad, theme: cv.dataset.theme, mode: cv.dataset.mode, intro: cv.dataset.intro !== '0',
+      still: cv.dataset.still ? +cv.dataset.still : 0, hover: cv.closest('[data-hover]') || cv };
+    this.LL[cv.dataset.ll] = this.liveLogo(cv, o); }); }
+  llStop() { Object.values(this.LL || {}).forEach((l) => l.stop()); }
+
+  liveLogo(cv, opt) {
+    const ctx = cv.getContext('2d'); if (!ctx) return { stop() {}, replay() {} };
+    const size = opt.size, pad = opt.pad, theme = opt.theme, mode = opt.mode || 'none';
+    const W = size * pad, H = size * pad, DPR = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    const ox = (W - size) / 2, oy = (H - size) / 2, k = size / 100, cx = ox + 50 * k, cy = oy + 50 * k;
+    let s = 5 + Math.round(size); const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    const tile = new Path2D('M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z');
+    const drop = new Path2D('M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z');
+    const seed = new Path2D(); seed.addPath(drop, new DOMMatrix().translate(67, 33).rotate(225).scale(0.62));
+    const off = document.createElement('canvas').getContext('2d');
+    const step = Math.max(2.7, 290 / size), sstep = step * .78, jit = size > 120 ? .45 : .2;
+    const P = [];
+    for (let y = 12 + step / 2; y < 88; y += step) for (let x = 12 + step / 2; x < 88; x += step) {
+      const jx = x + (rnd() - .5) * step * jit, jy = y + (rnd() - .5) * step * jit;
+      if (off.isPointInPath(tile, jx, jy) && !off.isPointInPath(seed, jx, jy)) P.push({ tx: jx, ty: jy, sky: 0 }); }
+    for (let y = 14; y < 52; y += sstep) for (let x = 48; x < 86; x += sstep) if (off.isPointInPath(seed, x, y)) P.push({ tx: x, ty: y, sky: 1 });
+    P.forEach((p) => { const a = rnd() * 6.283, R = 34 + rnd() * 46; p.sx = 50 + Math.cos(a) * R; p.sy = 50 + Math.sin(a) * R;
+      p.ph = rnd() * 6.283; p.f = .8 + rnd() * 1.6; p.d = rnd(); p.q = rnd(); p.z = rnd() * 2 - 1; p.pp = 0;
+      p.paper = size > 120 && rnd() < .14; p.rot = rnd() * 6.28; p.flip = 1.5 + rnd() * 2.5; });
+    // sprout: stem from the seed + two leaves, all dots (100-unit space)
+    const SP = [];
+    const ds = Math.max(1.7, step * .72);
+    const bez = (u) => { const a = [66.4, 31], c = [62.5, 17], b = [69.5, 3]; const m = 1 - u; return [m * m * a[0] + 2 * m * u * c[0] + u * u * b[0], m * m * a[1] + 2 * m * u * c[1] + u * u * b[1]]; };
+    for (let u = 0; u <= 1.0001; u += ds / 30) { const [x, y] = bez(u); SP.push({ x, y, o: u * .55, leaf: 0 }); }
+    const leaf = (lx, ly, rx, ry, ang, o0, side) => { const ca = Math.cos(ang), sa = Math.sin(ang);
+      for (let yy = -ry; yy <= ry; yy += ds * .9) for (let xx = -rx; xx <= rx; xx += ds * .9) {
+        const lim = ry * (1 - (xx * xx) / (rx * rx)); if (Math.abs(yy) > lim) continue;
+        const x = lx + xx * ca - yy * sa, y = ly + xx * sa + yy * ca; SP.push({ x, y, o: o0 + (side * xx / rx + 1) * .2, leaf: 1 }); } };
+    leaf(60.2, 8.6, 7.6, 3.6, -0.62, .5, -1);
+    leaf(76.4, 4.2, 8.2, 3.8, 0.5, .55, 1);
+    const sprite = (c1, c2) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, c1); gr.addColorStop(.25, c2); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; };
+    const SG = sprite('rgba(235,255,245,1)', 'rgba(111,203,157,.55)'), SS = sprite('rgba(240,250,255,1)', 'rgba(124,200,238,.6)');
+    const SL = sprite('rgba(245,255,235,1)', 'rgba(160,226,150,.6)');
+    const clamp = (u) => u < 0 ? 0 : u > 1 ? 1 : u;
+    const ease2 = (u) => { u = clamp(u); return u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
+    const INTRO = opt.intro === false ? 0 : 1.6, SOLID = size < 64, LIVE = !SOLID && mode !== 'none';
+    let t0 = performance.now(), last = t0, raf = 0, dead = false, nowT = 0;
+    let inside = false, px = cx, py = cy, hov = 0, nx = 0, ny = 0, clickT = -99, grow = 0;
+    const paperAt = (x, y, w, a, rot, fl) => {
+      ctx.save(); ctx.globalCompositeOperation = 'source-over'; ctx.translate(x, y); ctx.rotate(rot); ctx.scale(Math.max(.2, Math.abs(Math.cos(fl))), 1);
+      const h = w * 1.3;
+      if (theme === 'dark') { ctx.fillStyle = `rgba(0,0,0,${a * .3})`; ctx.fillRect(-w / 2 + 1, -h / 2 + 1.5, w, h); ctx.fillStyle = `rgba(240,237,226,${a})`; }
+      else { ctx.fillStyle = `rgba(20,35,32,${a * .1})`; ctx.fillRect(-w / 2 + 1, -h / 2 + 1.5, w, h); ctx.fillStyle = `rgba(252,250,244,${a})`; }
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      if (theme !== 'dark') { ctx.strokeStyle = `rgba(20,35,32,${a * .35})`; ctx.lineWidth = .7; ctx.strokeRect(-w / 2, -h / 2, w, h); }
+      ctx.fillStyle = `rgba(90,110,100,${a * .75})`;
+      for (let i = 1; i < 4; i++) ctx.fillRect(-w * .34, -h / 2 + h * i / 4.4, w * (i === 1 ? .42 : .68), Math.max(.5, h * .05));
+      ctx.restore(); ctx.globalCompositeOperation = theme === 'dark' ? 'lighter' : 'source-over'; };
+    const draw = (t, dt) => {
+      nowT = t;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+      const sm = (a, b, r) => a + (b - a) * Math.min(1, dt * r);
+      hov = sm(hov, inside ? 1 : 0, 5);
+      nx = sm(nx, inside ? Math.max(-1, Math.min(1, (px - cx) / (size * .62))) : 0, 6);
+      ny = sm(ny, inside ? Math.max(-1, Math.min(1, (py - cy) / (size * .62))) : 0, 6);
+      const sinceClick = t - clickT;
+      const wantGrow = (mode === 'sprout' && inside) || ((mode === 'sprout' || mode === 'pick') && sinceClick < 2.4);
+      grow += ((wantGrow ? 1 : 0) - grow) * Math.min(1, dt * (wantGrow ? 2.6 : 2.0));
+      const shimmer = ((t % 6.5) / 6.5) * 260 - 60, pulse = .55 + .45 * Math.sin(t * 1.7);
+      const done = INTRO ? clamp((t - .2) / INTRO) : 1;
+      // tilt (A, pick): the leaf turns toward the pointer like a leaf to sunlight
+      const tilt = (mode === 'tilt' || mode === 'pick') ? hov : 0;
+      const ay = nx * .34 * tilt, ax = -ny * .34 * tilt, cay = Math.cos(ay), say = Math.sin(ay), cax = Math.cos(ax), sax = Math.sin(ax);
+      const proj = (X, Y, z) => { const u = X - 50, v = Y - 50, w = z * 3.2;
+        const u1 = u * cay + w * say, w1 = -u * say + w * cay, v1 = v * cax - w1 * sax, w2 = v * sax + w1 * cax, f = 150 / (150 - w2);
+        return [50 + u1 * f, 50 + v1 * f, w2]; };
+      if (theme === 'dark') {
+        const hx = cx + nx * size * .08 * tilt, hy = cy + ny * size * .08 * tilt, g = ctx.createRadialGradient(hx, hy, 0, hx, hy, size * .72);
+        g.addColorStop(0, `rgba(46,139,99,${(.32 + .1 * tilt) * done})`); g.addColorStop(1, 'rgba(46,139,99,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      }
+      const [sgx, sgy] = proj(66.6 + nx * 3 * tilt, 33.4 + ny * 3 * tilt, .6);
+      const flare = Math.max(grow * .6, tilt * .35, sinceClick < 1.2 ? 1 - sinceClick / 1.2 : 0);
+      const gs = ctx.createRadialGradient(ox + sgx * k, oy + sgy * k, 0, ox + sgx * k, oy + sgy * k, size * (.2 + .08 * flare));
+      gs.addColorStop(0, `rgba(124,200,238,${Math.min(.85, (theme === 'dark' ? .5 : .35) * done * (.6 + .4 * pulse) + flare * .3)})`); gs.addColorStop(1, 'rgba(124,200,238,0)');
+      ctx.fillStyle = gs; ctx.fillRect(0, 0, W, H);
+      const tileA = SOLID ? (INTRO ? clamp((t - INTRO * .85) / .35) : 1) : 0;
+      if (tileA > 0) { ctx.save(); ctx.translate(ox, oy); ctx.scale(k, k); ctx.globalAlpha = tileA; ctx.fillStyle = '#2E8B63'; ctx.fill(tile);
+        ctx.fillStyle = theme === 'dark' ? '#DDF3FC' : '#E6F6FD'; ctx.fill(seed); ctx.restore(); ctx.globalAlpha = 1; }
+      ctx.globalCompositeOperation = theme === 'dark' ? 'lighter' : 'source-over';
+      const R = size * .26;
+      for (const p of P) {
+        const b = INTRO ? ease2((t - p.d * .5) / (INTRO - .45)) : 1;
+        const br = Math.sin(t * p.f + p.ph);
+        let X = p.tx + br * .22, Y = p.ty + Math.cos(t * p.f * .8 + p.ph) * .22, z = p.z;
+        if (p.sky) { X += nx * 3 * tilt; Y += ny * 3 * tilt; z = .6; }
+        const [qx, qy, wz] = proj(X, Y, z);
+        const x = ox + (p.sx + (qx - p.sx) * b) * k, y = oy + (p.sy + (qy - p.sy) * b) * k;
+        const wave = Math.max(0, 1 - Math.abs((p.tx + p.ty) - shimmer) / 18);
+        const lit = 1 + .35 * tilt * ((wz + (X - 50) * Math.sin(ay) * .4 - (Y - 50) * Math.sin(ax) * .4) / 9);              // the side turned to the light is brighter
+        // C · papers: dots near the pointer turn back into the college papers they came from
+        if (mode === 'papers' && LIVE) {
+          const near = inside ? clamp(1 - Math.hypot(x - px, y - py) / R) : 0;
+          const want = Math.max(near * near * 1.4, sinceClick < 1.1 + p.d * .4 && sinceClick > p.d * .3 ? 1 : 0);
+          p.pp += (Math.min(1, want) - p.pp) * Math.min(1, dt * 7);
+        }
+        if (p.paper && b < .9) paperAt(x, y, 7 * (1 - b) * k * .5 + 2, (1 - b) * .7, p.rot + t * 2, t * 3 + p.rot);
+        if (p.pp > .03) paperAt(x, y, step * k * 1.55, p.pp * .88, p.rot * .4 - .2, t * p.flip + p.ph);
+        const keep = 1 - p.pp;
+        if (keep < .03) continue;
+        const tw = .72 + .28 * br;
+        if (theme === 'dark') {
+          const r = step * k * (p.sky ? 1.05 : .95) * (1 + wave * .3) * (p.sky ? 1 + flare * .25 : 1);
+          ctx.globalAlpha = clamp((((p.paper ? b : .25 + .75 * b) * (.62 + .38 * p.q) * tw + wave * .45) * lit + (p.sky ? flare * .3 : 0)) * (1 - tileA * .75) * keep);
+          ctx.drawImage(p.sky ? SS : SG, x - r, y - r, r * 2, r * 2);
+        } else {
+          const r = Math.max(.7, step * k * .3) * (p.sky ? 1.05 : 1) * (1 + wave * .15);
+          const a = clamp(((.25 + .75 * b) * (.55 + .45 * p.q) * (.8 + .2 * br) + wave * .35) * lit) * keep;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = tileA > 0 ? (p.sky ? `rgba(124,200,238,${a * (1 - tileA * .3)})` : `rgba(255,255,255,${(a * (1 - tileA) + tileA * (.14 + .22 * p.q) * (.6 + .4 * br) + wave * .25 * tileA)})`)
+            : (p.sky ? `rgba(79,174,221,${a})` : (wave > .3 ? `rgba(63,165,118,${a})` : `rgba(46,139,99,${a})`));
+          ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+        }
+      }
+      // B · sprout: the seed grows a little stem with two leaves, then folds back
+      if (grow > .01 && LIVE) {
+        for (const q of SP) {
+          const g = clamp((grow * 1.15 - q.o) / .18); if (g <= 0) continue;
+          const sway = Math.sin(t * 1.3) * .8 * (31 - q.y) / 28;
+          const [qx, qy] = proj(q.x + sway, q.y, .8);
+          const x = ox + qx * k, y = oy + qy * k;
+          if (theme === 'dark') { const r = step * k * (q.leaf ? .95 : .8) * (.4 + .6 * g); ctx.globalAlpha = clamp(g * (q.leaf ? .9 : .75)); ctx.drawImage(q.leaf ? SL : SS, x - r, y - r, r * 2, r * 2); }
+          else { ctx.globalAlpha = 1; ctx.fillStyle = q.leaf ? `rgba(63,165,118,${g})` : `rgba(79,174,221,${g * .9})`; ctx.beginPath(); ctx.arc(x, y, Math.max(.7, step * k * .3) * (.5 + .5 * g), 0, 6.283); ctx.fill(); }
+        }
+      }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    };
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const loop = (now) => { if (dead) return; const t = (now - t0) / 1000, dt = Math.min(.05, (now - last) / 1000); last = now; if (!document.hidden) draw(t, dt); raf = requestAnimationFrame(loop); };
+    if (reduce || opt.still) draw(opt.still || 30, 0); else raf = requestAnimationFrame(loop);
+    const host = opt.hover || cv;
+    const mm = (e) => { const r = cv.getBoundingClientRect(); px = (e.clientX - r.left) * (W / r.width); py = (e.clientY - r.top) * (H / r.height); inside = true; };
+    const ml = () => { inside = false; };
+    const ck = (e) => { mm(e); clickT = nowT; };
+    if (LIVE && !reduce && !opt.still) { host.addEventListener('pointermove', mm); host.addEventListener('pointerleave', ml); host.addEventListener('click', ck); }
+    return { stop() { dead = true; cancelAnimationFrame(raf); host.removeEventListener('pointermove', mm); host.removeEventListener('pointerleave', ml); host.removeEventListener('click', ck); },
+      replay() { t0 = performance.now(); clickT = -99; grow = 0; P.forEach((p) => { p.pp = 0; }); },
+      poke(x, y, inside2) { px = x; py = y; inside = inside2; }, click() { clickT = nowT; } };
+  }
+
+  componentDidMount() { this.llInit(); this.start(); this.lcInit(); }
+  componentWillUnmount() { this.llStop(); this.stopped = true; if (this.tm) clearTimeout(this.tm); if (this.raf) cancelAnimationFrame(this.raf); if (this.onVis) document.removeEventListener('visibilitychange', this.onVis); }
+  start() {
+    const cv = this.cv || document.querySelector('canvas[data-fx]');
+    if (!cv || cv.dataset.on) return; cv.dataset.on = '1';
+    const ctx = cv.getContext('2d'); if (!ctx) return;
+    let W = 0, H = 0, DPR = 1;
+    const size = () => { const r = cv.getBoundingClientRect(); DPR = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(2, Math.round(r.width * DPR)), h = Math.max(2, Math.round(r.height * DPR));
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } W = r.width; H = r.height; };
+    size();
+    // seeded random
+    let s = 7; const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    // logo geometry (100x100 tile space)
+    const tile = new Path2D('M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z');
+    const dropLocal = new Path2D('M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z');
+    const mtx = new DOMMatrix().translate(67, 33).rotate(225).scale(0.62);
+    const seed = new Path2D(); seed.addPath(dropLocal, mtx);
+    const off = document.createElement('canvas').getContext('2d');
+    const inTile = (x, y) => off.isPointInPath(tile, x, y) && !off.isPointInPath(seed, x, y);
+    const inSeed = (x, y) => off.isPointInPath(seed, x, y);
+    // targets
+    const T = [];
+    for (let y = 12.6; y < 88; y += 2.6) for (let x = 12.6; x < 88; x += 2.6) { const jx = x + (rnd() - .5) * 1.5, jy = y + (rnd() - .5) * 1.5; if (inTile(jx, jy)) T.push([jx, jy, 0]); }
+    for (let y = 18; y < 48; y += 1.9) for (let x = 52; x < 82; x += 1.9) { const jx = x + (rnd() - .5) * .5, jy = y + (rnd() - .5) * .5; if (inSeed(jx, jy)) T.push([jx, jy, 1]); }
+    // particles
+    const P = T.map((t) => ({ tx: t[0], ty: t[1], sky: t[2], x0: rnd(), y0: rnd(), vx: (rnd() - .5) * 18, vy: -6 - rnd() * 10,
+      a0: rnd() * 6.28, spin: (rnd() - .5) * .9, z: .35 + rnd() * .65, pw: 9 + rnd() * 12, ph: rnd() * 6.28, f1: .6 + rnd() * .8,
+      d: rnd() * 1.4, r: 1.1 + rnd() * .9, paper: rnd() < .22, flip: .4 + rnd() * .9 }));
+    const B = Array.from({ length: 16 }, () => ({ x: rnd(), y: rnd(), r: 40 + rnd() * 90, sp: .004 + rnd() * .01, ph: rnd() * 6.28, a: .05 + rnd() * .08 }));
+    // glow sprites
+    const sprite = (c1, c2) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, c1); gr.addColorStop(.25, c2); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; };
+    const SG = sprite('rgba(235,255,245,1)', 'rgba(111,203,157,.55)');
+    const SS = sprite('rgba(240,250,255,1)', 'rgba(124,200,238,.6)');
+    const LOOP = 16;
+    const ease = (u) => u < 0 ? 0 : u > 1 ? 1 : u * u * (3 - 2 * u);
+    const ease2 = (u) => u < 0 ? 0 : u > 1 ? 1 : (u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
+    const draw = (time) => {
+      size();
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      const t = time % LOOP;
+      // background
+      const bg = ctx.createRadialGradient(W * .5, H * .42, 10, W * .5, H * .5, Math.max(W, H) * .8);
+      bg.addColorStop(0, '#163A2E'); bg.addColorStop(.6, '#0C2219'); bg.addColorStop(1, '#06120D');
+      ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+      // bokeh
+      ctx.globalCompositeOperation = 'lighter';
+      for (const b of B) { const x = ((b.x + time * b.sp) % 1.2 - .1) * W, y = (b.y + Math.sin(time * .1 + b.ph) * .03) * H;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, b.r); g.addColorStop(0, `rgba(120,190,150,${b.a})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(x - b.r, y - b.r, b.r * 2, b.r * 2); }
+      // logo frame
+      const L = Math.min(W, H) * .62, ox = (W - L) / 2, oy = H * .44 - L / 2, k = L / 100;
+      // global gather factor (for glow behind the logo)
+      const gAll = t < 5 ? 0 : t < 9.5 ? ease((t - 5) / 4.5) : t < 12.5 ? 1 : 1 - ease((t - 12.5) / 3);
+      if (gAll > 0) {
+        const cx = ox + 50 * k, cy = oy + 50 * k;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, L * .75); g.addColorStop(0, `rgba(80,180,130,${.18 * gAll})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(cx - L, cy - L, 2 * L, 2 * L);
+        const sx = ox + 67 * k, sy = oy + 33 * k, pulse = .55 + .45 * Math.sin(Math.max(0, t - 9) * 2.2);
+        const gs = ctx.createRadialGradient(sx, sy, 0, sx, sy, L * .28); gs.addColorStop(0, `rgba(155,218,246,${.16 * gAll * pulse})`); gs.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gs; ctx.fillRect(sx - L, sy - L, 2 * L, 2 * L);
+      }
+      for (const p of P) {
+        // scattered position: drifting paper (continuous in time)
+        const sx = ((p.x0 * (W + 120) + time * p.vx + Math.sin(time * .23 * p.f1 + p.ph) * 30) % (W + 120) + (W + 120)) % (W + 120) - 60;
+        const sy = ((p.y0 * (H + 120) + time * p.vy + Math.sin(time * .17 * p.f1 + p.ph * 2) * 22) % (H + 120) + (H + 120)) % (H + 120) - 60;
+        // per-particle gather amount
+        let b;
+        if (t < 5) b = 0; else if (t < 9.5) b = ease2((t - 5 - p.d) / 3.0); else if (t < 12.5) b = 1; else b = 1 - ease2((t - 12.5 - p.d * .6) / 2.6);
+        const br = Math.sin(time * 1.6 + p.ph) * .35;
+        const tx = ox + (p.tx + br * .4) * k, ty = oy + (p.ty + br * .3) * k;
+        const lift = (t > 12.5 ? -60 : 0) * Math.sin(Math.PI * (1 - b)) * (1 - b);
+        const x = sx + (tx - sx) * b, y = sy + (ty - sy) * b + lift;
+        // paper (fades out as b rises)
+        if (b < .98 && p.paper) {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.save(); ctx.translate(x, y); ctx.rotate(p.a0 + time * p.spin * (1 - b));
+          ctx.scale(Math.max(.15, Math.abs(Math.cos(time * p.flip + p.ph))), 1);
+          const sc = (1 - b) * (.5 + .9 * p.z); const w = (p.pw + 6) * sc, h = (p.pw + 6) * 1.32 * sc;
+          const a = (.08 + .5 * p.z * p.z) * (1 - b);
+          ctx.fillStyle = `rgba(0,0,0,${a * .35})`; ctx.fillRect(-w / 2 + 2, -h / 2 + 3, w, h);
+          ctx.fillStyle = `rgba(240,237,226,${a})`; ctx.fillRect(-w / 2, -h / 2, w, h);
+          ctx.fillStyle = `rgba(90,110,100,${a * .8})`;
+          for (let i = 1; i < 5; i++) ctx.fillRect(-w * .36, -h / 2 + h * i / 5.6, w * (i === 1 ? .45 : .72), Math.max(.5, h * .028));
+          ctx.restore();
+        } else if (b < .98) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = (1 - b) * .25 * p.z; ctx.drawImage(SG, x - 3, y - 3, 6, 6); ctx.globalAlpha = 1;
+        }
+        if (b > .02) {
+          ctx.globalCompositeOperation = 'lighter';
+          const r = (p.r * 4.3) * (.7 + .3 * b) * (p.sky ? 1.1 : 1);
+          ctx.globalAlpha = Math.min(1, b * (.55 + .35 * p.z));
+          ctx.drawImage(p.sky ? SS : SG, x - r, y - r, 2 * r, 2 * r);
+          ctx.globalAlpha = 1;
+        }
+      }
+      // vignette + grain
+      ctx.globalCompositeOperation = 'source-over';
+      const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .35, W / 2, H / 2, Math.max(W, H) * .75);
+      v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+    };
+    window.__fxRender = (t) => draw(t);
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { draw(11); return; }
+    const t0 = performance.now();
+    const loop = (now) => { if (this.stopped) return; draw((now - t0) / 1000 + 9.4); this.raf = requestAnimationFrame(loop); };
+    this.onVis = () => { if (document.hidden) cancelAnimationFrame(this.raf); else this.raf = requestAnimationFrame(loop); };
+    document.addEventListener('visibilitychange', this.onVis);
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  lcInit() {
+    const slot = document.querySelector('[data-slot]'); if (!slot) return;
+    const H = { busy: "<div class=\"card\" data-lc=\"1\" aria-live=\"polite\"><span class=\"b b1 big dis\" role=\"button\" data-go=\"1\" style=\"cursor: pointer\"><span class=\"spin\"></span>Signing in\u2026</span>\n<div style=\"text-align: center; font-size: 13.5px; color: var(--muted); line-height: 1.5\">Signs you in on this device only. The link works once, for 10 minutes.</div></div>", ok: "<div class=\"card\" data-lc=\"1\" aria-live=\"polite\"><div class=\"tick\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"flex: none; overflow: visible\"><path d=\"M20 6 9 17l-5-5\"/></svg></div>\n<div style=\"text-align: center; font-size: 17px; font-weight: 700\">You\u2019re signed in</div>\n<div style=\"text-align: center; font-size: 14px; color: var(--text-2); line-height: 1.5\">Opening arcnave\u2026 Owners and admins get the 2-step code next.</div></div>", dead: "<div class=\"card\" data-lc=\"1\" aria-live=\"polite\"><div class=\"tick warnc\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"flex: none; overflow: visible\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/></svg></div>\n<div style=\"text-align: center; font-size: 17px; font-weight: 700\">This link no longer works</div>\n<div style=\"text-align: center; font-size: 14px; color: var(--text-2); line-height: 1.5\">Each link works once, for 10 minutes. Ask for a new one from the sign-in page.</div>\n<span class=\"b b2x big\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" style=\"flex: none; overflow: visible\"><path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/></svg>Back to sign-in</span></div>", ready: "<div class=\"card\" data-lc=\"1\" aria-live=\"polite\"><span class=\"b b1 big\" role=\"button\" data-go=\"1\" style=\"cursor: pointer\">Sign in to arcnave</span>\n<div style=\"text-align: center; font-size: 13.5px; color: var(--muted); line-height: 1.5\">Signs you in on this device only. The link works once, for 10 minutes.</div></div>" };
+    const hero = document.querySelector('[data-h]'), sub = document.querySelector('[data-s]'), foot = document.querySelector('[data-foot]');
+    const T = { ready: ['One tap to sign in', 'You opened the sign-in link from your e-mail.<br>Tap the button to finish.'], busy: ['One tap to sign in', 'You opened the sign-in link from your e-mail.<br>Tap the button to finish.'],
+      ok: ['Welcome back', 'Taking you to arcnave.'], dead: ['Let’s try that again', 'This link can’t sign you in any more.'] };
+    const set = (s) => { slot.innerHTML = H[s]; hero.textContent = T[s][0]; sub.innerHTML = T[s][1]; foot.style.visibility = (s === 'ready' || s === 'busy') ? 'visible' : 'hidden'; wire(); };
+    const wire = () => {
+      const go = slot.querySelector('[data-go]');
+      if (go) go.addEventListener('click', () => { set('busy'); this.tm = setTimeout(() => set('ok'), 800); });
+      const back = slot.querySelector('.b2x');
+      if (back) back.addEventListener('click', () => set('ready'));
+    };
+    const exp = document.querySelector('[data-exp]');
+    if (exp) exp.addEventListener('click', () => { if (this.tm) clearTimeout(this.tm); set('dead'); });
+    wire();
+  }
+  renderVals() { return { setCv: (el) => { this.cv = el; } }; }
+}
+</script>
+</body>
+</html>
