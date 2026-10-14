@@ -1,0 +1,742 @@
+/*
+ * Settings page (Phase 1 item G3). Loaded after styles.css, shell.css and chat-states.css.
+ *
+ * Sources: docs/brand/S5-Settings.dc.html, S5-Settings-Dark.dc.html, S5-Settings-States.dc.html.
+ * Board class -> class here: .snav .sn -> .st-nav button, .sh2 -> .st-h2, .ssub -> .st-sub,
+ * .grp -> .st-grp, .srow -> .st-row, .tgl -> .st-tgl, .sel -> .st-select, .fld -> .st-field,
+ * .thm .thc -> .st-thm .st-thc, .banner -> .st-banner, .tcard/.mline -> .st-card,
+ * .gbtn2/.pbtn/.dbtn -> .st-btn (.primary/.danger), .bigav -> .st-bigav, .lock -> .st-notyet.
+ * Board --tg / --tg-f -> --tint-green / --tint-green-fg, --soft -> --color-soft,
+ * --line-2 -> --color-line-strong. Dark values come from the same tokens.
+ *
+ * One departure from the board, for contrast: an editable field's border is --color-field
+ * (V2-Tokens "form input border (3:1)"), not the 16 % line the board draws.
+ */
+
+.st-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.st-title {
+  flex: none;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 40px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.st-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 40px;
+  padding: 8px 40px 56px;
+}
+
+/* ------------------------------------------------------------------ section list (.snav) */
+
+.st-nav {
+  flex: none;
+  width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 0;
+}
+
+.st-nav button {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: var(--color-text-2);
+  font-size: 14.5px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.st-nav button svg {
+  flex: none;
+  color: var(--color-muted);
+}
+
+.st-nav button:hover {
+  background: var(--color-hover);
+}
+
+.st-nav button.on {
+  border-radius: 14px 4px 14px 4px;
+  background: var(--tint-green);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.st-nav button.on svg {
+  color: var(--color-brand);
+}
+
+.st-nav button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.st-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 720px;
+}
+
+/* ------------------------------------------------------------------ headings and rows */
+
+.st-h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--color-text);
+}
+
+.st-sub {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.st-grp {
+  margin: 22px 0 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.st-row,
+.st-page .setting-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.st-row:last-child {
+  border-bottom: 0;
+}
+
+.st-row.stack,
+.st-page .setting-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.st-tx,
+.st-page .setting-row > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.st-tx b,
+.st-page .setting-row strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.st-hint,
+.st-page .setting-row p {
+  display: block;
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.st-ro {
+  max-width: 50%;
+  color: var(--color-text);
+  font-size: 14.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.st-mono {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+
+/* the board's `.lock`: a row whose backend is not built yet. Read-only, never a button. */
+.st-notyet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.st-tgl {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--color-field);
+}
+
+.st-tgl::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.st-tgl.on {
+  background: var(--color-primary);
+}
+
+.st-tgl.on::after {
+  left: 19px;
+}
+
+:root[data-theme="dark"] .st-tgl.on::after {
+  background: #0f1615;
+}
+
+.st-tgl:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.st-select,
+.st-field,
+.st-page .field-label input,
+.st-page .field-label select,
+.st-page .field-label textarea {
+  border: 1px solid var(--color-field);
+  border-radius: 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.st-select {
+  height: 38px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.st-field {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+}
+
+.st-area {
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.st-select:focus-visible,
+.st-field:focus-visible,
+.st-page .field-label input:focus-visible,
+.st-page .field-label select:focus-visible,
+.st-page .field-label textarea:focus-visible {
+  outline: 0;
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+
+.st-label {
+  display: block;
+  margin: 14px 0;
+  color: var(--color-text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.st-label .st-field {
+  margin-top: 6px;
+}
+
+.st-form {
+  max-width: 420px;
+  padding-top: 10px;
+}
+
+.st-btn,
+.st-page .button {
+  height: 38px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.st-btn:hover:not(:disabled),
+.st-page .button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.st-btn:focus-visible,
+.st-page .button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.st-btn.primary,
+.st-page .button.primary {
+  border-color: transparent;
+  border-radius: 13px 4px 13px 4px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.st-btn.primary:hover:not(:disabled),
+.st-page .button.primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  filter: none;
+}
+
+.st-btn.danger,
+.st-page .button.danger {
+  border-color: var(--color-err);
+  background: transparent;
+  color: var(--color-err);
+}
+
+.st-btn.primary.err {
+  background: var(--color-err);
+  color: var(--color-on-err);
+}
+
+.st-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.st-actions.between {
+  justify-content: space-between;
+}
+
+.st-error {
+  margin: 10px 0 0;
+  color: var(--color-err);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.st-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 4px;
+  padding: 12px 14px;
+  border-radius: 14px 4px 14px 4px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.st-banner > svg {
+  flex: none;
+}
+
+.st-banner.info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+/* ------------------------------------------------------------------ profile */
+
+.st-who {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.st-bigav {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px 6px 20px 6px;
+  background: var(--tint-green);
+  color: var(--tint-green-fg);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.st-who-name {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.st-who-mail {
+  color: var(--color-muted);
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ theme cards (.thm .thc) */
+
+.st-thm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.st-thc {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1.5px solid var(--color-line-strong);
+  border-radius: 18px 6px 18px 6px;
+  text-align: left;
+}
+
+.st-thc.on {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+
+.st-thc:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.st-thc b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.st-thc .st-tick {
+  margin-left: auto;
+  color: var(--color-brand);
+}
+
+.st-mini {
+  height: 72px;
+  display: flex;
+  gap: 5px;
+  padding: 6px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.st-mini i {
+  display: block;
+  border-radius: 8px;
+}
+
+.st-mini i:first-child {
+  width: 14px;
+}
+
+.st-mini i:last-child {
+  flex: 1;
+}
+
+.st-mini.light {
+  background: #eef4f1;
+}
+
+.st-mini.light i:first-child {
+  background: #dce9e3;
+}
+
+.st-mini.light i:last-child {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(20, 35, 32, 0.08);
+}
+
+.st-mini.dark {
+  background: #0f1513;
+}
+
+.st-mini.dark i:first-child {
+  background: #1b2421;
+}
+
+.st-mini.dark i:last-child {
+  background: #151c1a;
+  box-shadow: inset 0 0 0 1px rgba(230, 238, 235, 0.08);
+}
+
+.st-mini-split {
+  height: 72px;
+  display: flex;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.st-mini-split .st-mini {
+  flex: 1;
+  height: 100%;
+  border-radius: 0;
+}
+
+/* ------------------------------------------------------------------ memory */
+
+.st-saved-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.st-saved {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.st-count {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.st-spacer {
+  flex: 1;
+}
+
+.st-saved-head .st-btn {
+  height: 34px;
+}
+
+.st-card {
+  padding: 14px 16px;
+  border-radius: 18px 6px 18px 6px;
+  background: var(--color-soft);
+}
+
+.st-editor {
+  margin-top: 10px;
+}
+
+.st-topics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.st-topic {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.st-topic-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.st-topic-text b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.st-topic-text p {
+  margin: 4px 0 0;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.st-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-hover);
+  color: var(--color-text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.st-ibt {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--color-muted);
+}
+
+.st-ibt:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.st-ibt:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.st-empty {
+  margin: 12px 0 0;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.st-dialog-text {
+  margin: 12px 0;
+  color: var(--color-text-2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------ data + danger */
+
+.st-danger {
+  margin-top: 4px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in srgb, var(--color-err) 28%, transparent);
+  border-radius: 16px;
+}
+
+.st-danger .st-row {
+  border-bottom: 0;
+}
+
+/* usage + models + shortcuts keep their rows from styles.css; only the page tone is set here */
+.st-page .settings-note,
+.st-page .usage-period,
+.st-page .model-option {
+  border-radius: 18px 6px 18px 6px;
+}
+
+.st-page .model-option.selected {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+
+.st-page .loading-line {
+  margin-top: 14px;
+}
+
+/* ------------------------------------------------------------------ phone (390 px) */
+
+@media (max-width: 760px) {
+  .st-title {
+    height: auto;
+    padding: 4px 16px 12px;
+    font-size: 20px;
+  }
+
+  .st-body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    padding: 0 16px 40px;
+  }
+
+  .st-nav {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .st-nav button {
+    width: auto;
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid var(--color-line-strong);
+  }
+
+  .st-nav button.on {
+    border-color: transparent;
+  }
+
+  .st-h2 {
+    font-size: 22px;
+  }
+
+  .st-row,
+  .st-page .setting-row {
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+
+  .st-row > .st-ro {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .st-thm {
+    gap: 8px;
+  }
+
+  .st-thc {
+    padding: 8px;
+  }
+
+  .st-thc b {
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+
+  .st-danger {
+    padding: 0 12px;
+  }
+}

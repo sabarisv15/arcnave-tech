@@ -1,0 +1,1203 @@
+/*
+ * App surfaces: projects, project page, library, share dialog, artifact panel, chart cards
+ * (Phase 1 item G4).
+ *
+ * Sources, all read-only in docs/brand/:
+ *   BS-Base          tiles, tints, corners (11/4 tile, 18/6 and 22/7 leaf cards), chart colours
+ *   BS-Project-L/-D  project page: header, composer, "Chats in this project", side cards
+ *   BS-PartsA-L/-D   projects list + new-project dialog, empty project, library, share dialog
+ *   BS-Artifact-L/-D artifact open beside the chat: header, version switch, actions, page card
+ *   BS-PartsB-L/-D   chart colours and marks (leaf-top bars, thin grid, hover card)
+ * Every colour, radius and weight comes from brand/tokens.css. The board's `.bs` class names
+ * (pcard, side-card, lcard, apanel, atool, pbtn, gbtn2, ibt, seg2, fld, crow, frow ...) are carried
+ * here as `sf-*`.
+ *
+ * Loaded after shell.css (main.tsx). Nothing here animates: Brand-Locked keeps the app shell still.
+ * Old rules in styles.css for the same pages (.page, .project-*, .artifact-*) are left in place;
+ * the pages no longer use them.
+ */
+
+/* ------------------------------------------------------------------ buttons, fields, segments */
+
+/* BS `.pbtn`: primary action, leaf corner 13/4 */
+.sf-pbtn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 13px 4px 13px 4px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: var(--weight-button);
+  white-space: nowrap;
+  flex: none;
+}
+.sf-pbtn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+.sf-pbtn-sm {
+  height: 34px;
+  padding: 0 12px;
+}
+.sf-pbtn-danger {
+  background: var(--color-err);
+  color: var(--color-on-err);
+}
+.sf-pbtn-danger:hover:not(:disabled) {
+  background: var(--color-err);
+  filter: brightness(0.92);
+}
+
+/* BS `.gbtn2`: secondary action */
+.sf-gbtn {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: var(--radius-surface-control);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-bg);
+  color: var(--color-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: var(--weight-button);
+  white-space: nowrap;
+  flex: none;
+}
+.sf-gbtn:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+.sf-gbtn-sm {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  gap: 6px;
+}
+
+/* BS `.ibt`: icon button, 34 px (28 px in the version switch and side cards) */
+.sf-ibt {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-muted);
+  flex: none;
+}
+.sf-ibt:hover:not(:disabled),
+.sf-ibt[aria-pressed="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.sf-ibt[aria-pressed="true"] .brand-icon path {
+  fill: currentColor;
+}
+.sf-ibt-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+/* styles.css gives every `button:hover` a grey fill and every button a 160 ms transition; these
+   controls state their own resting, hover and disabled looks and stay still (Brand-Locked). */
+.sf-pbtn,
+.sf-gbtn,
+.sf-ibt,
+.sf-seg button,
+.sf-opt,
+.sf-pcard,
+.sf-frow-main,
+.sf-lcard-open {
+  transition: none;
+}
+.sf-pbtn:disabled:hover {
+  background: var(--color-primary);
+}
+.sf-pbtn-danger:disabled:hover {
+  background: var(--color-err);
+}
+.sf-gbtn:disabled:hover {
+  background: var(--color-bg);
+}
+.sf-ibt:disabled:hover {
+  background: transparent;
+  color: var(--color-muted);
+}
+.sf-frow-main:hover,
+.sf-lcard-open:hover {
+  background: transparent;
+}
+
+.sf-pbtn:focus-visible,
+.sf-gbtn:focus-visible,
+.sf-ibt:focus-visible,
+.sf-seg button:focus-visible,
+.sf-opt:focus-visible,
+.sf-pcard:focus-visible,
+.sf-lcard-open:focus-visible,
+.sf-crow a:focus-visible,
+.sf-frow-main:focus-visible,
+.sf-crumb a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* BS `.fld`: search field, 42 px, 12 px corners */
+.sf-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: var(--radius-surface-control);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-bg);
+  color: var(--color-placeholder);
+  font-size: 14.5px;
+  min-width: 0;
+  flex: 1 1 220px;
+  max-width: 460px;
+}
+.sf-field:focus-within {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+.sf-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: inherit;
+  padding: 0;
+}
+.sf-field input:focus,
+.sf-field input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.sf-field input::placeholder {
+  color: var(--color-placeholder);
+}
+.sf-field-mono {
+  max-width: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* BS `.seg2`: segmented control */
+.sf-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--color-hover);
+  gap: 2px;
+  flex: none;
+}
+.sf-seg button {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: var(--weight-body);
+  color: var(--color-text-2);
+  white-space: nowrap;
+}
+.sf-seg button.on {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-weight: var(--weight-button);
+  box-shadow: var(--shadow-1);
+  border-radius: 10px 3px 10px 3px;
+}
+:root[data-theme="dark"] .sf-seg button.on {
+  background: var(--color-raised);
+}
+.sf-seg button:disabled {
+  opacity: 0.45;
+}
+
+/* ------------------------------------------------------------------ tiles (BS-Base `.tile`) */
+
+.sf-tile {
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-leaf-tile);
+  flex: none;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+.sf-tile-lg {
+  border-radius: 15px 5px 15px 5px;
+}
+.sf-tile-g {
+  background: var(--tint-green);
+  color: var(--tint-green-fg);
+}
+.sf-tile-s {
+  background: var(--tint-sky);
+  color: var(--tint-sky-fg);
+}
+.sf-tile-m {
+  background: var(--tint-marigold);
+  color: var(--tint-marigold-fg);
+}
+.sf-tile-t {
+  background: var(--tint-terracotta);
+  color: var(--tint-terracotta-fg);
+}
+.sf-tile-v {
+  background: var(--tint-jamun);
+  color: var(--tint-jamun-fg);
+}
+
+/* ------------------------------------------------------------------ page scaffolding */
+
+.sf-page {
+  --sf-gutter: clamp(16px, 3vw, 40px);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  /* centred column up to 1280 px; the percentage is the sheet's width */
+  padding: 26px max(var(--sf-gutter), calc((100% - 1280px) / 2)) 56px;
+  scrollbar-gutter: stable;
+}
+
+.sf-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+}
+.sf-head h1 {
+  margin: 0;
+  font-size: var(--text-h1);
+  line-height: var(--text-h1-line);
+  letter-spacing: var(--text-h1-tracking);
+  font-weight: var(--weight-heading);
+}
+.sf-head p {
+  margin: 4px 0 0;
+  font-size: 15px;
+  color: var(--color-text-2);
+}
+
+.sf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sf-seg-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sf-seg-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ projects list (BS-PartsA) */
+
+.sf-pgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.sf-pcard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border-radius: 22px 7px 22px 7px;
+  background: var(--color-soft);
+  color: var(--color-text);
+  text-align: left;
+}
+.sf-pcard:hover {
+  box-shadow: inset 0 0 0 1px var(--color-line-strong);
+}
+.sf-pcard-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.sf-pcard-desc {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sf-pcard-meta {
+  margin: auto 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.sf-pnew {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 150px;
+  background: transparent;
+  border: 2px dotted rgba(46, 139, 99, 0.45);
+  color: var(--color-brand);
+  font-size: 15px;
+  font-weight: 600;
+}
+:root[data-theme="dark"] .sf-pnew {
+  border-color: rgba(111, 203, 157, 0.4);
+}
+
+/* ------------------------------------------------------------------ empty (BS-PartsA `.empty`) */
+
+.sf-empty {
+  border-radius: 22px 7px 22px 7px;
+  border: 2px dotted rgba(46, 139, 99, 0.45);
+  padding: 34px 26px 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+:root[data-theme="dark"] .sf-empty {
+  border-color: rgba(111, 203, 157, 0.4);
+}
+.sf-empty .living-dots {
+  margin-bottom: 8px;
+}
+.sf-empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.sf-empty-text {
+  margin: 0;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-text-2);
+}
+.sf-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ project page (BS-Project) */
+
+.sf-project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 352px;
+  grid-template-rows: auto;
+  align-items: start;
+  gap: 22px 34px;
+}
+.sf-project-main {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+.sf-crumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.sf-crumb a:hover {
+  color: var(--color-text);
+}
+.sf-phead {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.sf-phead-text {
+  flex: 1;
+  min-width: 0;
+}
+.sf-phead-text h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.sf-phead-text p {
+  margin: 4px 0 0;
+  font-size: 15px;
+  color: var(--color-text-2);
+}
+.sf-phead-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.sf-pcomposer {
+  width: 100%;
+}
+
+.sf-chats-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sf-chats-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.sf-count {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.sf-chats-head .sf-seg {
+  margin-left: auto;
+}
+
+.sf-crows,
+.sf-frows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sf-crow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  border-radius: 14px;
+  min-width: 0;
+}
+.sf-crow + .sf-crow {
+  border-top: 1px solid var(--color-line);
+  border-radius: 0 0 14px 14px;
+}
+.sf-crow:hover {
+  background: var(--color-hover);
+}
+.sf-crow > a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 12px 8px 12px 14px;
+  border-radius: 14px;
+}
+.sf-crow-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sf-crow-title {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sf-crow-meta {
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.sf-crow .chat-menu {
+  opacity: 1;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+/* side column: BS `.side-card` */
+.sf-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.sf-sidecard {
+  border-radius: 20px 6px 20px 6px;
+  background: var(--color-soft);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.sf-sidecard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  min-height: 32px;
+}
+.sf-sidecard-head h2 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+.sf-sidecard-head > button:last-child {
+  margin-left: auto;
+}
+.sf-instructions {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sf-side-empty,
+.sf-side-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.sf-side-note {
+  font-size: 12px;
+}
+
+/* BS `.frow` */
+.sf-frow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.sf-frow-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  color: inherit;
+}
+.sf-frow-main:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.sf-frow-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sf-frow-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sf-frow-size {
+  font-size: 12px;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+.sf-frow .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.sf-frow.is-error .sf-frow-name,
+.sf-frow.is-error .sf-frow-note {
+  color: var(--color-err);
+}
+
+/* ------------------------------------------------------------------ library (BS-PartsA `.lcard`) */
+
+.sf-lgrid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.sf-lcard {
+  position: relative;
+  border-radius: 18px 6px 18px 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sf-lcard:hover {
+  border-color: var(--color-line-strong);
+}
+.sf-lcard-open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+.sf-lthumb {
+  position: relative;
+  display: block;
+  height: 132px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-line);
+  background-color: var(--color-soft);
+  background-image: radial-gradient(var(--color-line-strong) 1px, transparent 1.3px);
+  background-size: 12px 12px;
+}
+.sf-lthumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.sf-lmeta {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.sf-lmeta b {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sf-lmeta > span {
+  font-size: 12.5px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sf-lcard .sf-ldelete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  opacity: 0;
+}
+.sf-lcard:hover .sf-ldelete,
+.sf-lcard:focus-within .sf-ldelete {
+  opacity: 1;
+}
+@media (hover: none) {
+  .sf-lcard .sf-ldelete {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ dialogs (BS `.dialog`) */
+
+.modal.sf-dialog {
+  border: 0;
+  border-radius: 22px 7px 22px 7px;
+  background: var(--color-raised);
+  box-shadow: var(--shadow-3);
+  padding: 22px 24px 24px;
+  width: min(460px, calc(100vw - 32px));
+}
+.sf-dialog .modal-heading {
+  margin-bottom: 14px;
+}
+.sf-dialog .modal-heading h2 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.sf-dialog .modal-heading .icon-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.sf-dialog .modal-description {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-text-2);
+  margin-bottom: 16px;
+}
+.sf-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sf-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-2);
+}
+.sf-optional {
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.sf-input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: var(--radius-surface-control);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14.5px;
+  font-weight: 400;
+}
+.sf-input:focus,
+.sf-input:focus-visible {
+  outline: none;
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+.sf-input::placeholder {
+  color: var(--color-placeholder);
+}
+.sf-textarea {
+  height: auto;
+  min-height: 64px;
+  padding: 11px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.sf-help {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.sf-form-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-err-bg);
+  color: var(--color-err);
+  font-size: 13px;
+}
+.sf-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------------------ share (BS-PartsA "Share") */
+
+.sf-share {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sf-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sf-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-bg);
+  text-align: left;
+  color: var(--color-text);
+}
+.sf-opt.on {
+  border-color: var(--color-brand);
+  background: var(--tint-green);
+  border-radius: 14px 4px 14px 4px;
+}
+.sf-opt:disabled {
+  opacity: 0.6;
+}
+.sf-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-field);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.sf-opt.on .sf-radio {
+  border-color: var(--color-primary);
+}
+.sf-opt.on .sf-radio::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+.sf-opt-text b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.sf-opt-text small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.sf-linkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sf-linkrow .sf-field {
+  flex: 1;
+}
+.sf-share-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.sf-share-foot span {
+  flex: 1 1 200px;
+}
+
+/* ------------------------------------------------------------------ artifact panel (BS-Artifact) */
+
+/* BS `.apanel`: soft ground, the page sits on it as a white card */
+.context-panel.is-artifact {
+  background: var(--color-soft);
+}
+/* BS `.atool`: 60 px header on the sheet colour */
+.context-panel.is-artifact .sf-atool {
+  height: 60px;
+  min-height: 60px;
+  flex: none;
+  padding: 0 12px 0 18px;
+  gap: 10px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-line);
+}
+.sf-atool-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.context-panel.is-artifact .sf-atool h2 {
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.sf-atool-title > span {
+  font-size: 12px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.context-panel.is-artifact .sf-atool .icon-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+/* actions row: version switch, Preview / Edit, Download, Share */
+.sf-atoolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 10px 14px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-line);
+  flex: none;
+}
+.sf-atoolbar .spacer {
+  flex: 1;
+}
+.sf-atoolbar .sf-pbtn {
+  margin-left: auto;
+}
+/* BS `.vers` */
+.sf-vers {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.context-panel.is-artifact .edit-notice {
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+  border-bottom: 1px solid var(--color-line);
+}
+.sf-acontent {
+  background: var(--color-soft);
+  padding: 22px 18px;
+  align-items: stretch;
+}
+.context-panel.is-artifact .artifact-content.web-preview {
+  padding: 0;
+}
+/* BS `.apage`: the page card, leaf corner 20/6 */
+.sf-apage {
+  width: min(620px, 100%);
+  flex: none;
+  margin: 0 auto;
+  background: var(--color-bg);
+  border-radius: 20px 6px 20px 6px;
+  box-shadow: var(--shadow-1);
+  padding: 34px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+:root[data-theme="dark"] .sf-apage {
+  background: var(--color-surface);
+}
+/* BS `.doc`: Source Serif 4, h1 28/600, text 16/26 */
+.sf-apage.doc .markdown {
+  font-family: var(--font-answer);
+  font-size: 16px;
+  line-height: 26px;
+}
+.sf-apage.doc .markdown h1 {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+.sf-apage.doc .markdown h2 {
+  font-size: 21px;
+  font-weight: 600;
+}
+.sf-apage.doc .markdown h3 {
+  font-size: 17px;
+  font-weight: 600;
+}
+.sf-apage.doc .markdown p {
+  margin: 0 0 12px;
+}
+.sf-apage-edit {
+  padding: 22px 24px;
+}
+.sf-apage-edit .artifact-editor {
+  min-height: 320px;
+}
+.sf-apage-edit .artifact-save {
+  border-top: 1px solid var(--color-line);
+}
+.sf-apage .markdown pre {
+  max-width: 100%;
+  overflow: auto;
+}
+
+/* ------------------------------------------------------------------ charts (BS-PartsB) */
+
+/* BS `.vbox`: chart card, leaf corner 18/6, 15/700 title, 12.5 subtitle */
+.ui-chart-container,
+.dc-card.dc-chart {
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: 18px 6px 18px 6px;
+  padding: 18px;
+  box-shadow: none;
+  color: var(--color-text);
+}
+.ui-chart-title,
+.dc-chart .dc-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.ui-chart-description {
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.ui-chart-table-toggle {
+  border: 1px solid var(--color-line-strong);
+  border-radius: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ui-chart-table-fallback table {
+  font-size: 13px;
+}
+.ui-chart-table-fallback th,
+.ui-chart-table-fallback td {
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.ui-chart-table-fallback th {
+  color: var(--color-muted);
+  font-weight: 600;
+  text-align: left;
+}
+.ui-chart-container .recharts-legend-item-text,
+.dc-chart .recharts-legend-item-text {
+  color: var(--color-text-2) !important;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ shared page (BS-PartsA) */
+
+.shared-page {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+.shared-top {
+  height: 56px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--color-line);
+}
+.shared-brand {
+  gap: 10px;
+}
+.shared-top .button {
+  height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 13px 4px 13px 4px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: var(--weight-button);
+}
+.shared-top .button:hover {
+  background: var(--color-primary-hover);
+}
+.shared-banner {
+  background: var(--color-soft);
+  border-radius: 12px;
+  color: var(--color-muted);
+}
+.shared-title {
+  font-size: var(--text-h1);
+  line-height: var(--text-h1-line);
+  font-weight: var(--weight-heading);
+  letter-spacing: var(--text-h1-tracking);
+}
+.shared-artifact {
+  border-radius: 18px 6px 18px 6px;
+  border-color: var(--color-line);
+}
+.shared-artifact > header {
+  background: var(--color-soft);
+  font-weight: 600;
+  border-bottom-color: var(--color-line);
+}
+.shared-foot {
+  padding: 0 16px 40px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+
+/* ------------------------------------------------------------------ phone: one column, no sideways scroll */
+
+@media (max-width: 980px) {
+  .sf-project {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .sf-page {
+    padding: 16px var(--space-page-phone) 40px;
+  }
+  .sf-pgrid,
+  .sf-lgrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sf-field {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .sf-head .sf-pbtn {
+    width: 100%;
+  }
+  .sf-phead {
+    flex-wrap: wrap;
+  }
+  .sf-phead-text h1 {
+    font-size: 26px;
+  }
+  .sf-chats-head .sf-seg {
+    margin-left: 0;
+  }
+  .sf-linkrow {
+    flex-wrap: wrap;
+  }
+  .sf-linkrow .sf-pbtn {
+    width: 100%;
+  }
+  .sf-apage {
+    padding: 24px 20px;
+  }
+  .sf-acontent {
+    padding: 14px 10px;
+  }
+  .modal.sf-dialog {
+    padding: 20px 18px 20px;
+  }
+}

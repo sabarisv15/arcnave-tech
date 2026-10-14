@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildAnthropicMessages, toAnthropicTool, toAnthropicToolResultBlock } from './anthropicVertex.js';
+import { buildAnthropicMessages, toAnthropicTool, toAnthropicToolResultBlock } from './anthropic.js';
 import type { GenerationRequest } from './types.js';
 
 function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequest {

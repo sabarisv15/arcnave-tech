@@ -20,6 +20,7 @@ import {
 } from 'recharts';
 import { ChevronLeft, ChevronRight, Copy, ExternalLink, Lightbulb, Mail, MessageSquare, Minus, Plus, Timer } from 'lucide-react';
 import type { DisplayBlock } from '../types';
+import { BAR_GAP, BAR_RADIUS, CHART_AXIS, CHART_GRID, CHART_TEXT, CHART_TOOLTIP_STYLE, seriesColor } from '../../chartColors';
 
 type Rec = Record<string, unknown>;
 interface Photo {
@@ -71,7 +72,7 @@ function OutLink({ url, children }: { url: unknown; children: React.ReactNode })
 
 /* --------------------------------------------------------------------------------- chart */
 
-const PALETTE = ['#3f6fa8', '#2b8472', '#b0731a', '#b04a58', '#6a58a6', '#5b7c2c', '#4b6378', '#8a5a2b', '#2f7f9c', '#7a4f8a', '#5f7f3a', '#9c4a3a'];
+// Series colours are the brand's six chart tokens in their fixed order (src/chartColors.ts).
 
 function ChartCard({ d }: { d: Rec }) {
   const style = str(d.style) as 'line' | 'bar' | 'scatter';
@@ -79,12 +80,13 @@ function ChartCard({ d }: { d: Rec }) {
   const x = (d.x_axis ?? {}) as Rec;
   const y = (d.y_axis ?? {}) as Rec;
   const labels = arr<string>(x.data);
-  const color = (s: Rec, i: number) => (typeof s.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(s.color) ? s.color : PALETTE[i % PALETTE.length]!);
+  const color = (s: Rec, i: number) => (typeof s.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(s.color) ? s.color : seriesColor(i));
   const name = (s: Rec, i: number) => str(s.name) || `Series ${i + 1}`;
   const domain = (a: Rec, bar = false): [number | 'auto', number | 'auto'] =>
     bar ? [0, typeof a.max === 'number' ? a.max : 'auto'] : [typeof a.min === 'number' ? a.min : 'auto', typeof a.max === 'number' ? a.max : 'auto'];
   const yScale = y.scale === 'log' ? 'log' : 'auto';
-  const legend = series.some((s) => typeof s.name === 'string');
+  // BS-PartsB: two or more series always get a legend.
+  const legend = series.length > 1 || series.some((s) => typeof s.name === 'string');
 
   const rows = useMemo(() => {
     const n = Math.max(labels.length, ...series.map((s) => arr<number>(s.values).length));
@@ -97,17 +99,17 @@ function ChartCard({ d }: { d: Rec }) {
 
   const axes = (bar = false) => (
     <>
-      <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" vertical={false} />
-      <XAxis dataKey="x" stroke="var(--muted)" fontSize={12} label={str(x.title) ? { value: str(x.title), position: 'insideBottom', offset: -4, fontSize: 12 } : undefined} />
+      <CartesianGrid stroke={CHART_GRID} vertical={false} />
+      <XAxis dataKey="x" stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} label={str(x.title) ? { value: str(x.title), position: 'insideBottom', offset: -4, fontSize: 12 } : undefined} />
       <YAxis
-        stroke="var(--muted)"
+        stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }}
         fontSize={12}
         scale={yScale}
         domain={domain(y, bar)}
         allowDataOverflow={typeof y.min === 'number' || typeof y.max === 'number'}
         label={str(y.title) ? { value: str(y.title), angle: -90, position: 'insideLeft', fontSize: 12 } : undefined}
       />
-      <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
+      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
       {legend && <Legend wrapperStyle={{ fontSize: 12 }} />}
     </>
   );
@@ -119,20 +121,20 @@ function ChartCard({ d }: { d: Rec }) {
         <ResponsiveContainer width="100%" height={300}>
           {style === 'scatter' ? (
             <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 0 }}>
-              <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
-              <XAxis type="number" dataKey="x" stroke="var(--muted)" fontSize={12} domain={domain(x)} scale={x.scale === 'log' ? 'log' : 'auto'} name={str(x.title) || 'x'} />
-              <YAxis type="number" dataKey="y" stroke="var(--muted)" fontSize={12} domain={domain(y)} scale={yScale} name={str(y.title) || 'y'} />
-              <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
+              <CartesianGrid stroke={CHART_GRID} />
+              <XAxis type="number" dataKey="x" stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} domain={domain(x)} scale={x.scale === 'log' ? 'log' : 'auto'} name={str(x.title) || 'x'} />
+              <YAxis type="number" dataKey="y" stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} domain={domain(y)} scale={yScale} name={str(y.title) || 'y'} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
               {legend && <Legend wrapperStyle={{ fontSize: 12 }} />}
               {series.map((s, i) => (
                 <Scatter key={i} name={name(s, i)} data={arr(s.points).slice(0, 2000)} fill={color(s, i)} />
               ))}
             </ScatterChart>
           ) : style === 'bar' ? (
-            <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 16, left: 0 }}>
+            <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 16, left: 0 }} barGap={BAR_GAP}>
               {axes(true)}
               {series.map((s, i) => (
-                <Bar key={i} dataKey={`s${i}`} name={name(s, i)} fill={color(s, i)} radius={[3, 3, 0, 0]} />
+                <Bar key={i} dataKey={`s${i}`} name={name(s, i)} fill={color(s, i)} radius={BAR_RADIUS} />
               ))}
             </BarChart>
           ) : (

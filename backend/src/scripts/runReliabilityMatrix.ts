@@ -16,7 +16,7 @@
  * - Standard Workflow Scenarios: >= 2/3 (>= 66.7%)
  */
 import { GeminiProvider } from '../providers/gemini.js';
-import { AnthropicVertexProvider } from '../providers/anthropicVertex.js';
+import { AnthropicProvider } from '../providers/anthropic.js';
 import type { GenerationRequest, Provider, ToolCall, ToolDefinition, ToolResult } from '../providers/types.js';
 import { loadConfig } from '../config.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';

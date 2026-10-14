@@ -159,6 +159,11 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "The response could not finish",
     detail: "The model provider returned an error. You can retry.",
   },
+  provider_limit: {
+    title: "This model's account limit is reached",
+    detail:
+      "The account behind this model has reached its spending or usage limit. Choose another model, or ask the owner to raise the limit.",
+  },
   provider_timeout: {
     title: "The model took too long",
     detail: "The provider did not respond in time. You can retry.",
@@ -203,6 +208,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
   idempotency_conflict: {
     title: "Duplicate request",
     detail: "This request was already sent with different content.",
+  },
+  google_signin_disabled: {
+    title: "Google sign-in is not available",
+    detail: "This workspace has not set up Google sign-in. Use your e-mail and password.",
   },
   registration_closed: {
     title: "Registration is closed",
@@ -397,7 +406,7 @@ export interface ModelDto {
   provider: string;
   tier: string;
   available: boolean;
-  /** ok | not_configured | vertex_not_configured | probe_failed | unknown */
+  /** ok | not_configured | vertex_not_configured | anthropic_not_configured | probe_failed | unknown */
   reason: string;
   detail: string;
   supportsGrounding: boolean;
@@ -472,6 +481,8 @@ export interface UsageDto {
   /** False means the provider reported nothing. Zeros must not be shown as measured. */
   exact: boolean;
   costUsd: number | null;
+  /** `costUsd` at the planning rate (N-37); null whenever `costUsd` is. */
+  costInr: number | null;
 }
 
 export interface MessageDto {
@@ -702,6 +713,7 @@ export interface TotalsDto {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costUsd: number | null;
+  costInr: number | null;
   requests: number;
 }
 
@@ -711,6 +723,7 @@ export interface UsageGroupDto {
   outputTokens: number;
   totalTokens: number;
   costUsd: number | null;
+  costInr: number | null;
   requests: number;
 }
 
@@ -753,6 +766,7 @@ export interface MessageUsageDto {
   cacheWriteTokens: number;
   exact: boolean;
   costUsd: number | null;
+  costInr: number | null;
   latencyMs: number | null;
   status: string;
   finishReason: string | null;
@@ -870,6 +884,9 @@ export const api = {
       post<{ user: User }>("/auth/register", { email, password, name }),
     login: (email: string, password: string) =>
       post<{ user: User }>("/auth/login", { email, password }),
+    /** A Google Identity Services ID token; the server verifies it (ADR-0056). */
+    google: (credential: string) =>
+      post<{ user: User; created: boolean }>("/auth/google", { credential }),
     logout: () => post<void>("/auth/logout"),
     changePassword: (currentPassword: string, newPassword: string) =>
       post<void>("/auth/password", { currentPassword, newPassword }),

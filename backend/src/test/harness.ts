@@ -153,8 +153,8 @@ export interface TestContext {
 /**
  * Base environment for a test app.
  *
- * `GOOGLE_CLOUD_PROJECT` is a fake string: the registry only checks that it is set, and the
- * provider behind it never makes a call. Rate limits are raised far above anything a test
+ * `GOOGLE_CLOUD_PROJECT` and `ANTHROPIC_API_KEY` are fake strings: the registry only checks
+ * that they are set, and the fake providers behind them never make a call. Rate limits are raised far above anything a test
  * does — the auth limiter keys on IP, and every inject shares one, so the production value of
  * 10/minute would fail a file after its tenth signup rather than finding a real bug.
  */
@@ -167,13 +167,15 @@ function baseEnv(): Record<string, string> {
     MODEL_GEMINI_FLASH: 'fake-flash',
     MODEL_SONNET: 'fake-sonnet',
     MODEL_OPUS: 'fake-opus',
-    MODEL_GPT_OSS: 'fake-oss',
+    ANTHROPIC_API_KEY: 'test-key-not-real',
     ENABLE_GOOGLE_SEARCH_GROUNDING: 'true',
     ENABLE_ANTHROPIC_WEB_SEARCH: 'true',
     RATE_LIMIT_AUTH_PER_MINUTE: '10000',
     RATE_LIMIT_WRITE_PER_MINUTE: '10000',
     RATE_LIMIT_GENERATE_PER_MINUTE: '10000',
     MAX_UPLOAD_BYTES: String(2 * 1024 * 1024),
+    // N-42's 1 s → 2 s backoff is real time; a retry test checks that it retries, not how long.
+    PROVIDER_RETRY_BASE_MS: '5',
   };
 }
 
@@ -181,7 +183,7 @@ export async function createTestApp(
   env: Record<string, string> = {},
   provider = new FakeProvider(),
   /** Further service seams, e.g. `modelInputs`. */
-  seams: Pick<BuildOptions, 'modelInputs'> = {},
+  seams: Pick<BuildOptions, 'modelInputs' | 'googleVerifier'> = {},
 ): Promise<TestContext> {
   const storageRoot = await mkdtemp(join(tmpdir(), 'arcnave-test-'));
   const cfg = loadConfig({ ...baseEnv(), STORAGE_LOCAL_PATH: storageRoot, ...env });
@@ -194,7 +196,7 @@ export async function createTestApp(
 
   const app = await createApp(cfg, {
     db,
-    providers: { google: provider, anthropic: provider, 'openai-oss': provider },
+    providers: { google: provider, anthropic: provider },
     ...seams,
   });
   await app.ready();

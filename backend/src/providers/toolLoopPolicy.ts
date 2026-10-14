@@ -2,7 +2,7 @@
  * Shared round-loop policy for the tool-calling loop, used identically by both provider
  * adapters. Extracted after the final review of item 9 phase 1 found the same three decisions
  * (round bound, tool_limit condition) duplicated verbatim in both
- * gemini.ts and anthropicVertex.ts — the plan's Global Constraint said this should be shared,
+ * gemini.ts and anthropic.ts — the plan's Global Constraint said this should be shared,
  * not duplicated per-adapter.
  */
 

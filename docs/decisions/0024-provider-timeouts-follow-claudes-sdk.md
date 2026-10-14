@@ -2,6 +2,7 @@
 
 - Status: accepted.
 - Date: 2026-09-26
+- Kept by: [ADR-0054](0054-claude-first-party-api.md) (Stage 15 matrix compared; no first-token cutoff stays)
 - Replaces: the first-token budget in `streamWithRetry` (`PROVIDER_TTFT_BUDGET_MS`, 12 s; 3× for
   media; see mistakes.md, 2026-09-24).
 

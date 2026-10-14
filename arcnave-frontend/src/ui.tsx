@@ -50,6 +50,8 @@ export interface MenuOption {
   danger?: boolean;
   disabled?: boolean;
   separator?: boolean;
+  /** A group heading ("Model", "Effort"): not selectable, read as a label by menu readers. */
+  heading?: boolean;
 }
 export function Dropdown({
   trigger,
@@ -81,18 +83,23 @@ export function Dropdown({
               {item.separator && i > 0 && (
                 <Menu.Separator className="menu-separator" />
               )}
-              <Menu.Item
-                className={`menu-item ${item.danger ? "danger" : ""}`}
-                onSelect={item.onSelect}
-                disabled={item.disabled}
-              >
-                {item.icon}
-                <span>
-                  {item.label}
-                  {item.description && <small>{item.description}</small>}
-                </span>
-                {item.selected && <Check size={15} className="menu-check" />}
-              </Menu.Item>
+              {item.heading ? (
+                <Menu.Label className="menu-heading">{item.label}</Menu.Label>
+              ) : (
+                <Menu.Item
+                  className={`menu-item ${item.danger ? "danger" : ""}`}
+                  onSelect={item.onSelect}
+                  disabled={item.disabled}
+                  data-selected={item.selected ? "true" : undefined}
+                >
+                  {item.icon}
+                  <span>
+                    {item.label}
+                    {item.description && <small>{item.description}</small>}
+                  </span>
+                  {item.selected && <Check size={15} className="menu-check" />}
+                </Menu.Item>
+              )}
             </div>
           ))}
         </Menu.Content>

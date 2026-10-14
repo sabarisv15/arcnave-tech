@@ -2,7 +2,7 @@
  * Batch 6: Context Architecture & Production Regression Suite
  *
  * Verifies:
- * A. Capabilities Table: exact model limits (Sonnet 5 / Opus 5 = 1M input, Gemini = 1M, GPT-OSS = 128k, fallback = 128k).
+ * A. Capabilities Table: exact model limits (Sonnet 5.5 / Opus 5.5 = 1M input, Gemini = 1M, fallback = 128k).
  * B. Distinction between maxInputTokens, maxOutputTokens, and combined context window.
  * C. Dynamic Attachment Manifest outside system prompt: preserved in user context (<available_attachments>).
  * E. Historical Attachment Hydration Budget (12 MB) & Explicit fileId / Unique Filename Promotion.
@@ -20,25 +20,25 @@ describe('Batch 6: Context Architecture & Production Regression Suite', () => {
   // TEST A & B: Capabilities Table & Exact Model Limits
   // =========================================================================
   describe('Test A & B: Provider/Model Capabilities & Context Limits', () => {
-    it('returns exact 1,000,000 maxInputTokens and 128,000 maxOutputTokens for Claude Sonnet 5', () => {
-      const capByAlias = getModelCapability('Sonnet 5');
+    it('returns exact 1,000,000 maxInputTokens and 128,000 maxOutputTokens for Claude Sonnet 5.5', () => {
+      const capByAlias = getModelCapability('Sonnet 5.5');
       expect(capByAlias.provider).toBe('anthropic');
       expect(capByAlias.maxInputTokens).toBe(1_000_000);
       expect(capByAlias.maxOutputTokens).toBe(128_000);
       expect(capByAlias.supportsNativePdf).toBe(true);
 
-      const capById = getModelCapability('claude-sonnet-5');
+      const capById = getModelCapability('claude-sonnet-5-5');
       expect(capById.maxInputTokens).toBe(1_000_000);
       expect(capById.maxOutputTokens).toBe(128_000);
     });
 
-    it('returns exact 1,000,000 maxInputTokens and 128,000 maxOutputTokens for Claude Opus 5', () => {
-      const capByAlias = getModelCapability('Opus 5');
+    it('returns exact 1,000,000 maxInputTokens and 128,000 maxOutputTokens for Claude Opus 5.5', () => {
+      const capByAlias = getModelCapability('Opus 5.5');
       expect(capByAlias.provider).toBe('anthropic');
       expect(capByAlias.maxInputTokens).toBe(1_000_000);
       expect(capByAlias.maxOutputTokens).toBe(128_000);
 
-      const capById = getModelCapability('claude-opus-5');
+      const capById = getModelCapability('claude-opus-5-5');
       expect(capById.maxInputTokens).toBe(1_000_000);
       expect(capById.maxOutputTokens).toBe(128_000);
     });
@@ -54,17 +54,6 @@ describe('Batch 6: Context Architecture & Production Regression Suite', () => {
       expect(capById.maxInputTokens).toBe(1_048_576);
     });
 
-    it('returns exact 128,000 maxInputTokens and contextWindowTokens for GPT-OSS 120B', () => {
-      const cap = getModelCapability('GPT-OSS 120B');
-      expect(cap.provider).toBe('openai-oss');
-      expect(cap.maxInputTokens).toBe(128_000);
-      expect(cap.maxOutputTokens).toBe(8_192);
-      expect(cap.contextWindowTokens).toBe(128_000);
-
-      const capById = getModelCapability('openai/gpt-oss-120b');
-      expect(capById.maxInputTokens).toBe(128_000);
-    });
-
     it('falls back conservatively to 128,000 tokens for unknown model aliases', () => {
       const cap = getModelCapability('custom-unknown-model-v1');
       expect(cap.maxInputTokens).toBe(128_000);
@@ -73,7 +62,7 @@ describe('Batch 6: Context Architecture & Production Regression Suite', () => {
     });
 
     it('properly distinguishes input limit from output limit and combined context', () => {
-      const sonnet = getModelCapability('Sonnet 5');
+      const sonnet = getModelCapability('Sonnet 5.5');
       expect(sonnet.maxInputTokens).toBe(1_000_000);
       expect(sonnet.maxOutputTokens).toBe(128_000);
       // Anthropic specifies input limit; contextWindowTokens is undefined or distinct from maxOutputTokens

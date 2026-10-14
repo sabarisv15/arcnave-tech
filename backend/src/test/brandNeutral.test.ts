@@ -17,6 +17,8 @@ const NOT_LAUNCHED = /\.test\.|[\\/]test[\\/]|backend[\\/]src[\\/]scripts[\\/]/;
 /** Wording that describes ArcNave by another assistant's behaviour or product. */
 const REFERENCE = /\bas Claude\b|\blike Claude\b|Claude(?:'s)? (?:app|docs|harness|container|containers|memory|settings|menu|export|Code|is the reference)|claude\.ai|Claude-(?:style|inspired)|Claude Fable|Opus 5\.5/i;
 
+const PROVIDER_FILES = ['anthropic.ts', 'registry.ts', 'capabilitiesTable.ts'];
+
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = path.join(dir, name);
@@ -28,8 +30,9 @@ function files(dir: string): string[] {
 describe('launch files do not describe ArcNave as another assistant', () => {
   const launched = LAUNCH_ROOTS.flatMap((root) => files(path.join(REPO, root)))
     .filter((f) => SOURCE.test(f) && !NOT_LAUNCHED.test(f))
-    // The provider adapter talks to that provider's API; its own name is the subject there.
-    .filter((f) => !f.endsWith(path.join('providers', 'anthropicVertex.ts')));
+    // The provider adapter talks to that provider's API, and the model table and registry name
+    // the models ArcNave serves (ADR-0055); the provider's and models' names are the subject there.
+    .filter((f) => !PROVIDER_FILES.some((name) => f.endsWith(path.join('providers', name))));
 
   it('finds the launch files', () => {
     expect(launched.length).toBeGreaterThan(100);

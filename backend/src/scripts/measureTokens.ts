@@ -3,11 +3,11 @@
  *
  * Measures exact prompt token counts using official provider APIs and tokenizers:
  * - Gemini on Vertex AI (`@google/genai` models.countTokens)
- * - Anthropic on Vertex AI (`@anthropic-ai/vertex-sdk` messages.countTokens)
+ * - Claude API (`@anthropic-ai/sdk` messages.countTokens, ADR-0054)
  * - Word & character distributions
  */
 import { GoogleGenAI } from '@google/genai';
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
+import { createAnthropicClient } from '../providers/anthropic.js';
 import { loadConfig } from '../config.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
@@ -63,10 +63,7 @@ async function main() {
 
   // Provider exact measurement 2: Anthropic Vertex AI
   try {
-    const anthropic = new AnthropicVertex({
-      projectId: gcpProject,
-      region: cfg.VERTEX_LOCATION,
-    });
+    const anthropic = createAnthropicClient(cfg);
 
     const sonnetModel = cfg.MODEL_SONNET || 'claude-sonnet-5';
     console.log(`Querying Anthropic Vertex API (${sonnetModel}) countTokens...`);

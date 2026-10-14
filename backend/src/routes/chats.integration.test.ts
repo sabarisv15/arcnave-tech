@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { toolCalls } from '../db/schema.js';
-import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import { ModelNotFoundError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
@@ -144,12 +144,12 @@ describe('streaming generation', () => {
 
   it('names the model that answered in the start frame', async () => {
     const chatId = await newChat();
-    const frames = parseSse((await generate(chatId, { model: 'Opus 5' })).body);
+    const frames = parseSse((await generate(chatId, { model: 'Opus 5.5' })).body);
     const start = frames.find((f) => f.event === 'start')!;
 
     expect(start.data).toMatchObject({
       chatId,
-      model: { requested: 'Opus 5', resolved: 'Opus 5', providerModelId: 'fake-opus' },
+      model: { requested: 'Opus 5.5', resolved: 'Opus 5.5', providerModelId: 'fake-opus' },
     });
     expect(String(start.data['messageId'])).toMatch(/^[0-9a-f-]{36}$/);
   });
@@ -439,7 +439,6 @@ describe('failure handling', () => {
       MODEL_GEMINI_FLASH: '',
       MODEL_SONNET: '',
       MODEL_OPUS: '',
-      MODEL_GPT_OSS: '',
     });
     try {
       const owner = await signUp(bare);
@@ -694,34 +693,9 @@ describe('isolation', () => {
 
 /* -------------------------------------------------------------------------- vision */
 
-describe('vision capability gate', () => {
-  it('refuses to send an image to a model that cannot see it', async () => {
-    const chatId = await newChat();
-    const part = multipart(
-      'photo.png',
-      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 1)]),
-      'image/png',
-    );
-    const upload = await ctx.app.inject({
-      method: 'POST',
-      url: '/v1/files',
-      headers: { ...part.headers, ...auth() },
-      payload: part.payload,
-    });
-    expect(upload.statusCode).toBe(201);
-    const attachmentId = (upload.json() as { id: string }).id;
-
-    const response = await generate(chatId, {
-      model: 'GPT-OSS 120B',
-      attachmentIds: [attachmentId],
-    });
-
-    expect(response.statusCode).toBe(200);
-    const frames = parseSse(response.body);
-    const errorFrame = frames.find((f) => f.event === 'error');
-    expect(errorFrame?.data['code']).toBe('capability_unavailable');
-  });
-});
+// The vision gate (generation.ts, `capability_unavailable`) has no served model to refuse since
+// gpt-oss was removed (ADR-0055): all three models read images. routing.test.ts keeps the
+// requiresVision filter covered with a synthetic text-only entry.
 
 describe('attachments carried across turns', () => {
   it('re-sends an image attached in an earlier turn on a later one', async () => {
@@ -927,7 +901,7 @@ describe('reasoning effort', () => {
     expect((patch.json() as { effort: string | null }).effort).toBe('high');
 
     const chatId = await newChat(headers);
-    const res = await generate(chatId, { model: 'Sonnet 5' }, headers);
+    const res = await generate(chatId, { model: 'Sonnet 5.5' }, headers);
     expect(res.statusCode).toBe(200);
 
     const lastReq = ctx.provider.seen[ctx.provider.seen.length - 1]!;
@@ -952,7 +926,7 @@ describe('reasoning effort', () => {
 
   it('passes requested effort to the provider, returns applied effort in done event, and stores it on the message', async () => {
     const chatId = await newChat();
-    const res = await generate(chatId, { model: 'Opus 5', effort: 'xhigh' });
+    const res = await generate(chatId, { model: 'Opus 5.5', effort: 'xhigh' });
     expect(res.statusCode).toBe(200);
 
     const lastReq = ctx.provider.seen[ctx.provider.seen.length - 1]!;

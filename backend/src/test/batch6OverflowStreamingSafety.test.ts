@@ -22,7 +22,7 @@ import {
   reduceHistoryForOverflow,
 } from '../services/generation.js';
 import { buildGeminiContents, toGeminiFunctionResponsePart } from '../providers/gemini.js';
-import { buildAnthropicMessages, toAnthropicToolResultBlock } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages, toAnthropicToolResultBlock } from '../providers/anthropic.js';
 
 describe('Batch 6 Freeze Check: Overflow Recovery & Streaming Safety', () => {
   // Test harness simulating the exact production streamWithRetry implementation

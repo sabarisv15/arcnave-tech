@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Bookmark,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Code2,
@@ -12,7 +13,6 @@ import {
   Expand,
   FileText,
   Globe2,
-  History,
   Loader2,
   Pencil,
   Search,
@@ -23,7 +23,8 @@ import {
 import { ApiError, api, url } from "./api";
 import type { ArtifactVersionDto } from "./api";
 import { useWorkspace } from "./workspace";
-import { EmptyState, IconButton } from "./ui";
+import { Dropdown, EmptyState, IconButton, Modal } from "./ui";
+import { ARTIFACT_KINDS, ArtifactTile, savedAgo } from "./surfaces";
 import { Markdown } from "./Content";
 import { rehypePluginsWithDetection } from "./markdownPlugins";
 import { languageFromFilename } from "./codeLanguage";
@@ -59,7 +60,13 @@ export default function ContextPanel() {
   const { panel, setPanel, artifacts } = useWorkspace();
   const overlay = useMobile();
   const [expanded, setExpanded] = useState(false);
-  const [width, setWidth] = useState(400);
+  // An artifact opens wider than sources: its header row (versions, Preview / Edit, Download,
+  // Share) needs about 450 px, and BS-Artifact gives the artifact more room than the chat.
+  // Until the person drags the edge, the width follows what is open.
+  const [chosenWidth, setChosenWidth] = useState<number | null>(null);
+  const width = chosenWidth ?? (panel.kind === "artifact" ? 480 : 400);
+  const setWidth = (next: number | ((current: number) => number)) =>
+    setChosenWidth(typeof next === "function" ? next(width) : next);
   const [resize, setResize] = useState(false);
   const title =
     panel.kind === "sources"
@@ -71,6 +78,8 @@ export default function ContextPanel() {
           : panel.kind === "file"
             ? panel.file.name
             : "";
+  const art = panel.kind === "artifact" ? artifacts.find((a) => a.id === panel.id) : undefined;
+  const artSub = art ? [ARTIFACT_KINDS[art.kind].label, savedAgo(art.updatedAt)].filter(Boolean).join(" · ") : "";
   useEffect(() => {
     setExpanded(false);
   }, [panel.kind]);
@@ -89,8 +98,16 @@ export default function ContextPanel() {
   if (panel.kind === "closed") return null;
   const content = (
     <>
-      <header className="panel-header">
-        <h2>{title}</h2>
+      <header className={`panel-header ${panel.kind === "artifact" ? "sf-atool" : ""}`}>
+        {panel.kind === "artifact" && <ArtifactTile kind={art?.kind ?? "document"} />}
+        {panel.kind === "artifact" ? (
+          <div className="sf-atool-title">
+            <h2>{title}</h2>
+            {artSub && <span>{artSub}</span>}
+          </div>
+        ) : (
+          <h2>{title}</h2>
+        )}
         <div className="spacer" />
         {(panel.kind === "artifact" || panel.kind === "file") && !overlay && (
           <IconButton
@@ -127,7 +144,7 @@ export default function ContextPanel() {
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay" />
           <Dialog.Content
-            className={`context-panel panel-overlay ${expanded ? "expanded-panel" : ""}`}
+            className={`context-panel panel-overlay ${expanded ? "expanded-panel" : ""} ${panel.kind === "artifact" ? "is-artifact" : ""}`}
             aria-describedby={undefined}
           >
             <Dialog.Title className="sr-only">{title}</Dialog.Title>
@@ -137,7 +154,7 @@ export default function ContextPanel() {
       </Dialog.Root>
     );
   return (
-    <aside className="context-panel" style={{ width }} aria-label={title}>
+    <aside className={`context-panel ${panel.kind === "artifact" ? "is-artifact" : ""}`} style={{ width }} aria-label={title}>
       <div
         role="separator"
         aria-label="Resize context panel"
@@ -604,19 +621,56 @@ export function ArtifactPanel({ id }: { id: string }) {
       .finally(() => setExporting(false));
   };
 
+  const fileStem = meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact";
+  const fileExtension =
+    kind === "webpage" ? "html" : kind === "svg" ? "svg" : kind === "code" ? "js" : "md";
+  const downloadFile = () =>
+    download(
+      content,
+      `${fileStem}.${fileExtension}`,
+      kind === "webpage" ? "text/html" : kind === "svg" ? "image/svg+xml" : "text/plain",
+    );
+  const downloadMarkdown = () => {
+    download(content, `${fileStem}.md`, "text/markdown");
+    toast("Exported as Markdown");
+  };
+
   return (
     <>
-      <div className="artifact-toolbar">
-        <div className="segmented" aria-label="Artifact view">
+      <div className="sf-atoolbar">
+        <div className="sf-vers" role="group" aria-label="Versions">
           <button
-            className={tab === "preview" ? "active" : ""}
+            type="button"
+            className="sf-ibt sf-ibt-sm"
+            aria-label="Older version"
+            disabled={!older || tab === "edit"}
+            onClick={() => older && void load(older.version)}
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span aria-label={`Version ${readVersion} of ${currentVersion}`}>
+            {readVersion} / {currentVersion}
+          </span>
+          <button
+            type="button"
+            className="sf-ibt sf-ibt-sm"
+            aria-label="Newer version"
+            disabled={!newer || tab === "edit"}
+            onClick={() => newer && void load(newer.version)}
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        <div className="sf-seg" role="group" aria-label="Artifact view">
+          <button
+            className={tab === "preview" ? "on" : ""}
             aria-pressed={tab === "preview"}
             onClick={() => setTab("preview")}
           >
             Preview
           </button>
           <button
-            className={tab === "edit" ? "active" : ""}
+            className={tab === "edit" ? "on" : ""}
             aria-pressed={tab === "edit"}
             disabled={viewingOld}
             onClick={() => {
@@ -629,100 +683,42 @@ export function ArtifactPanel({ id }: { id: string }) {
           </button>
         </div>
         <span className="spacer" />
-        <IconButton label="Share artifact" onClick={() => setSharing((v) => !v)}>
-          <Share2 size={16} />
-        </IconButton>
-        <IconButton label="Copy artifact" onClick={() => void copy()}>
-          <Copy size={16} />
-        </IconButton>
-        {kind === "document" ? (
-          <button
-            type="button"
-            className="button button-subtle"
-            disabled={exporting}
-            onClick={() => exportAs("docx")}
-            title="Download as Microsoft Word (.docx)"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "5px",
-              padding: "0 10px",
-              height: "28px",
-              fontSize: "12px",
-              fontWeight: 500,
-              borderRadius: "6px",
-              border: "1px solid var(--line)",
-              background: "var(--surface)",
-              color: "var(--ink)",
-              cursor: "pointer",
-            }}
-          >
-            <ArrowDownToLine size={14} />
-            {exporting ? "Exporting…" : "Word (.docx)"}
-          </button>
-        ) : kind === "slides" ? (
-          <button
-            type="button"
-            className="button button-subtle"
-            disabled={exporting}
-            onClick={() => exportAs("pptx")}
-            title="Download as PowerPoint (.pptx)"
-          >
-            <ArrowDownToLine size={14} />
-            {exporting ? "Exporting…" : "PowerPoint"}
-          </button>
-        ) : (
-          <IconButton
-            label="Download artifact"
-            onClick={() =>
-              download(
-                content,
-                `${meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact"}.${
-                  kind === "webpage" ? "html" : kind === "svg" ? "svg" : kind === "code" ? "js" : "md"
-                }`,
-                kind === "webpage" ? "text/html" : kind === "svg" ? "image/svg+xml" : "text/plain",
-              )
-            }
-          >
-            <ArrowDownToLine size={17} />
-          </IconButton>
-        )}
-        {kind === "document" && (
-          <select
-            className="export-format"
-            aria-label="Export as"
-            disabled={exporting}
-            defaultValue=""
-            onChange={(e) => {
-              const format = e.target.value;
-              e.target.value = "";
-              if (format === "md") {
-                download(
-                  content,
-                  `${meta?.title.replace(/[^a-z0-9 -]/gi, "") || "artifact"}.md`,
-                  "text/markdown",
-                );
-                toast("Exported as Markdown");
-              } else if (format === "docx" || format === "xlsx" || format === "pptx") {
-                exportAs(format);
-              }
-            }}
-          >
-            <option value="" disabled>
-              {exporting ? "Exporting…" : "Export as…"}
-            </option>
-            <option value="docx">Word (.docx)</option>
-            <option value="xlsx">Excel (.xlsx)</option>
-            <option value="pptx">PowerPoint (.pptx)</option>
-            <option value="md">Markdown (.md)</option>
-          </select>
-        )}
+        <Dropdown
+          label="Download or copy"
+          align="end"
+          trigger={
+            <button className="sf-gbtn sf-gbtn-sm" aria-label="Download or copy" disabled={exporting}>
+              {exporting ? <Loader2 size={15} className="spin" /> : <ArrowDownToLine size={15} />}
+              <ChevronDown size={14} />
+            </button>
+          }
+          items={[
+            ...(kind === "document"
+              ? [
+                  { label: "Word (.docx)", icon: <FileText size={15} />, onSelect: () => exportAs("docx"), disabled: exporting },
+                  { label: "Excel (.xlsx)", icon: <FileText size={15} />, onSelect: () => exportAs("xlsx"), disabled: exporting },
+                  { label: "PowerPoint (.pptx)", icon: <FileText size={15} />, onSelect: () => exportAs("pptx"), disabled: exporting },
+                  { label: "Markdown (.md)", icon: <FileText size={15} />, onSelect: () => downloadMarkdown() },
+                ]
+              : kind === "slides"
+                ? [{ label: "PowerPoint (.pptx)", icon: <FileText size={15} />, onSelect: () => exportAs("pptx"), disabled: exporting }]
+                : [{ label: `Download file (.${fileExtension})`, icon: <ArrowDownToLine size={15} />, onSelect: () => downloadFile() }]),
+            { label: "Copy text", icon: <Copy size={15} />, onSelect: () => void copy(), separator: true },
+          ]}
+        />
+        <button type="button" className="sf-pbtn sf-pbtn-sm" onClick={() => setSharing(true)}>
+          <Share2 size={15} />
+          Share
+        </button>
       </div>
-      {sharing && (
-        <div className="artifact-share">
-          <PublicLink target={{ type: "artifact", id }} />
-        </div>
-      )}
+      <Modal
+        open={sharing}
+        onClose={() => setSharing(false)}
+        title={`Share “${meta?.title ?? "artifact"}”`}
+        className="sf-dialog"
+      >
+        <PublicLink target={{ type: "artifact", id }} />
+      </Modal>
       {viewingOld && (
         <div className="edit-notice">
           Viewing version {readVersion} of {currentVersion}.
@@ -747,10 +743,10 @@ export function ArtifactPanel({ id }: { id: string }) {
         </div>
       )}
       <div
-        className={`artifact-content ${(kind === "webpage" || kind === "svg") && tab === "preview" ? "web-preview" : ""}`}
+        className={`artifact-content sf-acontent ${(kind === "webpage" || kind === "svg") && tab === "preview" ? "web-preview" : ""}`}
       >
         {tab === "edit" ? (
-          <>
+          <div className="sf-apage sf-apage-edit">
             <textarea
               className="artifact-editor"
               aria-label="Edit artifact content"
@@ -767,7 +763,7 @@ export function ArtifactPanel({ id }: { id: string }) {
             </p>
             <div className="artifact-save">
               <button
-                className="button"
+                className="sf-gbtn"
                 onClick={() => {
                   setDraft(content);
                   clearLocal(draftKey);
@@ -777,7 +773,7 @@ export function ArtifactPanel({ id }: { id: string }) {
                 Discard draft
               </button>
               <button
-                className="button primary"
+                className="sf-pbtn"
                 onClick={save}
                 disabled={draft === content || saving}
               >
@@ -785,7 +781,7 @@ export function ArtifactPanel({ id }: { id: string }) {
                 Save new version
               </button>
             </div>
-          </>
+          </div>
         ) : kind === "slides" ? (
           <SlidesView markdown={content} title={meta?.title ?? "Slides"} />
         ) : kind === "webpage" || kind === "svg" ? (
@@ -793,47 +789,28 @@ export function ArtifactPanel({ id }: { id: string }) {
           // SVG is drawn in it too, never inline in ArcNave's own page.
           <SandboxFrame html={content} title={`${meta?.title ?? "Artifact"} preview`} layout="page" />
         ) : kind === "code" ? (
-          <Markdown
-            text={
-              "```" +
-              (languageFromFilename(meta?.title) ?? "") +
-              "\n" +
-              content +
-              "\n```"
-            }
-            rehypePlugins={
-              !languageFromFilename(meta?.title)
-                ? rehypePluginsWithDetection
-                : undefined
-            }
-          />
+          <div className="sf-apage">
+            <Markdown
+              text={
+                "```" +
+                (languageFromFilename(meta?.title) ?? "") +
+                "\n" +
+                content +
+                "\n```"
+              }
+              rehypePlugins={
+                !languageFromFilename(meta?.title)
+                  ? rehypePluginsWithDetection
+                  : undefined
+              }
+            />
+          </div>
         ) : (
-          <Markdown text={content} />
+          <div className="sf-apage doc">
+            <Markdown text={content} />
+          </div>
         )}
       </div>
-      <footer className="artifact-footer">
-        <IconButton
-          label="Older version"
-          disabled={!older || tab === "edit"}
-          onClick={() => older && void load(older.version)}
-        >
-          <ChevronLeft size={16} />
-        </IconButton>
-        <span>
-          Version {readVersion} of {currentVersion}
-        </span>
-        <IconButton
-          label="Newer version"
-          disabled={!newer || tab === "edit"}
-          onClick={() => newer && void load(newer.version)}
-        >
-          <ChevronRight size={16} />
-        </IconButton>
-        <span className="spacer" />
-        <span>
-          <History size={13} /> {versions.length} saved
-        </span>
-      </footer>
     </>
   );
 }

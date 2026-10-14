@@ -9,7 +9,7 @@ import type { ReasoningEffort } from './types.js';
 
 export interface ModelCapabilitySpec {
   alias: string;
-  provider: 'google' | 'anthropic' | 'openai-oss';
+  provider: 'google' | 'anthropic';
   supportsVision: boolean;
   /** Maximum allowed base64-encoded bytes for an image block. */
   maxEncodedImageBytes: number;
@@ -40,18 +40,20 @@ export interface ModelCapabilitySpec {
 }
 
 /**
- * Claude on Google Cloud (Vertex), from Anthropic's docs, checked 2026-09-24:
+ * Claude on the first-party Claude API (ADR-0054), from Anthropic's docs, read 2026-10-14:
  * - PDF support: 600 pages per request (100 when the context window is under 1M tokens).
- *   https://platform.claude.com/docs/en/build-with-claude/pdf-support
- * - API overview, request size limits: "Google Cloud limits requests to 30 MB".
- *   https://platform.claude.com/docs/en/api/overview#request-size-limits
- * Both are whole-request limits. Sonnet 5 and Opus 5 have 1M-token context, so 600 applies.
+ *   https://docs.claude.com/en/docs/build-with-claude/pdf-support
+ * - API overview, request size limits: Messages API 32 MB per request.
+ *   https://docs.claude.com/en/api/overview#request-size-limits
+ * - Models overview: Sonnet 5.5 and Opus 5.5, 1M-token context, 128K output, effort low…max.
+ *   https://docs.claude.com/en/docs/about-claude/models
+ * Both size figures are whole-request limits; the 1M window means 600 pages applies.
  */
-const CLAUDE_VERTEX_MAX_PDF_PAGES = 600;
-const CLAUDE_VERTEX_MAX_REQUEST_BYTES = 30_000_000;
+const CLAUDE_API_MAX_PDF_PAGES = 600;
+const CLAUDE_API_MAX_REQUEST_BYTES = 32_000_000;
 
-const CLAUDE_SONNET_5_SPEC: ModelCapabilitySpec = {
-  alias: 'Sonnet 5',
+const CLAUDE_SONNET_55_SPEC: ModelCapabilitySpec = {
+  alias: 'Sonnet 5.5',
   provider: 'anthropic',
   supportsVision: true,
   maxEncodedImageBytes: 5_242_880, // Strict 5 MB base64 ceiling documented by Anthropic
@@ -62,12 +64,12 @@ const CLAUDE_SONNET_5_SPEC: ModelCapabilitySpec = {
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
-  maxPdfPagesPerRequest: CLAUDE_VERTEX_MAX_PDF_PAGES,
-  maxRequestBytes: CLAUDE_VERTEX_MAX_REQUEST_BYTES,
+  maxPdfPagesPerRequest: CLAUDE_API_MAX_PDF_PAGES,
+  maxRequestBytes: CLAUDE_API_MAX_REQUEST_BYTES,
 };
 
-const CLAUDE_OPUS_5_SPEC: ModelCapabilitySpec = {
-  alias: 'Opus 5',
+const CLAUDE_OPUS_55_SPEC: ModelCapabilitySpec = {
+  alias: 'Opus 5.5',
   provider: 'anthropic',
   supportsVision: true,
   maxEncodedImageBytes: 5_242_880,
@@ -78,8 +80,8 @@ const CLAUDE_OPUS_5_SPEC: ModelCapabilitySpec = {
   maxInputTokens: 1_000_000, // 1M tokens native input
   maxOutputTokens: 128_000,
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
-  maxPdfPagesPerRequest: CLAUDE_VERTEX_MAX_PDF_PAGES,
-  maxRequestBytes: CLAUDE_VERTEX_MAX_REQUEST_BYTES,
+  maxPdfPagesPerRequest: CLAUDE_API_MAX_PDF_PAGES,
+  maxRequestBytes: CLAUDE_API_MAX_REQUEST_BYTES,
 };
 
 const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
@@ -102,32 +104,13 @@ const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
   maxRequestBytes: null,
 };
 
-const GPT_OSS_120B_SPEC: ModelCapabilitySpec = {
-  alias: 'GPT-OSS 120B',
-  provider: 'openai-oss',
-  supportsVision: false,
-  maxEncodedImageBytes: 0,
-  maxNativeResolutionPx: 0,
-  supportsNativeVideoFrames: false,
-  supportsNativeAudio: false,
-  supportsNativePdf: false,
-  maxInputTokens: 128_000,
-  maxOutputTokens: 8_192,
-  reasoningEfforts: [],
-  contextWindowTokens: 128_000,
-  maxPdfPagesPerRequest: null,
-  maxRequestBytes: null,
-};
-
 export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
   'Gemini 3.8 Flash': GEMINI_38_FLASH_SPEC,
   'gemini-3.8-flash': GEMINI_38_FLASH_SPEC,
-  'claude-sonnet-5': CLAUDE_SONNET_5_SPEC,
-  'Sonnet 5': CLAUDE_SONNET_5_SPEC,
-  'claude-opus-5': CLAUDE_OPUS_5_SPEC,
-  'Opus 5': CLAUDE_OPUS_5_SPEC,
-  'GPT-OSS 120B': GPT_OSS_120B_SPEC,
-  'openai/gpt-oss-120b': GPT_OSS_120B_SPEC,
+  'claude-sonnet-5-5': CLAUDE_SONNET_55_SPEC,
+  'Sonnet 5.5': CLAUDE_SONNET_55_SPEC,
+  'claude-opus-5-5': CLAUDE_OPUS_55_SPEC,
+  'Opus 5.5': CLAUDE_OPUS_55_SPEC,
 };
 
 export function getModelCapability(aliasOrModelId: string): ModelCapabilitySpec {

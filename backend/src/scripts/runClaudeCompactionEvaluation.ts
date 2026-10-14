@@ -10,7 +10,7 @@
  * 6. Validates Claude maintains seamless task continuity on a follow-up turn using only the compacted summary.
  */
 
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
+import { createAnthropicClient } from '../providers/anthropic.js';
 import { config } from '../config.js';
 import { compactionService } from '../services/compaction/compactionService.js';
 import { compactionSummarySchema } from '../services/compaction/types.js';
@@ -31,10 +31,7 @@ async function main() {
   console.log(`Anthropic Location: ${region}`);
   console.log(`Model:              ${model}\n`);
 
-  const client = new AnthropicVertex({
-    projectId,
-    region,
-  });
+  const client = createAnthropicClient(config());
 
   const db = getDb();
   const existingUsers = await db.select().from(users).limit(1);

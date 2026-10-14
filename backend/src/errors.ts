@@ -65,6 +65,11 @@ export const ERROR_CATALOG = {
     title: 'Choose a longer password',
     detail: 'Passwords must be at least 12 characters.',
   },
+  google_signin_disabled: {
+    status: 404,
+    title: 'Google sign-in is not available',
+    detail: 'This workspace has not set up Google sign-in. Use your e-mail and password.',
+  },
   registration_closed: {
     status: 403,
     title: 'Registration is closed',
@@ -188,6 +193,12 @@ export const ERROR_CATALOG = {
     status: 502,
     title: 'The response could not finish',
     detail: 'The model provider returned an error. You can retry.',
+  },
+  provider_limit: {
+    status: 402,
+    title: "This model's account limit is reached",
+    detail:
+      'The account behind this model has reached its spending or usage limit. Choose another model, or ask the owner to raise the limit.',
   },
   provider_timeout: {
     status: 504,

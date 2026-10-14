@@ -43,7 +43,12 @@ The API endpoint host is unchanged (`aiplatform.googleapis.com`) despite the reb
 
 ## 2. Anthropic models on Vertex
 
-**Decision: `anthropic[vertex]` with `AnthropicVertex`, region `global`.**
+> **Superseded 2026-10-14 by [ADR-0054](decisions/0054-claude-first-party-api.md):** Claude now
+> goes through the first-party Claude API (`@anthropic-ai/sdk`, `providers/anthropic.ts`,
+> `ANTHROPIC_API_KEY`), not Vertex. The models are Sonnet 5.5 and Opus 5.5 (ADR-0055). The text
+> below is the 2026-09 research, kept as the record of the earlier decision.
+
+**Decision (2026-09, superseded): `anthropic[vertex]` with `AnthropicVertex`, region `global`.**
 
 Source: <https://platform.claude.com/docs/en/build-with-claude/claude-on-vertex-ai>
 

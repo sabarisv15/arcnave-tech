@@ -14,6 +14,7 @@ import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
 import { preferences, sessions, users } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import type { GoogleIdentity } from './googleSignIn.js';
 
 export const MIN_PASSWORD_LENGTH = 12;
 /** Argon2 has no practical input limit; this bounds the work an attacker can force per try. */
@@ -196,8 +197,10 @@ export class AuthService {
       .where(eq(users.email, normalized))
       .limit(1);
 
-    if (!found) {
-      // Burn comparable time, then fail identically to a wrong password.
+    if (!found?.passwordHash) {
+      // Burn comparable time, then fail identically to a wrong password. An account made with
+      // Google has no password (ADR-0056) and answers the same way, so this endpoint does not
+      // reveal how an address signs in.
       await verifyPassword(password, DUMMY_HASH);
       throw new ApiError('invalid_credentials');
     }
@@ -222,6 +225,52 @@ export class AuthService {
       { id: found.id, email: found.email, name: found.name },
       userAgent,
     );
+  }
+
+  /**
+   * Sign in with a verified Google identity (ADR-0056): the account with that e-mail, or a new
+   * password-less one when registration is open. Only an address Google itself verified links,
+   * or anyone could claim an account by putting its address on an unverified Google account.
+   */
+  async loginWithGoogle(identity: GoogleIdentity, userAgent: string): Promise<SessionResult & { created: boolean }> {
+    if (!identity.emailVerified) {
+      throw new ApiError('invalid_credentials', { detail: 'Google has not verified this e-mail address.' });
+    }
+    const normalized = identity.email.trim().toLowerCase();
+    const existing = await this.findByEmail(normalized);
+    if (existing) return { ...(await this.sessionFor(existing, userAgent)), created: false };
+
+    if (!this.cfg.REGISTRATION_ENABLED) throw new ApiError('registration_closed');
+    const name = identity.name.trim().slice(0, 120);
+    try {
+      const [created] = await this.db
+        .insert(users)
+        .values({ email: normalized, passwordHash: null, name })
+        .returning({ id: users.id });
+      if (!created) throw new ApiError('internal_error');
+      await this.db.insert(preferences).values({ userId: created.id }).onConflictDoNothing();
+      return { ...(await this.issueSession({ id: created.id, email: normalized, name }, userAgent)), created: true };
+    } catch (err) {
+      // Two first sign-ins raced; the other one created the account, so link to it.
+      if (!isUniqueViolation(err)) throw err;
+      const raced = await this.findByEmail(normalized);
+      if (!raced) throw err;
+      return { ...(await this.sessionFor(raced, userAgent)), created: false };
+    }
+  }
+
+  private async findByEmail(email: string): Promise<(AuthedUser & { isActive: boolean }) | undefined> {
+    const [found] = await this.db
+      .select({ id: users.id, email: users.email, name: users.name, isActive: users.isActive })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    return found;
+  }
+
+  private sessionFor(user: AuthedUser & { isActive: boolean }, userAgent: string): Promise<SessionResult> {
+    if (!user.isActive) throw new ApiError('forbidden', { detail: 'This account is disabled.' });
+    return this.issueSession({ id: user.id, email: user.email, name: user.name }, userAgent);
   }
 
   private async issueSession(user: AuthedUser, userAgent: string): Promise<SessionResult> {
@@ -283,7 +332,7 @@ export class AuthService {
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    if (!found || !(await verifyPassword(current, found.passwordHash))) {
+    if (!found?.passwordHash || !(await verifyPassword(current, found.passwordHash))) {
       throw new ApiError('invalid_credentials', {
         detail: 'Your current password is incorrect.',
       });

@@ -2,8 +2,8 @@
  * Runs Python in a fresh, single-use Cloud Run Job execution (`arcnave-python-sandbox`) —
  * replaces `VertexSandboxClient` (Vertex AI Agent Engine Code Execution, Preview-only, never
  * confirmed working across five tried REST shapes; see mistakes.md, 2026-09-19, and
- * docs/decisions/0005-cloud-run-sandbox.md for why). Follows the same pattern as that client and
- * `gptOssVertex.ts`: raw REST over ADC via `google-auth-library`, no Node SDK, since this is the
+ * docs/decisions/0005-cloud-run-sandbox.md for why). Follows the same pattern as that client:
+ * raw REST over ADC via `google-auth-library`, no Node SDK, since this is the
  * Cloud Run Admin API v2 + Cloud Logging, not a first-class client library surface here.
  *
  * Lifecycle per call: `jobs:run` (Admin API v2) → poll the returned long-running Operation to

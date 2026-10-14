@@ -20,17 +20,9 @@ import {
 } from 'recharts';
 import { Table } from 'lucide-react';
 import type { ChartBlock as ChartBlockType } from '../types';
+import { BAR_GAP, BAR_RADIUS, CHART_AXIS, CHART_GRID, CHART_TEXT, CHART_TOOLTIP_STYLE, seriesColor } from '../../chartColors';
 
-const THEME_PALETTE = [
-  '#3b82f6', // blue
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#6366f1', // indigo
-];
+// Series colours are the brand's six chart tokens in their fixed order (src/chartColors.ts).
 
 function formatXLabel(val: unknown): string {
   const str = String(val ?? '');
@@ -47,7 +39,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
           {block.title && <h4 className="ui-chart-title">{block.title}</h4>}
           {block.description && <p className="ui-chart-description">{block.description}</p>}
         </div>
-        <div className="ui-chart-empty-state" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--muted-foreground)' }}>
+        <div className="ui-chart-empty-state" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--color-muted)' }}>
           <p style={{ margin: 0, fontSize: '13px' }}>No chart data points available to display.</p>
         </div>
       </div>
@@ -60,16 +52,11 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
         return (
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
-              <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
+              <CartesianGrid stroke={CHART_GRID} vertical={false} />
+              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} tickLine={false} />
+              <YAxis stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} tickLine={false} />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--foreground)',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
               />
               <Legend verticalAlign="top" height={36} />
               {block.series.map((s, idx) => (
@@ -78,7 +65,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
                   type="monotone"
                   dataKey={s.field}
                   name={s.label || s.field}
-                  stroke={s.color || THEME_PALETTE[idx % THEME_PALETTE.length]}
+                  stroke={s.color || seriesColor(idx)}
                   strokeWidth={2}
                   dot={{ r: 3 }}
                   activeDot={{ r: 5 }}
@@ -91,17 +78,12 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
       case 'bar':
         return (
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
-              <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
+            <BarChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }} barGap={BAR_GAP}>
+              <CartesianGrid stroke={CHART_GRID} vertical={false} />
+              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} tickLine={false} />
+              <YAxis stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} tickLine={false} />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--foreground)',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
               />
               <Legend verticalAlign="top" height={36} />
               {block.series.map((s, idx) => (
@@ -109,9 +91,9 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
                   key={s.field}
                   dataKey={s.field}
                   name={s.label || s.field}
-                  fill={s.color || THEME_PALETTE[idx % THEME_PALETTE.length]}
+                  fill={s.color || seriesColor(idx)}
                   stackId={block.stacked ? 'stack' : undefined}
-                  radius={[4, 4, 0, 0]}
+                  radius={BAR_RADIUS}
                 />
               ))}
             </BarChart>
@@ -122,20 +104,15 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
         return (
           <ResponsiveContainer width="100%" height={280}>
             <AreaChart data={block.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
-              <YAxis stroke="var(--muted-foreground)" fontSize={12} tickLine={false} />
+              <CartesianGrid stroke={CHART_GRID} vertical={false} />
+              <XAxis dataKey={block.x.field} tickFormatter={formatXLabel} stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} tickLine={false} />
+              <YAxis stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} tickLine={false} />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--foreground)',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
               />
               <Legend verticalAlign="top" height={36} />
               {block.series.map((s, idx) => {
-                const color = s.color || THEME_PALETTE[idx % THEME_PALETTE.length];
+                const color = s.color || seriesColor(idx);
                 return (
                   <Area
                     key={s.field}
@@ -157,17 +134,12 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
         return (
           <ResponsiveContainer width="100%" height={280}>
             <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.6} />
-              <XAxis dataKey={block.x.field} name={block.x.label || block.x.field} stroke="var(--muted-foreground)" fontSize={12} />
-              <YAxis dataKey={block.series[0]?.field} name={block.series[0]?.label} stroke="var(--muted-foreground)" fontSize={12} />
+              <CartesianGrid stroke={CHART_GRID} vertical={false} />
+              <XAxis dataKey={block.x.field} name={block.x.label || block.x.field} stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} />
+              <YAxis dataKey={block.series[0]?.field} name={block.series[0]?.label} stroke={CHART_AXIS} tick={{ fill: CHART_TEXT }} fontSize={12} />
               <Tooltip
                 cursor={{ strokeDasharray: '3 3' }}
-                contentStyle={{
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--foreground)',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
               />
               <Legend verticalAlign="top" height={36} />
               {block.series.map((s, idx) => (
@@ -175,7 +147,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
                   key={s.field}
                   name={s.label || s.field}
                   data={block.data}
-                  fill={s.color || THEME_PALETTE[idx % THEME_PALETTE.length]}
+                  fill={s.color || seriesColor(idx)}
                 />
               ))}
             </ScatterChart>
@@ -190,12 +162,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--foreground)',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
               />
               <Legend verticalAlign="bottom" height={36} />
               <Pie
@@ -210,7 +177,7 @@ export function ChartBlock({ block }: { block: ChartBlockType }) {
                 label
               >
                 {block.data.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={THEME_PALETTE[index % THEME_PALETTE.length]} />
+                  <Cell key={`cell-${index}`} fill={seriesColor(index)} />
                 ))}
               </Pie>
             </PieChart>

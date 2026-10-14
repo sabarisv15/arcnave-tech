@@ -4,6 +4,7 @@
 - Date: 2026-09-27
 - Builds on: [ADR-0035](0035-sandboxed-visuals-and-interactive-artifacts.md). Nothing in it is
   reversed; the security model (script-only sandbox, CSP first, two message types) is unchanged.
+- Amended by [ADR-0057](0057-app-surfaces-and-chart-colours-from-the-brand-sheet.md): the token values are the brand sheet's (Kulam green series, brand ink and surfaces); the mechanism is unchanged.
 - Amended by [ADR-0048](0048-artifacts-questions-visuals-and-cards-as-the-reference.md): the design guide is returned by read_me, by module, instead of sitting in the system prompt.
 
 ## Context

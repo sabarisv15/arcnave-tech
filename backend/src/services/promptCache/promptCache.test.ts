@@ -157,9 +157,10 @@ describe('Prompt Caching Subsystem', () => {
 
   describe('Provider Caching Policy & Thresholds', () => {
     it('evaluates model-specific caching thresholds correctly', () => {
-      const claude = getProviderCacheCapability('anthropic', 'claude-sonnet-5');
+      const claude = getProviderCacheCapability('anthropic', 'claude-sonnet-5-5');
       expect(claude.supportsExplicitCaching).toBe(true);
-      expect(claude.minPrefixTokens).toBe(1024);
+      expect(claude.minPrefixTokens).toBe(512);
+      expect(getProviderCacheCapability('anthropic', 'claude-opus-5-5').minPrefixTokens).toBe(512);
 
       const geminiFlash = getProviderCacheCapability('google', 'gemini-3.8-flash');
       expect(geminiFlash.supportsImplicitCaching).toBe(true);
@@ -169,7 +170,7 @@ describe('Prompt Caching Subsystem', () => {
       expect(gemini25.supportsImplicitCaching).toBe(true);
       expect(gemini25.minPrefixTokens).toBe(2048);
 
-      const unsupported = getProviderCacheCapability('openai-oss', 'gpt-oss-120b');
+      const unsupported = getProviderCacheCapability('unknown-provider', 'some-model');
       expect(unsupported.supportsImplicitCaching).toBe(false);
       expect(unsupported.supportsExplicitCaching).toBe(false);
     });

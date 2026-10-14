@@ -65,4 +65,27 @@ Keep every existing frontend test green; add tests for the rail collapse, the co
 ```
 
 ## Result
-_(append after the Claude Code report)_
+
+_2026-10-14, Claude Code cloud session._
+
+Branch `phase1/core-turn` (from `phase0/base-adoption` incl. owner commit e132d8f), one squashed
+commit, PR to `phase0/base-adoption`. Not merged, not deployed.
+
+**Models used:** Opus 5.5 — lead session (Items 0, C, B, merges, docs) and the G1 agent;
+Sonnet 5.5 — agents for A, E + D, G0, G2, G3, G4; Haiku 5.5 — not used (tests were run by the
+lead and by each agent).
+
+| Item | Result |
+|---|---|
+| 0 | `npm ci` + `npx tsc --noEmit` (backend) and `npx tsc -b` (frontend) clean on `phase0/base-adoption`; nothing to fix. |
+| C | `providers/anthropic.ts` (first-party, `maxRetries: 0`, timeout N-43), Vertex Claude + `@anthropic-ai/vertex-sdk` + gpt-oss removed, registry gate removed, 3 aliases, Stage 15 retry matrix (table in ADR-0054), `web_search_20260209`, `pause_turn`, usage in the ledger (`claudeUsage.integration.test.ts`), migration 0027 for saved aliases. ADR-0054, ADR-0055; backend-research §2 marked superseded. |
+| A | `config/numbers.ts` (N-01, N-06, N-08, N-09, N-10, N-33, N-37, N-42, N-43, N-49, N-66, N-74 rows; values unchanged), `cost_inr` (migration 0025), `costInr` on `/usage` + done event, ₹ first in the UI, `.env.example` price seeds. |
+| B | `POST /v1/auth/google`, migration 0026, `google_signin_disabled`, fake verifier through the container, 5 route tests; `GoogleSignInButton` (G1 face, hidden without `VITE_GOOGLE_OAUTH_CLIENT_ID`). ADR-0056 (incl. owner Console steps). |
+| E | `contentLeak.test.ts` passes: no sentinel in any log line of a full turn. Error path finding: `src/app.ts:172` logs failed-query params. |
+| D | `test/promptKit/`: 0 of the 68 kit cases ported (the case file is not in the mirror); 89 derived cases, 70 offline (68 pass, 2 `it.fails`: PK-PREC-04, PK-HON-05), 19 `needs live model (LV-xx)`. |
+| G | G0 `src/brand/`; G1 shell M2 + K3 + M1; G2 SI4 + welcome + S7; G3 chat states + Settings; G4 surfaces + chart colours (ADR-0057). Tokens from `arcnave-frontend/docs/brand/*.dc.html`; K3 from `docs/brand-extra/Fix-Composer.dc.html`. |
+| F | backend tsc clean, vitest 1068 pass / 2 expected fail / 19 skipped; `npm run openapi` committed; frontend tsc -b clean, vitest 390 pass, vite build OK; server boot smoke OK. |
+
+**Owner to-do:** `ANTHROPIC_API_KEY` in `backend/.env`; Google OAuth Web client + authorised origins
+→ `GOOGLE_OAUTH_CLIENT_ID` / `VITE_GOOGLE_OAUTH_CLIENT_ID`; branch protection on `main`; pick the
+Gemini price row (2026 promo or list rate).

@@ -5,7 +5,7 @@
 import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../config.js';
 import type { ProviderUsage } from '../providers/types.js';
-import { computeCost, nextReset, periodBounds, resolveZone } from './usage.js';
+import { computeCost, nextReset, periodBounds, resolveZone, usdToInr } from './usage.js';
 
 const usage = (over: Partial<ProviderUsage> = {}): ProviderUsage => ({
   inputTokens: 1_000_000,
@@ -119,5 +119,57 @@ describe('computeCost', () => {
   it('is zero, not null, for a priced model that used no tokens', () => {
     const cost = computeCost(priced, 'test-model', usage({ inputTokens: 0, outputTokens: 0 }));
     expect(cost).toBe(0);
+  });
+});
+
+describe('usdToInr (N-37 planning rate)', () => {
+  const pricing = JSON.stringify({
+    'test-model': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  });
+  const rate88 = loadConfig({ NODE_ENV: 'test', PRICING_TABLE: pricing });
+
+  it('defaults to the register planning rate of 88 per USD', () => {
+    expect(rate88.PRICING_INR_PER_USD).toBe(88);
+  });
+
+  it('is the USD cost times the rate', () => {
+    const usd = computeCost(rate88, 'test-model', usage());
+    expect(usd).toBe(18);
+    expect(usdToInr(rate88, usd)).toBe(18 * 88);
+  });
+
+  it('uses a configured rate, including a decimal one', () => {
+    const cfg = loadConfig({ NODE_ENV: 'test', PRICING_TABLE: pricing, PRICING_INR_PER_USD: '83.5' });
+    expect(usdToInr(cfg, 2)).toBe(167);
+  });
+
+  it('keeps six decimals, the precision of the USD figure', () => {
+    // 0.000117 USD is a real router-call cost; rounding it to paise would lose most of it.
+    expect(usdToInr(rate88, 0.000117)).toBe(0.010296);
+  });
+
+  it('is null, not zero, when the USD cost is null', () => {
+    expect(usdToInr(rate88, null)).toBeNull();
+  });
+
+  it('is zero for a priced call that cost nothing', () => {
+    expect(usdToInr(rate88, 0)).toBe(0);
+  });
+
+  it('gives null for both when the model is absent from PRICING_TABLE', () => {
+    const usd = computeCost(rate88, 'unknown-model', usage());
+    expect(usd).toBeNull();
+    expect(usdToInr(rate88, usd)).toBeNull();
+  });
+
+  it('gives null for both on inexact usage', () => {
+    const usd = computeCost(rate88, 'test-model', usage({ exact: false }));
+    expect(usdToInr(rate88, usd)).toBeNull();
+  });
+
+  it('treats an empty value as unset and refuses a bad one at boot', () => {
+    expect(loadConfig({ NODE_ENV: 'test', PRICING_INR_PER_USD: '' }).PRICING_INR_PER_USD).toBe(88);
+    expect(() => loadConfig({ NODE_ENV: 'test', PRICING_INR_PER_USD: 'abc' })).toThrow(/PRICING_INR_PER_USD/);
+    expect(() => loadConfig({ NODE_ENV: 'test', PRICING_INR_PER_USD: '0' })).toThrow(/PRICING_INR_PER_USD/);
   });
 });

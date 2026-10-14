@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>arcnave composer options</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@100..900&amp;family=Newsreader:opsz,wght@6..72,300..600&amp;family=Noto+Sans+Tamil:wght@400..700&amp;family=Noto+Serif+Tamil:wght@400..600&amp;family=Noto+Sans+Devanagari:wght@400..700&amp;family=Source+Serif+4:opsz,wght@8..60,300..700&amp;family=JetBrains+Mono:wght@400..600&amp;display=swap">
+<style>
+body{margin:0}
+.t-light{--bg:#FFFFFF;--side:#F6F9F8;--surface:#FFFFFF;--raised:#FFFFFF;--hover:rgba(20,35,32,0.05);--press:rgba(20,35,32,0.08);--selected:#E5EFEB;--line:rgba(20,35,32,0.10);--line-2:rgba(20,35,32,0.16);--field:#7E918A;--text:#142320;--text-2:#3E4D47;--muted:#66756F;--placeholder:#66756F;--disabled:#A3B1AD;--brand:#2E8B63;--primary:#134E45;--primary-hover:#0E3D36;--on-primary:#FFFFFF;--link:#134E45;--focus:#2E8B63;--ring:rgba(46,139,99,0.22);--sky:#7CC8EE;--ok:#1E6E47;--ok-bg:#E6F4EC;--warn:#8A5300;--warn-bg:#FFF4DF;--err:#B3261E;--err-bg:#FDECEA;--on-err:#FFFFFF;--info:#1C6690;--info-bg:#E8F4FB;--inv-bg:#142320;--inv-text:#F2F6F4;--code-bg:#F7F9F8;--syn-key:#134E45;--syn-str:#9C4A2C;--syn-num:#1C6690;--syn-com:#66756F;--cite-bg:rgba(46,139,99,0.10);--shadow-1:0 1px 2px rgba(20,35,32,0.05);--shadow-2:0 0 0 1px rgba(20,35,32,0.10), 0 4px 18px rgba(20,35,32,0.06);--shadow-3:0 0 0 1px rgba(20,35,32,0.08), 0 18px 48px rgba(20,35,32,0.16);}.t-dark{--bg:#151C1A;--side:#19221F;--surface:#1C2522;--raised:#212B28;--hover:rgba(230,238,235,0.06);--press:rgba(230,238,235,0.09);--selected:#21352E;--line:rgba(230,238,235,0.10);--line-2:rgba(230,238,235,0.16);--field:#62746E;--text:#E8EEEB;--text-2:#BAC6C2;--muted:#94A39E;--placeholder:#8D9C97;--disabled:#52625D;--brand:#4FB585;--primary:#4FB585;--primary-hover:#63C495;--on-primary:#0F1615;--link:#6FCB9D;--focus:#6FCB9D;--ring:rgba(111,203,157,0.25);--sky:#7CC8EE;--ok:#8FD9B1;--ok-bg:#173526;--warn:#F3C77A;--warn-bg:#382B12;--err:#F2B8B5;--err-bg:#3E2120;--on-err:#2A0E0C;--info:#9BD3F2;--info-bg:#15303F;--inv-bg:#E8EEEB;--inv-text:#142320;--code-bg:#18201E;--syn-key:#6FCB9D;--syn-str:#F0B08F;--syn-num:#9BD3F2;--syn-com:#8D9C97;--cite-bg:rgba(79,181,133,0.16);--shadow-1:0 0 0 1px rgba(230,238,235,0.06);--shadow-2:0 0 0 1px rgba(230,238,235,0.12), 0 6px 20px rgba(0,0,0,0.30);--shadow-3:0 0 0 1px rgba(230,238,235,0.12), 0 24px 60px rgba(0,0,0,0.50);}
+.ds{box-sizing:border-box;font-family:'Onest',sans-serif;font-weight:400;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased;letter-spacing:-0.003em}
+.ds *{box-sizing:border-box}
+.serif .ans,.serif .greet{font-family:'Newsreader','Noto Serif Tamil',Georgia,serif}
+.serif .ans{font-size:17px;line-height:27px}
+.ta{font-family:'Noto Sans Tamil','Onest',sans-serif}
+.serif .ta{font-family:'Noto Serif Tamil','Newsreader',serif}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.k{font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sec{border:1px solid var(--line);border-radius:16px;padding:22px 24px;background:var(--surface);display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:8px}
+.note{font-size:12.5px;color:var(--muted);line-height:1.5}
+.btn{height:36px;padding:0 14px;border-radius:8px;font:500 14px/1 'Onest',sans-serif;display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;white-space:nowrap}
+.btn-sm{height:30px;padding:0 10px;font-size:13px;border-radius:7px}
+.btn-lg{height:44px;padding:0 18px;font-size:15px;border-radius:10px}
+.btn-primary{background:var(--primary);color:var(--on-primary)}
+.btn-primary.is-hover{background:var(--primary-hover)}
+.btn-secondary{background:var(--surface);color:var(--text);border-color:var(--line-2)}
+.btn-secondary.is-hover{background:var(--hover)}
+.btn-ghost{background:transparent;color:var(--text)}
+.btn-ghost.is-hover{background:var(--hover)}
+.btn-danger{background:var(--err);color:var(--on-err)}
+.is-disabled{opacity:.42}
+.is-focus{outline:2px solid var(--focus);outline-offset:2px}
+.iconbtn{width:32px;height:32px;border-radius:8px;display:inline-grid;place-items:center;color:var(--text-2);flex:none}
+.iconbtn.sm{width:28px;height:28px;border-radius:7px}
+.iconbtn.is-hover{background:var(--hover);color:var(--text)}
+.spin{width:15px;height:15px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;opacity:.85}
+.label{font-size:13px;font-weight:500;color:var(--text-2)}
+.input{height:40px;border:1px solid var(--field);border-radius:8px;padding:0 12px;background:var(--surface);font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px}
+.input .ph{color:var(--placeholder)}
+.input.is-on{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
+.input.is-err{border-color:var(--err)}
+.help{font-size:12.5px;color:var(--muted)}
+.err-text{font-size:12.5px;color:var(--err);display:flex;gap:6px;align-items:center}
+.codebox{width:44px;height:52px;border:1px solid var(--field);border-radius:10px;display:grid;place-items:center;font:500 22px/1 'Onest',sans-serif;background:var(--surface);color:var(--text)}
+.toggle{width:36px;height:22px;border-radius:999px;background:var(--line-2);position:relative;flex:none}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle.on{background:var(--primary)}.toggle.on::after{left:17px}
+.t-dark .toggle.on::after{background:#0F1615}
+.check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--field);display:grid;place-items:center;flex:none;background:var(--surface)}
+.check.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.radio{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--field);display:grid;place-items:center;flex:none}
+.radio.on{border-color:var(--primary)}.radio.on::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--primary)}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:var(--hover);gap:2px}
+.seg span{height:28px;padding:0 12px;border-radius:7px;display:inline-flex;align-items:center;font-size:13px;color:var(--text-2)}
+.seg span.on{background:var(--surface);color:var(--text);font-weight:500;box-shadow:var(--shadow-1)}
+.chip{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--line-2);display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--text);background:var(--surface)}
+.badge{height:22px;padding:0 7px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-warn{background:var(--warn-bg);color:var(--warn)}.b-err{background:var(--err-bg);color:var(--err)}.b-info{background:var(--info-bg);color:var(--info)}.b-neutral{background:var(--hover);color:var(--text-2)}
+.cite{display:inline-flex;align-items:center;gap:4px;height:21px;padding:0 6px;border-radius:6px;background:var(--cite-bg);color:var(--link);font:500 12px/1 'Onest',sans-serif;vertical-align:2px}
+.avatar{width:28px;height:28px;display:grid;place-items:center;font-size:11.5px;font-weight:600;background:var(--selected);color:var(--link);border-radius:10px 3px 10px 3px;flex:none}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.dialog{background:var(--raised);border-radius:16px;box-shadow:var(--shadow-3);padding:22px;display:flex;flex-direction:column;gap:12px}
+.toast{background:var(--inv-bg);color:var(--inv-text);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:var(--shadow-3)}
+.tip{background:var(--inv-bg);color:var(--inv-text);border-radius:6px;padding:5px 8px;font-size:12px;display:inline-block}
+.tabs{display:flex;gap:4px}
+.tabs span{height:30px;padding:0 10px;border-radius:7px;display:inline-flex;align-items:center;font-size:14px;color:var(--text-2)}
+.tabs span.on{background:var(--hover);color:var(--text);font-weight:500}
+.codeblk{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--code-bg)}
+.codeblk .hd{display:flex;align-items:center;gap:4px;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.codeblk pre{margin:0;padding:12px 14px;font:400 13px/20px 'JetBrains Mono',ui-monospace,monospace;color:var(--text);white-space:pre;overflow:hidden}
+.codeblk .ln{color:var(--disabled);display:inline-block;width:22px}
+.kw{color:var(--syn-key)}.st{color:var(--syn-str)}.nu{color:var(--syn-num)}.cm{color:var(--syn-com);font-style:italic}
+.tbl{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tbl table{border-collapse:collapse;width:100%;font-size:14.5px}
+.tbl th{text-align:left;font-weight:600;color:var(--text);padding:8px 12px;border-bottom:1px solid var(--line);background:var(--hover)}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--line);color:var(--text)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+.ubub{background:var(--hover);border-radius:12px 4px 12px 12px;padding:11px 16px;font-size:15px;line-height:22px;color:var(--text);max-width:520px}
+.ans{font-size:16px;line-height:26px;color:var(--text)}
+.ans p{margin:0 0 12px}.ans b{font-weight:600}
+.thinkline{font-size:14px;line-height:20px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.steps{display:flex;flex-direction:column;border-left:1.5px solid var(--line-2);margin-left:6px;padding-left:14px}
+.steps div{font-size:13.5px;color:var(--text-2);padding:4px 0;display:flex;gap:8px;align-items:center}
+.status{font-size:14px;color:var(--text-2);display:flex;align-items:center;gap:8px}
+.comp-new{background:var(--raised);border-radius:16px;box-shadow:var(--shadow-2);padding:14px 10px 8px 16px;display:flex;flex-direction:column;gap:10px}
+.comp-reply{background:var(--raised);border-radius:14px;box-shadow:var(--shadow-2);height:48px;padding:0 8px 0 16px;display:flex;align-items:center;gap:8px}
+.send{width:32px;height:32px;border-radius:8px;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;flex:none}
+.under{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.side{background:var(--side);border-right:1px solid var(--line)}
+.side-item{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text)}
+.side-item svg{color:var(--text-2)}
+.side-item.on{background:var(--selected);font-weight:500}
+.side-item.on svg{color:var(--brand)}
+.side-label{font-size:12.5px;color:var(--muted);padding:16px 10px 4px}
+.recent{height:30px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text-2);display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent.on{background:var(--selected);color:var(--text);font-weight:500}
+.greet{font-size:30px;line-height:38px;font-weight:500;letter-spacing:-0.02em;color:var(--text)}
+.serif .greet{font-size:34px;font-weight:400;letter-spacing:-0.01em}
+.t-light{--muted:#53625E;--placeholder:#53625E;--text-2:#2F3D38}
+.w2 .side-item{font-weight:500}.w2 .side-item.on{font-weight:600}
+.w2 .recent{font-weight:500}.w2 .recent.on{font-weight:600}
+.w2 .side-label{font-weight:500}
+
+.lk .ans{font-family:'Source Serif 4',Georgia,serif;font-size:16.5px;line-height:27px;font-weight:450}
+.lk .ans b{font-weight:650}
+.lk .ans.ta{font-family:'Noto Serif Tamil',serif;font-weight:500;line-height:30px}
+.lk .ubub{font-weight:500}
+.lk .thinkline,.lk .status{font-weight:500}
+.lk .tbl th{font-weight:600}
+.lk .steps div{font-weight:500}
+
+
+
+.s-btn:focus-visible{outline:3px solid #134E45;outline-offset:2px}
+@media (prefers-reduced-motion: reduce){.mroot *{animation:none !important}}
+.lf{transform-box:fill-box;transform-origin:50% 50%}
+.o0{transform-origin:0 0}
+.fb{transform-box:fill-box;transform-origin:50% 50%}
+.w-qin,.s-lin,.u-gear,.c-pin,.db-stamp,.ib-bub,.t1-cloud,.t3-piece{transform:scale(0)}
+.r-ptr,.eb-ptr,.t1-pos,.t3-pos,.t2-m{transform:translate(67px,33px)}
+.db-tick,.db-ring,.eb-block,.eb-ring,.t1-rain,.t1-soak,.t2-m,.t3-slot,.t3-flash{opacity:0}
+@keyframes cl-pos{0%{opacity:0;transform:translate(67px,33px) scale(.2)}3%{opacity:1;transform:translate(67px,26px) scale(.6)}7%{opacity:1;transform:translate(67px,6px) scale(1)}11%{opacity:1;transform:translate(67px,4px) scale(1)}19%,100%{opacity:0;transform:translate(67px,-3px) scale(1.12)}}
+@keyframes cl-bolt{0%,7.5%{opacity:0}9.5%,11%{opacity:1}14.5%,100%{opacity:0}}
+@keyframes cl-flash{0%,8%{opacity:0}10%{opacity:.14}15%,100%{opacity:0}}
+.cl{transform-origin:0 0;opacity:0;transform:scale(0);animation-name:cl-pos;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.bolt{opacity:0;animation-name:cl-bolt;animation-timing-function:linear;animation-iteration-count:infinite}
+.flash{opacity:0;animation-name:cl-flash;animation-timing-function:linear;animation-iteration-count:infinite}
+.d60{animation-duration:calc(var(--k) * 6s)}
+.d68{animation-duration:calc(var(--k) * 6.8s)}
+.d70{animation-duration:calc(var(--k) * 7s)}
+.d72{animation-duration:calc(var(--k) * 7.2s)}
+.d80{animation-duration:calc(var(--k) * 8s)}
+
+@keyframes w-leaf{0%,18%{transform:rotate(0deg)}26%,74%{transform:rotate(-5deg)}84%,100%{transform:rotate(0deg)}}
+@keyframes w-seed{0%{opacity:1;transform:scale(1)}5%,88%{opacity:0;transform:scale(.3)}97%,100%{opacity:1;transform:scale(1)}}
+@keyframes w-qin{0%,4%{transform:scale(0)}10%{transform:scale(1.15)}14%,82%{transform:scale(1)}90%,100%{transform:scale(0)}}
+@keyframes w-quill{0%,16%{transform:translate(67px,40px)}24%{transform:translate(24px,58px)}30%{transform:translate(31px,51px)}36%{transform:translate(38px,55px)}42%{transform:translate(46px,61px)}48%{transform:translate(54px,54px)}54%{transform:translate(62px,52px)}62%,74%{transform:translate(76px,56px)}84%,100%{transform:translate(67px,40px)}}
+@keyframes w-ink{0%,24%{stroke-dashoffset:100;opacity:0}25%{stroke-dashoffset:97;opacity:1}62%,86%{stroke-dashoffset:0;opacity:1}95%,100%{stroke-dashoffset:0;opacity:0}}
+.w-leaf{animation:w-leaf calc(var(--k) * 6.8s) ease-in-out infinite}
+.w-seed{animation:w-seed calc(var(--k) * 6.8s) ease-in-out infinite}
+.w-qin{animation:w-qin calc(var(--k) * 6.8s) ease-out infinite}
+.w-quill{animation:w-quill calc(var(--k) * 6.8s) ease-in-out infinite}
+.w-ink{animation:w-ink calc(var(--k) * 6.8s) linear infinite}
+
+@keyframes s-leaf{0%,10%{transform:rotate(0deg)}24%,34%{transform:rotate(-4deg)}48%,58%{transform:rotate(-6deg)}72%,82%{transform:rotate(5deg)}92%,100%{transform:rotate(0deg)}}
+@keyframes s-seed{0%{opacity:1;transform:scale(1)}6%,94%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes s-lens{0%,16%{transform:translate(67px,33px)}26%,34%{transform:translate(40px,40px)}48%,58%{transform:translate(32px,64px)}72%,82%{transform:translate(62px,66px)}92%,100%{transform:translate(67px,33px)}}
+@keyframes s-lin{0%,4%{transform:scale(0)}10%,28%{transform:scale(1)}31%{transform:scale(1.2)}34%,52%{transform:scale(1)}55%{transform:scale(1.2)}58%,76%{transform:scale(1)}79%{transform:scale(1.2)}82%,92%{transform:scale(1)}98%,100%{transform:scale(0)}}
+.s-leaf{animation:s-leaf calc(var(--k) * 6.8s) ease-in-out infinite}
+.s-seed{animation:s-seed calc(var(--k) * 6.8s) ease-in-out infinite}
+.s-lens{animation:s-lens calc(var(--k) * 6.8s) ease-in-out infinite}
+.s-lin{animation:s-lin calc(var(--k) * 6.8s) ease-in-out infinite}
+
+@keyframes r-leaf{0%,30%{transform:rotate(0deg)}32%{transform:rotate(-3deg)}34%,58%{transform:rotate(0deg)}60%{transform:rotate(-3deg)}62%,86%{transform:rotate(0deg)}88%{transform:rotate(-3deg)}90%,100%{transform:rotate(0deg)}}
+@keyframes r-ptr{0%,10%{transform:translate(67px,33px)}16%{transform:translate(26px,42px)}30%{transform:translate(70px,42px)}34%{transform:translate(22px,54px)}58%{transform:translate(74px,54px)}62%{transform:translate(22px,66px)}86%{transform:translate(66px,66px)}96%,100%{transform:translate(67px,33px)}}
+@keyframes r-pin{0%{transform:scale(1)}10%,90%{transform:scale(.55)}100%{transform:scale(1)}}
+@keyframes r-h1{0%,16%{stroke-dashoffset:100;opacity:0}17%{stroke-dashoffset:62;opacity:1}30%,90%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes r-h2{0%,34%{stroke-dashoffset:100;opacity:0}35%{stroke-dashoffset:96;opacity:1}58%,90%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes r-h3{0%,62%{stroke-dashoffset:100;opacity:0}63%{stroke-dashoffset:96;opacity:1}86%,90%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+.r-leaf{animation:r-leaf calc(var(--k) * 7.2s) ease-in-out infinite}
+.r-ptr{animation:r-ptr calc(var(--k) * 7.2s) linear infinite}
+.r-pin{animation:r-pin calc(var(--k) * 7.2s) ease-in-out infinite}
+.r-h1{animation:r-h1 calc(var(--k) * 7.2s) linear infinite}
+.r-h2{animation:r-h2 calc(var(--k) * 7.2s) linear infinite}
+.r-h3{animation:r-h3 calc(var(--k) * 7.2s) linear infinite}
+
+@keyframes u-hum{0%{transform:translate(0px,0px)}25%{transform:translate(.7px,0px)}75%{transform:translate(-.7px,0px)}100%{transform:translate(0px,0px)}}
+@keyframes u-seed{0%{opacity:1;transform:scale(1)}6%,94%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes u-gear{0%,4%{transform:scale(0)}10%{transform:scale(1.12)}14%,86%{transform:scale(1)}94%,100%{transform:scale(0)}}
+@keyframes u-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+@keyframes u-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes u-o1{0%,28%{stroke-dashoffset:100;opacity:0}29%{stroke-dashoffset:93;opacity:1}42%,88%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes u-o2{0%,48%{stroke-dashoffset:100;opacity:0}49%{stroke-dashoffset:92;opacity:1}60%,88%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+.u-leaf{animation:u-hum calc(var(--k) * .32s) linear infinite}
+.u-seed{animation:u-seed calc(var(--k) * 6s) ease-in-out infinite}
+.u-gear{animation:u-gear calc(var(--k) * 6s) ease-out infinite}
+.u-spin{animation:u-spin calc(var(--k) * 2s) linear infinite}
+.u-cursor{animation:u-blink calc(var(--k) * 1.6s) linear infinite}
+.u-o1{animation:u-o1 calc(var(--k) * 6s) linear infinite}
+.u-o2{animation:u-o2 calc(var(--k) * 6s) linear infinite}
+
+@keyframes c-leaf{0%,10%{transform:translateY(0px) scale(1)}18%,80%{transform:translateY(-3px) scale(1.04)}90%,100%{transform:translateY(0px) scale(1)}}
+@keyframes c-seed{0%{opacity:1;transform:scale(1)}6%,92%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes c-pin{0%,4%{transform:scale(0)}10%,84%{transform:scale(1)}92%,100%{transform:scale(0)}}
+@keyframes c-pen{0%,13%{transform:translate(67px,33px)}16%{transform:translate(30px,34px)}21.3%{transform:translate(54px,34px)}24.7%{transform:translate(62px,42px)}33.8%{transform:translate(62px,72px)}43.5%{transform:translate(30px,72px)}55%{transform:translate(30px,34px)}62%{transform:translate(36px,48px)}66%{transform:translate(56px,48px)}69%{transform:translate(36px,56px)}73%{transform:translate(56px,56px)}80%,100%{transform:translate(67px,33px)}}
+@keyframes c-outline{0%,14%{stroke-dashoffset:100;opacity:1}55%,90%{stroke-dashoffset:0;opacity:1}97%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes c-fill{0%,55%{opacity:0}62%,90%{opacity:.95}97%,100%{opacity:0}}
+@keyframes c-l1{0%,62%{stroke-dashoffset:100;opacity:0}63%{stroke-dashoffset:75;opacity:1}66%,90%{stroke-dashoffset:0;opacity:1}97%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes c-l2{0%,69%{stroke-dashoffset:100;opacity:0}70%{stroke-dashoffset:75;opacity:1}73%,90%{stroke-dashoffset:0;opacity:1}97%,100%{stroke-dashoffset:0;opacity:0}}
+.c-leaf{animation:c-leaf calc(var(--k) * 8s) ease-in-out infinite}
+.c-seed{animation:c-seed calc(var(--k) * 8s) ease-in-out infinite}
+.c-pin{animation:c-pin calc(var(--k) * 8s) ease-out infinite}
+.c-pen{animation:c-pen calc(var(--k) * 8s) linear infinite}
+.c-outline{animation:c-outline calc(var(--k) * 8s) linear infinite}
+.c-fill{animation:c-fill calc(var(--k) * 8s) ease-out infinite}
+.c-l1{animation:c-l1 calc(var(--k) * 8s) linear infinite}
+.c-l2{animation:c-l2 calc(var(--k) * 8s) linear infinite}
+
+@keyframes db-leaf{0%,35%{transform:scale(1,1)}39%{transform:scale(1.03,.95)}45%{transform:scale(.99,1.02)}50%,100%{transform:scale(1,1)}}
+@keyframes db-seed{0%{opacity:1;transform:scale(1)}6%,82%{opacity:0;transform:scale(.3)}92%,100%{opacity:1;transform:scale(1)}}
+@keyframes db-pos{0%,14%{transform:translate(67px,33px)}24%,30%{transform:translate(51px,36px)}36%,40%{transform:translate(51px,50px)}50%,64%{transform:translate(51px,26px)}78%,100%{transform:translate(67px,33px)}}
+@keyframes db-stamp{0%,4%{transform:scale(0)}10%,72%{transform:scale(1)}80%,100%{transform:scale(0)}}
+@keyframes db-tick{0%,35%{opacity:0}37%,86%{opacity:1}94%,100%{opacity:0}}
+@keyframes db-ring{0%,36%{opacity:0;transform:scale(.6)}42%{opacity:1;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.8)}}
+.db-leaf{animation:db-leaf calc(var(--k) * 6s) ease-out infinite}
+.db-seed{animation:db-seed calc(var(--k) * 6s) ease-in-out infinite}
+.db-pos{animation:db-pos calc(var(--k) * 6s) ease-in-out infinite}
+.db-stamp{animation:db-stamp calc(var(--k) * 6s) ease-out infinite}
+.db-tick{animation:db-tick calc(var(--k) * 6s) linear infinite}
+.db-ring{animation:db-ring calc(var(--k) * 6s) ease-out infinite}
+
+@keyframes ib-leaf{0%{transform:rotate(0deg)}100%{transform:rotate(-3deg)}}
+@keyframes ib-seed{0%{opacity:1;transform:scale(1)}6%,92%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes ib-bub{0%,4%{transform:scale(0)}10%{transform:scale(1.08)}14%,86%{transform:scale(1)}94%,100%{transform:scale(0)}}
+@keyframes ib-pulse{0%{transform:scale(1)}100%{transform:scale(1.06)}}
+@keyframes ib-dot{0%,60%,100%{transform:translateY(0px)}30%{transform:translateY(-3px)}}
+.ib-leaf{animation:ib-leaf calc(var(--k) * 1.8s) ease-in-out infinite alternate}
+.ib-seed{animation:ib-seed calc(var(--k) * 6s) ease-in-out infinite}
+.ib-bub{animation:ib-bub calc(var(--k) * 6s) ease-out infinite}
+.ib-pulse{animation:ib-pulse calc(var(--k) * 1.8s) ease-in-out infinite alternate}
+.ib-d1,.ib-d2,.ib-d3{animation:ib-dot calc(var(--k) * 1.4s) ease-in-out infinite}
+.ib-d2{animation-delay:calc(var(--k) * .2s)}
+.ib-d3{animation-delay:calc(var(--k) * .4s)}
+
+@keyframes eb-leaf{0%,21%{transform:rotate(0deg) scale(1)}23%{transform:rotate(-3deg)}25%{transform:rotate(2deg)}27%,64%{transform:rotate(0deg) scale(1)}68%{transform:scale(1.04)}72%,100%{transform:scale(1)}}
+@keyframes eb-ptr{0%,10%{transform:translate(67px,33px)}22%{transform:translate(59px,40px)}24%{transform:translate(61px,38px)}26%{transform:translate(59px,40px)}34%{transform:translate(64px,36px)}46%{transform:translate(68px,58px)}56%{transform:translate(48px,72px)}66%,78%{transform:translate(28px,66px)}92%,100%{transform:translate(67px,33px)}}
+@keyframes eb-pin{0%{transform:scale(1)}10%,21%{transform:scale(.6)}23%{transform:scale(.45,.7)}27%,88%{transform:scale(.6)}96%,100%{transform:scale(1)}}
+@keyframes eb-block{0%,6%{opacity:0}12%,70%{opacity:1}78%,100%{opacity:0}}
+@keyframes eb-ring{0%,64%{opacity:0;transform:scale(.5)}68%{opacity:1;transform:scale(1)}82%,100%{opacity:0;transform:scale(2)}}
+.eb-leaf{animation:eb-leaf calc(var(--k) * 7s) ease-in-out infinite}
+.eb-ptr{animation:eb-ptr calc(var(--k) * 7s) ease-in-out infinite}
+.eb-pin{animation:eb-pin calc(var(--k) * 7s) ease-in-out infinite}
+.eb-block{animation:eb-block calc(var(--k) * 7s) ease-out infinite}
+.eb-ring{animation:eb-ring calc(var(--k) * 7s) ease-out infinite}
+
+@keyframes t1-seed{0%{opacity:1;transform:scale(1)}6%,92%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes t1-pos{0%,6%{transform:translate(67px,33px)}18%{transform:translate(50px,2px)}50%{transform:translate(58px,2px)}80%{transform:translate(44px,2px)}92%,100%{transform:translate(67px,33px)}}
+@keyframes t1-cloud{0%,6%{transform:scale(0)}14%{transform:scale(1.1)}18%,84%{transform:scale(1)}92%,100%{transform:scale(0)}}
+@keyframes t1-rain{0%,20%{opacity:0}26%,76%{opacity:1}82%,100%{opacity:0}}
+@keyframes t1-drop{0%{transform:translateY(0px);opacity:0}15%{opacity:1}100%{transform:translateY(20px);opacity:0}}
+@keyframes t1-soak{0%,22%{opacity:0}70%{opacity:.22}80%{opacity:.32}92%,100%{opacity:0}}
+@keyframes t1-leaf{0%,74%{transform:scale(1)}80%{transform:scale(1.04)}86%,100%{transform:scale(1)}}
+.t1-seed{animation:t1-seed calc(var(--k) * 6.4s) ease-in-out infinite}
+.t1-pos{animation:t1-pos calc(var(--k) * 6.4s) ease-in-out infinite}
+.t1-cloud{animation:t1-cloud calc(var(--k) * 6.4s) ease-out infinite}
+.t1-rain{animation:t1-rain calc(var(--k) * 6.4s) linear infinite}
+.t1-dr{animation:t1-drop calc(var(--k) * 1s) linear infinite}
+.t1-b{animation-delay:calc(var(--k) * -.2s)}
+.t1-c{animation-delay:calc(var(--k) * -.4s)}
+.t1-d{animation-delay:calc(var(--k) * -.6s)}
+.t1-e{animation-delay:calc(var(--k) * -.8s)}
+.t1-soak{animation:t1-soak calc(var(--k) * 6.4s) ease-in-out infinite}
+.t1-leaf{animation:t1-leaf calc(var(--k) * 6.4s) ease-out infinite}
+
+@keyframes t2-seed{0%{opacity:1;transform:scale(1)}6%,80%{opacity:0;transform:scale(.4)}84%{opacity:1;transform:scale(1.35)}90%,100%{opacity:1;transform:scale(1)}}
+@keyframes t2-a{0%,6%{opacity:0;transform:translate(67px,33px)}10%{opacity:1;transform:translate(67px,33px)}30%,60%{opacity:1;transform:translate(30px,42px)}78%{opacity:1;transform:translate(67px,33px)}82%,100%{opacity:0;transform:translate(67px,33px)}}
+@keyframes t2-b{0%,6%{opacity:0;transform:translate(67px,33px)}10%{opacity:1;transform:translate(67px,33px)}30%,60%{opacity:1;transform:translate(34px,68px)}78%{opacity:1;transform:translate(67px,33px)}82%,100%{opacity:0;transform:translate(67px,33px)}}
+@keyframes t2-c{0%,6%{opacity:0;transform:translate(67px,33px)}10%{opacity:1;transform:translate(67px,33px)}30%,60%{opacity:1;transform:translate(66px,64px)}78%{opacity:1;transform:translate(67px,33px)}82%,100%{opacity:0;transform:translate(67px,33px)}}
+@keyframes t2-look{0%,30%{transform:scale(.5)}38%{transform:scale(.7)}46%{transform:scale(.5)}54%{transform:scale(.7)}60%,100%{transform:scale(.5)}}
+@keyframes t2-leaf{0%,82%{transform:scale(1)}86%{transform:scale(1.05)}92%,100%{transform:scale(1)}}
+.t2-seed{animation:t2-seed calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-a{animation:t2-a calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-b{animation:t2-b calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-c{animation:t2-c calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-look{transform:scale(.5);animation:t2-look calc(var(--k) * 6.4s) ease-in-out infinite}
+.t2-leaf{animation:t2-leaf calc(var(--k) * 6.4s) ease-out infinite}
+
+@keyframes t3-seed{0%{opacity:1;transform:scale(1)}6%,90%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:scale(1)}}
+@keyframes t3-pos{0%,6%{transform:translate(67px,33px)}20%,56%{transform:translate(46px,34px)}64%,84%{transform:translate(46px,56px)}94%,100%{transform:translate(67px,33px)}}
+@keyframes t3-piece{0%,6%{transform:scale(0)}14%,86%{transform:scale(1)}94%,100%{transform:scale(0)}}
+@keyframes t3-rot{0%,20%{transform:rotate(0deg)}26%{transform:rotate(90deg)}28%{transform:rotate(80deg)}30%{transform:rotate(90deg)}36%{transform:rotate(180deg)}38%{transform:rotate(170deg)}40%{transform:rotate(180deg)}46%{transform:rotate(270deg)}48%{transform:rotate(260deg)}50%{transform:rotate(270deg)}56%,100%{transform:rotate(360deg)}}
+@keyframes t3-slot{0%,8%{opacity:0}14%,62%{opacity:.75}66%,100%{opacity:0}}
+@keyframes t3-flash{0%,62%{opacity:0;transform:scale(.6)}68%{opacity:1;transform:scale(1)}82%,100%{opacity:0;transform:scale(1.8)}}
+@keyframes t3-leaf{0%,62%{transform:scale(1)}66%{transform:scale(1.04)}72%,100%{transform:scale(1)}}
+.t3-seed{animation:t3-seed calc(var(--k) * 6.4s) ease-in-out infinite}
+.t3-pos{animation:t3-pos calc(var(--k) * 6.4s) ease-in-out infinite}
+.t3-piece{animation:t3-piece calc(var(--k) * 6.4s) ease-out infinite}
+.t3-rot{animation:t3-rot calc(var(--k) * 6.4s) ease-in-out infinite}
+.t3-slot{animation:t3-slot calc(var(--k) * 6.4s) linear infinite}
+.t3-flash{animation:t3-flash calc(var(--k) * 6.4s) ease-out infinite}
+.t3-leaf{animation:t3-leaf calc(var(--k) * 6.4s) ease-out infinite}
+
+.lk{--k:1.25}
+.t-dark{--text-2:#C3CEC9;--muted:#9AA8A3;--placeholder:#9AA8A3}
+.lk .greet{font-weight:600;font-size:30px;letter-spacing:-0.02em}
+.lk .under, .lk .comp-new span, .lk .comp-reply span{font-weight:500}
+.lk header span{font-weight:500}
+
+.lay{--canvas:#EEF4F1;--sheet:#FFFFFF}
+.lay .nav{display:flex;align-items:center;gap:11px;height:38px;padding:0 12px;border-radius:12px;font-size:15px;font-weight:500;color:#2F3D38}
+.lay .nav.on{background:#FFFFFF;color:#134E45;font-weight:600;box-shadow:0 1px 2px rgba(20,35,32,.06),0 4px 12px -8px rgba(20,35,32,.25)}
+.lay .nav svg{color:#53625E}.lay .nav.on svg{color:#2E8B63}
+.lay .rec{height:34px;display:flex;align-items:center;padding:0 12px;border-radius:10px;font-size:14.5px;color:#2F3D38;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lay .rec.on{background:rgba(46,139,99,.10);color:#134E45;font-weight:600}
+.lay .lbl{font-size:12px;font-weight:600;color:#7E918A;letter-spacing:.02em;padding:14px 12px 6px;display:flex;align-items:center;gap:6px}
+.lay .ibtn{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;color:#53625E}
+.lay .newbtn{height:42px;border-radius:14px;background:#134E45;color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:600;box-shadow:0 6px 16px -10px rgba(19,78,69,.8)}
+.lay .chip{height:40px;padding:0 16px;border-radius:999px;background:#FFFFFF;border:1px solid rgba(20,35,32,.10);display:inline-flex;align-items:center;gap:8px;font-size:14.5px;color:#2F3D38;font-weight:500}
+.lay .chip svg{color:#2E8B63}
+.lay .jcard{flex:1;min-width:0;border-radius:18px;padding:16px;background:#F6F9F8;display:flex;flex-direction:column;gap:10px}
+.lay .jcard .t{font-size:15px;font-weight:600;color:#142320}.lay .jcard .m{font-size:13px;color:#53625E}
+.lay .comp-new{border-radius:22px;box-shadow:0 1px 2px rgba(20,35,32,.05),0 14px 36px -20px rgba(20,35,32,.40);border-color:rgba(20,35,32,.08)}
+.lay .comp-reply{border-radius:20px;box-shadow:0 1px 2px rgba(20,35,32,.05),0 12px 30px -18px rgba(20,35,32,.40);border-color:rgba(20,35,32,.08)}
+.lay .ttl{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:12px;font-size:15px;font-weight:600;color:#142320}
+.lay .pchip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;background:rgba(46,139,99,.10);color:#134E45;font-size:13px;font-weight:600}
+.lay .sbtn{height:36px;padding:0 14px;border-radius:12px;border:1px solid rgba(20,35,32,.12);display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#2F3D38;background:#FFFFFF}
+.lay .rail{display:flex;flex-direction:column;align-items:center;gap:6px}
+.lay .rail .ibtn{width:44px;height:44px;border-radius:14px}
+.lay .rail .ibtn.on{background:#FFFFFF;color:#2E8B63;box-shadow:0 1px 2px rgba(20,35,32,.06),0 4px 12px -8px rgba(20,35,32,.25)}
+.lay .rail .cap{font-size:10.5px;color:#53625E;font-weight:600;margin-top:-4px;margin-bottom:4px}
+.lay .avatar{width:34px;height:34px;border-radius:12px;background:#CFE7DB;color:#134E45;display:grid;place-items:center;font-size:13px;font-weight:700}
+
+.t-dark.lay{--canvas:#0F1513;--sheet:#151C1A}
+.t-dark.lay .nav{color:#C3CEC9}.t-dark.lay .nav svg{color:#9AA8A3}
+.t-dark.lay .nav.on{background:#22332C;color:#6FCB9D;box-shadow:none}.t-dark.lay .nav.on svg{color:#6FCB9D}
+.t-dark.lay .rec{color:#C3CEC9}.t-dark.lay .rec.on{background:rgba(111,203,157,.12);color:#6FCB9D}
+.t-dark.lay .chip{background:#18201E;border-color:rgba(255,255,255,.10);color:#C3CEC9}
+.t-dark.lay .jcard{background:#1B2421}.t-dark.lay .jcard .t{color:#E6EDEA}.t-dark.lay .jcard .m{color:#9AA8A3}
+.t-dark.lay .newbtn{background:#4FB585;color:#0C2219}
+.t-dark.lay .panel{background:rgba(27,36,33,.92)}.t-dark.lay .ptitle b{color:#E6EDEA}
+.t-dark.lay .pitem{color:#C3CEC9}.t-dark.lay .pitem small{color:#9AA8A3}
+.t-dark.lay .sbox{background:#18201E;border-color:rgba(255,255,255,.12);color:#9AA8A3}
+.t-dark.lay .ttl{color:#E6EDEA}.t-dark.lay .pchip{background:rgba(111,203,157,.12);color:#6FCB9D}
+.t-dark.lay .sbtn{background:#18201E;border-color:rgba(255,255,255,.12);color:#C3CEC9}
+.t-dark.lay .avatar{background:#22332C;color:#6FCB9D}
+.t-dark.lay .rbtn{color:#9AA8A3}.t-dark.lay .rbtn:hover{background:rgba(255,255,255,.06)}
+.t-dark.lay .rbtn.on{background:#22332C;color:#6FCB9D;box-shadow:none}
+.t-dark.lay .cap{color:#9AA8A3}.t-dark.lay .ibtn{color:#9AA8A3}
+.t-dark.lay .comp-new,.t-dark.lay .comp-reply{box-shadow:none}
+.lay button{border:0;background:none;font:inherit;color:inherit;padding:0;margin:0;cursor:pointer}
+.lay .rbtn{position:relative;width:44px;height:44px;border-radius:14px;display:grid;place-items:center;color:#53625E;transition:background .15s,box-shadow .15s}
+.lay .rbtn:hover{background:rgba(255,255,255,.6)}
+.lay .rbtn.on{background:#FFFFFF;color:#2E8B63;box-shadow:0 1px 2px rgba(20,35,32,.06),0 4px 12px -8px rgba(20,35,32,.25)}
+.lay .rbtn .sd{display:none;position:absolute;right:9px;top:8px}
+.lay .rbtn.on .sd{display:block}
+.lay .rbtn:focus-visible,.lay .nav:focus-visible,.lay .rec:focus-visible{outline:2px solid #2E8B63;outline-offset:2px}
+.lay .panel{width:264px;flex:none;margin:10px 0;border-radius:20px;background:rgba(255,255,255,.78);padding:14px 10px;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(20,35,32,.05);animation:pin .18s ease-out}
+@keyframes pin{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.lay .panel{animation:none}}
+.lay .ptitle{display:flex;align-items:center;padding:0 6px 6px}
+.lay .ptitle b{font-size:16px;font-weight:700;color:#142320}
+.lay .pitem{display:flex;align-items:center;gap:10px;min-height:36px;padding:6px 10px;border-radius:10px;font-size:14.5px;color:#2F3D38;text-align:left;width:100%}
+.lay .pitem:hover{background:rgba(46,139,99,.07)}
+.lay .pitem small{display:block;font-size:12.5px;color:#7E918A}
+.lay .sbox{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-radius:12px;background:#FFFFFF;border:1px solid rgba(20,35,32,.12);color:#7E918A;font-size:14.5px;margin:0 2px 8px}
+.lay .wide{width:272px;flex:none;display:flex;flex-direction:column;padding:14px 12px 12px 14px;animation:pin .18s ease-out}
+.lay .nav{width:100%;text-align:left}
+
+.t-light{--c1:#2E8B63;--c2:#C98512;--c3:#2F7FB8;--c4:#C2553A;--c5:#7A5BB0;--c6:#8E9A2C;--grid:rgba(20,35,32,.08);--axis:rgba(20,35,32,.22);
+ --tg:#E4F1EA;--tg-f:#2E8B63;--ts:#E5F2FA;--ts-f:#2C7FB0;--tm:#F7EEDD;--tm-f:#A86A12;--tt:#F8E7E1;--tt-f:#A9472E;--tv:#EEE9F7;--tv-f:#6A4FA3;
+ --canvas:#EEF4F1;--sheet:#FFFFFF;--soft:#F6F9F8;--sel:rgba(124,200,238,.32)}
+.t-dark{--c1:#3FA676;--c2:#C2841F;--c3:#4A93CC;--c4:#D66A4C;--c5:#9478CB;--c6:#8F9B35;--grid:rgba(230,238,235,.08);--axis:rgba(230,238,235,.24);
+ --tg:#1F3A2E;--tg-f:#6FCB9D;--ts:#17303F;--ts-f:#9BD3F2;--tm:#3A2E16;--tm-f:#F0C374;--tt:#3C231C;--tt-f:#F0A68E;--tv:#2C2540;--tv-f:#C3B2EE;
+ --canvas:#0F1513;--sheet:#151C1A;--soft:#1B2421;--sel:rgba(124,200,238,.28)}
+.bs{font-family:'Onest',sans-serif;color:var(--text)}
+.bs button{border:0;background:none;font:inherit;color:inherit;padding:0;margin:0;cursor:pointer}
+.bs .serif{font-family:'Source Serif 4','Noto Serif Tamil',Georgia,serif}
+.bs .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.bs .kick{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.bs .h1{font-size:40px;font-weight:700;letter-spacing:-.025em;line-height:1.1;margin:0}
+.bs .lead{font-size:16px;line-height:1.6;color:var(--text-2);margin:0;max-width:1060px}
+.bs .bsec{background:var(--sheet);border-radius:22px;padding:24px 26px;display:flex;flex-direction:column;gap:16px;min-width:0;box-shadow:0 1px 2px rgba(20,35,32,.05)}
+.t-dark.bs .bsec{box-shadow:0 0 0 1px rgba(230,238,235,.06)}
+.bs .stitle{display:flex;align-items:baseline;gap:12px}
+.bs .stitle b{font-size:20px;font-weight:700;letter-spacing:-.01em}
+.bs .stitle span{font-size:13.5px;color:var(--muted)}
+.bs .ph{font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--hover);color:var(--text-2);margin-left:auto;white-space:nowrap}
+.bs .rule{font-size:13px;line-height:1.55;color:var(--text-2)}
+.bs .rule b{color:var(--text);font-weight:600}
+.bs .tile{width:34px;height:34px;border-radius:11px 4px 11px 4px;display:grid;place-items:center;flex:none;font-size:9px;font-weight:700;letter-spacing:-.01em}
+.bs .tile.g{background:var(--tg);color:var(--tg-f)}.bs .tile.s{background:var(--ts);color:var(--ts-f)}.bs .tile.m{background:var(--tm);color:var(--tm-f)}.bs .tile.t{background:var(--tt);color:var(--tt-f)}.bs .tile.v{background:var(--tv);color:var(--tv-f)}
+.bs .pbtn{height:38px;padding:0 16px;border-radius:12px;background:var(--primary);color:var(--on-primary);display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;white-space:nowrap}
+.bs .gbtn2{height:38px;padding:0 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--sheet);color:var(--text);display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;white-space:nowrap}
+.bs .ibt{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--muted);flex:none}
+.bs .ibt.on{background:var(--hover);color:var(--text)}
+.bs .dbtn{height:38px;padding:0 14px;border-radius:12px;border:1px solid var(--err);color:var(--err);display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;white-space:nowrap}
+.bs .fld{height:42px;border-radius:12px;border:1px solid var(--line-2);background:var(--sheet);display:flex;align-items:center;gap:8px;padding:0 12px;font-size:14.5px;color:var(--placeholder)}
+.bs .menu{background:var(--raised);border-radius:14px;box-shadow:var(--shadow-3);padding:6px;display:flex;flex-direction:column;min-width:240px}
+.bs .mi{display:flex;align-items:center;gap:10px;height:38px;padding:0 10px;border-radius:9px;font-size:14px;color:var(--text)}
+.bs .mi svg{color:var(--muted)}.bs .mi.hv{background:var(--hover)}
+.bs .mi small{margin-left:auto;font-size:12px;color:var(--muted)}
+.bs .msep{height:1px;background:var(--line);margin:5px 4px}
+.bs .seg2{display:inline-flex;padding:3px;border-radius:11px;background:var(--hover);gap:2px}
+.bs .seg2 span{height:30px;padding:0 12px;border-radius:9px;display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:500;color:var(--text-2)}
+.bs .seg2 span.on{background:var(--sheet);color:var(--text);font-weight:600;box-shadow:var(--shadow-1)}
+.t-dark.bs .seg2 span.on{background:var(--raised)}
+/* projects */
+.bs .pcard{border-radius:18px;background:var(--soft);padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.bs .pcard .t{font-size:16px;font-weight:700}.bs .pcard .d{font-size:13.5px;line-height:1.5;color:var(--text-2)}
+.bs .pcard .m{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.bs .pnew{border:1.5px dashed var(--line-2);background:transparent;align-items:center;justify-content:center;color:var(--brand);font-weight:600;font-size:15px}
+.bs .side-card{border-radius:18px;background:var(--soft);padding:16px;display:flex;flex-direction:column;gap:10px}
+.bs .side-card .hd{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:700}
+.bs .frow{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:10px;font-size:13.5px;min-width:0}
+.bs .frow .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.bs .frow .sz{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap}
+.bs .bar{height:6px;border-radius:999px;background:var(--hover);overflow:hidden}
+.bs .bar i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+.bs .crow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;min-width:0}
+.bs .crow + .crow{border-top:1px solid var(--line);border-radius:0 0 14px 14px}
+.bs .crow .t{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bs .crow .m{font-size:12.5px;color:var(--muted)}
+/* artifacts */
+.bs .acard{border-radius:16px;border:1px solid var(--line-2);background:var(--sheet);display:flex;align-items:center;gap:12px;padding:12px 14px;max-width:420px}
+.bs .acard.on{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
+.bs .acard .t{font-size:14.5px;font-weight:600}.bs .acard .m{font-size:12.5px;color:var(--muted)}
+.bs .apanel{flex:1;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--soft)}
+.bs .atool{height:60px;flex:none;display:flex;align-items:center;gap:6px;padding:0 12px 0 18px;border-bottom:1px solid var(--line);background:var(--sheet)}
+.bs .vers{display:inline-flex;align-items:center;gap:2px;font-size:13px;font-weight:600;color:var(--text-2)}
+.bs .vers .ibt{width:28px;height:28px}
+.bs .apage{margin:22px auto;width:620px;background:var(--sheet);border-radius:14px;box-shadow:var(--shadow-1);padding:34px 40px;display:flex;flex-direction:column;gap:14px}
+.t-dark.bs .apage{background:var(--surface)}
+.bs .doc h1{font-family:'Source Serif 4',Georgia,serif;font-size:28px;font-weight:600;line-height:1.2;margin:0;letter-spacing:-.01em}
+.bs .doc p{font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:26px;margin:0;color:var(--text)}
+.bs .lcard{border-radius:16px;background:var(--sheet);border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.bs .lthumb{height:132px;background:var(--soft);display:grid;place-items:center;border-bottom:1px solid var(--line)}
+.bs .lmeta{padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+.bs .lmeta b{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bs .lmeta span{font-size:12.5px;color:var(--muted)}
+/* chat parts */
+.bs .act{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);font-weight:500}
+.bs .stp{display:flex;flex-direction:column;gap:2px;border-left:1.5px solid var(--line-2);margin-left:8px;padding-left:16px}
+.bs .stp div{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--text-2);padding:5px 0}
+.bs .stp svg{color:var(--brand)}
+.bs .opt{display:flex;align-items:center;gap:12px;min-height:46px;padding:0 14px;border-radius:14px;border:1px solid var(--line-2);background:var(--sheet);font-size:14.5px;font-weight:500}
+.bs .opt kbd{width:24px;height:24px;border-radius:7px;background:var(--hover);display:grid;place-items:center;font:600 12px/1 'JetBrains Mono',monospace;color:var(--text-2)}
+.bs .opt.hv{border-color:var(--brand);background:var(--tg)}
+.bs .fchip{display:inline-flex;align-items:center;gap:10px;padding:8px 10px 8px 8px;border-radius:14px;border:1px solid var(--line-2);background:var(--sheet);min-width:0}
+.bs .fchip b{font-size:13.5px;font-weight:600;display:block;white-space:nowrap}.bs .fchip span{font-size:12px;color:var(--muted)}
+.bs .fchip.err{border-color:var(--err)}
+.bs .ask{display:inline-flex;align-items:center;gap:2px;padding:4px;border-radius:12px;background:var(--inv-bg);color:var(--inv-text);box-shadow:var(--shadow-3)}
+.bs .ask span{height:30px;padding:0 10px;border-radius:8px;display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600}
+.bs .toast2{display:inline-flex;align-items:center;gap:10px;padding:10px 12px 10px 14px;border-radius:12px;background:var(--inv-bg);color:var(--inv-text);font-size:14px;font-weight:500;box-shadow:var(--shadow-3)}
+.bs .toast2 .a{margin-left:8px;font-weight:700;color:var(--sky)}
+/* visuals */
+.bs .vbox{border-radius:16px;border:1px solid var(--line);padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0;background:var(--sheet)}
+.bs .vbox .vt{font-size:15px;font-weight:700}.bs .vbox .vs{font-size:12.5px;color:var(--muted)}
+.bs .leg{display:flex;gap:16px;font-size:12.5px;color:var(--text-2);font-weight:500}
+.bs .leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.bs .bgrp .tt{display:none}
+.bs .bgrp:hover .tt{display:block}
+.bs .bgrp:hover rect.b{opacity:.88}
+.bs .stat{border-radius:16px;background:var(--soft);padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.bs .stat .l{font-size:13px;color:var(--text-2);font-weight:500}.bs .stat .v{font-size:30px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.bs .stat .v small{font-size:15px;font-weight:500;color:var(--muted)}
+.bs .stat .d{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:5px}
+.bs .nstep{display:flex;gap:12px;align-items:flex-start}
+.bs .nstep .n{width:26px;height:26px;border-radius:9px 3px 9px 3px;background:var(--tg);color:var(--tg-f);display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
+.bs .nstep b{font-size:14.5px;font-weight:600;display:block}.bs .nstep span{font-size:13px;color:var(--text-2);line-height:1.5}
+.bs .tl{display:flex;flex-direction:column;gap:0;position:relative;padding-left:22px}
+.bs .tl::before{content:'';position:absolute;left:6px;top:8px;bottom:8px;width:1.5px;background:var(--line-2)}
+.bs .tl div{position:relative;padding:6px 0;display:flex;gap:12px;align-items:baseline}
+.bs .tl div::before{content:'';position:absolute;left:-20px;top:12px;width:10px;height:10px;border-radius:50%;background:var(--sheet);border:2px solid var(--brand)}
+.bs .tl .dt{font-size:12.5px;font-weight:700;color:var(--muted);width:86px;flex:none}.bs .tl b{font-size:14.5px;font-weight:600}
+.bs .cmp{border-radius:16px;background:var(--soft);padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.bs .cmp.on{box-shadow:inset 0 0 0 1.5px var(--brand);background:var(--sheet)}
+.bs .cmp b{font-size:15px;font-weight:700}.bs .cmp li{font-size:13.5px;line-height:1.55;color:var(--text-2)}
+.bs .cmp ul{margin:0;padding-left:18px}
+/* settings */
+.bs .snav{display:flex;flex-direction:column;gap:2px;width:220px;flex:none}
+.bs .snav span{height:38px;display:flex;align-items:center;gap:10px;padding:0 12px;border-radius:12px;font-size:14.5px;font-weight:500;color:var(--text-2)}
+.bs .snav span svg{color:var(--muted)}
+.bs .snav span.on{background:var(--tg);color:var(--text);font-weight:600}.bs .snav span.on svg{color:var(--brand)}
+.bs .srow{display:flex;align-items:center;gap:20px;padding:16px 0;border-bottom:1px solid var(--line)}
+.bs .srow:last-child{border-bottom:0}
+.bs .srow .tx{flex:1;min-width:0}.bs .srow b{display:block;font-size:15px;font-weight:600}.bs .srow span.h{font-size:13px;color:var(--muted);line-height:1.5}
+.bs .sel{height:38px;padding:0 12px;border-radius:12px;border:1px solid var(--line-2);display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500;background:var(--sheet)}
+.bs .danger{border-radius:16px;border:1px solid rgba(179,38,30,.28);padding:4px 18px}
+.t-dark.bs .danger{border-color:rgba(242,184,181,.25)}
+/* base board */
+.bs .sw{display:flex;flex-direction:column;gap:6px;min-width:0}
+.bs .sw i{display:block;height:54px;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(20,35,32,.08)}
+.bs .sw b{font-size:13px;font-weight:600}.bs .sw span{font-size:11.5px;color:var(--muted)}
+.bs .sw code{font:500 11.5px/1 'JetBrains Mono',monospace;color:var(--text-2)}
+.bs .ts{display:flex;align-items:baseline;gap:18px;padding:10px 0;border-bottom:1px solid var(--line)}
+.bs .ts:last-child{border-bottom:0}
+.bs .ts .meta{width:200px;flex:none;font:500 12px/1.4 'JetBrains Mono',monospace;color:var(--muted)}
+/* ---- logo language (14 Oct): leaf corner · sky seed · dots of light ---- */
+.bs .seed{position:absolute;top:5px;right:5px;pointer-events:none;filter:drop-shadow(0 0 3px rgba(124,200,238,.75))}
+.bs .pnew,.bs .empty{border:2px dotted rgba(46,139,99,.45)}
+.t-dark.bs .pnew,.t-dark.bs .empty{border-color:rgba(111,203,157,.4)}
+.bs .pcard{border-radius:22px 7px 22px 7px}
+.bs .acard,.bs .lcard,.bs .cmp.on{border-radius:18px 6px 18px 6px;position:relative}
+.bs .pbtn{border-radius:13px 4px 13px 4px}
+.bs .stat{border-radius:20px 6px 20px 6px}
+.bs .snav span.on,.bs .opt.hv{border-radius:14px 4px 14px 4px;position:relative}
+.bs .toast2,.bs .fchip{border-radius:14px 4px 14px 4px}
+.bs .mi.hv,.bs .seg2 span.on{border-radius:10px 3px 10px 3px}
+.bs .dialog,.bs .menu{border-radius:22px 7px 22px 7px}
+.bs .ask{border-radius:13px 4px 13px 4px}
+.bs .side-card{border-radius:20px 6px 20px 6px}
+.bs .apage{border-radius:20px 6px 20px 6px}.bs .vbox{border-radius:18px 6px 18px 6px}
+.bs .lthumb{background-color:var(--soft);background-image:radial-gradient(var(--line-2) 1px,transparent 1.3px);background-size:12px 12px}
+.bs .dm{display:flex;gap:4px;align-items:center}
+.bs .dm i{width:7px;height:7px;border-radius:50%;background:var(--line-2);flex:none}
+.bs .dm i.f{background:var(--brand)}.bs .dm i.k{background:#7CC8EE;box-shadow:0 0 0 3px rgba(124,200,238,.25)}
+.bs .ll{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.bs .llc{border-radius:20px 6px 20px 6px;background:var(--soft);padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.bs .llc b.t{font-size:16px;font-weight:700}
+.bs .empty{border-radius:22px 7px 22px 7px;border:1.5px dashed var(--line-2);padding:26px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+
+/* today (locked): faint shadow on light, nothing on dark */
+.k0 .comp-new,.k0 .comp-reply{}
+/* K1 · clear line */
+.k1 .comp-new,.k1 .comp-reply{border:1px solid rgba(20,35,32,.18);box-shadow:0 1px 2px rgba(20,35,32,.06),0 10px 28px -16px rgba(20,35,32,.30)}
+.t-dark.k1 .comp-new,.t-dark.k1 .comp-reply{background:#1C2522;border-color:rgba(230,238,235,.18);box-shadow:0 10px 28px -16px rgba(0,0,0,.6)}
+.k1 .comp-reply.fo,.k1 .comp-new.fo{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring),0 10px 28px -16px rgba(20,35,32,.30)}
+/* K2 · leaf tint */
+.k2 .comp-new,.k2 .comp-reply{background:#F3F8F5;border:1px solid rgba(46,139,99,.20);box-shadow:none;border-radius:24px 8px 24px 8px}
+.k2 .comp-reply{border-radius:20px 7px 20px 7px}
+.t-dark.k2 .comp-new,.t-dark.k2 .comp-reply{background:#1D2A25;border-color:rgba(111,203,157,.22)}
+.k2 .comp-reply.fo,.k2 .comp-new.fo{background:var(--sheet);border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
+.k2 .send,.k2 .stopb{border-radius:11px 4px 11px 4px}
+/* K3 · lifted with a green edge */
+.k3 .comp-new,.k3 .comp-reply{border:1.5px solid rgba(46,139,99,.38);box-shadow:0 2px 4px rgba(20,35,32,.06),0 18px 40px -18px rgba(19,78,69,.45);border-radius:24px 8px 24px 8px}
+.k3 .comp-reply{border-radius:20px 7px 20px 7px}
+.t-dark.k3 .comp-new,.t-dark.k3 .comp-reply{background:#1C2522;border-color:rgba(111,203,157,.42);box-shadow:0 18px 40px -18px rgba(0,0,0,.75),0 0 24px -8px rgba(79,181,133,.25)}
+.k3 .comp-reply.fo,.k3 .comp-new.fo{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring),0 18px 40px -18px rgba(19,78,69,.45)}
+.k3 .send,.k3 .stopb{border-radius:11px 4px 11px 4px}
+.co-pane{border-radius:22px;padding:28px 30px;display:flex;flex-direction:column;gap:22px;min-width:0}
+.co-pane .lbl2{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+
+</style>
+</helmet>
+<div class="ds bs t-light w2" style="width: 1440px; height: 2340px; padding: 52px 64px; display: flex; flex-direction: column; gap: 22px; background: var(--canvas); font-weight: 500"><svg width="0" height="0" style="position: absolute" aria-hidden="true"><defs><path id="tL" d="M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z"></path>
+<path id="dL" d="M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z"></path>
+<mask id="mL" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#FFFFFF"></rect><use href="#dL" transform="translate(67 33) rotate(225) scale(0.62)" fill="#000000"></use></mask>
+<radialGradient id="glL" cx="0.67" cy="0.33" r="0.24"><stop offset="0" stop-color="#9BDAF6" stop-opacity="0.95"></stop><stop offset="1" stop-color="#9BDAF6" stop-opacity="0"></stop></radialGradient>
+<filter id="grL" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="7" result="n"></feTurbulence><feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.16 0"></feColorMatrix><feComposite in2="SourceGraphic" operator="in"></feComposite></filter>
+<symbol id="rich" viewBox="0 0 100 100"><g mask="url(#mL)"><use href="#tL" fill="#2E8B63"></use><use href="#tL" fill="#FFFFFF" filter="url(#grL)"></use><use href="#tL" fill="url(#glL)"></use></g></symbol>
+<symbol id="flatL" viewBox="0 0 100 100"><g mask="url(#mL)"><use href="#tL" fill="currentColor"></use></g></symbol><symbol id="wmL4" viewBox="-16 -20 692 140"><clipPath id="L4v"><rect x="-20" y="0" width="200" height="100"/></clipPath><g fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="butt" stroke-linejoin="round"><g transform="translate(0 0)"><path d="M48.8 10 A36.8 40 0 1 0 48.8 90 A36.8 40 0 1 0 48.8 10Z"/><path d="M73.6 100 V10 L97.6 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(109.6 0)"><path d="M0 100 V10 L24 0 V100Z" fill="currentColor" stroke="none"/><path d="M12 58 C12 28 26 12.0 50 12.0"/></g><g transform="translate(168.6 0)"><path d="M76.1 23.2 A36.8 40 0 1 0 76.1 76.8"/></g><g transform="translate(268.7 0)"><path d="M0 100 V10 L24 0 V100Z" fill="currentColor" stroke="none"/><path d="M12 46 C12 24 25.2 12.0 41.4 12.0 C57.6 12.0 70.9 24 70.9 46 V100"/></g><g transform="translate(360.6 0)"><path d="M48.8 10 A36.8 40 0 1 0 48.8 90 A36.8 40 0 1 0 48.8 10Z"/><path d="M73.6 100 V10 L97.6 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(466.2 0)"><g clip-path="url(#L4v)"><path d="M8.2 -12 L43.2 100 L78.3 -12" stroke-linejoin="miter"/></g></g><g transform="translate(562.4 0)"><path d="M12 50 H85.6 A36.8 40 0 1 0 77 75.7"/></g></g></symbol><symbol id="wmL4L" viewBox="-16 -20 646.4 140"><clipPath id="L4Lv"><rect x="-20" y="0" width="200" height="100"/></clipPath><g fill="none" stroke="currentColor" stroke-width="19" stroke-linecap="butt" stroke-linejoin="round"><g transform="translate(0 0)"><path d="M44.7 10 A35.2 40 0 1 0 44.7 90 A35.2 40 0 1 0 44.7 10Z"/><path d="M70.4 100 V10 L89.4 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(101.4 0)"><path d="M0 100 V10 L19 0 V100Z" fill="currentColor" stroke="none"/><path d="M9.5 58 C9.5 28 23.5 9.5 47.5 9.5"/></g><g transform="translate(157.9 0)"><path d="M70.9 23.2 A35.2 40 0 1 0 70.9 76.8"/></g><g transform="translate(250.3 0)"><path d="M0 100 V10 L19 0 V100Z" fill="currentColor" stroke="none"/><path d="M9.5 46 C9.5 24 22.2 9.5 37.7 9.5 C53.1 9.5 65.8 24 65.8 46 V100"/></g><g transform="translate(334.6 0)"><path d="M44.7 10 A35.2 40 0 1 0 44.7 90 A35.2 40 0 1 0 44.7 10Z"/><path d="M70.4 100 V10 L89.4 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(432 0)"><g clip-path="url(#L4Lv)"><path d="M7.8 -12 L41.4 100 L74.9 -12" stroke-linejoin="miter"/></g></g><g transform="translate(525 0)"><path d="M9.5 50 H79.9 A35.2 40 0 1 0 71.7 75.7"/></g></g></symbol><symbol id="wmTAL" viewBox="-16 -76 1068.1 274"><g fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="butt" stroke-linejoin="miter"><g transform="translate(3.0 0)"><circle cx="95" cy="36" r="19.5"/><path d="M75.5 36 C75.5 14 93 4 112 4 C136 4 153 26 153 53 C153 88 112 113 70 113 C36 113 7 102 7 88 C7 77 13 71 24 71 H190"/><path d="M182 104 V10 L198 0 V104Z" fill="currentColor" stroke="none"/><path d="M190 100 C190 86 204 79 221 79 C235 79 244 90 244 104 C244 132 208 149 170 149 C140 149 122 140 122 129 C122 121 131 117 143 117 C157 117 167 121 175 128"/></g><g transform="translate(268.0 0)"><path d="M9 116 V9 H113"/><path d="M63 9 V96 C63 118 30 128 14 158"/><circle cx="63" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g><g transform="translate(396.0 0)"><path d="M38 58 V9 H124"/><path d="M82 9 V76 C82 98 68 110 49 110 C26 110 9 95 9 80 C9 67 20 58 36 58 H110 C122 58 127.5 68 127.5 82 C127.5 100 119 110 107 110 C101 110 97 107 94 104"/><circle cx="60" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g><g transform="translate(548.5 0)"><circle cx="103" cy="-14" r="24"/><circle cx="103" cy="82" r="24"/><path d="M103 -38 C46 -38 11 0 11 34 C11 72 46 106 103 106"/></g><g transform="translate(699.5 0)"><path d="M16 116 V9 H116"/><path d="M62 9 V116"/><path d="M62 72 C62 60 74 53 89 53 C108 53 121.6 70 121.6 92 C121.6 118 102 136 76 136 H30 C17 136 8 144 8 155 C8 163 12 168 18 172"/></g><g transform="translate(848.1 0)"><path d="M33 86 C33 71 43 61 56 61 C71 61 81 72 81 87 C81 103 70 113 55 113 C28 113 9 93 9 68 C9 32 34 6 66 6 C98 6 122 30 122 57 C122 77 113 93 100 105"/><path d="M96 106 H178"/><path d="M170 116 V10 L186 0 V116Z" fill="currentColor" stroke="none"/><circle cx="120" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g></g></symbol></defs></svg>
+<div class="col" style="gap: 10px"><div class="kick">Fix · composer</div><h1 class="h1">The composer should stand out</h1><p class="lead">Today it is a white box with a faint shadow on a white sheet, and on dark it has no edge at all. Three ways to give it a clear edge everywhere. Same in new chat, reply, projects and settings previews.</p></div>
+<div class="bsec" style="gap: 16px"><div class="stitle"><b>Today (locked)</b><span>Faint shadow on light; nothing on dark. This is the blend you saw.</span></div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px"><div class="ds bs t-light w2 lk lay k0 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">light · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">light · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div><div class="ds bs t-dark w2 lk lay k0 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">dark · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">dark · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div></div></div>
+<div class="bsec" style="gap: 16px"><div class="stitle"><b>K1 · Clear line</b><span>A visible 1 px line plus a soft shadow. Closest to Claude. Calm, works on any background.</span></div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px"><div class="ds bs t-light w2 lk lay k1 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">light · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">light · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div><div class="ds bs t-dark w2 lk lay k1 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">dark · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">dark · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div></div></div>
+<div class="bsec" style="gap: 16px"><div class="stitle"><b>K2 · Leaf tint</b><span>A light green fill with leaf corners and a thin green line. Turns white with a green ring when you type.</span></div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px"><div class="ds bs t-light w2 lk lay k2 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">light · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">light · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div><div class="ds bs t-dark w2 lk lay k2 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">dark · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">dark · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div></div></div>
+<div class="bsec" style="gap: 16px"><div class="stitle"><b>K3 · Lifted, green edge</b><span>White, leaf corners, a green edge and a deeper shadow. Strongest; clearly the place to type.</span></div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px"><div class="ds bs t-light w2 lk lay k3 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">light · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">light · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div><div class="ds bs t-dark w2 lk lay k3 co-pane" style="background: var(--sheet); box-shadow: 0 0 0 1px var(--line)">
+<span class="lbl2">dark · new chat</span><div style="width: 100%; display: flex; flex-direction: column; gap: 8px">
+<div class="comp-new"><div style="min-height: 44px"><span style="font-size: 15px; line-height: 22px; color: var(--placeholder)">How can I help today? English, தமிழ், Tanglish…</span></div>
+<div class="row" style="gap: 2px; margin-left: -6px"><span class="iconbtn" aria-label="Add files and tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn" aria-label="Tools"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></span><span style="margin-left: auto"></span><span class="iconbtn" aria-label="Voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span></div></div>
+<div class="under" style="padding: 0 6px"><span style="display: inline-flex; align-items: center; gap: 5px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M2 10 A6 6 0 0 1 8 4 H9.6 L11.6 7 H20.5 Q22 7 22 8.5 V14 A6 6 0 0 1 16 20 H3.5 Q2 20 2 18.5 Z"/><path d="M12 17 V13"/><path d="M12 14.2 C12 11.8 13.6 10.4 16 10.4 C16 12.8 14.4 14.2 12 14.2 Z"/></svg>Project<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m6 9 6 6 6-6"/></svg></span><span style="margin-left: auto"></span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div>
+<span class="lbl2" style="margin-top: 6px">dark · reply, typing</span><div class="ans" style="font-size: 15.5px; line-height: 25px; color: var(--text-2)">…lowest first, so you can call parents in order. Want a Tamil letter for them too?</div><div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+<div class="comp-reply fo"><span style="font-size: 15px; color: var(--text)">Parents-ku Tamil-la letter ready pannu</span><span style="margin-left: auto"></span><span class="send" aria-label="Send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span></div>
+<div class="under" style="padding: 0 4px"><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="iconbtn sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></svg></span>
+<span style="flex: 1; text-align: center; font-size: 12px">arcnave can make mistakes.</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px"><span style="color: var(--text); font-weight: 500">Auto</span><span style="color: var(--muted)">Normal</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; overflow: visible;color: var(--muted)"><path d="m6 9 6 6 6-6"/></svg></span></div></div></div></div></div></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2340}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

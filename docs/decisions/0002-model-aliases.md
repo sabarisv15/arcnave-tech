@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-16
+- Superseded in part by: [ADR-0055](0055-three-models.md) (alias table, Decision 4 / gpt-oss)
 
 ## Context
 

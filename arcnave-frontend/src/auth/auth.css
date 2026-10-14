@@ -1,0 +1,1082 @@
+/*
+ * Sign-in flow styles (Task tech-p1 item G2). Every value is read from the owner's locked boards in
+ * docs/brand: S3-SignIn-4 (+Dark), S3-Code*, S3-Link*, S3-2Step*, S4-Invite*, S4-Welcome, S7-*,
+ * Splash-v3. Colours come from the brand tokens (tokens.css), so the dark boards follow
+ * `<html data-theme="dark">` with no second set of rules, except the few board-only fills below.
+ *
+ * Kept out of styles.css on purpose so the in-app shell restyle and this file merge cleanly.
+ * Class names are all `sx-`. The old `.auth-*` rules in styles.css are no longer used by any
+ * component and can be deleted when styles.css is next touched.
+ *
+ * Sign-in pages use Source Serif for all text (locked 2026-10-12): `--font-signin`.
+ * The page must fit the viewport without a scrollbar between its two panels (mistakes.md,
+ * 2026-09-20 addendum): no column here sets overflow, a very short window scrolls the page itself.
+ */
+
+.sx {
+  --sx-page: #fafbfa; /* board page background, light */
+  --sx-field: var(--color-surface);
+  --sx-secondary: var(--color-hover);
+  --sx-panel: #0c2219; /* board night green behind the loop */
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--sx-page);
+  color: var(--color-text);
+  font-family: var(--font-signin);
+  font-optical-sizing: auto;
+  font-weight: 500;
+  letter-spacing: var(--text-base-tracking);
+}
+:root[data-theme="dark"] .sx {
+  --sx-page: #121816;
+  --sx-field: #18201e;
+  --sx-secondary: #232d2a;
+}
+.sx *,
+.sx *::before,
+.sx *::after {
+  box-sizing: border-box;
+}
+.sx button,
+.sx input {
+  font-family: inherit;
+}
+.sx h1,
+.sx h2,
+.sx p {
+  margin: 0;
+}
+.sx a {
+  color: var(--color-link);
+}
+.sx b {
+  font-weight: 600;
+}
+.sx-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ frame */
+.sx-top {
+  padding: 44px 66px 0;
+}
+.sx-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+}
+.sx-main {
+  display: grid;
+  grid-template-columns: minmax(0, 774fr) minmax(0, 517fr);
+  column-gap: 12px;
+  padding-right: clamp(24px, 9.5vw, 137px);
+  min-height: 0;
+}
+.sx-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  min-width: 0;
+  padding: 10px 24px 0;
+}
+.sx-panel {
+  align-self: center;
+  position: relative;
+  height: min(720px, calc(100dvh - 170px));
+  min-height: 420px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--sx-panel);
+}
+.sx-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 18px;
+  padding: 16px 66px 36px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.sx-foot nav {
+  display: flex;
+  gap: 18px;
+}
+.sx-foot a {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+.sx-foot a:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+.sx-foot p {
+  font-size: 12.5px;
+  max-width: 560px;
+}
+
+/* ---------------------------------------------------------------- headings */
+.sx-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.sx-head h1 {
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  font-size: clamp(36px, min(4.6vw, 7.3vh), 66px);
+}
+.sx-head p {
+  font-weight: 450;
+  line-height: 1.4;
+  color: var(--color-text-2);
+  font-size: clamp(17px, 1.5vw, 21px);
+  max-width: 640px;
+}
+.sx-head--page h1 {
+  font-size: clamp(34px, min(3.75vw, 6vh), 54px);
+  line-height: 1.06;
+}
+.sx-head--page p {
+  font-size: clamp(16px, 1.32vw, 19px);
+  line-height: 1.45;
+}
+.sx-head p b {
+  color: var(--color-text);
+}
+
+/* ------------------------------------------------------------------- cards */
+.sx-card {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 34px 36px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 28px;
+  background: transparent;
+}
+.sx-card-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+}
+.sx-card-heading {
+  font-size: 16px;
+  font-weight: 700;
+}
+.sx-card-note,
+.sx-card-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-text-2);
+}
+.sx-card-note {
+  text-align: center;
+  margin-top: -6px;
+}
+.sx-card-text b {
+  color: var(--color-text);
+}
+.sx-card-foot {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  text-align: center;
+}
+.sx-card-foot b {
+  color: var(--color-text-2);
+}
+.sx-note,
+.sx-aside p {
+  max-width: 520px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--color-muted);
+  text-align: center;
+}
+.sx-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* result cards (S3-Link states, S4-Invite states, 2-step On / Locked) */
+.sx-result {
+  gap: 14px;
+}
+.sx-result-title {
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+}
+.sx-result-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-2);
+  text-align: center;
+}
+.sx-result-text b {
+  color: var(--color-text);
+}
+.sx-tick {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  flex: none;
+}
+.sx-tick--ok {
+  background: var(--color-ok-bg);
+  color: var(--color-brand);
+}
+.sx-tick--warn {
+  background: var(--color-err-bg);
+  color: var(--color-err);
+}
+.sx-tick--info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+/* ------------------------------------------------------------- form pieces */
+.sx-form,
+.sx-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.sx-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.sx-optional {
+  margin-left: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.sx-help {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.sx-label input {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--color-field);
+  border-radius: 12px;
+  background: var(--sx-field);
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 500;
+}
+.sx-label input::placeholder {
+  color: var(--color-placeholder);
+}
+.sx-label input:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+.sx-mono {
+  font-family: var(--font-mono) !important;
+  letter-spacing: 0.06em;
+}
+.sx-password {
+  position: relative;
+  display: block;
+}
+.sx-password input {
+  padding-right: 52px;
+}
+.sx-password button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.sx-password button:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.sx-primary,
+.sx-secondary {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.sx-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.sx-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+.sx-primary:disabled {
+  background: var(--color-disabled);
+  color: var(--color-muted);
+  cursor: default;
+  opacity: 1; /* styles.css dims every disabled button; the board's disabled fill is already the dim */
+}
+.sx-primary[aria-busy="true"]:disabled {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  opacity: 0.85;
+}
+/* styles.css gives every button a hover fill; links and the switch are text, not buttons. */
+.sx-link:hover,
+.sx-switch button:hover {
+  background: none;
+}
+.sx-primary--big {
+  min-height: 54px;
+  font-size: 17px;
+}
+.sx-secondary {
+  background: var(--sx-secondary);
+  color: var(--color-text);
+}
+.sx-secondary:hover {
+  background: var(--color-press);
+}
+.sx-secondary--sm {
+  min-height: 40px;
+  flex: 1;
+  border-radius: 9px;
+  font-size: 14px;
+}
+.sx-secondary--back {
+  width: auto;
+  flex: none;
+  min-height: 50px;
+}
+.sx-primary:focus-visible,
+.sx-secondary:focus-visible,
+.sx-link:focus-visible,
+.sx-password button:focus-visible,
+.sx-iconbtn:focus-visible,
+.sx-brand:focus-visible,
+.sx-switch button:focus-visible,
+.sx-check input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.sx-row {
+  display: flex;
+  gap: 10px;
+}
+.sx-row .sx-primary {
+  flex: 1;
+}
+.sx-row--tools {
+  gap: 8px;
+}
+
+.sx-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+}
+.sx-or::before,
+.sx-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+.sx-error {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--color-err-bg);
+  color: var(--color-err);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sx-error svg {
+  flex: none;
+  margin-top: 1px;
+}
+.sx-error p {
+  margin-top: 2px;
+}
+.sx-error a {
+  color: inherit;
+}
+
+.sx-switch {
+  font-size: 14px;
+  color: var(--color-text-2);
+  text-align: center;
+}
+.sx-switch button,
+.sx-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font-size: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.sx-switch button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sx-link {
+  font-size: 14px;
+}
+.sx-link--off {
+  color: var(--color-muted);
+  text-decoration: none;
+  cursor: default;
+  font-weight: 500;
+}
+.sx-link--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sx-link--center {
+  align-self: center;
+  font-size: 13.5px;
+}
+.sx-aside .sx-link {
+  font-size: 14px;
+}
+
+/* ----------------------------------------------- account row, session ended */
+.sx-acct {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px 5px 16px 5px;
+  background: var(--color-sidebar);
+}
+.sx-acct-av {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 13px 4px 13px 4px;
+  background: #cfe7db;
+  color: #134e45;
+  font-size: 15px;
+  font-weight: 700;
+}
+:root[data-theme="dark"] .sx-acct-av {
+  background: #22332c;
+  color: #6fcb9d;
+}
+.sx-acct-name {
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.sx-acct-mail {
+  font-size: 13px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.sx-ended {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sx-ended .sx-tick {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+}
+.sx-ended h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.sx-ended p {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--color-text-2);
+}
+
+/* ------------------------------------------------------ code entry (S3-Code) */
+.sx-code {
+  gap: 14px;
+}
+.sx-code-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.sx-boxes {
+  position: relative;
+  display: flex;
+  gap: 10px;
+}
+.sx-cbx {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-field);
+  border-radius: 12px;
+  background: var(--sx-field);
+  color: var(--color-text);
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.sx-cbx--gap {
+  margin-left: 14px;
+}
+.sx-cbx--on {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+:root[data-theme="dark"] .sx-cbx--on {
+  border-color: #6fcb9d;
+}
+.sx-cbx--on:empty::after {
+  content: "";
+  width: 2px;
+  height: 30px;
+  background: var(--color-text);
+  animation: sx-blink 1.05s steps(1) infinite;
+}
+@keyframes sx-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.sx-cbx--err {
+  border-color: var(--color-err);
+  color: var(--color-err);
+}
+.sx-cbx--ok {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+.sx-cbx--dim {
+  opacity: 0.45;
+}
+.sx-cbx--dis {
+  background: var(--color-hover);
+  color: var(--color-muted);
+  border-style: dashed;
+}
+.sx-boxes input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  font-size: 16px;
+  cursor: text;
+}
+.sx-msg {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  text-align: center;
+}
+.sx-msg--err {
+  color: var(--color-err);
+}
+.sx-msg--ok {
+  color: var(--color-brand);
+}
+.sx-msg--info {
+  color: var(--color-text-2);
+}
+.sx-resend {
+  min-height: 20px;
+  text-align: center;
+  font-size: 12.5px;
+}
+
+/* ------------------------------------------------------- 2-step (S3-2Step) */
+.sx-setup {
+  gap: 16px;
+}
+.sx-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sx-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.sx-step:not(:last-child) {
+  flex: 1;
+}
+.sx-step-on {
+  color: var(--color-text);
+}
+.sx-dot {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1.5px solid var(--color-line-strong);
+  border-radius: 50%;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-muted);
+}
+.sx-dot--on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.sx-dot--done {
+  background: var(--color-ok-bg);
+  border-color: var(--color-ok-bg);
+  color: var(--color-brand);
+}
+.sx-bar {
+  flex: 1;
+  min-width: 16px;
+  height: 1.5px;
+  background: var(--color-line-strong);
+}
+.sx-scan {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.sx-scan-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.sx-qr {
+  width: 164px;
+  height: 164px;
+  flex: none;
+  padding: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #fff;
+}
+.sx-qr > * {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.sx-apps {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-text-2);
+}
+.sx-hint {
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.sx-hint b {
+  color: var(--color-text-2);
+}
+.sx-keyblock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sx-key-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-2);
+}
+.sx-key {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--sx-secondary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.sx-iconbtn {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.sx-iconbtn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.sx-rc {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+  padding: 14px 16px;
+  list-style: none;
+  counter-reset: sx-rc;
+  border-radius: 12px;
+  background: var(--sx-secondary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+}
+.sx-rc li::before {
+  counter-increment: sx-rc;
+  content: counter(sx-rc) ". ";
+  display: inline-block;
+  width: 24px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.sx-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.sx-check input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  flex: none;
+  accent-color: var(--color-primary);
+}
+
+/* --------------------------------------------------------- invite (S4-Invite) */
+.sx-org {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--color-sidebar);
+}
+.sx-org-av {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 12px;
+  background: #134e45;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+:root[data-theme="dark"] .sx-org-av {
+  background: #4fb585;
+  color: #0c2219;
+}
+.sx-org-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+.sx-org-by {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.sx-role {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(46, 139, 99, 0.12);
+  color: var(--color-brand);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------ welcome (S4-Welcome) */
+.sx-welcome-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(238, 244, 241, 0.66);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+:root[data-theme="dark"] .sx-welcome-scrim {
+  background: rgba(15, 21, 19, 0.62);
+}
+.sx-welcome {
+  position: fixed;
+  z-index: 121;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 30px 32px 26px;
+  border-radius: 24px;
+  background: var(--color-raised);
+  color: var(--color-text);
+  box-shadow:
+    0 1px 2px rgba(20, 35, 32, 0.08),
+    0 30px 70px -30px rgba(20, 35, 32, 0.45);
+  font-family: var(--font-ui);
+}
+.sx-welcome-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sx-welcome-mark {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: inline-block;
+}
+.sx-welcome-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.sx-welcome-sub {
+  margin: 2px 0 0;
+  font-size: 14.5px;
+  color: var(--color-muted);
+}
+.sx-welcome-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sx-tip {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.sx-tip-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 12px;
+  background: var(--tint-green);
+  color: var(--tint-green-fg);
+}
+.sx-tip b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.sx-tip span:not(.sx-tip-icon) {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.sx-welcome-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.sx-welcome-secondary,
+.sx-welcome-primary {
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sx-welcome-secondary:hover {
+  background: var(--color-hover);
+}
+.sx-welcome-primary:hover {
+  background: var(--color-primary-hover);
+}
+.sx-welcome-secondary {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 12px;
+  background: var(--color-raised);
+  color: var(--color-text-2);
+  font-size: 14px;
+}
+.sx-welcome-primary {
+  min-height: 42px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 15px;
+}
+.sx-welcome-secondary:focus-visible,
+.sx-welcome-primary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------ splash (v3) */
+.sx-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--color-bg);
+}
+.sx-splash-word {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(44% + 70px);
+  display: flex;
+  justify-content: center;
+}
+
+/* ----------------------------------------------------------- reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .sx-cbx--on:empty::after {
+    animation: none;
+  }
+  .sx-cbx {
+    transition: none;
+  }
+}
+:root[data-motion="reduced"] .sx-cbx--on:empty::after {
+  animation: none;
+}
+
+/* ------------------------------------------------------ one column, phones */
+@media (max-width: 899px) {
+  .sx-top {
+    padding: 20px 20px 0;
+  }
+  .sx-main {
+    grid-template-columns: minmax(0, 1fr);
+    padding-right: 0;
+  }
+  .sx-col {
+    justify-content: flex-start;
+    gap: 22px;
+    padding: 20px 20px 24px;
+  }
+  .sx-card {
+    padding: 24px 20px;
+    border-radius: 22px;
+  }
+  .sx-foot {
+    padding: 8px 20px 24px;
+  }
+  .sx-head h1 {
+    font-size: clamp(34px, 10vw, 44px);
+  }
+  .sx-head--page h1 {
+    font-size: clamp(30px, 9vw, 40px);
+  }
+  .sx-boxes {
+    gap: 6px;
+  }
+  .sx-cbx {
+    height: 56px;
+    font-size: 24px;
+  }
+  .sx-cbx--gap {
+    margin-left: 8px;
+  }
+  .sx-scan {
+    flex-direction: column;
+    align-items: center;
+  }
+  .sx-rc {
+    font-size: 13.5px;
+    padding: 12px;
+  }
+  .sx-welcome {
+    padding: 24px 20px 20px;
+  }
+}

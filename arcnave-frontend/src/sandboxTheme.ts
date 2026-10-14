@@ -8,56 +8,70 @@
 
 export type SandboxTheme = "light" | "dark";
 
-// One palette per theme, chosen so each series colour stays readable on the surface of that theme.
+// One palette per theme. Every value is a brand token copied from the locked boards (BS-Base
+// ".t-light/.t-dark", V2-Tokens), so a visual a model draws with these variables is in the same
+// colours as the app around it:
+//   text / muted / faint  --color-text, --color-muted, #7E918A (the shell's quiet label colour)
+//   surface / surface-2   --color-surface, --color-soft (light) and --color-raised (dark)
+//   border / strong       --color-line, --color-line-strong
+//   accent                --color-primary (Kulam green) / --color-brand in dark
+//   good bad warn info    --color-ok, --color-err, --color-warn, --color-info (always with words
+//                         or an icon in the visual, never colour alone: BS-Base rule)
+//   c1..c6                chart colours in the board's fixed order: Kulam green, Marigold, Sky,
+//                         Terracotta, Jamun, Neem (BS-PartsB "Chart colours")
+//   grid / axis           BS-Base --grid / --axis, thin chart lines
+// src/chartColors.test.ts keeps these in step with brand/tokens.css.
 const LIGHT = `
---text:#282b30;--text-muted:#686d72;--text-faint:#989ea3;
---surface:#ffffff;--surface-2:#f3f4f1;--border:rgba(40,43,48,.14);--border-strong:rgba(40,43,48,.3);
---accent:#4b6378;--good:#3d7a2b;--bad:#a64040;--warn:#946510;--info:#3f6fa8;
---c1:#3f6fa8;--c2:#2b8472;--c3:#b0731a;--c4:#b04a58;--c5:#6a58a6;--c6:#5b7c2c;
+--text:#142320;--text-muted:#53625e;--text-faint:#7e918a;
+--surface:#ffffff;--surface-2:#f6f9f8;--border:rgba(20,35,32,.1);--border-strong:rgba(20,35,32,.16);
+--accent:#134e45;--good:#1e6e47;--bad:#b3261e;--warn:#8a5300;--info:#1c6690;
+--c1:#2e8b63;--c2:#c98512;--c3:#2f7fb8;--c4:#c2553a;--c5:#7a5bb0;--c6:#8e9a2c;
+--grid:rgba(20,35,32,.08);--axis:rgba(20,35,32,.22);
 color-scheme:light;`;
 
 const DARK = `
---text:#e1e5e7;--text-muted:#a3acb2;--text-faint:#79838a;
---surface:#282c30;--surface-2:#30353a;--border:rgba(225,229,231,.14);--border-strong:rgba(225,229,231,.3);
---accent:#7898b1;--good:#7ab35f;--bad:#df8c8c;--warn:#d8a94c;--info:#7aa5d6;
---c1:#7aa5d6;--c2:#5fbfab;--c3:#e0a84a;--c4:#e07f8c;--c5:#a596d9;--c6:#97b865;
+--text:#e8eeeb;--text-muted:#9aa8a3;--text-faint:#7e918a;
+--surface:#1c2522;--surface-2:#212b28;--border:rgba(230,238,235,.1);--border-strong:rgba(230,238,235,.16);
+--accent:#4fb585;--good:#8fd9b1;--bad:#f2b8b5;--warn:#f3c77a;--info:#9bd3f2;
+--c1:#3fa676;--c2:#c2841f;--c3:#4a93cc;--c4:#d66a4c;--c5:#9478cb;--c6:#8f9b35;
+--grid:rgba(230,238,235,.08);--axis:rgba(230,238,235,.24);
 color-scheme:dark;`;
 
 export const SANDBOX_BASE_CSS = `
 :root{${LIGHT}
 --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
---radius:8px;--radius-lg:12px}
+--radius:12px;--radius-lg:16px}
 :root[data-theme="dark"]{${DARK}}
 :where(html,body){margin:0;background:transparent}
 :where(body){padding:4px 2px;font:15px/1.55 var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
 :where([data-layout="page"]) :where(body){padding:16px 20px}
 :where(*,*::before,*::after){box-sizing:border-box}
-:where(h1,h2,h3,h4){margin:0 0 .5em;font-weight:500;line-height:1.25}
+:where(h1,h2,h3,h4){margin:0 0 .5em;font-weight:700;line-height:1.25}
 :where(h1){font-size:22px}:where(h2){font-size:18px}:where(h3){font-size:16px}:where(h4){font-size:14px}
 :where(p){margin:0 0 .75em}
 :where(small,.muted){color:var(--text-muted)}
 :where(a){color:var(--info)}
 :where(code,kbd,pre){font-family:var(--mono);font-size:.9em}
-:where(hr){border:0;border-top:.5px solid var(--border);margin:16px 0}
-:where(button){font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:.5px solid var(--border-strong);border-radius:var(--radius);padding:6px 12px;cursor:pointer}
+:where(hr){border:0;border-top:1px solid var(--border);margin:16px 0}
+:where(button){font:inherit;font-size:14px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);padding:6px 12px;cursor:pointer}
 :where(button:hover){background:var(--surface-2)}
 :where(button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 :where(button.primary,button[aria-pressed="true"]){background:var(--text);color:var(--surface);border-color:var(--text)}
-:where(input,select,textarea){font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:.5px solid var(--border-strong);border-radius:var(--radius);padding:6px 10px}
+:where(input,select,textarea){font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);padding:6px 10px}
 :where(input[type="range"]){padding:0;border:0;background:none;width:100%;accent-color:var(--accent)}
 :where(input[type="checkbox"],input[type="radio"]){accent-color:var(--accent)}
 :where(label){font-size:14px;color:var(--text-muted)}
 :where(table){border-collapse:collapse;width:100%;font-size:14px}
-:where(th){text-align:left;font-weight:500;color:var(--text-muted)}
-:where(th,td){padding:8px 10px;border-bottom:.5px solid var(--border)}
+:where(th){text-align:left;font-weight:600;color:var(--text-muted)}
+:where(th,td){padding:8px 10px;border-bottom:1px solid var(--border)}
 :where(td.num,th.num){text-align:right;font-variant-numeric:tabular-nums}
 :where(svg){max-width:100%;font-family:var(--font)}
 :where(canvas){max-width:100%}
-:where(.card){background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px}
+:where(.card){background:var(--surface);border:1px solid var(--border);border-radius:18px 6px 18px 6px;padding:16px 18px}
 :where(.grid){display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 :where(.row){display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
-:where(.stat){font-size:26px;font-weight:500;line-height:1.2;font-variant-numeric:tabular-nums}
+:where(.stat){font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.2;font-variant-numeric:tabular-nums}
 :where(.stat-label){font-size:13px;color:var(--text-muted)}
 :where(.chip){display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-muted)}
 :where(.up){color:var(--good)}:where(.down){color:var(--bad)}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { AttachmentBlock, GenerationRequest } from '../providers/types.js';
 import { routeTurn } from './routing/turnRouter.js';

@@ -7,7 +7,7 @@
  * - Validates normalized cache telemetry and cost calculation.
  */
 
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
+import { createAnthropicClient } from '../providers/anthropic.js';
 import { config } from '../config.js';
 import {
   ASK_USER_INPUT,
@@ -17,7 +17,7 @@ import {
   WEB_FETCH,
 } from '../tools/definitions.js';
 import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
-import { toAnthropicTool } from '../providers/anthropicVertex.js';
+import { toAnthropicTool } from '../providers/anthropic.js';
 import { normalizeCacheMetrics } from '../services/promptCache/telemetry.js';
 
 async function main() {
@@ -33,10 +33,7 @@ async function main() {
   console.log(`Anthropic Location: ${region}`);
   console.log(`Model: ${model}`);
 
-  const client = new AnthropicVertex({
-    projectId,
-    region,
-  });
+  const client = createAnthropicClient(config());
 
   const tools = [
     ASK_USER_INPUT,

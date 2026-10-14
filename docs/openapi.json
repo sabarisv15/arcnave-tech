@@ -305,6 +305,76 @@
         }
       }
     },
+    "/auth/google": {
+      "post": {
+        "summary": "Sign in with a Google ID token; links by verified e-mail or creates the account",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "credential": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  }
+                },
+                "required": [
+                  "credential"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "created"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/logout": {
       "post": {
         "summary": "End the current session",
@@ -1285,6 +1355,10 @@
                               "costUsd": {
                                 "nullable": true,
                                 "type": "number"
+                              },
+                              "costInr": {
+                                "nullable": true,
+                                "type": "number"
                               }
                             },
                             "required": [
@@ -1294,7 +1368,8 @@
                               "cacheReadTokens",
                               "cacheWriteTokens",
                               "exact",
-                              "costUsd"
+                              "costUsd",
+                              "costInr"
                             ],
                             "additionalProperties": false
                           }
@@ -4424,6 +4499,10 @@
                           "nullable": true,
                           "type": "number"
                         },
+                        "costInr": {
+                          "nullable": true,
+                          "type": "number"
+                        },
                         "requests": {
                           "type": "number"
                         }
@@ -4435,6 +4514,7 @@
                         "cacheReadTokens",
                         "cacheWriteTokens",
                         "costUsd",
+                        "costInr",
                         "requests"
                       ],
                       "additionalProperties": false
@@ -4461,6 +4541,10 @@
                           "nullable": true,
                           "type": "number"
                         },
+                        "costInr": {
+                          "nullable": true,
+                          "type": "number"
+                        },
                         "requests": {
                           "type": "number"
                         }
@@ -4472,6 +4556,7 @@
                         "cacheReadTokens",
                         "cacheWriteTokens",
                         "costUsd",
+                        "costInr",
                         "requests"
                       ],
                       "additionalProperties": false
@@ -4498,6 +4583,10 @@
                           "nullable": true,
                           "type": "number"
                         },
+                        "costInr": {
+                          "nullable": true,
+                          "type": "number"
+                        },
                         "requests": {
                           "type": "number"
                         }
@@ -4509,6 +4598,7 @@
                         "cacheReadTokens",
                         "cacheWriteTokens",
                         "costUsd",
+                        "costInr",
                         "requests"
                       ],
                       "additionalProperties": false
@@ -4535,6 +4625,10 @@
                             "nullable": true,
                             "type": "number"
                           },
+                          "costInr": {
+                            "nullable": true,
+                            "type": "number"
+                          },
                           "requests": {
                             "type": "number"
                           }
@@ -4545,6 +4639,7 @@
                           "outputTokens",
                           "totalTokens",
                           "costUsd",
+                          "costInr",
                           "requests"
                         ],
                         "additionalProperties": false
@@ -4572,6 +4667,10 @@
                             "nullable": true,
                             "type": "number"
                           },
+                          "costInr": {
+                            "nullable": true,
+                            "type": "number"
+                          },
                           "requests": {
                             "type": "number"
                           }
@@ -4582,6 +4681,7 @@
                           "outputTokens",
                           "totalTokens",
                           "costUsd",
+                          "costInr",
                           "requests"
                         ],
                         "additionalProperties": false
@@ -4967,6 +5067,10 @@
                             "nullable": true,
                             "type": "number"
                           },
+                          "costInr": {
+                            "nullable": true,
+                            "type": "number"
+                          },
                           "latencyMs": {
                             "nullable": true,
                             "type": "number"
@@ -5003,6 +5107,7 @@
                           "cacheWriteTokens",
                           "exact",
                           "costUsd",
+                          "costInr",
                           "latencyMs",
                           "status",
                           "finishReason",

@@ -27,12 +27,12 @@ function entry(alias: string, tier: Tier, supportsGrounding: boolean, supportsVi
   };
 }
 
-/** Mirrors the shape of the real table: one grounded model per tier, plus an ungrounded one. */
+/** Mirrors the shape of the real table: one grounded model per tier, plus a synthetic ungrounded, text-only one so the filters have something to drop. */
 const GEMINI = entry('Gemini', 'economy', true);
 const SONNET = entry('Sonnet', 'balanced', true);
 const OPUS = entry('Opus', 'quality', true);
-const GPT_OSS = entry('GPT-OSS', 'balanced', false, false);
-const ALL = [GEMINI, SONNET, OPUS, GPT_OSS];
+const TEXT_ONLY = entry('Text-only', 'balanced', false, false);
+const ALL = [GEMINI, SONNET, OPUS, TEXT_ONLY];
 
 function input(over: Partial<RoutingInput> = {}): RoutingInput {
   return {
@@ -126,21 +126,21 @@ describe('routeAuto', () => {
 
   it('never considers an ungrounded model for a grounded request', () => {
     const decision = routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, ALL);
-    expect(decision?.considered).not.toContain('GPT-OSS');
+    expect(decision?.considered).not.toContain('Text-only');
   });
 
   it('falls back to the next grounded model when Gemini is not configured', () => {
     const decision = routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, [
       SONNET,
       OPUS,
-      GPT_OSS,
+      TEXT_ONLY,
     ]);
     expect(decision?.alias).toBe('Sonnet');
     expect(decision?.rule).toContain('fallback');
   });
 
   it('returns null when nothing can ground, rather than guessing', () => {
-    expect(routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, [GPT_OSS])).toBeNull();
+    expect(routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, [TEXT_ONLY])).toBeNull();
   });
 
   it('reports the rule that decided, so Auto is never opaque', () => {
@@ -151,15 +151,15 @@ describe('routeAuto', () => {
 
   it('never considers a vision-incapable model when vision is required', () => {
     const decision = routeAuto(input({ requiresVision: true }), cfg, ALL);
-    expect(decision?.considered).not.toContain('GPT-OSS');
+    expect(decision?.considered).not.toContain('Text-only');
   });
 
   it('returns null when nothing configured can see an attachment', () => {
-    expect(routeAuto(input({ requiresVision: true }), cfg, [GPT_OSS])).toBeNull();
+    expect(routeAuto(input({ requiresVision: true }), cfg, [TEXT_ONLY])).toBeNull();
   });
 
   it('combines the grounding and vision filters', () => {
-    // GPT-OSS fails both; only a model with both capabilities should be considered.
+    // Text-only fails both; only a model with both capabilities should be considered.
     const decision = routeAuto(
       input({ requiresGrounding: true, requiresVision: true }),
       cfg,

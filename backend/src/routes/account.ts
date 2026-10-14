@@ -96,7 +96,7 @@ export async function accountRoutes(app: AppInstance): Promise<void> {
       const user = currentUser(request);
       const { db, storage, activeRuns, cfg } = request.services;
       const [row] = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id));
-      if (!row || !(await verifyPassword(request.body.password, row.passwordHash))) {
+      if (!row?.passwordHash || !(await verifyPassword(request.body.password, row.passwordHash))) {
         throw new ApiError('password_incorrect');
       }
       // Stop anything still writing for this account before its rows go.

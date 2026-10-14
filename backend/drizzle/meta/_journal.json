@@ -176,6 +176,27 @@
       "when": 1791800000000,
       "tag": "0024_memory_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0025_usage_cost_inr",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792000000000,
+      "tag": "0026_google_sign_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792100000000,
+      "tag": "0027_model_aliases_55",
+      "breakpoints": true
     }
   ]
 }

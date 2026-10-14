@@ -22,14 +22,31 @@ import { api, onUnauthorized } from "./api";
 import type { ModelsDto, User } from "./api";
 import { readLocal, writeLocal } from "./storage";
 
+/** Who was signed in when the session ended, kept in memory only so the way back can name them. */
+export interface EndedAccount {
+  name: string;
+  email: string;
+}
+
 interface SessionValue {
   user: User | null;
   /** True until the first `/auth/me` answers, so nothing flashes the wrong screen. */
   loading: boolean;
   /** Set when the session ended under us rather than by signing out. */
   expired: boolean;
+  /** Set only by a deliberate sign-out (board S7-SignedOut). Never true together with `expired`. */
+  signedOut: boolean;
+  /** The account that just signed out or lost its session; null on a fresh page load. */
+  lastAccount: EndedAccount | null;
+  /** "Use another account": forgets `lastAccount` and both notices. */
+  forgetAccount: () => void;
+  /** Id of an account created in this tab (sign-up or first Google sign-in), until the welcome closes. */
+  freshAccountId: string | null;
+  dismissWelcome: () => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
+  /** Signs in (or creates the account) from a Google ID token; resolves true for a new account. */
+  signInWithGoogle: (credential: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   models: ModelsDto | null;
   refreshModels: (probe?: boolean) => Promise<void>;
@@ -63,7 +80,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true),
     [expired, setExpired] = useState(false),
+    [signedOut, setSignedOut] = useState(false),
+    [lastAccount, setLastAccount] = useState<EndedAccount | null>(null),
+    [freshAccountId, setFreshAccountId] = useState<string | null>(null),
     [models, setModels] = useState<ModelsDto | null>(null);
+  // The handlers below outlive renders, so they read who is signed in from a ref.
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
 
   useEffect(() => {
     applyTheme(readLocal("theme") ?? "system", readLocal("font") ?? "sans");
@@ -87,8 +110,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // site inventing its own recovery.
   useEffect(() => {
     onUnauthorized(() => {
+      if (!deliberate.current) {
+        const who = userRef.current;
+        if (who) setLastAccount({ name: who.name, email: who.email });
+        setExpired(true);
+      }
       setUser(null);
-      if (!deliberate.current) setExpired(true);
     });
     return () => onUnauthorized(null);
   }, []);
@@ -134,17 +161,41 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       expired,
       models,
       refreshModels,
+      signedOut,
+      lastAccount,
+      freshAccountId,
+      dismissWelcome: () => setFreshAccountId(null),
+      forgetAccount: () => {
+        setExpired(false);
+        setSignedOut(false);
+        setLastAccount(null);
+      },
       signIn: async (email, password) => {
         const result = await api.auth.login(email, password);
         deliberate.current = false;
         setExpired(false);
+        setSignedOut(false);
+        setLastAccount(null);
         setUser(result.user);
       },
       signUp: async (email, password, name) => {
         const result = await api.auth.register(email, password, name);
         deliberate.current = false;
         setExpired(false);
+        setSignedOut(false);
+        setLastAccount(null);
+        setFreshAccountId(result.user.id);
         setUser(result.user);
+      },
+      signInWithGoogle: async (credential) => {
+        const result = await api.auth.google(credential);
+        deliberate.current = false;
+        setExpired(false);
+        setSignedOut(false);
+        setLastAccount(null);
+        if (result.created) setFreshAccountId(result.user.id);
+        setUser(result.user);
+        return result.created;
       },
       signOut: async () => {
         // The local session ends the instant this is called, not when the server answers.
@@ -153,7 +204,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // indistinguishable from Sign out doing nothing. The server call still happens, so the
         // cookie is actually revoked; the UI just no longer waits on it.
         deliberate.current = true;
+        const who = userRef.current;
         setExpired(false);
+        setSignedOut(true);
+        setLastAccount(who ? { name: who.name, email: who.email } : null);
+        setFreshAccountId(null);
         setUser(null);
         writeLocal("theme", "system");
         try {
@@ -164,7 +219,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [user, loading, expired, models, refreshModels],
+    [user, loading, expired, signedOut, lastAccount, freshAccountId, models, refreshModels],
   );
 
   return <C.Provider value={value}>{children}</C.Provider>;
