@@ -1,5 +1,22 @@
 # ArcNave — current checkpoint
 
+> **2026-10-14: Phase 0 base adoption ([ADR-0053](../decisions/0053-prototype-base-and-target-spec.md)). Branch `phase0/base-adoption`; local only, not deployed.**
+> - This repo is now the build base; the 21-stage architecture (owner's Architecture folder) is the
+>   target spec, mirrored read-only under `docs/architecture/`. Plan: `docs/architecture/00-Handoff/00-build-plan-arcnave-tech.md`.
+> - Commit 1: the uncommitted local work of 29 Sep – 6 Oct (migration 0024 memory settings,
+>   ADR-0052, Fable audit recheck + line-by-line HTML, landing/auth copy) — 55 files, hash-verified
+>   against the local folder; `.env` files excluded.
+> - Commit 2: `.github/workflows/ci.yml` (backend: tsc + vitest with postgres:16 + poppler/python3;
+>   frontend: tsc -b + vite build + vitest; PRs and non-main branches only), ADR-0053, CLAUDE.md
+>   "Build rules on this base", `docs/architecture/` mirror (28 files).
+> - Decisions: single user first; three models (Gemini 3.8 Flash, Sonnet 5.5, Opus 5.5); Claude via
+>   first-party API; per-company Claude switch dropped; residency / NO_CONTENT / Terraform / Redis /
+>   Cloud Tasks / OTel in Phase 5.
+> - Owner to do: branch protection on `main` (require `backend` + `frontend`, PR only); merge this PR
+>   (one deploy) or pause the trigger first.
+> - Next: Phase 1 — tech-p1.C Claude first-party gateway + 3-model cleanup (Opus); tech-p1.G0 brand
+>   tokens (Sonnet). See the build plan §3.
+
 > **2026-09-29: line-by-line comparison with Fable 5.1 delivered ([docs/audits/2026-09-29-arcnave-vs-fable-5.1-line-by-line.html](../audits/2026-09-29-arcnave-vs-fable-5.1-line-by-line.html)). Documentation only; no code changed.**
 > - Every line of `tools/Anthropic/claude-fable-5.1.md` (8,742) against the prompt captured today
 >   from the generate route, all tool declarations and all eight skills: 1,313 rows, 14 conflicts.
