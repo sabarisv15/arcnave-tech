@@ -1,5 +1,13 @@
 # ArcNave — current checkpoint
 
+> **2026-10-15: tech-audit.A — conformance audit of Stages 1–21 and a proposed plan. Branch `audit/stage-1-21` (from `main` @ `baca408`); docs only, no code changed; not merged.**
+> - Owner rule 2026-10-15 recorded as [ADR-0061](../decisions/0061-locked-decisions-win-outside-stack-and-infra.md): every locked outcome must be met except tech stack and infra; ADR-0053 #2 "repo wins" superseded (ADR-0053 itself not edited).
+> - [`docs/ops/audit/`](../ops/audit/SUMMARY.md): 21 stage audits, deep-dives D1 files / D2 AI output / D3 architecture, numbers sweep, evidence pack, deferred list, a 1,484-row master register (`FINDINGS.md`, every source section count-checked) and a start-to-end `AUDIT-LOG.md`.
+> - Result: 669 decision rows — KEEP 132, REWRITE 195, NEW-BUILD 167, DIFF-STACK 24, DIFF-INFRA 24, DEFERRED 71, n/a 52; 37 superseded lines not to build. Confirmed in code: ASCII-only project search (Tamil/Hindi invisible), no OCR at upload, retry re-runs tool rounds, run state in memory, SSRF regex, Gemini tool-result clearing against ADR-0023, `migrate || true`, unauthenticated `/models`.
+> - `NEW-PLAN.md`: a proposal of 29 phases (files → AI output → architecture, with security quick fixes early); every work row mapped to a phase. 32 owner questions (OQ-01…OQ-32) block parts of it; the owner decides.
+> - Models: main session Claude Opus 5.5; eight auditors Claude Sonnet 5.5. No provider calls. `.env.example` unread (permission rule).
+> - Next: owner answers OQ-01, 05, 08, 10, 12, 15; P01–P04 need no answer.
+
 > **2026-10-15: tech-p1 fix round (owner review), same branch, PR #40.**
 > - F-1: the app error handler logs `errorType` / `errorCode` / `rootType` / `rootCode` (SQLSTATE) /
 >   `messageLength` / route / method only (`src/errorLog.ts`); a failed sign-up insert no longer writes

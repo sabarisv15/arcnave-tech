@@ -859,6 +859,13 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-10-15** — No new heading (at the cap). tech-audit.A: I briefed eight auditors that
+  `06-eval-cases-v1.json` holds "87 cases" after counting `"id"` keys with grep; it is an array of
+  68 cases, and 19 of the ids belong to nested documents. Two auditors caught it. Rule: count
+  records by parsing the structure, never by grepping a key name. Verify:
+  `node -e "console.log(require('./06-eval-cases-v1.json').length)"` (prints 68). Also repeated
+  the 2026-09-27 lesson in a scratch script: a `$` inside a `String.replace` replacement mangled
+  the file — use a replacement callback or a written script, never inline `$` text.
 - **2026-09-29** — No new heading (at the cap). Writing the line-by-line Fable comparison, I keyed
   the first rows from a head-of-file print without line numbers and was two lines off for the
   whole product-information section; a script validator later also caught one ArcNave line cited
