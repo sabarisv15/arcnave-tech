@@ -2394,6 +2394,28 @@
                           "error": {
                             "type": "string"
                           },
+                          "errorCode": {
+                            "type": "string"
+                          },
+                          "warnings": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "chunkCount": {
                             "type": "number"
                           },
@@ -2417,6 +2439,8 @@
                           "sizeBytes",
                           "status",
                           "error",
+                          "errorCode",
+                          "warnings",
                           "chunkCount",
                           "checksumSha256",
                           "indexedAt",
@@ -2761,6 +2785,28 @@
                     "error": {
                       "type": "string"
                     },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
                     "chunkCount": {
                       "type": "number"
                     },
@@ -2784,6 +2830,8 @@
                     "sizeBytes",
                     "status",
                     "error",
+                    "errorCode",
+                    "warnings",
                     "chunkCount",
                     "checksumSha256",
                     "indexedAt",
@@ -2847,6 +2895,28 @@
                           "error": {
                             "type": "string"
                           },
+                          "errorCode": {
+                            "type": "string"
+                          },
+                          "warnings": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "chunkCount": {
                             "type": "number"
                           },
@@ -2870,6 +2940,8 @@
                           "sizeBytes",
                           "status",
                           "error",
+                          "errorCode",
+                          "warnings",
                           "chunkCount",
                           "checksumSha256",
                           "indexedAt",
@@ -2983,6 +3055,28 @@
                     "error": {
                       "type": "string"
                     },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
                     "chunkCount": {
                       "type": "number"
                     },
@@ -3006,6 +3100,8 @@
                     "sizeBytes",
                     "status",
                     "error",
+                    "errorCode",
+                    "warnings",
                     "chunkCount",
                     "checksumSha256",
                     "indexedAt",
@@ -5519,6 +5615,38 @@
                     "error": {
                       "type": "string"
                     },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "hasText": {
                       "type": "boolean"
                     },
@@ -5545,6 +5673,10 @@
                     "sizeBytes",
                     "status",
                     "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
                     "hasText",
                     "viewable",
                     "pageCount",
@@ -5630,6 +5762,38 @@
                         "error": {
                           "type": "string"
                         },
+                        "errorCode": {
+                          "type": "string"
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "detail": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "parentId": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "memberIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "hasText": {
                           "type": "boolean"
                         },
@@ -5656,6 +5820,10 @@
                         "sizeBytes",
                         "status",
                         "error",
+                        "errorCode",
+                        "warnings",
+                        "parentId",
+                        "memberIds",
                         "hasText",
                         "viewable",
                         "pageCount",
@@ -5750,7 +5918,7 @@
         "tags": [
           "projects"
         ],
-        "description": "Applies the per-type limits (PDF pages, image dimensions) and extracts text. A file that breaks a limit is deleted and the call fails with the reason.",
+        "description": "Checks every byte arrived, then queues the file to be read and answers 202 with status `queued`; poll `GET /files/:id` until it is `ready` or `failed` (with an `errorCode`). With FILE_PIPELINE=sync the file is read in this request and the answer (200) is final.",
         "parameters": [
           {
             "schema": {
@@ -5793,6 +5961,38 @@
                     "error": {
                       "type": "string"
                     },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "hasText": {
                       "type": "boolean"
                     },
@@ -5819,6 +6019,339 @@
                     "sizeBytes",
                     "status",
                     "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
+                    "hasText",
+                    "viewable",
+                    "pageCount",
+                    "reading",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "hasText": {
+                      "type": "boolean"
+                    },
+                    "viewable": {
+                      "type": "boolean"
+                    },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "messageId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
+                    "hasText",
+                    "viewable",
+                    "pageCount",
+                    "reading",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}/retry": {
+      "post": {
+        "summary": "Read a failed file again",
+        "tags": [
+          "projects"
+        ],
+        "description": "For a `failed` file (Stage 9 RETRY): queues it to be read again (202, poll `GET /files/:id`), or reads it in the request with FILE_PIPELINE=sync (200).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "hasText": {
+                      "type": "boolean"
+                    },
+                    "viewable": {
+                      "type": "boolean"
+                    },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "messageId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
+                    "hasText",
+                    "viewable",
+                    "pageCount",
+                    "reading",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "hasText": {
+                      "type": "boolean"
+                    },
+                    "viewable": {
+                      "type": "boolean"
+                    },
+                    "pageCount": {
+                      "nullable": true,
+                      "type": "number"
+                    },
+                    "reading": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "messageId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
                     "hasText",
                     "viewable",
                     "pageCount",
@@ -5890,6 +6423,38 @@
                     "error": {
                       "type": "string"
                     },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "hasText": {
                       "type": "boolean"
                     },
@@ -5916,6 +6481,10 @@
                     "sizeBytes",
                     "status",
                     "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
                     "hasText",
                     "viewable",
                     "pageCount",
@@ -5978,6 +6547,38 @@
                     "error": {
                       "type": "string"
                     },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "parentId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "hasText": {
                       "type": "boolean"
                     },
@@ -6004,6 +6605,10 @@
                     "sizeBytes",
                     "status",
                     "error",
+                    "errorCode",
+                    "warnings",
+                    "parentId",
+                    "memberIds",
                     "hasText",
                     "viewable",
                     "pageCount",

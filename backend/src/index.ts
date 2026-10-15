@@ -92,6 +92,9 @@ async function main(): Promise<void> {
     void shutdown('uncaughtException');
   });
 
+  // File jobs (ADR-0062): queued uploads, abandoned leases, and the re-index backfill.
+  app.services.files.start();
+
   await app.listen({ port: cfg.PORT, host: cfg.HOST });
   logger.info(
     {

@@ -174,6 +174,11 @@ function baseEnv(): Record<string, string> {
     RATE_LIMIT_WRITE_PER_MINUTE: '10000',
     RATE_LIMIT_GENERATE_PER_MINUTE: '10000',
     MAX_UPLOAD_BYTES: String(2 * 1024 * 1024),
+    // The suite shares one database; a test app's file worker takes only the jobs its own app
+    // queued (no polling), and never re-indexes other files' project files.
+    FILE_WORKER_POLL_MS: '0',
+    FILE_REINDEX_BACKFILL: 'false',
+    UPLOADS_PER_USER_PER_DAY: '100000',
     // N-42's 1 s → 2 s backoff is real time; a retry test checks that it retries, not how long.
     PROVIDER_RETRY_BASE_MS: '5',
   };
@@ -183,7 +188,7 @@ export async function createTestApp(
   env: Record<string, string> = {},
   provider = new FakeProvider(),
   /** Further service seams, e.g. `modelInputs`. */
-  seams: Pick<BuildOptions, 'modelInputs' | 'googleVerifier'> = {},
+  seams: Pick<BuildOptions, 'modelInputs' | 'googleVerifier' | 'fileWorker'> = {},
 ): Promise<TestContext> {
   const storageRoot = await mkdtemp(join(tmpdir(), 'arcnave-test-'));
   const cfg = loadConfig({ ...baseEnv(), STORAGE_LOCAL_PATH: storageRoot, ...env });
@@ -200,6 +205,8 @@ export async function createTestApp(
     ...seams,
   });
   await app.ready();
+  // As index.ts does for the real process; polling is off (baseEnv), so it runs only this app's jobs.
+  app.services.files.start();
 
   return {
     app,

@@ -91,7 +91,8 @@ async function uploadFile(name: string, bytes: Buffer, mime: string): Promise<st
   });
   expect(put.statusCode).toBe(204);
   const done = await ctx.app.inject({ method: 'POST', url: `/v1/files/${file.id}/complete`, headers });
-  expect(done.statusCode).toBe(200);
+  expect(done.statusCode).toBe(202);
+  await ctx.app.services.files.idle();
   return file.id;
 }
 
@@ -109,7 +110,10 @@ describe('G18: provider limits from the selected model', () => {
     expect(counters.length).toBeGreaterThan(0);
     for (const c of counters) expect(c.tokensReserved).toBe(0);
 
-    const accepted = parseSse((await generate(await newChat(), 'Gemini 3.8 Flash', fileId)).body).at(-1)!;
+    // The refused turn still holds its file (a sent file is claimed once, D1 #18): the same
+    // image is attached again for the other model.
+    const again = await uploadFile('noise.png', noisePng(2000), 'image/png');
+    const accepted = parseSse((await generate(await newChat(), 'Gemini 3.8 Flash', again)).body).at(-1)!;
     expect(accepted.event).toBe('done');
   });
 

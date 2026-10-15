@@ -354,12 +354,49 @@ const envSchema = z.object({
   /** N-10 (repo value). */
   ATTACHMENT_MAX_BYTES: int(NUMBERS.ATTACHMENT_MAX_BYTES.value),
   /**
-   * Peak memory one upload's text extraction may take; extractions run one at a time per
-   * instance. With EXTRACTION_MEMORY_PER_BYTE this gives each type's size limit for extraction
-   * (larger files are stored, not extracted). Keep it at about half the instance memory; the
-   * backend runs with 8 GiB (2026-09-25), so 4 GiB. Lower it with the memory, never above it.
+   * Parser memory one instance may hold at once. Each isolated extraction child gets this
+   * divided by EXTRACTION_CONCURRENCY as its heap limit (isolatedExtract.ts); a file whose
+   * parser needs more is kept with a `not_extracted` note, and code can still open it. Keep it
+   * at about half the instance memory; the backend runs with 8 GiB (2026-09-25), so 4 GiB.
    */
   EXTRACTION_MEMORY_BUDGET_BYTES: int(4 * 1024 * 1024 * 1024),
+
+  // --- File pipeline (Stage 9 PIPE, ADR-0062) --------------------------------
+  /**
+   * `jobs`: `POST /files/:id/complete` queues a file job and answers 202; the chip polls.
+   * `sync`: the same pipeline runs inside the request and the answer is final (the old shape,
+   * kept behind this flag; `filePipelineParity.integration.test.ts` holds the two equal).
+   */
+  FILE_PIPELINE: z.enum(['jobs', 'sync']).default('jobs'),
+  /** File jobs one instance runs at once. One slot is always kept for the fast lane. */
+  FILE_WORKER_CONCURRENCY: int(3),
+  /** A job's lease; renewed while it runs, taken over by another worker once it lapses. */
+  FILE_JOB_LEASE_MS: int(60_000),
+  /** How often an idle worker looks for queued or abandoned jobs. Enqueueing also wakes it. */
+  FILE_WORKER_POLL_MS: int(2_000),
+  /** Files up to this size take the fast lane (ours: Stage 9 G30 asks for a fast lane, no size). */
+  FILE_FAST_LANE_MAX_BYTES: int(2 * 1024 * 1024),
+  /**
+   * Isolated extractions one instance runs at once. Each child's heap is
+   * EXTRACTION_MEMORY_BUDGET_BYTES / this, so the instance's total stays inside the budget.
+   */
+  EXTRACTION_CONCURRENCY: int(2),
+  /** Re-index project files written by an older indexer (retrieval.ts INDEX_VERSION) on start. */
+  FILE_REINDEX_BACKFILL: bool(true),
+  /** One isolated extraction's wall clock. Past it the child is killed: `timeout`. */
+  EXTRACTION_TIMEOUT_MS: int(300_000),
+  /**
+   * Malware scanning. `none` runs the `scanning` stage with a scanner that passes every file:
+   * the state exists, the scan arrives with the malware phase (P19). Never claim a file was
+   * scanned when this is `none`.
+   */
+  FILE_SCANNER: z.enum(['none']).default('none'),
+  /** ZIP containers (ZIP uploads and OOXML): refused above this inflate ratio (ours, UD-2 "ratio"). */
+  ZIP_MAX_RATIO: int(100),
+  /** N-11 (Stage 18 final, 50 uploads/user/day). */
+  UPLOADS_PER_USER_PER_DAY: int(NUMBERS.UPLOADS_PER_USER_PER_DAY.value),
+  /** N-44 (Stage 15 ER-7 file-blocking: 3 attempts). */
+  FILE_JOB_MAX_ATTEMPTS: int(NUMBERS.FILE_JOB_MAX_ATTEMPTS.value),
 
   // --- Rate limiting ------------------------------------------------------
   /** N-01 (user 20 req/min). */

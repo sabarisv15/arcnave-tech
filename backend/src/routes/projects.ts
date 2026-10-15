@@ -28,7 +28,12 @@ import {
 } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
-import { indexFile } from '../services/retrieval.js';
+import { storageKeyInUse } from '../services/attachments/references.js';
+import { isolatedExtractPages } from '../services/attachments/isolatedExtract.js';
+import { sniffBuffer } from '../services/attachments/sniff.js';
+import { FileFailure, fileErrorText } from '../services/attachments/fileErrors.js';
+import { reserveUpload } from '../services/attachments/quota.js';
+import { INDEX_VERSION, indexFile } from '../services/retrieval.js';
 import { checkUpload, generateStorageKey, safeDownloadName, sha256 } from '../services/storage.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -70,6 +75,10 @@ const fileSchema = z.object({
   /** pending | indexing | ready | failed | unsupported */
   status: z.string(),
   error: z.string(),
+  /** Stage 15 ER-9 code when `failed` / `unsupported`; '' otherwise. */
+  errorCode: z.string(),
+  /** Notes on a ready file, e.g. `chunk_cap` when only part of it is searchable. */
+  warnings: z.array(z.object({ code: z.string(), detail: z.string() })),
   chunkCount: z.number(),
   checksumSha256: z.string(),
   indexedAt: z.string().nullable(),
@@ -401,6 +410,20 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
 
       const check = checkUpload(part.filename, part.mimetype, data.length, cfg);
       if (!check.ok) throw new ApiError(check.code!, { detail: check.detail! });
+      // The content must be what the name says (FT-12): a macro or legacy file renamed, or an
+      // executable named .pdf, is refused before it is stored.
+      try {
+        sniffBuffer(data, part.filename, check.mimeType);
+      } catch (err) {
+        if (err instanceof FileFailure) {
+          throw new ApiError(err.code === 'too_large' ? 'payload_too_large' : 'unsupported_media_type', {
+            detail: fileErrorText(err.code, err.detail),
+            meta: { fileErrorCode: err.code },
+          });
+        }
+        throw err;
+      }
+      await reserveUpload(db, user.id, cfg.UPLOADS_PER_USER_PER_DAY);
 
       const storageKey = generateStorageKey(user.id);
       await storage.put(storageKey, data, check.mimeType);
@@ -528,6 +551,9 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
       // costs storage; the other order leaves a row pointing at bytes that are gone, which the
       // user sees as a file that will not open.
       await db.delete(projectFiles).where(eq(projectFiles.id, file.id));
+      // A chat attachment picked from this file reads these same bytes (its key is a copy of
+      // ours). They stay until the last such attachment goes; retention removes them then.
+      if (await storageKeyInUse(db, file.storageKey)) return reply.status(204).send(null);
       try {
         await storage.delete(file.storageKey);
       } catch (err) {
@@ -787,18 +813,23 @@ async function runIndex(
   let patch: Partial<ProjectFileRow>;
 
   try {
-    const result = await indexFile(db, file, data, visionProvider);
+    const result = await indexFile(db, file, data, visionProvider, isolatedExtractPages(request.services.cfg));
     patch = {
       status: result.status,
       error: result.error,
+      errorCode: result.errorCode,
+      warnings: result.warnings,
       chunkCount: result.chunkCount,
+      indexVersion: INDEX_VERSION,
       indexedAt: new Date(),
     };
   } catch (err) {
-    request.log.error({ err, fileId: file.id }, 'indexing failed');
+    request.log.error({ errName: err instanceof Error ? err.name : 'unknown', fileId: file.id }, 'indexing failed');
     patch = {
       status: 'failed',
       error: 'This file could not be indexed. You can retry it.',
+      errorCode: '',
+      warnings: [],
       chunkCount: 0,
       indexedAt: null,
     };
@@ -841,6 +872,8 @@ function toFileDto(row: ProjectFileRow): z.infer<typeof fileSchema> {
     sizeBytes: row.sizeBytes,
     status: row.status,
     error: row.error,
+    errorCode: row.errorCode,
+    warnings: row.warnings,
     chunkCount: row.chunkCount,
     checksumSha256: row.checksumSha256,
     indexedAt: iso(row.indexedAt),

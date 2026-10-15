@@ -1746,13 +1746,19 @@ export class GenerationService {
           // stored bytes behind a key never change (audit B6).
           const rendered = att.mimeType === 'application/pdf' ? cachedPdfForModel(att.storageKey) : undefined;
           if (rendered) return asPdfForModel(att, rendered);
+          let data: Buffer;
           try {
-            const data = await this.storage.get(att.storageKey);
-            if (att.mimeType === 'application/pdf') return await asPdfForModel(att, data);
-            return { ...att, base64: data.toString('base64') };
+            data = await this.storage.get(att.storageKey);
           } catch (err) {
-            log.warn({ err, storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
+            log.warn({ errName: err instanceof Error ? err.name : 'unknown', storageKey: att.storageKey }, 'failed to load attachment bytes for wire payload');
             return { ...att, omittedReason: 'storage_unavailable' as const };
+          }
+          if (att.mimeType !== 'application/pdf') return { ...att, base64: data.toString('base64') };
+          try {
+            return await asPdfForModel(att, data);
+          } catch {
+            // The bytes arrived; reading them failed. That is the file, not storage (D1 #34).
+            return { ...att, omittedReason: 'unreadable' as const, omittedDetail: 'the PDF could not be rendered' };
           }
         }
         return att;

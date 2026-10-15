@@ -18,6 +18,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
 import { attachments, chats, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
+import { storageKeyInUse } from './attachments/references.js';
 import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
 import type { ObjectStorage } from './storage.js';
 
@@ -97,8 +98,12 @@ export async function sweepRetention(
       .from(attachments)
       .where(and(isNull(attachments.messageId), lt(attachments.createdAt, uploadCutoff)));
     const removable: string[] = [];
+    const leaving = unsent.map((r) => r.id);
     for (const row of unsent) {
-      if (row.projectFileId || (await deleteObjects(storage, [row.storageKey], log))) removable.push(row.id);
+      // Bytes another row still reads stay: a project file's, or a picked file whose project
+      // file was deleted while a sent message still holds it (D1 #17).
+      const shared = Boolean(row.projectFileId) || (await storageKeyInUse(tx, row.storageKey, { attachmentIds: leaving }));
+      if (shared || (await deleteObjects(storage, [row.storageKey], log))) removable.push(row.id);
     }
     if (removable.length > 0) await tx.delete(attachments).where(inArray(attachments.id, removable));
 

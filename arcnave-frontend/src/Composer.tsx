@@ -16,9 +16,10 @@ import {
   TriangleAlert,
   X,
   PanelsTopLeft,
+  RotateCcw,
 } from "lucide-react";
 import { ApiError, api } from "./api";
-import type { ModelsDto, StyleDto, StylePresetDto } from "./api";
+import type { AttachmentDto, ModelsDto, StyleDto, StylePresetDto } from "./api";
 import type { Attachment, Message, Mode, ReasoningEffort } from "./types";
 import { DictationButton } from "./Dictation";
 import {
@@ -27,6 +28,7 @@ import {
   toAttachment,
 } from "./types";
 import { MAX_ATTACHMENT_BYTES, sizeLabel, validateFile } from "./storage";
+import { filesBlockSend, isBroken, isSettled, pollFile, stageLabel } from "./fileStates";
 import { Dropdown, IconButton } from "./ui";
 import { useSession } from "./session";
 import { useWorkspace } from "./workspace";
@@ -180,13 +182,17 @@ export function deriveFollowUpSuggestion(
 export function AttachmentChip({
   file,
   onRemove,
+  onRetry,
 }: {
   file: Attachment;
   onRemove?: () => void;
+  /** Shown on a failed file (AS-D6: every failure offers Retry and Remove). */
+  onRetry?: () => void;
 }) {
   const { setPanel } = useWorkspace();
-  const broken = file.status === "failed" || file.status === "unsupported";
+  const broken = isBroken(file.status);
   const openable = file.status === "ready" && !!file.downloadUrl;
+  const stage = stageLabel(file);
   return (
     <div className={`attachment-chip ${broken ? "failed" : ""}`}>
       <button
@@ -194,7 +200,7 @@ export function AttachmentChip({
         onClick={() => openable && setPanel({ kind: "file", file })}
         disabled={!openable}
       >
-        {file.status === "uploading" || file.status === "indexing" ? (
+        {stage ? (
           <Loader2 className="spin" size={18} />
         ) : broken ? (
           <TriangleAlert size={18} />
@@ -206,29 +212,30 @@ export function AttachmentChip({
         <span>
           <strong>{file.name}</strong>
           <small>
-            {file.status === "uploading"
-              ? file.progress !== undefined
-                ? `Uploading… ${Math.round(file.progress * 100)}%`
-                : "Uploading…"
-              : file.status === "indexing"
-                ? "Indexing…"
-                : file.error
-                  ? file.error
-                  : file.status === "unsupported"
-                    ? "Stored, but no text could be read from it"
-                    : `${sizeLabel(file.size)}${
-                        file.chunkCount !== undefined
-                          ? ` · ${file.chunkCount} indexed chunk${file.chunkCount === 1 ? "" : "s"}`
-                          : file.pageCount
-                            ? ` · ${file.pageCount} page${file.pageCount === 1 ? "" : "s"}`
-                            : file.reading === "none" ||
-                                (file.reading === undefined && file.hasText === false)
-                              ? " · no text"
-                              : ""
-                      }`}
+            {stage
+              ? stage
+              : file.error
+                ? file.error
+                : broken
+                  ? "This file could not be read."
+                  : `${sizeLabel(file.size)}${
+                      file.chunkCount !== undefined
+                        ? ` · ${file.chunkCount} indexed chunk${file.chunkCount === 1 ? "" : "s"}`
+                        : file.pageCount
+                          ? ` · ${file.pageCount} page${file.pageCount === 1 ? "" : "s"}`
+                          : file.reading === "none" ||
+                              (file.reading === undefined && file.hasText === false)
+                            ? " · no text"
+                            : ""
+                    }`}
           </small>
         </span>
       </button>
+      {broken && onRetry && (
+        <IconButton label={`Retry ${file.name}`} onClick={onRetry}>
+          <RotateCcw size={14} />
+        </IconButton>
+      )}
       {onRemove && (
         <IconButton label={`Remove ${file.name}`} onClick={onRemove}>
           <X size={14} />
@@ -378,13 +385,71 @@ export default function Composer({
   const editing = !!edit && edit.chatId === chatId;
   const showFollowUp = inlineReply && !busy && !text && !files.length && !artifact && !editing;
 
+  /** The picked File behind each chip, so a failed upload can be sent again by Retry. */
+  const picked = useRef(new Map<string, File>());
+  /** Polls in flight, stopped when the composer goes away. */
+  const polls = useRef(new AbortController());
+  useEffect(() => () => polls.current.abort(), []);
+
+  const replaceChip = useCallback((id: string, next: Attachment | Attachment[]) => {
+    if (!mounted.current) return;
+    setFiles((all) => all.flatMap((x) => (x.id === id ? next : [x])));
+  }, []);
+
   /**
-   * Upload each file as it is chosen.
+   * Follows a file the server is reading until it settles. A ZIP that settles `ready` is
+   * replaced by its members, each followed the same way (Stage 9 ZIP: members are files).
+   */
+  const follow = useCallback(
+    async (dto: AttachmentDto) => {
+      let last: AttachmentDto | null = dto;
+      if (!isSettled(dto.status)) {
+        last = await pollFile(dto.id, api.files.read, (update) => replaceChip(update.id, toAttachment(update)), {
+          signal: polls.current.signal,
+        });
+      }
+      if (!last || last.status !== "ready" || !last.memberIds?.length) return;
+      const members = await Promise.all(last.memberIds.map((id) => api.files.read(id).catch(() => null)));
+      const found = members.filter((m): m is AttachmentDto => m !== null);
+      replaceChip(last.id, found.map(toAttachment));
+      await Promise.all(found.map((m) => (isSettled(m.status) ? undefined : follow(m))));
+    },
+    [replaceChip],
+  );
+
+  /**
+   * Upload one file into the chip `localId`, then follow the server's reading of it.
    *
    * The id the server returns is what `generate` needs in `attachmentIds`, so a file that is
-   * still uploading blocks send — a message that referenced an id the server had not issued
-   * would simply drop the attachment.
+   * still uploading or being read blocks send — the server would refuse it (`file_not_ready`).
    */
+  async function uploadInto(localId: string, file: File) {
+    try {
+      const uploaded = await api.files.upload(file, (progress) => {
+        if (mounted.current)
+          setFiles((f) => f.map((x) => (x.id === localId ? { ...x, progress } : x)));
+      });
+      replaceChip(localId, toAttachment(uploaded));
+      await follow(uploaded);
+    } catch (error) {
+      if (mounted.current)
+        setFiles((f) =>
+          f.map((x) =>
+            x.id === localId
+              ? {
+                  ...x,
+                  status: "failed",
+                  error:
+                    error instanceof ApiError
+                      ? error.detail
+                      : "The upload failed. Retry, or remove the file.",
+                }
+              : x,
+          ),
+        );
+    }
+  }
+
   async function addFiles(list: FileList | File[] | null) {
     if (!list) return;
     const selected = Array.from(list).slice(0, 10 - files.length);
@@ -392,70 +457,63 @@ export default function Composer({
       toast("You can attach up to 10 files.");
       return;
     }
-    for (const file of selected) {
-      const problem = validateFile(file, MAX_ATTACHMENT_BYTES);
-      const localId = `upload-${crypto.randomUUID()}`;
-      setFiles((f) => [
-        ...f,
-        {
-          id: localId,
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          status: problem ? "unsupported" : "uploading",
-          ...(problem ? { error: problem } : {}),
-        },
-      ]);
-      if (problem) continue;
-      try {
-        const uploaded = await api.files.upload(file, (progress) => {
-          if (mounted.current)
-            setFiles((f) => f.map((x) => (x.id === localId ? { ...x, progress } : x)));
-        });
-        if (mounted.current)
-          setFiles((f) =>
-            f.map((x) => (x.id === localId ? toAttachment(uploaded) : x)),
-          );
-      } catch (error) {
-        if (mounted.current)
-          setFiles((f) =>
-            f.map((x) =>
-              x.id === localId
-                ? {
-                    ...x,
-                    status: "failed",
-                    error:
-                      error instanceof ApiError
-                        ? error.detail
-                        : "The upload failed. Remove the file and try again.",
-                  }
-                : x,
-            ),
-          );
-      }
-    }
+    // Uploads run side by side: the server no longer reads one file at a time.
+    await Promise.all(
+      selected.map(async (file) => {
+        const problem = validateFile(file, MAX_ATTACHMENT_BYTES);
+        const localId = `upload-${crypto.randomUUID()}`;
+        setFiles((f) => [
+          ...f,
+          {
+            id: localId,
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            status: problem ? "unsupported" : "uploading",
+            ...(problem ? { error: problem } : {}),
+          },
+        ]);
+        if (problem) return;
+        picked.current.set(localId, file);
+        await uploadInto(localId, file);
+      }),
+    );
   }
+
+  /** Retry: read a server-side failure again, or send a failed upload's bytes again. */
+  const retryFile = async (file: Attachment) => {
+    if (file.downloadUrl) {
+      try {
+        const queued = await api.files.retry(file.id);
+        replaceChip(file.id, toAttachment(queued));
+        await follow(queued);
+      } catch (error) {
+        toast(error instanceof ApiError ? error.detail : "The file could not be retried.");
+      }
+      return;
+    }
+    const original = picked.current.get(file.id);
+    if (!original) return;
+    setFiles((all) => all.map((x) => (x.id === file.id ? { ...x, status: "uploading", error: undefined } : x)));
+    await uploadInto(file.id, original);
+  };
 
   const removeFile = (file: Attachment) => {
     setFiles((all) => all.filter((x) => x.id !== file.id));
+    picked.current.delete(file.id);
     // Only server-side rows need deleting; a rejected file was never sent.
     if (file.downloadUrl) void api.files.remove(file.id).catch(() => {});
   };
 
-  const pending = files.some((f) => f.status === "uploading");
-  const unusable = files.some(
-    (f) => f.status === "failed" || f.status === "unsupported",
-  );
+  const blocked = filesBlockSend(files);
 
   const submit = () => {
-    if (editing || busy || pending || (!text.trim() && !files.length)) return;
-    const ready = files.filter(
-      (f) => f.status === "ready" || f.status === "unsupported",
-    );
-    send(text, mode, ready, chatId, projectId, artifact || artifactIntent);
+    if (editing || busy || blocked || (!text.trim() && !files.length)) return;
+    send(text, mode, files, chatId, projectId, artifact || artifactIntent);
     if (quote) consumeQuote(quote.timestamp);
     setText("");
     setFiles([]);
+    picked.current.clear();
     setArtifact(artifactIntent);
   };
 
@@ -605,6 +663,7 @@ export default function Composer({
                 key={f.id}
                 file={f}
                 onRemove={() => removeFile(f)}
+                onRetry={() => void retryFile(f)}
               />
             ))}
           </div>
@@ -805,7 +864,7 @@ export default function Composer({
               className="send-button"
               aria-label="Send message"
               onClick={submit}
-              disabled={editing || busy || pending || (!text.trim() && !files.length)}
+              disabled={editing || busy || !!blocked || (!text.trim() && !files.length)}
             >
               <ArrowUp size={19} />
             </button>
@@ -830,11 +889,11 @@ export default function Composer({
         {inlineReply && <span className="composer-under-note">arcnave can make mistakes.</span>}
         {modelMenu}
       </div>
-      {(pending || unusable) && (
+      {blocked && (
         <p className="composer-disclaimer">
-          {pending
-            ? "Waiting for uploads to finish…"
-            : "Files marked with a warning are sent without their text."}
+          {blocked === "reading"
+            ? "Waiting for files to finish reading…"
+            : "Retry or remove the files marked with a warning to send."}
         </p>
       )}
       <StylesModal

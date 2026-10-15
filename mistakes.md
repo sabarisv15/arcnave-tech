@@ -226,27 +226,6 @@ failure mode of this pattern, not a sign it is working.
   the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
   `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
 
-### 2026-09-17 — The SSE generate endpoint had no CORS headers, only visible once cross-origin
-
-- **Symptom:** In a real browser, sending a chat message hung on "Thinking…" forever. Every
-  other endpoint (login, chats list, models) worked fine from the same page. Curl-based testing
-  all session had not caught this — curl does not enforce CORS, only browsers do.
-- **Cause:** `/chats/:id/generate` writes its response with `reply.raw.writeHead(...)` to
-  stream SSE frames, bypassing Fastify's reply pipeline entirely — which is exactly where
-  `@fastify/cors` (registered in `app.ts`) injects `Access-Control-Allow-Origin` and
-  `-Credentials`. Every other route uses `reply.send()`/Fastify's normal response path and got
-  CORS headers for free; this one silently never had them. Invisible for the entire time the
-  frontend and API were same-origin (via `vite.config.ts`'s proxy, or the Worker proxy tried
-  and reverted earlier tonight) — a hard, silent failure the moment they were not.
-- **Rule:** **Any handler that reaches for `reply.raw` to bypass Fastify's response pipeline
-  must be checked against every `onSend`-hook-based plugin the app registers — CORS, but also
-  anything else added later that assumes it runs through `reply.send()`.** Test it with an
-  actual cross-origin `Origin` header via `app.inject()`, not just same-origin curl calls;
-  curl and `fetch` with no `Origin` set will never reproduce a CORS failure.
-- **Verify:** `chats.integration.test.ts` — "sends CORS headers on the SSE response for an
-  allowed origin" and its negative counterpart for a non-allow-listed origin. Both fail if the
-  header logic in `chats.ts`'s generate handler regresses.
-
 ### 2026-09-17 — `docker start arcnave-pg` fails in this Claude Code web/cloud sandbox
 
 - **Symptom:** `global-setup.ts`'s own error message ("Is Postgres running? `docker start
@@ -834,6 +813,23 @@ failure mode of this pattern, not a sign it is working.
   message is being edited". (3) The Tamil answer rule `.markdown:lang(ta)` in `shell.css` outranked the
   user's Conversation font (system, dyslexic) for Tamil only. Rule: a language rule needs the same
   `[data-font]` carve-outs as the base rule. Verify: `chat-states.css` has the two `:lang(ta)` overrides.
+
+### 2026-10-15 — A background worker started by `createApp` made the database-free OpenAPI build hang
+
+- **Symptom:** `npm run openapi` (documented as "a database-free smoke test") never exited after
+  the file-job worker was added. No error; the process just stayed open.
+- **Cause:** the worker was started from an `onReady` hook inside `createApp`. Its first pump ran
+  a query, which opened the `postgres.js` pool; `app.close()` stopped the worker but nothing
+  closed the pool, so the event loop stayed alive. Every caller of `createApp` (OpenAPI, tests,
+  scripts) got a database worker it never asked for.
+- **Rule:** **Never start a loop that touches the database from `createApp`.** Building the app
+  must not reach the database; the process entry (`index.ts`) starts background work, and the
+  test harness starts it explicitly. Also, when tests share one database, a background worker
+  must not claim work another test app queued: with polling off it runs only the jobs it was
+  handed (`FILE_WORKER_POLL_MS=0` in `harness.ts`).
+- **Verify:** `cd backend && timeout 150 npx tsx src/openapi.ts` exits 0;
+  `grep -n "files.start" src/app.ts` is empty, and `src/index.ts` / `src/test/harness.ts` each
+  have one.
 
 ## Convention and sources
 
@@ -1430,3 +1426,12 @@ practice, not canon.
   that only forbids narrating the tool). Rule: a sentence in the static base that names a tool is
   built from `buildStaticBasePrompt(allowed.has('read_me'))`, not written once. Verify: PK-HON-05
   with no `it.fails` left in `src/test/promptKit`.
+- **2026-10-15 (tech-build.1, files fix)** — Pruned "The SSE generate endpoint had no CORS
+  headers": `chats.integration.test.ts` ("sends CORS headers on the SSE response…") now carries it
+  (pruning criterion 1). Added the `createApp` worker entry. Not new headings: `drizzle-kit
+  generate` stamped 0028 (`1792079597911`) before 0027 (`1792100000000`) again; re-stamped by tag,
+  `journal.test.ts` passes (the 2026-09-25 rule). An existing test (`modelLimits.integration`)
+  sent the same file in two chats, which only worked because of the claim bug D1 #18 fixed; a
+  test that relies on a bug is the bug's last defender — read a newly failing old test for that
+  before "fixing" the code. And `pkill -f <pattern>` in this shell killed the shell itself,
+  because its own command line contained the pattern; kill by PID.

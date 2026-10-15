@@ -137,6 +137,34 @@ describe('checkUpload', () => {
   });
 });
 
+describe('checkUpload: per-type limits (N-10) and the save-as refusals (FT-2 / FT-3)', () => {
+  const MB = 1024 * 1024;
+  const big = cfg.ATTACHMENT_MAX_BYTES;
+
+  it('applies each type its own N-10 limit under the 500 MB transport ceiling', () => {
+    expect(checkUpload('a.pdf', 'application/pdf', 100 * MB, cfg, big).ok).toBe(true);
+    expect(checkUpload('a.pdf', 'application/pdf', 100 * MB + 1, cfg, big)).toMatchObject({ ok: false, code: 'payload_too_large' });
+    expect(checkUpload('a.xlsx', '', 50 * MB + 1, cfg, big).detail).toContain('50 MB');
+    expect(checkUpload('a.png', 'image/png', 20 * MB + 1, cfg, big).detail).toContain('20 MB');
+    expect(checkUpload('a.png', 'image/png', 20 * MB, cfg, big).ok).toBe(true);
+    expect(checkUpload('a.zip', 'application/zip', 100 * MB + 1, cfg, big).ok).toBe(false);
+    expect(checkUpload('a.mp3', 'audio/mpeg', 500 * MB, cfg, big).ok).toBe(true);
+  });
+
+  it('refuses macro and legacy Office names with the locked save-as text', () => {
+    expect(checkUpload('a.docm', '', 10, cfg).detail).toBe('This .docm file contains macros. Save it as DOCX and upload it again.');
+    expect(checkUpload('a.xlsm', '', 10, cfg).detail).toBe('This .xlsm file contains macros. Save it as XLSX and upload it again.');
+    expect(checkUpload('a.doc', 'application/msword', 10, cfg).detail).toBe('This .doc file is in an old Office format. Save it as DOCX and upload it again.');
+    expect(checkUpload('a.ppt', '', 10, cfg).detail).toBe('This .ppt file is in an old Office format. Save it as PPTX and upload it again.');
+  });
+
+  it('accepts a ZIP and resolves a typeless PDF or image by its extension (ZIP members carry no type)', () => {
+    expect(checkUpload('a.zip', 'application/x-zip-compressed', 10, cfg)).toMatchObject({ ok: true, mimeType: 'application/x-zip-compressed' });
+    expect(checkUpload('a.pdf', '', 10, cfg)).toMatchObject({ ok: true, mimeType: 'application/pdf' });
+    expect(checkUpload('a.jpg', '', 10, cfg)).toMatchObject({ ok: true, mimeType: 'image/jpeg' });
+  });
+});
+
 describe('LocalObjectStorage', () => {
   let root: string;
   // Typed as the interface, not the class: callers only ever hold an `ObjectStorage`, and the

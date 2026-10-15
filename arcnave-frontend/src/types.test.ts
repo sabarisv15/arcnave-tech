@@ -169,6 +169,14 @@ describe("project files", () => {
     expect(toProjectFile(file()).hasText).toBe(true);
   });
 
+  it("shows a ready file's chunk-cap warning on the chip, never a silent cut (E4)", () => {
+    const capped = toProjectFile(
+      file({ chunkCount: 2000, warnings: [{ code: "chunk_cap", detail: "Only the first 2,000 of 2,400 parts of this file can be searched." }] }),
+    );
+    expect(capped.status).toBe("ready");
+    expect(capped.error).toContain("Only the first 2,000");
+  });
+
   it("points a file at its authenticated download route", () => {
     expect(toProjectFile(file()).downloadUrl).toContain(
       "/projects/p1/files/f1/download",
@@ -282,9 +290,21 @@ describe("upload policy", () => {
     ).toContain("30 MB");
   });
 
-  it("rejects an image over claude.ai's 10 MB, even under the attachment ceiling", () => {
-    expect(validateFile({ name: "photo.jpg", size: 11 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("10 MB");
-    expect(validateFile({ name: "photo.jpg", size: 10 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
+  it("rejects an image over the register's 20 MB (N-10), even under the attachment ceiling", () => {
+    expect(validateFile({ name: "photo.jpg", size: 21 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("20 MB");
+    expect(validateFile({ name: "photo.jpg", size: 20 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
+  });
+
+  it("applies each type's N-10 limit: documents 100 MB, spreadsheets 50 MB, ZIP 100 MB", () => {
+    expect(validateFile({ name: "deck.pdf", size: 101 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("100 MB");
+    expect(validateFile({ name: "book.xlsx", size: 51 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("50 MB");
+    expect(validateFile({ name: "files.zip", size: 101 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toContain("100 MB");
+    expect(validateFile({ name: "talk.mp3", size: 400 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
+  });
+
+  it("refuses macro and legacy Office files with the save-as text (FT-2 / FT-3)", () => {
+    expect(validateFile({ name: "budget.docm", size: 100 })).toBe("This .docm file contains macros. Save it as DOCX and upload it again.");
+    expect(validateFile({ name: "old.ppt", size: 100 })).toBe("This .ppt file is in an old Office format. Save it as PPTX and upload it again.");
   });
 
   it("rejects an empty file, which the server also refuses", () => {
@@ -300,10 +320,10 @@ describe("upload policy", () => {
     expect(validateFile({ name: "book.epub", size: 2048 })).toBeNull();
   });
 
-  it("lets a chat attachment reach Claude's 500 MB, and no further", () => {
-    expect(validateFile({ name: "big.pdf", size: 400 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
+  it("lets an audio attachment reach 500 MB, and no further", () => {
+    expect(validateFile({ name: "talk.wav", size: 400 * 1024 * 1024 }, MAX_ATTACHMENT_BYTES)).toBeNull();
     expect(
-      validateFile({ name: "huge.pdf", size: MAX_ATTACHMENT_BYTES + 1 }, MAX_ATTACHMENT_BYTES),
+      validateFile({ name: "talk.wav", size: MAX_ATTACHMENT_BYTES + 1 }, MAX_ATTACHMENT_BYTES),
     ).toContain("500 MB");
   });
 });
