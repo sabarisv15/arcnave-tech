@@ -69,6 +69,7 @@ import {
 import { buildAttachmentManifest, contextNote, type ManifestFile } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { cachedPdfForModel, pdfForModel, type PdfForModel } from './attachments/pdfPages.js';
+import { applyFileBudget, applyManyImagesRule, familyOf, useNormalisedImages } from './attachments/fileBudget.js';
 import { CodeExecutionToolExecutor } from '../tools/codeExecutionExecutor.js';
 import { DispatchingToolExecutor } from '../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../tools/executor.js';
@@ -256,7 +257,8 @@ async function asPdfForModel(att: AttachmentBlock, data: Buffer | PdfForModel): 
   const pdf = Buffer.isBuffer(data) ? await pdfForModel(data, att.storageKey) : data;
   const { base64: _drop, ...rest } = att;
   if (pdf.kind === 'pages') return { ...rest, pages: pdf.pages };
-  if (pdf.kind === 'text') return { ...rest, extractedText: pdf.text, textOnlyPageCount: pdf.pageCount };
+  // The text read at upload (with its OCR'd pages, ADR-0063) when there is one; else poppler's.
+  if (pdf.kind === 'text') return { ...rest, extractedText: att.extractedText || pdf.text, textOnlyPageCount: pdf.pageCount };
   return { ...rest, omittedReason: 'unreadable', omittedDetail: pdf.reason };
 }
 
@@ -778,12 +780,18 @@ export class GenerationService {
     timing.mark('tools_setup');
     turnLog.stage('tool executors', { executors: [...new Set([...toolMap.values()].map((e) => e.constructor.name))] });
 
-    const { current: wireAttachments, history: wireHistory } = await this.limitToModel(
-      entry.alias,
-      await this.hydrateAttachmentBytes(input.attachments),
-      await this.hydrateHistoryAttachments(history, input.prompt, entry.alias),
-      releaseReservation,
+    // Images go as their normalised copy (D1 #21); then each file whole or by excerpt, and a
+    // PDF's pages by the N-13 budget, for this model family (ADR-0063).
+    const normalised = await useNormalisedImages(this.db, input.attachments, history);
+    const budgeted = await applyFileBudget(
+      this.db,
+      familyOf(entry.provider),
+      input.prompt,
+      await this.hydrateAttachmentBytes(normalised.current),
+      await this.hydrateHistoryAttachments(normalised.history, input.prompt, entry.alias),
     );
+    const sized = await applyManyImagesRule(this.cfg, budgeted.current, budgeted.history);
+    const { current: wireAttachments, history: wireHistory } = await this.limitToModel(entry.alias, sized.current, sized.history, releaseReservation);
     timing.mark('attachments');
     {
       const all = [...wireAttachments, ...wireHistory.flatMap((t) => t.attachments ?? [])];
@@ -1960,7 +1968,7 @@ export class GenerationService {
     // 4. Project knowledge. A project's files stay in context, switching to search only when
     // the project knowledge approaches the context window limit (ADR-0020). So: every file whole while they fit, excerpts by relevance past that.
     let retrievedContextText: string | undefined;
-    const wholeFiles = project ? await projectFileTexts(this.db, project.id) : [];
+    const wholeFiles = project ? await projectFileTexts(this.db, project.id, undefined, this.storage) : [];
     const wholeChars = wholeFiles.reduce((n, f) => n + f.text.length, 0);
     if (
       project &&

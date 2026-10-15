@@ -47,7 +47,7 @@ export function clearLocal(key: string): void {
  * in the server's `storage.ts`; the server also checks the bytes, so this is only the name.
  */
 export const allowed =
-  /\.(pdf|docx|pptx|xlsx|xls|odt|rtf|epub|txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini|png|jpe?g|webp|gif|mp3|wav|ogg|flac|aac|mp4|webm|mov|zip)$/i;
+  /\.(pdf|docx|pptx|xlsx|xls|odt|rtf|epub|txt|md|log|csv|json|js|jsx|mjs|ts|tsx|py|html|htm|css|yml|yaml|xml|sql|sh|toml|ini|png|jpe?g|webp|gif|heic|heif|mp3|wav|ogg|flac|aac|mp4|webm|mov|zip)$/i;
 
 /** Macro and legacy Office files: refused with the locked "save as" text (Stage 1 FT-2 / FT-3). */
 const SAVE_AS = /\.(doc|ppt|docm|xlsm|pptm)$/i;
@@ -69,7 +69,7 @@ const MB = 1024 * 1024;
 export function typeLimit(name: string): { bytes: number; noun: string } {
   if (/\.zip$/i.test(name)) return { bytes: 100 * MB, noun: "ZIP files" };
   if (/\.xlsx?$/i.test(name)) return { bytes: 50 * MB, noun: "Spreadsheets" };
-  if (/\.(png|jpe?g|webp|gif)$/i.test(name)) return { bytes: 20 * MB, noun: "Images" };
+  if (/\.(png|jpe?g|webp|gif|heic|heif)$/i.test(name)) return { bytes: 20 * MB, noun: "Images" };
   if (/\.(mp3|wav|ogg|flac|aac|mp4|webm|mov)$/i.test(name)) return { bytes: 500 * MB, noun: "Audio and video files" };
   return { bytes: 100 * MB, noun: "Documents" };
 }

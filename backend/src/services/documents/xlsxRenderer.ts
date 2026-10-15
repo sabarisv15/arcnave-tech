@@ -106,7 +106,7 @@ export async function renderStructuredSpreadsheet(
           const d = new Date(val.value);
           return isNaN(d.getTime()) ? val.value : d;
         }
-        return val.value;
+        return typeof val.value === 'string' ? neutraliseFormulaText(val.value) : val.value;
       });
 
       const row = ws.addRow(cellValues);
@@ -329,7 +329,7 @@ export async function renderSpreadsheet(
       });
 
       const row = ws.addRow(
-        parsedValues.map((p) => (p.formula ? { formula: p.formula } : p.value)),
+        parsedValues.map((p) => (p.formula ? { formula: p.formula } : typeof p.value === 'string' ? neutraliseFormulaText(p.value) : p.value)),
       );
       row.height = 20;
 
@@ -417,4 +417,16 @@ export async function renderSpreadsheet(
 
   const arrayBuffer = await wb.xlsx.writeBuffer();
   return Buffer.from(arrayBuffer as ArrayBuffer);
+}
+
+/**
+ * Stage 9 G13 (OWASP CSV injection): text from a user or a file that starts with `=`, `+`, `-`,
+ * `@`, a tab or a carriage return is written with a leading apostrophe, so no spreadsheet program
+ * reading this workbook, or a CSV saved from it, runs it as a formula. A formula the model asked
+ * for is a `{ formula }` cell and is never passed through here; a plain number is left alone.
+ */
+export function neutraliseFormulaText(value: string): string {
+  if (!/^[=+\-@\t\r]/.test(value)) return value;
+  if (/^[+-]?\d[\d,]*(\.\d+)?%?$/.test(value.trim())) return value;
+  return `'${value}`;
 }

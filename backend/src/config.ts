@@ -370,8 +370,21 @@ const envSchema = z.object({
   FILE_PIPELINE: z.enum(['jobs', 'sync']).default('jobs'),
   /** File jobs one instance runs at once. One slot is always kept for the fast lane. */
   FILE_WORKER_CONCURRENCY: int(3),
-  /** A job's lease; renewed while it runs, taken over by another worker once it lapses. */
-  FILE_JOB_LEASE_MS: int(60_000),
+  /**
+   * A job's lease; renewed by a heartbeat and at every stage, taken over by another worker once
+   * it lapses. Longer than the longest single step a job takes without reaching a stage
+   * (EXTRACTION_TIMEOUT_MS 5 min; OCR_BATCH_DEADLINE_MS × 2 attempts 6 min) plus margin, so a
+   * heartbeat starved by request-based CPU on Cloud Run never hands a healthy job to a second
+   * worker (ADR-0063). A job that dies waits this long to be resumed.
+   */
+  FILE_JOB_LEASE_MS: int(900_000),
+  /**
+   * `GET /files/:id` (and the project-file read) wakes the worker and holds the poll open up to
+   * this long while the file is still being read, returning as soon as its status moves. With
+   * request-based CPU, a job advances while a request is open; the chip's polls keep one open
+   * (ADR-0063). 0 answers at once.
+   */
+  FILE_POLL_HOLD_MS: int(5_000),
   /** How often an idle worker looks for queued or abandoned jobs. Enqueueing also wakes it. */
   FILE_WORKER_POLL_MS: int(2_000),
   /** Files up to this size take the fast lane (ours: Stage 9 G30 asks for a fast lane, no size). */
@@ -390,7 +403,51 @@ const envSchema = z.object({
    * the state exists, the scan arrives with the malware phase (P19). Never claim a file was
    * scanned when this is `none`.
    */
-  FILE_SCANNER: z.enum(['none']).default('none'),
+  FILE_SCANNER: z.enum(['none', 'clamd']).default('none'),
+  /** clamd's TCP address for FILE_SCANNER=clamd (Stage 9 SCAN). The daemon is infra (owner). */
+  CLAMD_HOST: z.string().default('127.0.0.1'),
+  CLAMD_PORT: int(3310),
+  /** One scan's wall clock; past it the file fails `scan_incomplete`. */
+  CLAMD_TIMEOUT_MS: int(120_000),
+  /**
+   * Bytes clamd accepts per INSTREAM (its StreamMaxLength). Stage 9 SCAN wants it at least our
+   * largest file (N-10, 500 MB); a longer stream is cut by clamd and the file is `scan_incomplete`.
+   */
+  CLAMD_STREAM_MAX_BYTES: int(NUMBERS.ATTACHMENT_MAX_BYTES.value),
+
+  // --- OCR, audio, images (Stage 9 OCR-M11 / AUDIO / IMAGES, P09, ADR-0063) --------------
+  /** Pages per OCR request: Stage 9 OCR-M11 "≤ 15 pages online" (no N-id). */
+  OCR_BATCH_PAGES: int(15),
+  /** One OCR request's own deadline (OCR-M11 "own deadline"); one retry after it (≤ 1 retry). */
+  OCR_BATCH_DEADLINE_MS: int(180_000),
+  /** OCR requests in flight for one file. */
+  OCR_CONCURRENCY: int(3),
+  /** Audio is cut into pieces this long, each one 60–120 s segment (Stage 9 AUDIO / M10). */
+  AUDIO_SEGMENT_SECONDS: int(90),
+  /** Overlap read before each piece, so a word cut at a boundary is heard whole once. */
+  AUDIO_OVERLAP_SECONDS: int(2),
+  /** One transcription request's deadline. */
+  AUDIO_SEGMENT_DEADLINE_MS: int(120_000),
+  AUDIO_CONCURRENCY: int(4),
+  /** Normalised image copy: long edge (Stage 9 IMAGES G14/G15). */
+  IMAGE_MAX_LONG_EDGE_PX: int(2_576),
+  /**
+   * Normalised image copy: encoded size. Stage 9 IMAGES says ≤ 5 MB for Claude; Claude checks
+   * the base64 form (capabilitiesTable `maxEncodedImageBytes`), so the bytes are kept at 3/4.
+   */
+  IMAGE_MAX_BYTES: int(Math.floor((5 * 1024 * 1024 * 3) / 4)),
+  /** Long edge when a request carries more than 20 images (Stage 9 IMAGES G48, CLAUDE-IMG). */
+  IMAGE_MANY_LONG_EDGE_PX: int(2_000),
+  /**
+   * Text sent to a count API at most (ours). A larger file is not counted: its count is null,
+   * and it goes through retrieval, never whole (ADR-0063; no local estimator, Invariant 3).
+   */
+  TOKEN_COUNT_MAX_CHARS: int(2_000_000),
+  /**
+   * Text kept in `attachments.extracted_text` at most (ours). The whole text is always in the
+   * derivative's Markdown object; a file beyond this cap is read through retrieval or code.
+   */
+  EXTRACTED_TEXT_MAX_CHARS: int(2_000_000),
   /** ZIP containers (ZIP uploads and OOXML): refused above this inflate ratio (ours, UD-2 "ratio"). */
   ZIP_MAX_RATIO: int(100),
   /** N-11 (Stage 18 final, 50 uploads/user/day). */

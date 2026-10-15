@@ -1,5 +1,15 @@
 # ArcNave — current checkpoint
 
+> **2026-10-15: tech-build.2 — files ingest (P09 + P12 + P19 part + the P06 gaps). Branch `build/files-ingest` (from `build/files-fix` @ `5cafbac`); one commit, not merged, not deployed.**
+> - Record: [ADR-0063](../decisions/0063-files-ingest-and-automated-gates.md); evidence per exit test: [`docs/ops/build-2-result.md`](../ops/build-2-result.md); the owner's live test: [`docs/ops/build-2-live-checklist.md`](../ops/build-2-live-checklist.md) (+ `build-2-fixtures/`).
+> - Owner decision: automated gates are the pre-deploy gate, manual local runs optional, deploy = owner's merge; `CLAUDE.md` bullet edited.
+> - P06 gaps: polls and `complete` wake the worker and a poll holds up to 5 s (request-based CPU); lease 15 min, renewed per stage; project files go through file jobs (202 + poll) and the same ingest as chat files; old sync indexer and single-call OCR removed after a parity run.
+> - P09: per-page OCR (`OcrEngine`, Gemini; ≤ 15-page batches, deadline, 1 retry, finish reason, `ocr_engine`/`ocr_version`); audio in 90-s timed segments (ffprobe 3 h check, ffmpeg in the image); images as a normalised copy (EXIF/GPS stripped, rotated, ≤ 2,576 px, ≤ 5 MB base64, HEIC), > 20 images → 2,000 px.
+> - P12: `file_derivatives` (+ pages, chunks; Markdown in object storage), XLSX/PPTX/DOCX/PDF builders with locators, provider token counts per family at ingest, whole ≤ 30k tokens else BM25 excerpts, PDF page images by N-13, encodings + NUL check, G13 escaping, reuse by checksum, generation + checksum at `complete`, derived objects deleted with the file, replace a project file (`PUT`), ~800-token chunks.
+> - P19 part: `Scanner` + clamd INSTREAM client (`malware` / `scan_incomplete`, `FILE_SCANNER=none` default, no clamd deployed); PDF JavaScript / OpenAction / Launch strip.
+> - Migration 0029 (additive). Tests: backend 119 files / 1,179 passed / 19 skipped (was 114 / 1,129 / 19); frontend 42 files / 403 (was 400). Models: Opus 5.5 main; Sonnet 5.5 read-only lookup; Haiku 5.5 test run.
+> - Deferred: LibreOffice page images (sandbox phase), resumable upload (D1 #36), Document AI, clamd deploy, image OCR, page-image token counts, `file_versions`, replace button in the UI.
+
 > **2026-10-15: tech-build.1 — files fix (P01 + P06 + P14 of `docs/ops/audit/NEW-PLAN.md`). Branch `build/files-fix` (from `audit/stage-1-21`); one commit, not merged, not deployed.**
 > - Record: [ADR-0062](../decisions/0062-file-pipeline-jobs-isolation-zip.md) (supersedes parts of ADR-0011); result and evidence per exit test: [`docs/ops/build-1-result.md`](../ops/build-1-result.md).
 > - P01: claim guard (`message_id IS NULL`, 409 `file_already_attached`); shared bytes reference-checked before any delete; a picked project file carries text / pages / status; Unicode tokenizer (`\p{L}\p{M}\p{N}`, NFC) + `reindex` backfill (`index_version` 2); chunk cap 2,000 with a visible `chunk_cap` warning; `pdftotext`/`pdftoppm` failures → `unreadable`; only `ready` files send (409 `file_not_ready`), chip Retry + Remove, disclaimer gone; ER-9 `error_code` on files.

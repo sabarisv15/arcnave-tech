@@ -359,23 +359,6 @@ failure mode of this pattern, not a sign it is working.
   step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
   issue in the checkpoint rather than patched under time pressure.
 
-### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
-
-- **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
-  ("Requires `@google-cloud/storage`, which is not a declared dependency") while preparing to
-  deploy, then checking the live Cloud Run service's env vars and finding
-  `STORAGE_BACKEND=gcs` / `STORAGE_GCS_BUCKET=arcnave-attachments` already set.
-- **Cause:** `GcsObjectStorage.getBucket()` dynamically imports `@google-cloud/storage`, which
-  was never added to `package.json`. `npm ci --omit=dev` in the Dockerfile would not have
-  installed it, so the first real upload/download on the deployed revision would throw at the
-  dynamic `import()` — silent until that exact code path ran.
-- **Rule:** **A backend value in production config (`STORAGE_BACKEND=gcs`) is a claim that the
-  code path it selects actually works. Trace every env-driven branch to what it imports before
-  trusting that a deploy exercises it.**
-- **Verify:** `npm install @google-cloud/storage`; `docker build` the backend image, then
-  `docker run --rm <image> node -e "import('@google-cloud/storage').then(...)"` resolves
-  inside the real runtime image, not just locally where dev dependencies are also present.
-
 ### 2026-09-18 — A backend-only push re-deployed the frontend anyway, from a stale `main`
 
 - **Symptom:** Live UI briefly looked like it had reverted to an older style each time a
@@ -831,6 +814,21 @@ failure mode of this pattern, not a sign it is working.
   `grep -n "files.start" src/app.ts` is empty, and `src/index.ts` / `src/test/harness.ts` each
   have one.
 
+### 2026-10-15 — A UTF-16 CSV was read as MPEG audio by the content sniff
+
+- **Symptom:** A UTF-16 LE CSV with a byte-order mark was refused at upload with "The content of
+  this file does not match its name (.csv)". Found only when a test uploaded a real UTF-16 file.
+- **Cause:** `detectKind` checked the MPEG frame sync (`0xFF` then three set bits) before the
+  UTF-16 BOM check. `FF FE` is both, so the BOM never got its turn and the file was `media`.
+- **Rule:** **In a magic-byte table, test exact multi-byte signatures (BOMs, `%PDF`, `PK`) before
+  loose bit patterns, and run every text encoding a type promises through the sniff in a test.**
+  Same class, same task: pdf-lib's saved fixture hid `/OpenAction` inside object streams, and the
+  first strip removed references but left the script objects in the saved file; check the saved
+  bytes, not the object graph.
+- **Verify:** `npx vitest run src/services/attachments/ingestUnits.test.ts` (sniff: UTF-16 with
+  and without a BOM) and `src/routes/fileSafety.integration.test.ts` (no `/JavaScript`, `/Launch`
+  or `app.alert` left in the stored bytes).
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -854,6 +852,17 @@ These are community conventions rather than vendor documentation — treat the s
 practice, not canon.
 
 ## Changelog
+
+- **2026-10-15 (tech-build.2, files ingest)** — Added the sniff-order entry. Retired
+  "`@google-cloud/storage` was never a declared dependency": it is declared and imported in the
+  image, and the broader rule lives in "A devDependency the production image asks for" (pruning
+  criterion 3). Not new headings: (1) a chunk-overlap test asserted `<` where the first chunk's
+  last line is also the next chunk's first: the 2026-09-17 rule (derive, do not hand-compute)
+  again. (2) officeparser's Markdown opens with YAML front matter carrying the document author's
+  name; it went into extracted text until the DOCX derivative dropped it. Rule: read a parser's
+  whole output on a real file before storing it as "text". (3) Tests that hit per-chat or
+  per-message limits (N-10: 10 per message, 20 per chat) failed for the limit, not the feature;
+  read the limits before sizing a fixture. **40 entries.**
 
 - **2026-10-15** — No new heading (at the cap). tech-audit.A: I briefed eight auditors that
   `06-eval-cases-v1.json` holds "87 cases" after counting `"id"` keys with grep; it is an array of

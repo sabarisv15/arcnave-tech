@@ -2743,7 +2743,7 @@
         "tags": [
           "projects"
         ],
-        "description": "multipart/form-data with a single `file` part. The response already carries the final indexing status; there is nothing to poll.",
+        "description": "multipart/form-data with a single `file` part. Answers 202 with the file queued; poll `GET /projects/:id/files/:fileId` until it is `ready`, `unsupported` or `failed`.",
         "parameters": [
           {
             "schema": {
@@ -2757,7 +2757,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "202": {
             "description": "Default Response",
             "content": {
               "application/json": {
@@ -2962,48 +2962,13 @@
         }
       }
     },
-    "/projects/{id}/files/{fileId}/download": {
+    "/projects/{id}/files/{fileId}": {
       "get": {
-        "summary": "Download the stored bytes of a project file",
+        "summary": "One project file, for polling while it is read",
         "tags": [
           "projects"
         ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            },
-            "in": "path",
-            "name": "id",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            },
-            "in": "path",
-            "name": "fileId",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/projects/{id}/files/{fileId}/reindex": {
-      "post": {
-        "summary": "Re-extract and re-chunk a file",
-        "tags": [
-          "projects"
-        ],
-        "description": "Useful after a failed extraction. Existing chunks are replaced, not added to.",
+        "description": "While the file is being read this wakes the worker and holds up to FILE_POLL_HOLD_MS for its status to move.",
         "parameters": [
           {
             "schema": {
@@ -3113,9 +3078,123 @@
             }
           }
         }
-      }
-    },
-    "/projects/{id}/files/{fileId}": {
+      },
+      "put": {
+        "summary": "Replace a project file with a new version",
+        "tags": [
+          "projects"
+        ],
+        "description": "multipart/form-data with a single `file` part (Stage 9 G42, D1 #38). The file keeps its id; its old bytes, chunks and derivative are replaced once the new version is read. Answers 202, as upload.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "fileId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "projectId": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "chunkCount": {
+                      "type": "number"
+                    },
+                    "checksumSha256": {
+                      "type": "string"
+                    },
+                    "indexedAt": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "projectId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "errorCode",
+                    "warnings",
+                    "chunkCount",
+                    "checksumSha256",
+                    "indexedAt",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "summary": "Remove a file and its chunks",
         "tags": [
@@ -3154,6 +3233,159 @@
                   "enum": [
                     null
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/files/{fileId}/download": {
+      "get": {
+        "summary": "Download the stored bytes of a project file",
+        "tags": [
+          "projects"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "fileId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{id}/files/{fileId}/reindex": {
+      "post": {
+        "summary": "Re-extract and re-chunk a file",
+        "tags": [
+          "projects"
+        ],
+        "description": "Useful after a failed extraction. Queues the file to be read again (202, poll the file); existing chunks are replaced, not added to.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "fileId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "projectId": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "type": "number"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "chunkCount": {
+                      "type": "number"
+                    },
+                    "checksumSha256": {
+                      "type": "string"
+                    },
+                    "indexedAt": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "projectId",
+                    "filename",
+                    "mimeType",
+                    "sizeBytes",
+                    "status",
+                    "error",
+                    "errorCode",
+                    "warnings",
+                    "chunkCount",
+                    "checksumSha256",
+                    "indexedAt",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }

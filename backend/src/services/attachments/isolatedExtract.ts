@@ -7,7 +7,8 @@
  * memory than the one budget the old in-process queue (`oneAtATime`) was sized for, while
  * different files no longer wait for each other in the request.
  *
- * What runs here: the JavaScript parsers (officeparser, ExcelJS, SheetJS, pdf.js). What does
+ * What runs here: the JavaScript parsers (officeparser, ExcelJS, SheetJS, pdf-lib, sharp, the HEIC
+ * decoder). What does
  * not: poppler (already its own process, with a timeout), plain-text decoding (no parser), and
  * transcription and OCR, which are provider calls and stay with the caller.
  *
@@ -21,15 +22,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { Config } from '../../config.js';
-import type { Provider } from '../../providers/types.js';
 import { extensionOf } from '../storage.js';
-import {
-  ExtractionUnsupported,
-  extractPages,
-  pagesFromPdfLayer,
-  type ExtractedPage,
-  type PdfLayer,
-} from '../retrieval.js';
+import { ExtractionUnsupported } from '../retrieval.js';
+import type { DerivedBody, NormalisedImage, PdfInspection } from './derive.js';
 import type { ChildRequest, ChildResult } from './extractChild.js';
 import { FileFailure, fileErrorText, type FileErrorCode } from './fileErrors.js';
 import { preflightContainer } from './preflight.js';
@@ -192,46 +187,47 @@ export async function isolatedText(
   return result.text;
 }
 
+/** A parsed document's normalised derivative (derive.ts), built in the child after pre-flight. */
+export async function isolatedDerive(filePath: string, filename: string, mimeType: string, limits: IsolationLimits): Promise<DerivedBody> {
+  if (isZipDocument(filename, mimeType)) {
+    const src = await fileSource(filePath);
+    try {
+      await preflightContainer(src, filename, { maxRatio: limits.maxRatio });
+    } finally {
+      await src.close();
+    }
+  }
+  const result = await runChild({ op: 'derive', input: filePath, filename, mimeType }, limits);
+  if (!result.ok) throw childFailure(result);
+  if (!('derived' in result)) throw new FileFailure('corrupt');
+  return result.derived;
+}
+
+/** A PDF's forms, comments and embedded files, and its active content stripped into `strippedPath`. */
+export async function isolatedPdfInspect(filePath: string, strippedPath: string, limits: IsolationLimits): Promise<PdfInspection> {
+  const result = await runChild({ op: 'pdfInspect', input: filePath, output: strippedPath, filename: 'file.pdf', mimeType: 'application/pdf' }, limits);
+  if (!result.ok) throw childFailure(result);
+  if (!('pdf' in result)) throw new FileFailure('corrupt');
+  return result.pdf;
+}
+
+/** An image's normalised copy (derive.ts `normaliseImage`) written to `outPath`. */
+export async function isolatedImage(
+  filePath: string,
+  mimeType: string,
+  outPath: string,
+  image: { maxEdge: number; maxBytes: number; maxPixels: number },
+  limits: IsolationLimits,
+): Promise<NormalisedImage> {
+  const result = await runChild({ op: 'image', input: filePath, output: outPath, filename: 'image', mimeType, image }, limits);
+  if (!result.ok) throw childFailure(result);
+  if (!('image' in result)) throw new FileFailure('corrupt');
+  return result.image;
+}
+
 function childFailure(result: { code: string; message: string }): Error {
   // `unsupported_type` from an extractor means "nothing in it to read" (an empty sheet); the
   // caller keeps such a file with a note. Every other code is a failure of the file itself.
   if (result.code === 'unsupported_type') return new ExtractionUnsupported(result.message);
   return new FileFailure(result.code as FileErrorCode, result.message);
-}
-
-/**
- * `extractPages` for project indexing with the parsers isolated: same signature, same results.
- * Failures come back as `ExtractionUnsupported` with their ER-9 code, which is what
- * `indexFile` records.
- */
-export function isolatedExtractPages(cfg: Config): typeof extractPages {
-  const limits = isolationLimits(cfg);
-  return async (data: Buffer, mimeType: string, filename: string, visionProvider?: Provider): Promise<ExtractedPage[]> => {
-    const isPdf = mimeType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf');
-    if (!isPdf && !parsedInChild(mimeType, filename)) return extractPages(data, mimeType, filename, visionProvider);
-
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-index-'));
-    try {
-      const input = path.join(dir, 'file');
-      await writeFile(input, data);
-      if (isPdf) {
-        const result = await runChild(
-          { op: 'pdfLayer', input, filename, mimeType, wantScreenshots: Boolean(visionProvider?.describeMedia) },
-          limits,
-        );
-        if (!result.ok) throw childFailure(result);
-        if (!('layer' in result)) throw new FileFailure('corrupt');
-        return await pagesFromPdfLayer(result.layer as PdfLayer, visionProvider);
-      }
-      return [{ num: null, text: await isolatedText(input, filename, mimeType, limits) }];
-    } catch (err) {
-      if (err instanceof FileFailure) throw new ExtractionUnsupported(fileErrorText(err.code, err.detail), err.code);
-      if (err instanceof ExtractionOutOfMemory) {
-        throw new ExtractionUnsupported('This file is too large to read its text. Split it into smaller files.', 'too_large');
-      }
-      throw err;
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  };
 }

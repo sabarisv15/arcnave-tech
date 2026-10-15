@@ -258,6 +258,17 @@ export interface AttachmentBlock {
   pages?: AttachmentPage[];
   /** Pages in a PDF sent as text only (over 100 pages). */
   textOnlyPageCount?: number;
+  /** All the pages of a PDF whose `pages` carry only some of them (the N-13 budget). */
+  pageCount?: number;
+  /** Said before a PDF's pages when only some are sent: which, and why (ADR-0063). */
+  pagesNote?: string;
+  /**
+   * Set by the file budget (Stage 6 CXD-4): true when this file's provider token count fits the
+   * whole-file limit (N-05), so its normalised text goes inline even on a turn that can run code.
+   */
+  wholeWithinBudget?: boolean;
+  /** True when `extractedText` holds retrieved excerpts, not the whole file. */
+  excerpted?: boolean;
   extractedText?: string | null;
   sizeBytes?: number;
   storageKey?: string;
@@ -394,6 +405,31 @@ export interface Provider {
     prompt: string,
     signal: AbortSignal,
   ): Promise<string>;
+  /**
+   * Like `describeMedia`, with the finish reason, so OCR and transcription can tell a whole
+   * answer from a cut one (Stage 9 OCR-M11 finish-reason check). Parts may be `gs://` URIs.
+   */
+  readMedia?(parts: MediaPart[], prompt: string, signal: AbortSignal): Promise<MediaReading>;
+  /**
+   * The provider's own token count for `text` on this family's counting model (Stage 9 TOKENS).
+   * Provider metadata, not an estimate (Invariant 3). Throws when the count API fails.
+   */
+  countTokens?(text: string, signal: AbortSignal): Promise<{ tokens: number; model: string }>;
+}
+
+/** One input to `readMedia`: inline bytes, or a `gs://` URI the model reads (Gemini). */
+export interface MediaPart {
+  mimeType: string;
+  base64?: string;
+  fileUri?: string;
+}
+
+export interface MediaReading {
+  text: string;
+  /** The provider's finish reason as it reported it (`STOP`, `MAX_TOKENS`, `SAFETY`, …). */
+  finishReason: string;
+  /** The model version that answered, for `ocr_version`. */
+  model: string;
 }
 
 /** True when an error is an abort rather than a genuine failure. */

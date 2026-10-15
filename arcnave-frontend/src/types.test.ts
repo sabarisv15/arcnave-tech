@@ -311,6 +311,11 @@ describe("upload policy", () => {
     expect(validateFile({ name: "empty.txt", size: 0 })).toContain("empty");
   });
 
+  it("accepts HEIC photos as images, under the 20 MB image limit (P09)", () => {
+    expect(validateFile({ name: "IMG_0042.HEIC", size: 3 * 1024 * 1024 })).toBeNull();
+    expect(validateFile({ name: "photo.heif", size: 21 * 1024 * 1024 }, 500 * 1024 * 1024)).toContain("Images can be at most 20 MB");
+  });
+
   it("accepts supported formats case-insensitively", () => {
     expect(validateFile({ name: "NOTES.TXT", size: 50 })).toBeNull();
     expect(validateFile({ name: "photo.webp", size: 2048 })).toBeNull();

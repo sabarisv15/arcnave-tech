@@ -1,19 +1,29 @@
 /**
  * File jobs: the queue and the in-process worker behind the file pipeline (Stage 9 PIPE,
- * ADR-0062; Cloud Tasks is the deferred Phase 5 executor).
+ * ADR-0062, ADR-0063; Cloud Tasks is the deferred Phase 5 executor).
  *
  * A job is a `file_jobs` row. A worker claims one with `FOR UPDATE SKIP LOCKED` (a bare SELECT
  * is not a lock: two workers would both take it) and holds it by a lease it renews while it
- * runs. A worker that dies stops renewing; once the lease lapses any worker takes the job over
- * (`attempts` + 1, at most FILE_JOB_MAX_ATTEMPTS, N-44). Every write a job makes to its file is
- * fenced on still holding the lease, so a worker that wakes up after losing its job cannot
- * overwrite what the new holder wrote.
+ * runs: on a timer, and at every stage. A worker that dies stops renewing; once the lease lapses
+ * any worker takes the job over (`attempts` + 1, at most FILE_JOB_MAX_ATTEMPTS, N-44). Every
+ * write a job makes to its file is fenced on still holding the lease, so a worker that wakes up
+ * after losing its job cannot overwrite what the new holder wrote: a duplicate run of the same
+ * version is wasted work, never a second result.
+ *
+ * Request-based CPU (Cloud Run's default) can starve the timer once a request has returned.
+ * Two things keep jobs moving anyway (ADR-0063): every status poll and every `complete` wakes
+ * the worker for that file, and the lease (FILE_JOB_LEASE_MS) outlasts the longest step a job
+ * takes between stages, so a starved heartbeat does not hand a healthy job to a second worker.
+ *
+ * One ingest path (D1 #20): chat attachments (`attachment`) and project files (`project`, and
+ * `reindex` for the backfill) run the same pipeline, store the same derivative, and differ only
+ * in the row they finish and in where their chunks go.
  *
  * Lanes: files up to FILE_FAST_LANE_MAX_BYTES are `fast`, and one worker slot is always kept
  * for them, so a small file never waits behind large ones (Stage 9 G30).
  */
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -21,17 +31,34 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
-import { attachments, fileJobs, projectFiles } from '../../db/schema.js';
+import { attachments, fileChunks, fileJobs, projectFiles, type FileWarning } from '../../db/schema.js';
 import type { Provider } from '../../providers/types.js';
-import { INDEX_VERSION, indexFile } from '../retrieval.js';
+import { INDEX_VERSION } from '../retrieval.js';
 import { generateStorageKey, type ObjectStorage } from '../storage.js';
-import { warning } from './fileErrors.js';
-import { isolatedExtractPages } from './isolatedExtract.js';
+import {
+  countTokens,
+  deleteObjects,
+  derivedKeys,
+  draftFromStored,
+  findReusable,
+  planChunks,
+  putDerivativeObjects,
+  retrievalWarning,
+  writeDerivative,
+  type ChunkPlan,
+  type StoredObjects,
+  type TokenCounters,
+} from './derivatives.js';
+import { FileFailure, warning } from './fileErrors.js';
+import type { ModelInputStore } from './modelInputStore.js';
+import { ocrEngineFor, type OcrEngine } from './ocr.js';
 import { failed, readAttachment, type FileStage, type Outcome } from './pipeline.js';
-import { expandZip, memberStream } from './zipExpand.js';
 import { storageKeyInUse } from './references.js';
+import { noScanner, scannerFor, type Scanner } from './scanner.js';
+import { expandZip, memberStream } from './zipExpand.js';
 
 type AttachmentRow = typeof attachments.$inferSelect;
+type ProjectFileRow = typeof projectFiles.$inferSelect;
 type JobRow = typeof fileJobs.$inferSelect;
 
 export interface FileLogger {
@@ -44,7 +71,16 @@ export interface FileServiceDeps {
   db: Database;
   storage: ObjectStorage;
   cfg: Config;
+  /** OCR and transcription (readMedia). */
   visionProvider?: Provider;
+  /** Count APIs per model family (Stage 9 TOKENS). */
+  tokenCounters?: TokenCounters;
+  /** Where large media pieces go for the model to read by `gs://` (D1 #32). */
+  modelInputs?: ModelInputStore;
+  /** Defaults to FILE_SCANNER's scanner. */
+  scanner?: Scanner;
+  /** Defaults to the vision provider's engine (Gemini). */
+  ocr?: OcrEngine | null;
   log: FileLogger;
 }
 
@@ -52,8 +88,10 @@ export interface WorkerOptions {
   leaseMs?: number;
   pollMs?: number;
   concurrency?: number;
+  /** Heartbeat interval; 0 turns the timer off (a test of a starved heartbeat). */
+  heartbeatMs?: number;
   /** Test seam: called after each stage is recorded, inside the job. */
-  afterStage?: (attachmentId: string, stage: FileStage) => Promise<void>;
+  afterStage?: (fileId: string, stage: FileStage) => Promise<void>;
 }
 
 /** A write that only lands while `owner` still holds job `jobId`. */
@@ -62,11 +100,19 @@ interface Fence {
   owner: string;
 }
 
+/** The file a run reads, and the row it finishes. */
+type Target =
+  | { scope: 'attachment'; row: AttachmentRow }
+  | { scope: 'project'; row: ProjectFileRow };
+
 export class FileService {
   readonly owner = `${os.hostname().slice(0, 32)}:${String(process.pid)}:${randomBytes(4).toString('hex')}`;
   private readonly leaseMs: number;
   private readonly pollMs: number;
   private readonly concurrency: number;
+  private readonly heartbeatMs: number;
+  private readonly scanner: Scanner;
+  private readonly ocr: OcrEngine | null;
   private active = 0;
   private activeNormal = 0;
   private readonly wanted = new Set<string>();
@@ -85,6 +131,9 @@ export class FileService {
     this.leaseMs = opts.leaseMs ?? deps.cfg.FILE_JOB_LEASE_MS;
     this.pollMs = opts.pollMs ?? deps.cfg.FILE_WORKER_POLL_MS;
     this.concurrency = Math.max(1, opts.concurrency ?? deps.cfg.FILE_WORKER_CONCURRENCY);
+    this.heartbeatMs = opts.heartbeatMs ?? Math.max(50, Math.floor(this.leaseMs / 3));
+    this.scanner = deps.scanner ?? scannerFor(deps.cfg);
+    this.ocr = deps.ocr !== undefined ? deps.ocr : ocrEngineFor(deps.visionProvider);
   }
 
   /* ------------------------------------------------------------------ lifecycle */
@@ -122,9 +171,31 @@ export class FileService {
     void this.pump();
   }
 
+  /**
+   * Wakes the worker for one file's live jobs (queued, or running on a lapsed lease), whoever
+   * queued them. Called by every status poll and by `complete`, so work advances while a
+   * request is open even when nothing else gives the instance CPU (ADR-0063).
+   */
+  async wake(file: { attachmentId?: string; projectFileId?: string }): Promise<void> {
+    const target = file.attachmentId ? eq(fileJobs.attachmentId, file.attachmentId) : file.projectFileId ? eq(fileJobs.projectFileId, file.projectFileId) : null;
+    if (!target) return;
+    const rows = await this.deps.db
+      .select({ id: fileJobs.id })
+      .from(fileJobs)
+      .where(
+        and(
+          target,
+          sql`${fileJobs.attempts} < ${fileJobs.maxAttempts}`,
+          sql`(${fileJobs.state} = 'queued' or (${fileJobs.state} = 'running' and ${fileJobs.leaseExpiresAt} < now()))`,
+        ),
+      );
+    for (const r of rows) this.wanted.add(r.id);
+    await this.pump();
+  }
+
   /** Waits until every job this worker is running or was handed has finished. For tests. */
   async idle(): Promise<void> {
-    for (let i = 0; i < 2000; i++) {
+    for (let i = 0; i < 6000; i++) {
       if (this.inFlight.size === 0 && this.wanted.size === 0 && !this.pumping) return;
       await Promise.allSettled([...this.inFlight]);
       await new Promise((r) => setTimeout(r, 10));
@@ -165,7 +236,35 @@ export class FileService {
     return job.id;
   }
 
-  /** One `reindex` job per project file written by an older indexer; idempotent per version. */
+  /** A project file read (upload, replace or re-index) as a job, the next version of its reads. */
+  async enqueueProjectFile(row: ProjectFileRow): Promise<string> {
+    const { db, cfg } = this.deps;
+    const [last] = await db
+      .select({ v: sql<number>`coalesce(max(${fileJobs.version}), 0)::int` })
+      .from(fileJobs)
+      .where(and(eq(fileJobs.projectFileId, row.id), inArray(fileJobs.kind, ['project', 'reindex'])));
+    const [job] = await db
+      .insert(fileJobs)
+      .values({
+        userId: row.userId,
+        projectFileId: row.id,
+        kind: 'project',
+        version: (last?.v ?? 0) + 1,
+        lane: row.sizeBytes <= cfg.FILE_FAST_LANE_MAX_BYTES ? 'fast' : 'normal',
+        maxAttempts: cfg.FILE_JOB_MAX_ATTEMPTS, // N-44
+      })
+      .onConflictDoNothing()
+      .returning({ id: fileJobs.id });
+    if (!job) throw new Error('file job already exists for this version');
+    await db.update(projectFiles).set({ status: 'queued', error: '', errorCode: '' }).where(eq(projectFiles.id, row.id));
+    this.poke(job.id);
+    return job.id;
+  }
+
+  /**
+   * One `reindex` job per project file written by an older indexer; idempotent per version
+   * (the job's version is INDEX_VERSION, so a second backfill inserts nothing).
+   */
   async enqueueStaleIndexes(): Promise<string[]> {
     const rows = await this.deps.db.execute(sql`
       insert into file_jobs (user_id, project_file_id, kind, version, lane, max_attempts)
@@ -214,22 +313,14 @@ export class FileService {
     const rows = await db
       .update(fileJobs)
       .set({ state: 'failed', errorCode: 'timeout', leaseOwner: null, finishedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(fileJobs.state, 'running'),
-          sql`${fileJobs.leaseExpiresAt} < now()`,
-          sql`${fileJobs.attempts} >= ${fileJobs.maxAttempts}`,
-        ),
-      )
-      .returning({ attachmentId: fileJobs.attachmentId });
+      .where(and(eq(fileJobs.state, 'running'), sql`${fileJobs.leaseExpiresAt} < now()`, sql`${fileJobs.attempts} >= ${fileJobs.maxAttempts}`))
+      .returning({ attachmentId: fileJobs.attachmentId, projectFileId: fileJobs.projectFileId });
+    const out = failed('timeout');
+    const error = out.status === 'failed' ? out.error : '';
     const ids = rows.map((r) => r.attachmentId).filter((v): v is string => Boolean(v));
-    if (ids.length) {
-      const out = failed('timeout');
-      await db
-        .update(attachments)
-        .set({ status: 'failed', error: out.status === 'failed' ? out.error : '', errorCode: 'timeout' })
-        .where(inArray(attachments.id, ids));
-    }
+    if (ids.length) await db.update(attachments).set({ status: 'failed', error, errorCode: 'timeout' }).where(inArray(attachments.id, ids));
+    const pids = rows.map((r) => r.projectFileId).filter((v): v is string => Boolean(v));
+    if (pids.length) await db.update(projectFiles).set({ status: 'failed', error, errorCode: 'timeout' }).where(inArray(projectFiles.id, pids));
   }
 
   private async pump(): Promise<void> {
@@ -271,16 +362,14 @@ export class FileService {
   private async pruneWanted(): Promise<void> {
     if (this.wanted.size === 0) return;
     const rows = await this.deps.db
-      .select({ id: fileJobs.id, state: fileJobs.state, lane: fileJobs.lane, attempts: fileJobs.attempts, max: fileJobs.maxAttempts })
+      .select({ id: fileJobs.id, state: fileJobs.state, attempts: fileJobs.attempts, max: fileJobs.maxAttempts })
       .from(fileJobs)
       .where(inArray(fileJobs.id, [...this.wanted]));
     const live = new Set(rows.filter((r) => (r.state === 'queued' || r.state === 'running') && r.attempts < r.max).map((r) => r.id));
     for (const id of [...this.wanted]) {
-      const row = rows.find((r) => r.id === id);
       // A running job held by another worker stays wanted: if that worker dies, this one resumes it.
-      if (!row || !live.has(id)) this.wanted.delete(id);
+      if (!live.has(id)) this.wanted.delete(id);
     }
-    // Wanted jobs still queued behind a full lane are retried when a slot frees (launch → pump).
   }
 
   private launch(job: JobRow): void {
@@ -297,27 +386,36 @@ export class FileService {
 
   /* ------------------------------------------------------------------ run */
 
+  /** Pushes the lease out; false when this worker no longer holds the job. */
+  private async renew(fence: Fence): Promise<boolean> {
+    if (this.dead) return false;
+    const [row] = await this.deps.db
+      .update(fileJobs)
+      .set({ leaseExpiresAt: sql`now() + ${`${String(this.leaseMs)} milliseconds`}::interval`, updatedAt: new Date() })
+      .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner), eq(fileJobs.state, 'running')))
+      .returning({ id: fileJobs.id });
+    return Boolean(row);
+  }
+
   private async runJob(job: JobRow): Promise<void> {
     const fence: Fence = { jobId: job.id, owner: this.owner };
-    const beat = setInterval(() => {
-      if (this.dead) return;
-      void this.deps.db
-        .update(fileJobs)
-        .set({ leaseExpiresAt: sql`now() + ${`${String(this.leaseMs)} milliseconds`}::interval`, updatedAt: new Date() })
-        .where(and(eq(fileJobs.id, job.id), eq(fileJobs.leaseOwner, this.owner), eq(fileJobs.state, 'running')))
-        .catch(() => undefined);
-    }, Math.max(50, Math.floor(this.leaseMs / 3)));
-    beat.unref();
+    const beat =
+      this.heartbeatMs > 0
+        ? setInterval(() => {
+            if (!this.dead) void this.renew(fence).catch(() => undefined);
+          }, this.heartbeatMs)
+        : undefined;
+    beat?.unref();
     const started = Date.now();
     try {
-      if (job.kind === 'reindex') await this.runReindex(job, fence);
-      else await this.runAttachmentJob(job, fence);
+      if (job.kind === 'attachment') await this.runAttachmentJob(job, fence);
+      else await this.runProjectJob(job, fence);
       this.deps.log.info({ jobId: job.id, kind: job.kind, attempt: job.attempts, ms: Date.now() - started }, 'file job finished');
     } catch (err) {
       this.logError(err, 'file job failed', { jobId: job.id, kind: job.kind, attempt: job.attempts });
       if (!this.dead) await this.release(job, fence);
     } finally {
-      clearInterval(beat);
+      if (beat) clearInterval(beat);
     }
   }
 
@@ -338,58 +436,13 @@ export class FileService {
       .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner)))
       .returning({ id: fileJobs.id });
     if (!row) return;
-    if (exhausted && job.attachmentId) {
+    if (exhausted) {
       const out = failed('timeout');
-      await db
-        .update(attachments)
-        .set({ status: 'failed', error: out.status === 'failed' ? out.error : '', errorCode: 'timeout' })
-        .where(eq(attachments.id, job.attachmentId));
-    } else if (!exhausted) {
+      const patch = { status: 'failed', error: out.status === 'failed' ? out.error : '', errorCode: 'timeout' };
+      if (job.attachmentId) await db.update(attachments).set(patch).where(eq(attachments.id, job.attachmentId));
+      if (job.projectFileId) await db.update(projectFiles).set(patch).where(eq(projectFiles.id, job.projectFileId));
+    } else {
       this.poke(job.id);
-    }
-  }
-
-  private async holds(fence: Fence): Promise<boolean> {
-    if (this.dead) return false;
-    const [row] = await this.deps.db
-      .select({ id: fileJobs.id })
-      .from(fileJobs)
-      .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner), eq(fileJobs.state, 'running')));
-    return Boolean(row);
-  }
-
-  private async runAttachmentJob(job: JobRow, fence: Fence): Promise<void> {
-    const { db, storage } = this.deps;
-    const [row] = job.attachmentId ? await db.select().from(attachments).where(eq(attachments.id, job.attachmentId)) : [];
-    if (!row) {
-      // Deleted while queued (G29): nothing to read, nothing to clean.
-      await this.finish(fence, 'done');
-      return;
-    }
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-job-'));
-    try {
-      const local = path.join(dir, 'file');
-      await storage.downloadTo(row.storageKey, local);
-      const outcome = await this.read(row, local, async (stage) => {
-        if (!(await this.holds(fence))) throw new LeaseLost();
-        await db.update(attachments).set({ status: stage }).where(eq(attachments.id, row.id));
-        await this.opts.afterStage?.(row.id, stage);
-        if (!(await this.holds(fence))) throw new LeaseLost();
-      });
-      await db.transaction(async (tx) => {
-        const [held] = await tx
-          .update(fileJobs)
-          .set({ state: 'done', leaseOwner: null, finishedAt: new Date(), updatedAt: new Date(), errorCode: outcome.status === 'failed' ? outcome.errorCode : '' })
-          .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner), eq(fileJobs.state, 'running')))
-          .returning({ id: fileJobs.id });
-        if (!held || this.dead) throw new LeaseLost();
-        await tx.update(attachments).set(outcomePatch(outcome)).where(eq(attachments.id, row.id));
-      });
-    } catch (err) {
-      if (err instanceof LeaseLost) return;
-      throw err;
-    } finally {
-      await rm(dir, { recursive: true, force: true });
     }
   }
 
@@ -400,45 +453,215 @@ export class FileService {
       .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner)));
   }
 
-  private async runReindex(job: JobRow, fence: Fence): Promise<void> {
-    const { db, storage, visionProvider, cfg } = this.deps;
-    const [file] = job.projectFileId ? await db.select().from(projectFiles).where(eq(projectFiles.id, job.projectFileId)) : [];
-    if (!file) {
+  private async runAttachmentJob(job: JobRow, fence: Fence): Promise<void> {
+    const [row] = job.attachmentId ? await this.deps.db.select().from(attachments).where(eq(attachments.id, job.attachmentId)) : [];
+    if (!row) {
+      // Deleted while queued (G29): nothing to read, nothing to clean.
       await this.finish(fence, 'done');
       return;
     }
-    const data = await storage.get(file.storageKey);
-    const result = await indexFile(db, file, data, visionProvider, isolatedExtractPages(cfg));
-    if (!(await this.holds(fence))) return;
-    await db
-      .update(projectFiles)
-      .set({
-        status: result.status,
-        error: result.error,
-        errorCode: result.errorCode,
-        warnings: result.warnings,
-        chunkCount: result.chunkCount,
-        indexVersion: INDEX_VERSION,
-        indexedAt: new Date(),
-      })
-      .where(eq(projectFiles.id, file.id));
-    await this.finish(fence, 'done');
+    await this.process({ scope: 'attachment', row }, job, fence, null);
   }
 
-  /* ------------------------------------------------------------------ the pipeline */
+  private async runProjectJob(job: JobRow, fence: Fence): Promise<void> {
+    const [row] = job.projectFileId ? await this.deps.db.select().from(projectFiles).where(eq(projectFiles.id, job.projectFileId)) : [];
+    if (!row) {
+      await this.finish(fence, 'done');
+      return;
+    }
+    await this.process({ scope: 'project', row }, job, fence, null);
+  }
 
-  /** Reads one attachment already on local disk. Shared by the job and the in-request path. */
-  async read(row: AttachmentRow, localPath: string, setStage?: (stage: FileStage) => Promise<void>, inline = false): Promise<Outcome> {
+  /**
+   * Reads one file end to end and finishes its row. With a fence, every write is the lease
+   * holder's; without one (an attachment read inside its request), there is no job to lose.
+   * `localPath` is the file already on disk; otherwise it is downloaded here.
+   */
+  private async process(target: Target, job: JobRow | null, fence: Fence | null, localPath: string | null): Promise<void> {
+    const { db, storage } = this.deps;
+    const row = target.row;
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-job-'));
+    let objects: StoredObjects | null = null;
+    try {
+      const local = localPath ?? path.join(dir, 'file');
+      if (!localPath) await storage.downloadTo(row.storageKey, local);
+      const holds = async () => (fence ? this.renew(fence) : true);
+      const setStage = async (stage: FileStage) => {
+        if (!(await holds())) throw new LeaseLost();
+        if (target.scope === 'attachment') await db.update(attachments).set({ status: stage }).where(eq(attachments.id, row.id));
+        else await db.update(projectFiles).set({ status: stage }).where(eq(projectFiles.id, row.id));
+        await this.opts.afterStage?.(row.id, stage);
+        if (!(await holds())) throw new LeaseLost();
+      };
+
+      let outcome = await this.read(target, local, dir, setStage, fence);
+      // Count and chunk the derivative (Stage 9 TOKENS / CHUNK).
+      let counts = null;
+      let plan: ChunkPlan | null = null;
+      if (outcome.status === 'ready' && outcome.derivative) {
+        const d = outcome.derivative;
+        d.sidecar['scanner'] = this.scanner.name;
+        counts = await countTokens(d.markdown, d.markdownChars, this.deps.tokenCounters ?? {}, this.deps.cfg);
+        plan = d.markdownChars > 0 ? planChunks(d, counts) : null;
+        if (!(await holds())) throw new LeaseLost();
+        objects = await putDerivativeObjects(storage, row.userId, d);
+      }
+      if (target.scope === 'project' && outcome.status === 'ready' && outcome.derivative === undefined) {
+        // A ZIP inside a project is not unpacked there.
+        outcome = failed('unsupported_type');
+      }
+
+      const committed = await db.transaction(async (tx) => {
+        if (fence) {
+          const [held] = await tx
+            .update(fileJobs)
+            .set({ state: 'done', leaseOwner: null, finishedAt: new Date(), updatedAt: new Date(), errorCode: outcome.status === 'failed' ? outcome.errorCode : '' })
+            .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner), eq(fileJobs.state, 'running')))
+            .returning({ id: fileJobs.id });
+          if (!held || this.dead) throw new LeaseLost();
+        }
+        let replaced: string[] = [];
+        const extra = retrievalWarning(target.scope === 'attachment' ? plan : null);
+        if (outcome.status === 'ready' && outcome.derivative && objects && counts) {
+          const w = await writeDerivative(tx, {
+            userId: row.userId,
+            ...(target.scope === 'attachment' ? { attachmentId: row.id } : { projectFileId: row.id }),
+            version: job?.version ?? 0,
+            checksumSha256: row.checksumSha256,
+            draft: outcome.derivative,
+            objects,
+            counts,
+            plan,
+            extraWarnings: extra,
+          });
+          replaced = w.replacedKeys;
+        }
+        if (target.scope === 'attachment') {
+          await tx.update(attachments).set(outcomePatch(outcome, extra)).where(eq(attachments.id, row.id));
+        } else {
+          await tx.update(projectFiles).set(await this.projectPatch(tx, target.row, outcome, plan)).where(eq(projectFiles.id, row.id));
+        }
+        return replaced;
+      });
+      objects = null;
+      await deleteObjects(storage, committed);
+    } catch (err) {
+      if (objects) await deleteObjects(storage, [objects.markdownKey, objects.normalizedKey].filter((k): k is string => Boolean(k)));
+      if (err instanceof LeaseLost) return;
+      throw err;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** Scan, then reuse a derivative of the same bytes (G3), or run the pipeline. */
+  private async read(
+    target: Target,
+    local: string,
+    dir: string,
+    setStage: (stage: FileStage) => Promise<void>,
+    fence: Fence | null,
+  ): Promise<Outcome> {
+    const { db, storage, cfg } = this.deps;
+    const row = target.row;
+    // D1 #35: the bytes must be the ones `complete` checked (a project file: the ones stored).
+    if (row.objectGeneration) {
+      const now = await storage.generation(row.storageKey);
+      if (now !== row.objectGeneration) return failed('corrupt', 'This file changed after it was uploaded. Upload it again.');
+    }
+    await setStage('scanning');
+    try {
+      await this.scanner.scan(local);
+    } catch (err) {
+      if (err instanceof FileFailure) return failed(err.code, err.detail);
+      throw err;
+    }
+    const reuse = await findReusable(
+      db,
+      row.userId,
+      row.checksumSha256,
+      this.scanner.name,
+      target.scope === 'attachment' ? { attachmentId: row.id } : { projectFileId: row.id },
+    );
+    if (reuse) {
+      await setStage('extracting');
+      const d = await draftFromStored(db, storage, reuse, dir);
+      const pageCount = typeof d.sidecar['pageCount'] === 'number' ? (d.sidecar['pageCount'] as number) : null;
+      const text = d.markdown && d.markdown.length <= cfg.EXTRACTED_TEXT_MAX_CHARS && d.markdown.trim() !== '' ? d.markdown : null;
+      return { status: 'ready', error: d.warnings.map((w) => w.detail).join(' '), warnings: d.warnings, extractedText: text, pageCount, derivative: d };
+    }
+    const controller = new AbortController();
     return readAttachment({
-      path: localPath,
+      path: local,
       filename: row.filename,
       mimeType: row.mimeType,
       sizeBytes: row.sizeBytes,
-      cfg: this.deps.cfg,
+      cfg,
+      workDir: dir,
+      scanner: noScanner, // scanned above, before any reuse
+      ocr: this.ocr,
+      signal: controller.signal,
       ...(this.deps.visionProvider ? { visionProvider: this.deps.visionProvider } : {}),
-      ...(setStage ? { setStage } : {}),
-      expandZip: (zipPath) => this.expand(row, zipPath, inline),
+      ...(this.deps.modelInputs ? { modelInputs: this.deps.modelInputs } : {}),
+      setStage: async (stage) => {
+        if (stage === 'scanning') return;
+        try {
+          await setStage(stage);
+        } catch (err) {
+          controller.abort();
+          throw err;
+        }
+      },
+      replaceStored: async (strippedPath) => {
+        if (fence && !(await this.renew(fence))) throw new LeaseLost();
+        const bytes = await readFile(strippedPath);
+        await storage.put(row.storageKey, bytes, row.mimeType);
+        const generation = (await storage.generation(row.storageKey)) ?? '';
+        if (target.scope === 'attachment') await db.update(attachments).set({ sizeBytes: bytes.length, objectGeneration: generation }).where(eq(attachments.id, row.id));
+        else await db.update(projectFiles).set({ sizeBytes: bytes.length, objectGeneration: generation }).where(eq(projectFiles.id, row.id));
+      },
+      ...(target.scope === 'attachment' ? { expandZip: (zipPath: string) => this.expand(target.row, zipPath, fence === null) } : {}),
     });
+  }
+
+  /** The project file's row after a read: its status, warnings and fresh chunks (`file_chunks`). */
+  private async projectPatch(tx: Parameters<Parameters<Database['transaction']>[0]>[0], row: ProjectFileRow, outcome: Outcome, plan: ChunkPlan | null): Promise<Partial<ProjectFileRow>> {
+    await tx.delete(fileChunks).where(eq(fileChunks.projectFileId, row.id));
+    const base = { indexVersion: INDEX_VERSION, indexedAt: new Date() };
+    if (outcome.status === 'failed') {
+      return { ...base, status: 'failed', error: outcome.error, errorCode: outcome.errorCode, warnings: [], chunkCount: 0 };
+    }
+    const chunks = plan?.chunks ?? [];
+    if (chunks.length === 0) {
+      const isImage = row.mimeType.startsWith('image/');
+      const note = outcome.warnings.find((w) => w.code === 'not_extracted')?.detail;
+      return {
+        ...base,
+        status: 'unsupported',
+        error: isImage ? 'Images are stored and can be attached to messages, but their contents are not indexed.' : (note ?? 'This file contained no extractable text.'),
+        errorCode: isImage ? 'unsupported_type' : 'corrupt',
+        warnings: [],
+        chunkCount: 0,
+      };
+    }
+    for (let i = 0; i < chunks.length; i += 500) {
+      await tx.insert(fileChunks).values(
+        chunks.slice(i, i + 500).map((c, j) => ({
+          projectFileId: row.id,
+          projectId: row.projectId,
+          ordinal: i + j,
+          text: c.text,
+          charCount: c.text.length,
+          page: c.page,
+        })),
+      );
+    }
+    // Never a silent cut (E4): the user and the whole-file prompt both learn it stopped here.
+    const warnings: FileWarning[] = [...outcome.warnings];
+    if (plan?.capped) {
+      warnings.push(warning('chunk_cap', `Only the first ${chunks.length.toLocaleString('en-US')} parts of this file can be searched; the rest is not indexed.`));
+    }
+    return { ...base, status: 'ready', error: '', errorCode: '', warnings, chunkCount: chunks.length };
   }
 
   /**
@@ -462,11 +685,12 @@ export class FileService {
           sizeBytes: member.sizeBytes,
           storageKey,
           status: 'queued',
+          objectGeneration: (await storage.generation(storageKey)) ?? '',
         })
         .returning();
       if (inline) {
-        const outcome = await this.read(row!, member.localPath, undefined, true);
-        await db.update(attachments).set(outcomePatch(outcome)).where(eq(attachments.id, row!.id));
+        // The member's file lives in expandZip's own directory until this callback returns.
+        await this.process({ scope: 'attachment', row: row! }, null, null, member.localPath);
       }
       created.push(row!);
     });
@@ -479,6 +703,11 @@ export class FileService {
   async removeMembers(parentId: string): Promise<void> {
     const { db, storage } = this.deps;
     // Only members not yet sent: a sent member belongs to its message now.
+    const unsent = await db
+      .select({ id: attachments.id })
+      .from(attachments)
+      .where(and(eq(attachments.parentAttachmentId, parentId), isNull(attachments.messageId)));
+    const derived = await derivedKeys(db, { attachmentIds: unsent.map((u) => u.id) });
     const members = await db
       .delete(attachments)
       .where(and(eq(attachments.parentAttachmentId, parentId), isNull(attachments.messageId)))
@@ -487,12 +716,13 @@ export class FileService {
       if (await storageKeyInUse(db, m.storageKey)) continue;
       await storage.delete(m.storageKey).catch(() => undefined);
     }
+    await deleteObjects(storage, derived);
   }
 
   /** Reads an attachment inside the request (FILE_PIPELINE=sync, multipart upload). */
   async readInline(row: AttachmentRow, localPath: string): Promise<AttachmentRow> {
-    const outcome = await this.read(row, localPath, undefined, true);
-    const [updated] = await this.deps.db.update(attachments).set(outcomePatch(outcome)).where(eq(attachments.id, row.id)).returning();
+    await this.process({ scope: 'attachment', row }, null, null, localPath);
+    const [updated] = await this.deps.db.select().from(attachments).where(eq(attachments.id, row.id));
     return updated!;
   }
 
@@ -506,15 +736,17 @@ class LeaseLost extends Error {
   override name = 'LeaseLost';
 }
 
-export function outcomePatch(outcome: Outcome): Partial<AttachmentRow> {
-  return outcome.status === 'ready'
-    ? {
-        status: 'ready',
-        error: outcome.error,
-        errorCode: '',
-        warnings: outcome.warnings,
-        extractedText: outcome.extractedText,
-        pageCount: outcome.pageCount,
-      }
-    : { status: 'failed', error: outcome.error, errorCode: outcome.errorCode, warnings: [], extractedText: null, pageCount: null };
+export function outcomePatch(outcome: Outcome, extra: FileWarning[] = []): Partial<AttachmentRow> {
+  if (outcome.status === 'ready') {
+    const warnings = [...outcome.warnings, ...extra];
+    return {
+      status: 'ready',
+      error: warnings.map((w) => w.detail).join(' ') || outcome.error,
+      errorCode: '',
+      warnings,
+      extractedText: outcome.extractedText,
+      pageCount: outcome.pageCount,
+    };
+  }
+  return { status: 'failed', error: outcome.error, errorCode: outcome.errorCode, warnings: [], extractedText: null, pageCount: null };
 }

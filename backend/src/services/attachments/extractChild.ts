@@ -9,31 +9,70 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 
-import { ExtractionUnsupported, extractText, readPdfLayer } from '../retrieval.js';
+import { ExtractionUnsupported, extractText } from '../retrieval.js';
+import { deriveDocx, derivePptx, deriveXlsx, inspectPdf, normaliseImage, type DerivedBody, type NormalisedImage, type PdfInspection } from './derive.js';
 
 export interface ChildRequest {
-  op: 'text' | 'pdfLayer';
+  op: 'text' | 'derive' | 'pdfInspect' | 'image';
   input: string;
   out: string;
   filename: string;
   mimeType: string;
-  wantScreenshots?: boolean;
+  /** pdfInspect: where the stripped copy goes; image: where the normalised copy goes. */
+  output?: string;
+  image?: { maxEdge: number; maxBytes: number; maxPixels: number };
 }
 
 export type ChildResult =
   | { ok: true; text: string }
-  | { ok: true; layer: Awaited<ReturnType<typeof readPdfLayer>> }
+  | { ok: true; derived: DerivedBody }
+  | { ok: true; pdf: PdfInspection }
+  | { ok: true; image: NormalisedImage }
   | { ok: false; code: string; message: string };
+
+const DERIVERS: Record<string, (data: Buffer, filename: string, mimeType: string) => DerivedBody | Promise<DerivedBody>> = {
+  xlsx: (d) => deriveXlsx(d),
+  pptx: (d) => derivePptx(d),
+  docx: (d, f, m) => deriveDocx(d, f, m),
+};
+
+/** Which builder a parsed document gets; others are Markdown from the shared parser. */
+export function deriverFor(filename: string, mimeType: string): 'xlsx' | 'pptx' | 'docx' | 'document' {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || mimeType.includes('spreadsheetml') || mimeType === 'application/vnd.ms-excel') return 'xlsx';
+  if (lower.endsWith('.pptx') || mimeType.includes('presentationml')) return 'pptx';
+  if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) return 'docx';
+  return 'document';
+}
+
+async function derive(data: Buffer, filename: string, mimeType: string): Promise<DerivedBody> {
+  const which = deriverFor(filename, mimeType);
+  const builder = DERIVERS[which];
+  if (builder) {
+    const body = await builder(data, filename, mimeType);
+    if (body.markdown.trim() === '') throw new ExtractionUnsupported('This file contains no extractable text.');
+    return body;
+  }
+  // ODT, RTF, EPUB: the shared parser's Markdown, one section.
+  const markdown = await extractText(data, mimeType, filename);
+  return { kind: 'document', markdown, units: [{ kind: 'section', label: 'Document', text: markdown, source: 'parsed' }], sidecar: {}, warnings: [] };
+}
 
 async function main(): Promise<void> {
   const req = JSON.parse(await readFile(process.argv[2]!, 'utf8')) as ChildRequest;
   let result: ChildResult;
   try {
-    const data = await readFile(req.input);
-    result =
-      req.op === 'pdfLayer'
-        ? { ok: true, layer: await readPdfLayer(data, Boolean(req.wantScreenshots)) }
-        : { ok: true, text: await extractText(data, req.mimeType, req.filename) };
+    if (req.op === 'pdfInspect') {
+      result = { ok: true, pdf: await inspectPdf(req.input, req.output!) };
+    } else if (req.op === 'image') {
+      result = { ok: true, image: await normaliseImage(req.input, req.mimeType, req.output!, req.image!) };
+    } else {
+      const data = await readFile(req.input);
+      result =
+        req.op === 'derive'
+          ? { ok: true, derived: await derive(data, req.filename, req.mimeType) }
+          : { ok: true, text: await extractText(data, req.mimeType, req.filename) };
+    }
   } catch (err) {
     result =
       err instanceof ExtractionUnsupported
@@ -44,7 +83,10 @@ async function main(): Promise<void> {
   await writeFile(req.out, JSON.stringify(result));
 }
 
-main().then(
-  () => process.exit(0),
-  () => process.exit(2),
-);
+// Only when run as the child, not when a test imports `deriverFor`.
+if (process.argv[1] && /extractChild\.(ts|js)$/.test(process.argv[1])) {
+  main().then(
+    () => process.exit(0),
+    () => process.exit(2),
+  );
+}

@@ -21,14 +21,16 @@ import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
-import { attachments, projectFiles } from '../db/schema.js';
+import { attachments, fileDerivatives, projectFiles } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { IN_PROGRESS, readingFor } from '../services/attachments/pipeline.js';
 import { reserveUpload } from '../services/attachments/quota.js';
 import { storageKeyInUse } from '../services/attachments/references.js';
 import { isWhole, projectFileTexts } from '../services/retrieval.js';
-import { checkUpload, generateStorageKey, safeDownloadName, UploadTooLarge } from '../services/storage.js';
+import { checkUpload, generateStorageKey, safeDownloadName, sha256, UploadTooLarge } from '../services/storage.js';
+import { derivedKeys, deleteObjects, storedChecksum } from '../services/attachments/derivatives.js';
+import { pollWithHold } from '../services/attachments/pollHold.js';
 import type { AppInstance } from '../types.js';
 import { iso, uuidParam } from './helpers.js';
 import {
@@ -135,6 +137,8 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
           sizeBytes: data.length,
           storageKey,
           status: 'extracting',
+          checksumSha256: sha256(data),
+          objectGeneration: (await storage.generation(storageKey)) ?? '',
         })
         .returning();
 
@@ -282,9 +286,13 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
               : `${String(stored)} of ${String(file.sizeBytes)} bytes arrived. Upload it again.`,
         });
       }
+      // D1 #35: the bytes the job reads must be these. Their checksum (also the key for reusing
+      // an earlier read of the same bytes, G3) and the object's generation are kept on the row.
+      const checksumSha256 = await storedChecksum(storage, file.storageKey);
+      const objectGeneration = (await storage.generation(file.storageKey)) ?? '';
       // The status move is the lock: of two `complete` calls at once, one moves the row out of
       // `uploading` and reads it; the other sees it moved and answers with the row as it is.
-      const moved = await claimFrom(request, file.id, ['uploading']);
+      const moved = await claimFrom(request, file.id, ['uploading'], { checksumSha256, objectGeneration });
       if (!moved) return toDtoWithMembers(request, await loadAttachment(request, file.id));
       if (cfg.FILE_PIPELINE === 'sync') {
         const read = await withLocalCopy(async (localPath) => {
@@ -367,7 +375,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
           meta: { fileErrorCode: file.errorCode },
         });
       }
-      const [whole] = file.status === 'ready' ? await projectFileTexts(db, file.projectId, file.id) : [];
+      const [whole] = file.status === 'ready' ? await projectFileTexts(db, file.projectId, file.id, storage) : [];
       const warnings: Array<{ code: string; detail: string }> = [];
       if (file.status === 'unsupported') warnings.push({ code: 'not_extracted', detail: file.error });
       if (file.status === 'ready' && !isWhole(file)) {
@@ -408,7 +416,13 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         response: { 200: attachmentSchema },
       },
     },
-    async (request) => toDtoWithMembers(request, await loadAttachment(request, request.params.id)),
+    async (request) => {
+      const { files, cfg } = request.services;
+      const id = request.params.id;
+      // Wakes the worker for this file and holds briefly while it moves (ADR-0063).
+      const row = await pollWithHold(() => loadAttachment(request, id), () => files.wake({ attachmentId: id }), cfg.FILE_POLL_HOLD_MS);
+      return toDtoWithMembers(request, row);
+    },
   );
 
   typed.get(
@@ -497,7 +511,10 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       // Removing a ZIP removes the members not yet sent; a queued job for any of them is
       // deleted with its row (ON DELETE CASCADE), which is how in-flight work is cancelled.
       await files.removeMembers(file.id);
+      // Its derived objects (Markdown, normalised image) go with it (D1 #37).
+      const derived = await derivedKeys(db, { attachmentIds: [file.id] });
       await db.delete(attachments).where(eq(attachments.id, file.id));
+      await deleteObjects(storage, derived);
       if (!(await storageKeyInUse(db, file.storageKey))) {
         try {
           await storage.delete(file.storageKey);
@@ -528,6 +545,11 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       const user = currentUser(request);
       const { db, storage } = request.services;
       const cutoff = new Date(Date.now() - request.body.olderThanHours * 3600_000);
+      const doomed = await db
+        .select({ id: attachments.id })
+        .from(attachments)
+        .where(and(eq(attachments.userId, user.id), isNull(attachments.messageId), lt(attachments.createdAt, cutoff)));
+      const derived = await derivedKeys(db, { attachmentIds: doomed.map((d) => d.id) });
 
       const stale = await db
         .delete(attachments)
@@ -546,9 +568,10 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         try {
           await storage.delete(row.storageKey);
         } catch (err) {
-          request.log.warn({ err, storageKey: row.storageKey }, 'orphaned object after cleanup');
+          request.log.warn({ errName: err instanceof Error ? err.name : 'unknown', storageKey: row.storageKey }, 'orphaned object after cleanup');
         }
       }
+      await deleteObjects(storage, derived);
       return { deleted: stale.length };
     },
   );
@@ -574,10 +597,15 @@ async function loadAttachment(
 type ServicesRequest = { services: AppInstance['services']; user: { id: string } | null };
 
 /** Moves the row to `queued` only from one of `from`; null when another request moved it first. */
-async function claimFrom(request: ServicesRequest, id: string, from: string[]): Promise<AttachmentRow | null> {
+async function claimFrom(
+  request: ServicesRequest,
+  id: string,
+  from: string[],
+  extra: Partial<Pick<AttachmentRow, 'checksumSha256' | 'objectGeneration'>> = {},
+): Promise<AttachmentRow | null> {
   const [row] = await request.services.db
     .update(attachments)
-    .set({ status: 'queued', error: '', errorCode: '', warnings: [] })
+    .set({ status: 'queued', error: '', errorCode: '', warnings: [], ...extra })
     .where(and(eq(attachments.id, id), inArray(attachments.status, from)))
     .returning();
   return row ?? null;
@@ -594,7 +622,9 @@ async function withLocalCopy<T>(fn: (localPath: string) => Promise<T>): Promise<
 }
 
 async function discard(request: ServicesRequest, row: AttachmentRow): Promise<void> {
+  const derived = await derivedKeys(request.services.db, { attachmentIds: [row.id] });
   await request.services.db.delete(attachments).where(eq(attachments.id, row.id));
+  await deleteObjects(request.services.storage, derived);
   await request.services.storage.delete(row.storageKey).catch(() => undefined);
 }
 
@@ -609,8 +639,9 @@ function browserOrigin(origin: string | undefined): string | undefined {
   }
 }
 
-function toDto(row: AttachmentRow, memberIds: string[] = []): z.infer<typeof attachmentSchema> {
-  const hasText = Boolean(row.extractedText?.trim());
+function toDto(row: AttachmentRow, memberIds: string[] = [], derivedChars = 0): z.infer<typeof attachmentSchema> {
+  // A text too long to keep in the row is still read, through its derivative (ADR-0063).
+  const hasText = Boolean(row.extractedText?.trim()) || derivedChars > 0;
   const readable = !IN_PROGRESS.has(row.status) && row.status !== 'failed';
   return {
     id: row.id,
@@ -639,7 +670,11 @@ async function toDtoWithMembers(request: ServicesRequest, row: AttachmentRow): P
     .from(attachments)
     .where(eq(attachments.parentAttachmentId, row.id))
     .orderBy(attachments.createdAt);
-  return toDto(row, members.map((m) => m.id));
+  const [derived] =
+    row.status === 'ready' && !row.extractedText
+      ? await request.services.db.select({ chars: fileDerivatives.markdownChars }).from(fileDerivatives).where(eq(fileDerivatives.attachmentId, row.id))
+      : [];
+  return toDto(row, members.map((m) => m.id), derived?.chars ?? 0);
 }
 
 const run = promisify(execFile);

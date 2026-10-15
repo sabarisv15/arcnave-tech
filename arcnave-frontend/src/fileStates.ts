@@ -64,16 +64,16 @@ const DEFAULT_DELAYS = [400, 700, 1000, 1500, 2000];
  * Reads the file until it settles, reporting each new status. Returns the last DTO seen.
  * A failed read (network) is retried on the next tick rather than ending the poll.
  */
-export async function pollFile(
+export async function pollFile<T extends Pick<AttachmentDto, "status" | "error"> = AttachmentDto>(
   id: string,
-  read: (id: string) => Promise<AttachmentDto>,
-  onUpdate: (dto: AttachmentDto) => void,
+  read: (id: string) => Promise<T>,
+  onUpdate: (dto: T) => void,
   options: PollOptions = {},
-): Promise<AttachmentDto | null> {
+): Promise<T | null> {
   const delays = options.delays ?? DEFAULT_DELAYS;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const deadline = Date.now() + (options.maxMs ?? 30 * 60 * 1000);
-  let last: AttachmentDto | null = null;
+  let last: T | null = null;
   for (let i = 0; Date.now() < deadline; i++) {
     if (options.signal?.aborted) return last;
     await sleep(delays[Math.min(i, delays.length - 1)]!);

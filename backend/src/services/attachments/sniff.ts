@@ -23,6 +23,7 @@ export type SniffKind =
   | 'jpeg'
   | 'gif'
   | 'webp'
+  | 'heic'
   | 'rtf'
   | 'media'
   | 'text'
@@ -44,6 +45,11 @@ export function detectKind(head: Buffer): SniffKind {
   if (ascii(head, 0, 'GIF87a') || ascii(head, 0, 'GIF89a')) return 'gif';
   if (ascii(head, 0, 'RIFF') && ascii(head, 8, 'WEBP')) return 'webp';
   if (ascii(head, 0, '{\\rtf')) return 'rtf';
+  // A UTF-16 byte-order mark makes NULs legitimate. Checked before the MPEG frame sync below:
+  // FF FE is also eleven set bits, and a UTF-16 CSV was read as audio (found in tech-build.2).
+  if (startsWith(head, [0xff, 0xfe]) || startsWith(head, [0xfe, 0xff])) return 'text';
+  // HEIF stills: an ISO-BMFF `ftyp` box whose major brand is a HEIF image brand.
+  if (ascii(head, 4, 'ftyp') && HEIF_BRANDS.has(head.subarray(8, 12).toString('latin1'))) return 'heic';
   if (
     ascii(head, 0, 'ID3') ||
     (ascii(head, 0, 'RIFF') && ascii(head, 8, 'WAVE')) ||
@@ -59,9 +65,23 @@ export function detectKind(head: Buffer): SniffKind {
   ) {
     return 'media';
   }
-  // A UTF-16 byte-order mark makes NULs legitimate; otherwise a NUL means binary.
-  if (startsWith(head, [0xff, 0xfe]) || startsWith(head, [0xfe, 0xff])) return 'text';
+  // UTF-16 without a mark: the NULs sit in every other byte (textDecode.ts reads it).
+  if (looksUtf16(head)) return 'text';
   return head.includes(0) ? 'binary' : 'text';
+}
+
+const HEIF_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1']);
+
+function looksUtf16(head: Buffer): boolean {
+  const pairs = Math.floor(Math.min(head.length, 4096) / 2);
+  if (pairs < 8) return false;
+  let even = 0;
+  let odd = 0;
+  for (let i = 0; i < pairs * 2; i += 2) {
+    if (head[i] === 0) even++;
+    if (head[i + 1] === 0) odd++;
+  }
+  return (odd / pairs > 0.3 && even / pairs < 0.05) || (even / pairs > 0.3 && odd / pairs < 0.05);
 }
 
 const ZIP_CONTAINERS = new Set(['.docx', '.xlsx', '.pptx', '.odt', '.epub', '.zip']);
@@ -71,6 +91,8 @@ const IMAGE_KIND: Record<string, SniffKind> = {
   '.jpeg': 'jpeg',
   '.gif': 'gif',
   '.webp': 'webp',
+  '.heic': 'heic',
+  '.heif': 'heic',
 };
 
 /** The legacy extension an OOXML name stands in for, for the "save as" text. */
@@ -102,7 +124,7 @@ export function sniffBuffer(head: Buffer, filename: string, mimeType: string, wh
   else if (ZIP_CONTAINERS.has(ext)) ok = kind === 'zip';
   else if (ext === '.rtf') ok = kind === 'rtf';
   else if (ext in IMAGE_KIND) ok = kind === IMAGE_KIND[ext];
-  else if (mimeType.startsWith('image/')) ok = ['png', 'jpeg', 'gif', 'webp'].includes(kind);
+  else if (mimeType.startsWith('image/')) ok = ['png', 'jpeg', 'gif', 'webp', 'heic'].includes(kind);
   else if (mimeType.startsWith('audio/') || (mimeType.startsWith('video/') && mimeType !== 'video/mp2t')) ok = kind === 'media';
   else ok = kind === 'text';
   if (!ok) throw mismatch(ext);

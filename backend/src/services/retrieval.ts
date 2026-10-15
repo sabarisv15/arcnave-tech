@@ -9,13 +9,13 @@
  * Chunking is what keeps us inside Vertex's 30 MB payload cap and stops one large file from
  * crowding out every other source of context.
  */
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 
 import type { Database } from '../db/client.js';
-import { fileChunks, projectFiles } from '../db/schema.js';
-import type { Provider } from '../providers/types.js';
+import { fileChunks, fileDerivatives, projectFiles } from '../db/schema.js';
+import type { ObjectStorage } from './storage.js';
 import type { FileWarning } from '../db/schema.js';
 import type { FileErrorCode } from './attachments/fileErrors.js';
 
@@ -30,10 +30,11 @@ export const MAX_CHUNKS_PER_FILE = 2000;
 const LEGACY_MAX_CHUNKS_PER_FILE = 400;
 /**
  * The indexer's version, stored on each project file. 2: Unicode tokens (letters, marks and
- * digits of every script), NFC chunk text, the E4 cap. A file below it is re-indexed by a
- * `reindex` file job (fileJobs.ts).
+ * digits of every script), NFC chunk text, the E4 cap. 3: the one ingest path (ADR-0063):
+ * derivatives, per-page OCR, chunks of ~N-14 tokens. A file below it is re-read by a `reindex`
+ * file job (fileJobs.ts).
  */
-export const INDEX_VERSION = 2;
+export const INDEX_VERSION = 3;
 
 /** The file was stored fine, but its text cannot be extracted for indexing. */
 export class ExtractionUnsupported extends Error {
@@ -50,21 +51,12 @@ export class ExtractionUnsupported extends Error {
 /* -------------------------------------------------------------------------- extraction */
 
 /**
- * @param visionProvider Used for OCR (scanned PDFs) and audio/video transcription. Optional —
- *   when absent, those two branches fail with a typed reason instead of silently skipping the
- *   content, per Invariant 1. See ADR-0004, items 3 and 5.
+ * The text of an Office, e-book, spreadsheet or plain-text file. Runs inside the isolated
+ * extractor (extractChild.ts). PDFs, images and recordings are read by the file pipeline
+ * (pipeline.ts: poppler and per-page OCR, the image normaliser, timed transcription), not here.
  */
-export async function extractText(
-  data: Buffer,
-  mimeType: string,
-  filename: string,
-  visionProvider?: Provider,
-): Promise<string> {
+export async function extractText(data: Buffer, mimeType: string, filename: string): Promise<string> {
   const lower = filename.toLowerCase();
-
-  if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) {
-    return extractPdf(data, visionProvider);
-  }
   if (lower.endsWith('.docx') || mimeType.includes('wordprocessingml')) {
     return extractWithOfficeParser(data, 'This Word file', 'docx');
   }
@@ -91,9 +83,6 @@ export async function extractText(
   if (mimeType.startsWith('text/') || TEXT_MIMES.has(mimeType)) {
     return data.toString('utf8');
   }
-  if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) {
-    return extractAudioVideo(data, mimeType, visionProvider);
-  }
   if (mimeType.startsWith('image/')) {
     throw new ExtractionUnsupported(
       'Images are stored and can be attached to messages, but their contents are not indexed.',
@@ -104,24 +93,6 @@ export async function extractText(
   );
 }
 
-/**
- * Like `extractText`, but keeps page boundaries where the format has them (currently just PDF
- * with a text layer) so `indexFile` can chunk per page and a citation can name one. Everything
- * else comes back as a single page-less entry — see ADR-0004, item 6.
- */
-export async function extractPages(
-  data: Buffer,
-  mimeType: string,
-  filename: string,
-  visionProvider?: Provider,
-): Promise<ExtractedPage[]> {
-  const lower = filename.toLowerCase();
-  if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) {
-    return extractPdfPages(data, visionProvider);
-  }
-  return [{ num: null, text: await extractText(data, mimeType, filename, visionProvider) }];
-}
-
 const TEXT_MIMES = new Set([
   'application/json',
   'application/xml',
@@ -129,133 +100,6 @@ const TEXT_MIMES = new Set([
   'application/javascript',
   'video/mp2t',
 ]);
-
-const OCR_PROMPT =
-  'Transcribe every word of visible text on these scanned document pages, verbatim, in ' +
-  'reading order. Output only the transcribed text, nothing else.';
-
-/** A page of extracted text. `num` is null when the format has no pages, or OCR combined them. */
-export interface ExtractedPage {
-  num: number | null;
-  text: string;
-}
-
-async function extractPdf(data: Buffer, visionProvider?: Provider): Promise<string> {
-  const pages = await extractPdfPages(data, visionProvider);
-  const text = pages.map((p) => p.text).join('\n\n');
-  if (text.trim() === '') {
-    throw new ExtractionUnsupported('No text could be read from this PDF, even with OCR.');
-  }
-  return text;
-}
-
-async function extractPdfPages(data: Buffer, visionProvider?: Provider): Promise<ExtractedPage[]> {
-  return pagesFromPdfLayer(await readPdfLayer(data, Boolean(visionProvider?.describeMedia)), visionProvider);
-}
-
-/** A PDF's text layer per page, or the page images of a scanned one (for OCR by the caller). */
-export type PdfLayer =
-  | { kind: 'text'; pages: ExtractedPage[] }
-  | { kind: 'scanned'; screenshots: Array<{ mimeType: string; base64: string }> };
-
-/**
- * The parsing half of a project PDF: pdf.js over untrusted bytes, so the isolated extractor
- * runs it in a child process (isolatedExtract.ts). The OCR half, a provider call, stays with
- * the caller. Page images are rendered only when someone will read them.
- */
-export async function readPdfLayer(data: Buffer, wantScreenshots: boolean): Promise<PdfLayer> {
-  // pdf-parse v2 is class-based (v1's default-export function is gone) and holds a pdf.js
-  // document open until destroyed, so the parser is disposed in a finally.
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data });
-  try {
-    const result = await parser.getText();
-    // pdf-parse always inlines a `-- N of M --` page separator into the concatenated `.text`,
-    // even for a page with zero real content, so the per-page text is what is checked.
-    const hasSelectableText = result.pages.some((page) => page.text.trim().length > 0);
-    if (hasSelectableText) {
-      return {
-        kind: 'text',
-        pages: result.pages
-          .filter((page) => page.text.trim() !== '')
-          .map((page) => ({ num: page.num, text: page.text.trim() })),
-      };
-    }
-    if (!wantScreenshots) return { kind: 'scanned', screenshots: [] };
-    const screenshots = await parser.getScreenshot();
-    return {
-      kind: 'scanned',
-      screenshots: screenshots.pages.map((page) => ({
-        mimeType: 'image/png',
-        base64: Buffer.from(page.data).toString('base64'),
-      })),
-    };
-  } catch {
-    // A pdf.js error message names internals, not anything the user can act on (D1 #23).
-    throw new ExtractionUnsupported('This PDF could not be read. It may be damaged or protected by a password.', 'corrupt');
-  } finally {
-    await parser.destroy().catch(() => undefined);
-  }
-}
-
-/**
- * Real per-page text when the PDF has a text layer, so a retrieved chunk can cite the page it
- * came from (see ADR-0004, item 6) rather than just the filename.
- *
- * A scanned PDF has no per-page attribution: OCR transcribes every rasterized page in one
- * vision call (one call per page would multiply Gemini cost by page count), so its result is a
- * single page-less block — file-level citation only, not page-accurate. That trade-off is
- * deliberate, not an oversight (P09 replaces it).
- */
-export async function pagesFromPdfLayer(layer: PdfLayer, visionProvider?: Provider): Promise<ExtractedPage[]> {
-  if (layer.kind === 'text') return layer.pages;
-  // No selectable text: this is a scanned PDF. Let Gemini read the page images — never a
-  // bundled OCR engine, so this capability comes and goes with the same configuration as every
-  // other Gemini-backed feature. See ADR-0004, item 3.
-  if (!visionProvider?.describeMedia) {
-    throw new ExtractionUnsupported(
-      'No selectable text found. This looks like a scanned PDF; OCR needs a configured ' +
-        'Gemini provider, which is not available.',
-      'ocr_failed',
-    );
-  }
-  let text: string;
-  try {
-    text = await visionProvider.describeMedia(layer.screenshots, OCR_PROMPT, new AbortController().signal);
-  } catch {
-    throw new ExtractionUnsupported('The scanned pages of this PDF could not be read. You can retry it.', 'ocr_failed');
-  }
-  return [{ num: null, text }];
-}
-
-async function extractAudioVideo(
-  data: Buffer,
-  mimeType: string,
-  visionProvider?: Provider,
-): Promise<string> {
-  if (!visionProvider?.describeMedia) {
-    throw new ExtractionUnsupported(
-      'Transcribing audio/video needs a configured Gemini provider, which is not available. ' +
-        'The file is stored but not indexed.',
-      'ocr_failed',
-    );
-  }
-  let text: string;
-  try {
-    text = await visionProvider.describeMedia(
-      [{ mimeType, base64: data.toString('base64') }],
-      'Transcribe this recording verbatim. If it is not speech, describe what it contains ' +
-        'instead. Output only the transcript or description, nothing else.',
-      new AbortController().signal,
-    );
-  } catch {
-    throw new ExtractionUnsupported('This recording could not be transcribed. You can retry it.', 'timeout');
-  }
-  if (text.trim() === '') {
-    throw new ExtractionUnsupported('Transcription returned no text for this file.');
-  }
-  return text;
-}
 
 /**
  * `.docx`, `.pptx`, `.odt`, `.rtf` and `.epub` share a parser: officeParser renders each into an AST and can emit
@@ -651,45 +495,63 @@ export interface ProjectFileText {
   whole: boolean;
 }
 
-/** Every ready file of a project, as its whole text, oldest first, with page markers. */
-export async function projectFileTexts(db: Database, projectId: string, onlyFileId?: string): Promise<ProjectFileText[]> {
-  const rows = await db
+/**
+ * Every ready file of a project, as its whole text, oldest first, with page markers. A file read
+ * by the one ingest path (ADR-0063) is its derivative's Markdown, which is whole by construction;
+ * an older file is its chunks put back together.
+ */
+export async function projectFileTexts(
+  db: Database,
+  projectId: string,
+  onlyFileId?: string,
+  storage?: Pick<ObjectStorage, 'get'>,
+): Promise<ProjectFileText[]> {
+  const files = await db
     .select({
-      fileId: fileChunks.projectFileId,
+      id: projectFiles.id,
       filename: projectFiles.filename,
       chunkCount: projectFiles.chunkCount,
       warnings: projectFiles.warnings,
       indexVersion: projectFiles.indexVersion,
-      text: fileChunks.text,
-      page: fileChunks.page,
+      markdownKey: fileDerivatives.markdownKey,
     })
-    .from(fileChunks)
-    .innerJoin(projectFiles, eq(fileChunks.projectFileId, projectFiles.id))
-    .where(
-      and(
-        eq(fileChunks.projectId, projectId),
-        eq(projectFiles.status, 'ready'),
-        onlyFileId ? eq(projectFiles.id, onlyFileId) : undefined,
-      ),
-    )
-    .orderBy(asc(projectFiles.createdAt), asc(projectFiles.id), asc(fileChunks.ordinal));
+    .from(projectFiles)
+    .leftJoin(fileDerivatives, eq(fileDerivatives.projectFileId, projectFiles.id))
+    .where(and(eq(projectFiles.projectId, projectId), eq(projectFiles.status, 'ready'), onlyFileId ? eq(projectFiles.id, onlyFileId) : undefined))
+    .orderBy(asc(projectFiles.createdAt), asc(projectFiles.id));
+  if (files.length === 0) return [];
 
-  const files: ProjectFileText[] = [];
-  let i = 0;
-  while (i < rows.length) {
-    const fileId = rows[i]!.fileId;
+  const legacy = files.filter((f) => !(storage && f.markdownKey));
+  const rows = legacy.length
+    ? await db
+        .select({ fileId: fileChunks.projectFileId, text: fileChunks.text, page: fileChunks.page })
+        .from(fileChunks)
+        .where(inArray(fileChunks.projectFileId, legacy.map((f) => f.id)))
+        .orderBy(asc(fileChunks.projectFileId), asc(fileChunks.ordinal))
+    : [];
+  const out: ProjectFileText[] = [];
+  for (const f of files) {
+    if (storage && f.markdownKey) {
+      try {
+        out.push({ filename: f.filename, text: (await storage.get(f.markdownKey)).toString('utf8'), whole: true });
+        continue;
+      } catch {
+        // Its Markdown is gone: fall through to the chunks, which say whether they are whole.
+      }
+    }
+    const mine = rows.filter((r) => r.fileId === f.id);
     const parts: string[] = [];
-    while (i < rows.length && rows[i]!.fileId === fileId) {
+    let i = 0;
+    while (i < mine.length) {
       // Chunks never straddle a page, so the overlap is undone page by page.
-      const page = rows[i]!.page;
+      const page = mine[i]!.page;
       const pageChunks: string[] = [];
-      while (i < rows.length && rows[i]!.fileId === fileId && rows[i]!.page === page) pageChunks.push(rows[i++]!.text);
+      while (i < mine.length && mine[i]!.page === page) pageChunks.push(mine[i++]!.text);
       parts.push(page != null ? `[Page ${String(page)}]\n${joinChunks(pageChunks)}` : joinChunks(pageChunks));
     }
-    const first = rows.find((r) => r.fileId === fileId)!;
-    files.push({ filename: first.filename, text: parts.join('\n\n'), whole: isWhole(first) });
+    if (parts.length) out.push({ filename: f.filename, text: parts.join('\n\n'), whole: isWhole(f) });
   }
-  return files;
+  return out;
 }
 
 /** False when the file's chunks stop at a cap, now (a `chunk_cap` warning) or before version 2. */
@@ -707,88 +569,4 @@ export function formatWholeFiles(files: ProjectFileText[]): string {
   );
 }
 
-/* -------------------------------------------------------------------------- indexing */
 
-export interface IndexResult {
-  chunkCount: number;
-  status: 'ready' | 'unsupported';
-  error: string;
-  /** ER-9 code when `unsupported`; '' when ready. */
-  errorCode: FileErrorCode | '';
-  /** `chunk_cap` when the file had more chunks than MAX_CHUNKS_PER_FILE. */
-  warnings: FileWarning[];
-}
-
-/**
- * Extract, chunk, and store chunks for a project file.
- *
- * Idempotent: existing chunks are deleted first, so a retry after a failure cannot produce
- * duplicates or leave a half-indexed file. Safe to call repeatedly.
- */
-export async function indexFile(
-  db: Database,
-  file: { id: string; projectId: string; mimeType: string; filename: string },
-  data: Buffer,
-  visionProvider?: Provider,
-  /** The extractor; the route passes the isolated one (isolatedExtract.ts). */
-  extract?: typeof extractPages,
-): Promise<IndexResult> {
-  await db.delete(fileChunks).where(eq(fileChunks.projectFileId, file.id));
-
-  let pages: ExtractedPage[];
-  try {
-    pages = await (extract ?? extractPages)(data, file.mimeType, file.filename, visionProvider);
-  } catch (err) {
-    if (err instanceof ExtractionUnsupported || (err instanceof Error && err.name === 'ExtractionUnsupported')) {
-      const code = (err as ExtractionUnsupported).code ?? 'unsupported_type';
-      return { chunkCount: 0, status: 'unsupported', error: err.message, errorCode: code, warnings: [] };
-    }
-    throw err;
-  }
-
-  // Chunked per page, so a chunk never straddles a page boundary and a citation can name one
-  // — the reason `extractPages` exists instead of a flat string. `ordinal` still counts across
-  // the whole file, because `uq_chunk_ordinal` is unique per file, not per page.
-  const rows: Array<{ text: string; page: number | null; charCount: number }> = [];
-  // NFC at index time (CHUNK, LANG-1); `tokenize` normalises the query the same way.
-  for (const page of pages) {
-    for (const piece of chunkText(page.text.normalize('NFC'))) {
-      rows.push({ text: piece, page: page.num, charCount: piece.length });
-    }
-  }
-  const pieces = rows.slice(0, MAX_CHUNKS_PER_FILE);
-  if (pieces.length === 0) {
-    return {
-      chunkCount: 0,
-      status: 'unsupported',
-      error: 'This file contained no extractable text.',
-      errorCode: 'corrupt',
-      warnings: [],
-    };
-  }
-  // Never a silent cut (E4): the user and the whole-file prompt both learn it stopped here.
-  const warnings: FileWarning[] =
-    rows.length > MAX_CHUNKS_PER_FILE
-      ? [
-          {
-            code: 'chunk_cap',
-            detail:
-              `Only the first ${MAX_CHUNKS_PER_FILE.toLocaleString('en-US')} of ` +
-              `${rows.length.toLocaleString('en-US')} parts of this file can be searched; the rest is not indexed.`,
-          },
-        ]
-      : [];
-
-  await db.insert(fileChunks).values(
-    pieces.map((piece, ordinal) => ({
-      projectFileId: file.id,
-      projectId: file.projectId,
-      ordinal,
-      text: piece.text,
-      charCount: piece.charCount,
-      page: piece.page,
-    })),
-  );
-
-  return { chunkCount: pieces.length, status: 'ready', error: '', errorCode: '', warnings };
-}

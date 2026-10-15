@@ -251,6 +251,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "Writing sample too long",
     detail: "Each writing sample cannot exceed 10000 characters.",
   },
+  scan_incomplete: {
+    title: "The file could not be checked",
+    detail: "It could not be checked for harmful content, so it was not opened. Retry, or remove it.",
+  },
   internal_error: {
     title: "Something went wrong",
     detail: "An unexpected error occurred. The request ID helps trace it.",
@@ -581,7 +585,7 @@ export interface ProjectFileDto {
   filename: string;
   mimeType: string;
   sizeBytes: number;
-  /** pending | indexing | ready | failed | unsupported */
+  /** queued | scanning | extracting | ocr | transcribing (being read: poll it) | ready | failed | unsupported */
   status: string;
   error: string;
   /** Stage 15 ER-9 code when failed / unsupported. */
@@ -990,6 +994,10 @@ export const api = {
       form.append("file", file);
       return request<ProjectFileDto>("POST", `/projects/${id}/files`, { form });
     },
+    /** One file; while it is being read the server holds the poll briefly (ADR-0063). */
+    readFile: (id: string, fileId: string) =>
+      get<ProjectFileDto>(`/projects/${id}/files/${fileId}`),
+    /** 202: the file is queued; poll `readFile` until it settles. */
     reindex: (id: string, fileId: string) =>
       post<ProjectFileDto>(`/projects/${id}/files/${fileId}/reindex`),
     removeFile: (id: string, fileId: string) =>

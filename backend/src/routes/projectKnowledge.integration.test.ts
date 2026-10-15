@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
+import { createTestApp, multipart, parseSse, postProjectFile, signUp } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -27,8 +27,8 @@ async function projectWith(files: Record<string, string>): Promise<string> {
   const projectId = (project.json() as { id: string }).id;
   for (const [name, body] of Object.entries(files)) {
     const part = multipart(name, Buffer.from(body), 'text/plain');
-    const res = await ctx.app.inject({ method: 'POST', url: `/v1/projects/${projectId}/files`, headers: { ...part.headers, ...headers() }, payload: part.payload });
-    expect(res.statusCode).toBe(201);
+    const res = await postProjectFile(ctx, headers(), projectId, part);
+    expect(res.statusCode).toBe(202);
   }
   return projectId;
 }
@@ -95,7 +95,7 @@ describe('project knowledge on a turn without tools', () => {
     const project = await bare.app.inject({ method: 'POST', url: '/v1/projects', headers: h, payload: { title: 'p' } });
     const projectId = (project.json() as { id: string }).id;
     const part = multipart('big.txt', Buffer.from(`${doc('big', 150)}\n\nThe budget figure is 4200.`), 'text/plain');
-    await bare.app.inject({ method: 'POST', url: `/v1/projects/${projectId}/files`, headers: { ...part.headers, ...h }, payload: part.payload });
+    await postProjectFile(bare, h, projectId, part);
     const chat = await bare.app.inject({ method: 'POST', url: '/v1/chats', headers: h, payload: { title: 'c', projectId } });
     const chatId = (chat.json() as { id: string }).id;
     await bare.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: h, payload: { prompt: 'what is the budget figure' } });

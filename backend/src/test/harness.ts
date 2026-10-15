@@ -30,6 +30,8 @@ import * as schema from '../db/schema.js';
 import type {
   AttachmentBlock,
   GenerationRequest,
+  MediaPart,
+  MediaReading,
   Provider,
   ProviderEvent,
 } from '../providers/types.js';
@@ -97,6 +99,36 @@ export class FakeProvider implements Provider {
     this.mediaSeen.push({ parts, prompt });
     if (this.mediaHandler) return this.mediaHandler(parts, prompt);
     return this.mediaDescription;
+  }
+
+  /**
+   * OCR / transcription with a finish reason (`readMedia`). Default: an OCR prompt is answered
+   * with one marked block per page it names ("Page n text"), anything else with
+   * `mediaDescription`, finish reason `STOP`.
+   */
+  readHandler: ((parts: MediaPart[], prompt: string) => Promise<MediaReading>) | null = null;
+  readonly readSeen: Array<{ parts: MediaPart[]; prompt: string }> = [];
+
+  async readMedia(parts: MediaPart[], prompt: string, signal: AbortSignal): Promise<MediaReading> {
+    if (signal.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+    this.readSeen.push({ parts, prompt });
+    if (this.readHandler) return this.readHandler(parts, prompt);
+    const nums = /numbered ([\d, ]+)\./.exec(prompt)?.[1]?.split(',').map((n) => n.trim());
+    if (nums) return { text: nums.map((n) => `=== PAGE ${n} ===\nPage ${n} text read by the fake OCR.`).join('\n'), finishReason: 'STOP', model: 'fake-flash-001' };
+    return { text: this.mediaDescription, finishReason: 'STOP', model: 'fake-flash-001' };
+  }
+
+  /**
+   * The fake count API. Not an estimator: it stands in for the provider's count endpoint so a
+   * test can choose what the "provider" answers. Default: one token per 4 characters.
+   */
+  tokenCount: ((text: string) => number) | null = (text) => Math.ceil(text.length / 4);
+  readonly countSeen: number[] = [];
+
+  async countTokens(text: string): Promise<{ tokens: number; model: string }> {
+    this.countSeen.push(text.length);
+    if (!this.tokenCount) throw new Error('count API unavailable');
+    return { tokens: this.tokenCount(text), model: 'fake-count' };
   }
 
   /**
@@ -174,6 +206,8 @@ function baseEnv(): Record<string, string> {
     RATE_LIMIT_WRITE_PER_MINUTE: '10000',
     RATE_LIMIT_GENERATE_PER_MINUTE: '10000',
     MAX_UPLOAD_BYTES: String(2 * 1024 * 1024),
+    // A poll answers at once unless a test asks it to hold (ADR-0063 poll hold).
+    FILE_POLL_HOLD_MS: '0',
     // The suite shares one database; a test app's file worker takes only the jobs its own app
     // queued (no polling), and never re-indexes other files' project files.
     FILE_WORKER_POLL_MS: '0',
@@ -188,7 +222,10 @@ export async function createTestApp(
   env: Record<string, string> = {},
   provider = new FakeProvider(),
   /** Further service seams, e.g. `modelInputs`. */
-  seams: Pick<BuildOptions, 'modelInputs' | 'googleVerifier' | 'fileWorker'> = {},
+  seams: Pick<BuildOptions, 'modelInputs' | 'googleVerifier' | 'fileWorker'> & {
+    /** A separate fake for the Claude slot (e.g. a count API that answers differently). */
+    anthropic?: FakeProvider;
+  } = {},
 ): Promise<TestContext> {
   const storageRoot = await mkdtemp(join(tmpdir(), 'arcnave-test-'));
   const cfg = loadConfig({ ...baseEnv(), STORAGE_LOCAL_PATH: storageRoot, ...env });
@@ -199,10 +236,11 @@ export async function createTestApp(
   // open a second pool against the development database.
   setDb(db, sql);
 
+  const { anthropic, ...rest } = seams;
   const app = await createApp(cfg, {
     db,
-    providers: { google: provider, anthropic: provider },
-    ...seams,
+    providers: { google: provider, anthropic: anthropic ?? provider },
+    ...rest,
   });
   await app.ready();
   // As index.ts does for the real process; polling is off (baseEnv), so it runs only this app's jobs.
@@ -323,4 +361,27 @@ export function sseText(frames: SseFrame[]): string {
     .filter((f) => f.event === 'delta')
     .map((f) => String(f.data['text'] ?? ''))
     .join('');
+}
+
+/* -------------------------------------------------------------------------- project files */
+
+/**
+ * Uploads a project file and waits for its job: the upload answers 202 with the file queued
+ * (ADR-0063), so this returns that status code with the file as it reads once settled.
+ */
+export async function postProjectFile(
+  ctx: TestContext,
+  headers: Record<string, string>,
+  projectId: string,
+  part: { payload: Buffer; headers: Record<string, string> },
+  method: 'POST' | 'PUT' = 'POST',
+  fileId?: string,
+): Promise<{ statusCode: number; json: () => Record<string, unknown>; body: string }> {
+  const url = `/v1/projects/${projectId}/files${fileId ? `/${fileId}` : ''}`;
+  const res = await ctx.app.inject({ method, url, headers: { ...part.headers, ...headers }, payload: part.payload });
+  if (res.statusCode !== 202) return { statusCode: res.statusCode, json: () => res.json() as Record<string, unknown>, body: res.body };
+  const id = String((res.json() as { id: string }).id);
+  await ctx.app.services.files.idle();
+  const done = await ctx.app.inject({ url: `/v1/projects/${projectId}/files/${id}`, headers });
+  return { statusCode: res.statusCode, json: () => done.json() as Record<string, unknown>, body: done.body };
 }

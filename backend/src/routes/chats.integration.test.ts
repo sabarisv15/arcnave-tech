@@ -722,7 +722,9 @@ describe('attachments carried across turns', () => {
     // provider.seen[0] is the first turn's request, [1] is the second's.
     const secondRequest = ctx.provider.seen[ctx.provider.seen.length - 1]!;
     const carried = secondRequest.history.find((t) => (t.attachments?.length ?? 0) > 0);
-    expect(carried?.attachments?.[0]).toMatchObject({ mimeType: 'image/png' });
+    // Carried as its normalised copy (EXIF stripped, re-encoded; ADR-0063), not the original.
+    expect(carried?.attachments?.[0]).toMatchObject({ mimeType: 'image/jpeg' });
+    expect(carried?.attachments?.[0]?.base64).toBeTruthy();
   });
 });
 

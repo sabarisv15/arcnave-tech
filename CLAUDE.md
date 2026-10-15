@@ -78,14 +78,16 @@ docker start arcnave-pg
 - **Verify before claiming.** Run the command and read the output. A green typecheck is not a
   passing test, a passing test is not a running server, and a Dockerfile that builds is not a
   program that starts — `mistakes.md` has an entry for each of those.
-- **Local first, production second.** Every code or configuration change must be tested in the
-  local environment before deployment. Run the applicable local typechecks, tests, builds, and
-  smoke checks; inspect their output; fix failures; and only then request deployment approval.
-  **Live deployment always requires the user's explicit approval in the current task**; never
-  infer approval from an earlier deployment or from a general request to make changes. Never use
-  a live deployment as the first test. This rule applies to every worker, including Antigravity,
-  Claude, and parallel/automated agents. After approval and deployment, perform a separate live
-  verification.
+- **Automated gates first, production second** ([ADR-0063](docs/decisions/0063-files-ingest-and-automated-gates.md),
+  owner decision 2026-10-15, superseding "Local first, production second"). Before any deploy the
+  automated gates are mandatory and must be clean: backend `npx tsc --noEmit` and `npx vitest run`,
+  frontend `npx tsc -b`, `npx vite build` and `npx vitest run`, and CI; read their output and fix
+  failures. Manual local runs (dev server, browser) are optional. **A deploy is only the owner's
+  merge, with the owner's explicit approval in the current task**; never infer approval from an
+  earlier deployment or a general request. Because the live service is the first manual test, every
+  task that changes behaviour ships `docs/ops/<task>-live-checklist.md` (what to upload, what to
+  ask, the expected result, what a failure looks like), and the owner verifies live after merging.
+  This applies to every worker, including Antigravity, Claude, and parallel/automated agents.
 - **Never write a validator for a value you have not traced to its consumer.** An enum at an
   API boundary is a promise the system acts on that value.
 - **A transaction is not a lock.** Serialising writers needs `FOR UPDATE`, or a unique

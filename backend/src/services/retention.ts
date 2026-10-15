@@ -17,7 +17,7 @@
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
-import { attachments, chats, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
+import { attachments, chats, fileDerivatives, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
 import { storageKeyInUse } from './attachments/references.js';
 import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
 import type { ObjectStorage } from './storage.js';
@@ -78,9 +78,17 @@ export async function sweepRetention(
               where other.storage_key = ${attachments.storageKey} and om.chat_id <> ${chat.id})`,
           ),
         );
+      // Derived objects (normalised Markdown, image copies) are the file's own and go with it (D1 #37).
+      const derived = await tx
+        .select({ m: fileDerivatives.markdownKey, n: fileDerivatives.normalizedKey })
+        .from(fileDerivatives)
+        .innerJoin(attachments, eq(attachments.id, fileDerivatives.attachmentId))
+        .innerJoin(messages, eq(messages.id, attachments.messageId))
+        .where(eq(messages.chatId, chat.id));
+      const derivedKeys = derived.flatMap((d) => [d.m, d.n].filter((k): k is string => Boolean(k)));
       // Bytes first, rows second: a failed object delete keeps the row, so the next sweep
       // retries it instead of leaving bytes nothing points to.
-      if (!(await deleteObjects(storage, files.map((f) => f.storageKey), log))) continue;
+      if (!(await deleteObjects(storage, [...files.map((f) => f.storageKey), ...derivedKeys], log))) continue;
       const workspaces = await tx
         .select({ manifestKey: sandboxWorkspaces.manifestKey })
         .from(sandboxWorkspaces)
@@ -103,6 +111,12 @@ export async function sweepRetention(
       // Bytes another row still reads stay: a project file's, or a picked file whose project
       // file was deleted while a sent message still holds it (D1 #17).
       const shared = Boolean(row.projectFileId) || (await storageKeyInUse(tx, row.storageKey, { attachmentIds: leaving }));
+      const derived = await tx
+        .select({ m: fileDerivatives.markdownKey, n: fileDerivatives.normalizedKey })
+        .from(fileDerivatives)
+        .where(eq(fileDerivatives.attachmentId, row.id));
+      const derivedKeys = derived.flatMap((d) => [d.m, d.n].filter((k): k is string => Boolean(k)));
+      if (!(await deleteObjects(storage, derivedKeys, log))) continue;
       if (shared || (await deleteObjects(storage, [row.storageKey], log))) removable.push(row.id);
     }
     if (removable.length > 0) await tx.delete(attachments).where(inArray(attachments.id, removable));

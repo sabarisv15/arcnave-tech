@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { usageCounters } from '../db/schema.js';
+import { fileDerivatives, usageCounters } from '../db/schema.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, parseSse, signUp } from '../test/harness.js';
 
@@ -99,6 +99,9 @@ async function uploadFile(name: string, bytes: Buffer, mime: string): Promise<st
 describe('G18: provider limits from the selected model', () => {
   it('an image over Claude-on-Vertex\'s 5 MB is refused with provider_payload_limit before any call, and accepted for Gemini', async () => {
     const fileId = await uploadFile('noise.png', noisePng(2000), 'image/png');
+    // A file read before ADR-0063 has no normalised copy and is sent as uploaded: the guard
+    // still stands for it. (A file read now goes as its ≤ 5 MB copy: imageNormalise tests.)
+    await ctx.db.delete(fileDerivatives).where(eq(fileDerivatives.attachmentId, fileId));
 
     const callsBefore = ctx.provider.seen.length;
     const refused = parseSse((await generate(await newChat(), 'Opus 5.5', fileId)).body).at(-1)!;
@@ -113,6 +116,7 @@ describe('G18: provider limits from the selected model', () => {
     // The refused turn still holds its file (a sent file is claimed once, D1 #18): the same
     // image is attached again for the other model.
     const again = await uploadFile('noise.png', noisePng(2000), 'image/png');
+    await ctx.db.delete(fileDerivatives).where(eq(fileDerivatives.attachmentId, again));
     const accepted = parseSse((await generate(await newChat(), 'Gemini 3.8 Flash', again)).body).at(-1)!;
     expect(accepted.event).toBe('done');
   });

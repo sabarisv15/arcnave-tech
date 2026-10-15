@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { attachments, chats, messages } from '../db/schema.js';
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
+import { createTestApp, multipart, parseSse, signUp, postProjectFile } from '../test/harness.js';
 import { sweepRetention } from './retention.js';
 
 let ctx: TestContext;
@@ -81,12 +81,7 @@ describe('deleted chats', () => {
     const project = await ctx.app.inject({ method: 'POST', url: '/v1/projects', headers: headers(), payload: { title: 'p' } });
     const projectId = (project.json() as { id: string }).id;
     const part = multipart('shared.txt', 'project knowledge', 'text/plain');
-    const pf = await ctx.app.inject({
-      method: 'POST',
-      url: `/v1/projects/${projectId}/files`,
-      headers: { ...part.headers, ...headers() },
-      payload: part.payload,
-    });
+    const pf = await postProjectFile(ctx, headers(), projectId, part);
     const projectFileId = (pf.json() as { id: string }).id;
     const picked = await ctx.app.inject({ method: 'POST', url: '/v1/files/from-project', headers: headers(), payload: { projectFileId } });
     const attachmentId = (picked.json() as { id: string }).id;
@@ -129,7 +124,7 @@ describe('unsent uploads', () => {
     const project = await ctx.app.inject({ method: 'POST', url: '/v1/projects', headers: h, payload: { title: 'p' } });
     const projectId = (project.json() as { id: string }).id;
     const part = multipart('kb.txt', 'project knowledge', 'text/plain');
-    const pf = await ctx.app.inject({ method: 'POST', url: `/v1/projects/${projectId}/files`, headers: { ...part.headers, ...h }, payload: part.payload });
+    const pf = await postProjectFile(ctx, h, projectId, part);
     const picked = await ctx.app.inject({
       method: 'POST',
       url: '/v1/files/from-project',

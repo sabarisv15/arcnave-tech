@@ -14,7 +14,7 @@ import { tokenize } from '../services/retrieval.js';
 import { docxWith } from '../test/fixtures/archives.js';
 import { pdfWithPages } from '../test/fixtures/files.js';
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, multipart, signUp } from '../test/harness.js';
+import { createTestApp, multipart, postProjectFile, signUp } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -36,12 +36,7 @@ async function newProject(): Promise<string> {
 
 async function projectUpload(projectId: string, filename: string, content: Buffer | string, mime = 'text/plain') {
   const part = multipart(filename, content, mime);
-  const res = await ctx.app.inject({
-    method: 'POST',
-    url: `/v1/projects/${projectId}/files`,
-    headers: { ...part.headers, ...auth() },
-    payload: part.payload,
-  });
+  const res = await postProjectFile(ctx, auth(), projectId, part);
   return { statusCode: res.statusCode, body: res.json() as Record<string, any> };
 }
 
@@ -92,7 +87,8 @@ describe('project search finds Tamil and Hindi (LANG-1: Unicode tokens, NFC)', (
 /* ------------------------------------------------------------------ chunk cap (D1 #12b, E4) */
 
 describe('the chunk cap is ~2,000 and never silent (E4)', () => {
-  const paragraphs = (n: number) => Array.from({ length: n }, (_, i) => `Paragraph ${String(i)} ${'word '.repeat(270)}`).join('\n\n');
+  // Each paragraph is longer than one ~800-token chunk (ADR-0063), so it is one chunk of its own.
+  const paragraphs = (n: number) => Array.from({ length: n }, (_, i) => `Paragraph ${String(i)} ${'word '.repeat(700)}`).join('\n\n');
 
   it('indexes a file past the old 400-chunk cap whole, with no warning', async () => {
     const projectId = await newProject();

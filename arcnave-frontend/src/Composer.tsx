@@ -771,7 +771,7 @@ export default function Composer({
                 onSelect: () => {
                   if (input.current)
                     input.current.accept =
-                      "image/png,image/jpeg,image/webp,image/gif";
+                      "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif";
                   input.current?.click();
                 },
               },

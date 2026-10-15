@@ -15,7 +15,7 @@ import { buildGeminiContents } from '../providers/gemini.js';
 import { ProviderError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { png, pdfWithPages } from '../test/fixtures/files.js';
-import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
+import { createTestApp, multipart, parseSse, signUp, postProjectFile } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -329,18 +329,10 @@ describe('picking a file from a project', () => {
     expect(projectRes.statusCode).toBe(201);
     const projectId = (projectRes.json() as { id: string }).id;
 
-    const png = Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      Buffer.alloc(32, 5),
-    ]);
-    const part = multipart('scan.png', png, 'image/png');
-    const fileRes = await ctx.app.inject({
-      method: 'POST',
-      url: `/v1/projects/${projectId}/files`,
-      headers: { ...part.headers, ...auth() },
-      payload: part.payload,
-    });
-    expect(fileRes.statusCode).toBe(201);
+    // A real image: images are stored, not indexed (`unsupported`), and stay pickable.
+    const part = multipart('scan.png', png(6, 6), 'image/png');
+    const fileRes = await postProjectFile(ctx, auth(), projectId, part);
+    expect(fileRes.statusCode).toBe(202);
     return { projectId, projectFileId: (fileRes.json() as { id: string }).id };
   }
 

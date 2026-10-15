@@ -34,7 +34,14 @@ export const ZIP_CODES = [
   'zip_member_type',
 ] as const;
 
-export type FileErrorCode = (typeof ER9_CODES)[number] | (typeof ZIP_CODES)[number];
+/**
+ * Stage 9 SCAN: "blocked as `malware` / `scan_incomplete`". `malware` is in ER-9; a scan that
+ * could not finish (the stream was over clamd's limit, an encrypted archive, clamd down) is
+ * its own code, so the file is never shown as scanned when it was not (ADR-0063).
+ */
+export const SCAN_CODES = ['scan_incomplete'] as const;
+
+export type FileErrorCode = (typeof ER9_CODES)[number] | (typeof ZIP_CODES)[number] | (typeof SCAN_CODES)[number];
 
 /** A failure with its code. Thrown inside the pipeline; caught once, where the row is written. */
 export class FileFailure extends Error {
@@ -67,6 +74,7 @@ const COPY: Record<FileErrorCode, string> = {
   zip_too_large_unpacked: 'This ZIP is too large once unpacked. The limit is 500 MB of files.',
   zip_encrypted: 'This ZIP is protected by a password. Unpack it and upload the files instead.',
   zip_member_type: 'This ZIP contains a file type that is not supported, so it was not opened.',
+  scan_incomplete: 'This file could not be checked for harmful content, so it was not opened. Retry, or remove it.',
 };
 
 export function fileErrorText(code: FileErrorCode, detail?: string): string {
@@ -88,7 +96,21 @@ export type FileWarningCode =
   | 'text_only'
   | 'chunk_cap'
   | 'not_extracted'
-  | 'zip_members';
+  | 'zip_members'
+  /** Some scanned pages could not be read (OCR-M11: the page is failed, the file is not). */
+  | 'ocr_partial'
+  /** Scanned pages with no OCR engine configured. */
+  | 'ocr_unavailable'
+  | 'transcript_partial'
+  /** A text file that is not UTF-8 or UTF-16 was read as Windows-1252. */
+  | 'encoding_guess'
+  | 'formula_no_value'
+  | 'hidden_sheets'
+  | 'embedded_files_ignored'
+  /** PDF JavaScript / OpenAction / Launch actions removed from the stored copy (Stage 9 SCAN). */
+  | 'active_content_removed'
+  /** A large file: only its first parts can be retrieved (E4 cap on derivative chunks). */
+  | 'retrieval_partial';
 
 export function warning(code: FileWarningCode, detail: string): { code: FileWarningCode; detail: string } {
   return { code, detail };

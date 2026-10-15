@@ -42,7 +42,7 @@ afterAll(async () => {
 async function readBytes(filename: string, mimeType: string, bytes: Buffer, over: Partial<typeof cfg> = {}): Promise<Outcome> {
   const p = path.join(dir, filename);
   await writeFile(p, bytes);
-  return readAttachment({ path: p, filename, mimeType, sizeBytes: bytes.length, cfg: { ...cfg, ...over } });
+  return readAttachment({ path: p, filename, mimeType, sizeBytes: bytes.length, cfg: { ...cfg, ...over }, workDir: dir });
 }
 
 describe('PDF', () => {
