@@ -40,6 +40,7 @@ import { styleRoutes } from './routes/styles.js';
 import { shareRoutes } from './routes/share.js';
 import { accountRoutes } from './routes/account.js';
 import { usageRoutes } from './routes/usage.js';
+import { errorLogFields } from './errorLog.js';
 import type { AppInstance } from './types.js';
 
 export interface CreateAppOptions extends BuildOptions {
@@ -140,7 +141,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     if (error instanceof ApiError) {
       // Expected outcomes (a 404, a budget block) are not warnings; only log the detail at
       // debug level so operational logs stay signal.
-      request.log.debug({ err: error, code: error.code }, 'api error');
+      request.log.debug({ code: error.code, statusCode: error.status, requestId }, 'api error');
       return reply.status(error.status).send(error.toBody(requestId));
     }
 
@@ -168,8 +169,19 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       return reply.status(413).send(apiError.toBody(requestId));
     }
 
-    // Anything reaching here is a bug. Log it fully; tell the client nothing but the id.
-    request.log.error({ err: error, requestId }, 'unhandled error');
+    // Anything reaching here is a bug. The log carries where and what kind (route pattern, method,
+    // error type, code / SQLSTATE), never the error's message, params or stack: a failed query's
+    // text holds the query's values (Stage 17 NO_CONTENT). The client is told nothing but the id.
+    request.log.error(
+      {
+        ...errorLogFields(error),
+        requestId,
+        method: request.method,
+        route: request.routeOptions.url,
+        statusCode: 500,
+      },
+      'unhandled error',
+    );
     const apiError = new ApiError('internal_error');
     return reply.status(500).send(apiError.toBody(requestId));
   });

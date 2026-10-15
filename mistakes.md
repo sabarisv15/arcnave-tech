@@ -1402,3 +1402,24 @@ practice, not canon.
   off"; `compose.yaml` spells the defaults. Also found by the boot smoke, not a test: a failed query
   logs its params (sign-up e-mail + Argon2 hash) at `src/app.ts:172` — logged in contentLeak.test.ts
   as the Phase 5 enforce item.
+- **2026-10-15 (tech-p1 owner review, F-1/F-4)** — No new heading (at the cap). (1) The error
+  handler logged `{ err: error }` for every unhandled error. A failed query is a `DrizzleQueryError`
+  whose message and `params` carry the query's values (sign-up: the e-mail and the Argon2 hash) and
+  whose `cause` (postgres.js) carries `detail: Key (email)=(...)`, so one sign-up failure wrote a
+  user's e-mail and password hash to logs that outlive any delete. The shadow check passed because
+  it only ran the happy path. Rule: never log an error object, its message, `params`, `query` or
+  `stack` from a path that can touch user data; log `errorLogFields(error)` (type, code, SQLSTATE,
+  message length) plus request id, method and route pattern. Verify: `npx vitest run
+  src/test/contentLeak.test.ts` makes a real insert fail through the real Fastify handler and asserts
+  the sentinel e-mail and hash are absent while the `unhandled error` line is present. Other
+  `{ err }` log sites outside this handler (`generation.ts`, `files.ts`, `index.ts`, ...) are the
+  same risk and remain a Phase 5 enforce item. (2) `assemblePrompt` wrapped user text in
+  `<memory>`, `<standing_preferences>` etc. with `trim()` only, so text containing `</memory>` ended
+  the wrapper. A blanket `<` escape would have been wrong: the memory block legitimately carries the
+  system's own `<memory_listing>`. Rule: neutralise only the wrapper's own closing tag (`</tag` to
+  `&lt;/tag`, any case, optional spaces), in the one `wrapTag` helper every wrapper uses. Verify:
+  prompt-kit PK-PREC-04 and `promptCache.test.ts` "Wrapper text cannot close its own tag". (3) The
+  static `<tool_use>` text named `read_me` for every turn (the 2026-09-26 rule again, in a sentence
+  that only forbids narrating the tool). Rule: a sentence in the static base that names a tool is
+  built from `buildStaticBasePrompt(allowed.has('read_me'))`, not written once. Verify: PK-HON-05
+  with no `it.fails` left in `src/test/promptKit`.

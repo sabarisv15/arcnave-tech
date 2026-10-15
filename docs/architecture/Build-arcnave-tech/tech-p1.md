@@ -89,3 +89,9 @@ lead and by each agent).
 **Owner to-do:** `ANTHROPIC_API_KEY` in `backend/.env`; Google OAuth Web client + authorised origins
 → `GOOGLE_OAUTH_CLIENT_ID` / `VITE_GOOGLE_OAUTH_CLIENT_ID`; branch protection on `main`; pick the
 Gemini price row (2026 promo or list rate).
+
+**Fix round 2026-10-15 (owner review; Sonnet 5.5 agent, Opus 5.5 lead review):** F-1 error handler
+logs type/code/SQLSTATE/route only (`src/errorLog.ts`, contentLeak test covers the failed-query
+path); F-4 `wrapTag` neutralises a closing wrapper tag in user text, `read_me` named only when
+declared — PK-PREC-04 and PK-HON-05 pass, 0 `it.fails`; F-6 Gemini row at list rate. Checks:
+backend tsc clean; touched test files 143 pass / 19 skipped.

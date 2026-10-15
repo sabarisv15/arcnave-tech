@@ -8,7 +8,7 @@
  */
 
 import type { ToolDefinition } from '../../providers/types.js';
-import { STATIC_BASE_SYSTEM_PROMPT_V1 } from '../systemPrompt.js';
+import { buildStaticBasePrompt } from '../systemPrompt.js';
 import { STATIC_MEMORY_POLICY_V1, STATIC_PAST_CHATS_POLICY_V1 } from '../memory/policy.js';
 import { STATIC_COMPACTION_POLICY_V1 } from '../compaction/policy.js';
 import { GENERATIVE_UI_POLICY_V1 } from '../ui/policy.js';
@@ -29,7 +29,8 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedTool
   // (Invariant 1). Still stable per tool set, which is what the prefix cache keys on.
   const allowed = new Set(allowedToolNames ?? authorizedTools.map((t) => t.name));
   const systemText = [
-    STATIC_BASE_SYSTEM_PROMPT_V1,
+    // read_me ships with show_widget; the base names it (to forbid narrating it) only when declared.
+    buildStaticBasePrompt(allowed.has('read_me')),
     ...(allowed.has('memory_read') ? [STATIC_MEMORY_POLICY_V1] : []),
     // Past-chat search is its own user setting (ADR-0052), so its rules ride with its tools.
     ...(allowed.has('conversation_search') ? [STATIC_PAST_CHATS_POLICY_V1] : []),
@@ -54,6 +55,17 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedTool
 }
 
 /**
+ * Wraps user-influenced text in its tag. A closing tag of the same name inside the text would end
+ * the wrapper early and let what follows read as unwrapped system text, so `</tag` becomes
+ * `&lt;/tag` (any case, optional space after the slash). Only that is touched: the blocks
+ * legitimately carry system-written tags such as `<memory_listing>`, and prose keeps its `<` and `&`.
+ */
+function wrapTag(tag: string, text: string): string {
+  const closing = new RegExp(`<(\\s*/\\s*${tag})(?![\\w:.-])`, 'gi');
+  return `<${tag}>\n${text.trim().replace(closing, '&lt;$1')}\n</${tag}>`;
+}
+
+/**
  * Assembles the full prompt structure separating the stable cacheable prefix from dynamic per-turn suffix.
  */
 export function assemblePrompt(
@@ -75,33 +87,23 @@ export function assemblePrompt(
   }
 
   if (dynamicSuffix.standingPreferences?.trim()) {
-    dynamicParts.push(
-      `<standing_preferences>\n${dynamicSuffix.standingPreferences.trim()}\n</standing_preferences>`,
-    );
+    dynamicParts.push(wrapTag('standing_preferences', dynamicSuffix.standingPreferences));
   }
 
   if (dynamicSuffix.projectInstructions?.trim()) {
-    dynamicParts.push(
-      `<project_instructions>\n${dynamicSuffix.projectInstructions.trim()}\n</project_instructions>`,
-    );
+    dynamicParts.push(wrapTag('project_instructions', dynamicSuffix.projectInstructions));
   }
 
   if (dynamicSuffix.styleInstructions?.trim()) {
-    dynamicParts.push(
-      `<style_instructions>\n${dynamicSuffix.styleInstructions.trim()}\n</style_instructions>`,
-    );
+    dynamicParts.push(wrapTag('style_instructions', dynamicSuffix.styleInstructions));
   }
 
   if (dynamicSuffix.relevantMemory?.trim()) {
-    dynamicParts.push(
-      `<memory>\n${dynamicSuffix.relevantMemory.trim()}\n</memory>`,
-    );
+    dynamicParts.push(wrapTag('memory', dynamicSuffix.relevantMemory));
   }
 
   if (dynamicSuffix.compactionSummary?.trim()) {
-    dynamicParts.push(
-      `<conversation_compaction>\n${dynamicSuffix.compactionSummary.trim()}\n</conversation_compaction>`,
-    );
+    dynamicParts.push(wrapTag('conversation_compaction', dynamicSuffix.compactionSummary));
   }
 
   if (dynamicSuffix.retrievedContext?.trim()) {
@@ -109,9 +111,7 @@ export function assemblePrompt(
   }
 
   if (dynamicSuffix.goalContext?.trim()) {
-    dynamicParts.push(
-      `<active_goal>\n${dynamicSuffix.goalContext.trim()}\n</active_goal>`,
-    );
+    dynamicParts.push(wrapTag('active_goal', dynamicSuffix.goalContext));
   }
 
   if (dynamicSuffix.modePrompt?.trim()) {
@@ -119,9 +119,7 @@ export function assemblePrompt(
   }
 
   if (dynamicSuffix.skillsContext?.trim()) {
-    dynamicParts.push(
-      `<skills_guidance>\n${dynamicSuffix.skillsContext.trim()}\n</skills_guidance>`,
-    );
+    dynamicParts.push(wrapTag('skills_guidance', dynamicSuffix.skillsContext));
   }
 
   const fullSystemInstruction = [stablePrefix.systemText, ...dynamicParts].join('\n\n');

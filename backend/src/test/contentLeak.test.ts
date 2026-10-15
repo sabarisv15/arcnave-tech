@@ -14,11 +14,13 @@
  * error echoed into `log.warn({ err })`, a failed tool); those are the likelier leak sites and
  * belong in the Phase 5 enforce version.
  *
- * Known error-path leak (found by a local smoke run, 2026-10-14, not covered here): when a query
- * fails, the app's error handler (`src/app.ts:172`, `'unhandled error'`) logs the whole
- * `DrizzleQueryError`, whose message and `params` carry the query's values — on sign-up, the
- * e-mail and the Argon2 hash. Phase 5's enforce version should reduce `err` there to its type,
- * code and SQLSTATE.
+ * Error path covered (2026-10-15): the app's error handler (`src/app.ts`, `'unhandled error'`) used to
+ * log the whole `DrizzleQueryError`, whose message and `params` carry the query's values (on
+ * sign-up, the e-mail and the Argon2 hash). It now logs `errorLogFields(error)` (type, code,
+ * SQLSTATE, message length) plus request id, method and route pattern. The last test makes a real
+ * query fail through the real Fastify handler and checks the values are absent while the line is
+ * present. Still not covered: the provider-error `log.warn({ err })` sites and failed tools; the
+ * other `{ err }` log sites outside the handler are a Phase 5 enforce item.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -51,6 +53,7 @@ vi.mock('../logger.js', async () => {
   return { ...actual, logger };
 });
 
+import { users } from '../db/schema.js';
 import { memoryService } from '../services/memory/memoryService.js';
 import type { TestContext, TestUser } from './harness.js';
 import { createTestApp, multipart, signUp } from './harness.js';
@@ -160,5 +163,57 @@ describe('content-leak check (shadow mode)', () => {
     expect(sink.length, 'no log lines were captured; the check would pass vacuously').toBeGreaterThan(0);
 
     expect(findLeaks(sink)).toEqual([]);
+  });
+
+  it('a failed query logs its type and SQLSTATE, never the values it carried', async () => {
+    const email = `leak-${String(process.pid)}-${String(Date.now())}@sentinel-email.test`;
+    const hash = 'SENTINEL_HASH_$argon2id$c3a1';
+    const row = { email, passwordHash: hash, name: 'x' };
+    await ctx.db.insert(users).values(row);
+
+    // The sign-up route calls the auth service; make it run the insert that really fails (a
+    // duplicate e-mail, as sign-up does) but not translate the error, so it reaches the handler.
+    let thrown: unknown;
+    const spy = vi.spyOn(ctx.app.services.auth, 'register').mockImplementationOnce(async () => {
+      try {
+        await ctx.db.insert(users).values(row);
+      } catch (err) {
+        thrown = err;
+        throw err;
+      }
+      throw new Error('the duplicate insert was expected to fail');
+    });
+
+    sink.length = 0;
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: { email: 'someone-else@example.test', password: 'correct-horse-battery-staple', name: 'x' },
+    });
+    spy.mockRestore();
+
+    expect(response.statusCode).toBe(500);
+    // The error object itself carries the values, so a leak was possible here.
+    expect((thrown as Error).message).toContain(email);
+    expect(JSON.stringify((thrown as { params?: unknown }).params)).toContain(hash);
+
+    const line = sink.find((l) => l.includes('unhandled error'));
+    expect(line, 'the failure was not logged at all; the check would pass vacuously').toBeDefined();
+    const logged = JSON.parse(line!) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      level: 'error',
+      errorType: 'DrizzleQueryError',
+      rootType: 'PostgresError',
+      rootCode: '23505',
+      method: 'POST',
+      route: '/v1/auth/register',
+      statusCode: 500,
+    });
+    expect(logged).not.toHaveProperty('err');
+    expect(logged).not.toHaveProperty('params');
+    for (const l of sink) {
+      expect(l).not.toContain('sentinel-email.test');
+      expect(l).not.toContain(hash);
+    }
   });
 });

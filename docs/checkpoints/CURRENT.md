@@ -1,5 +1,13 @@
 # ArcNave — current checkpoint
 
+> **2026-10-15: tech-p1 fix round (owner review), same branch, PR #40.**
+> - F-1: the app error handler logs `errorType` / `errorCode` / `rootType` / `rootCode` (SQLSTATE) /
+>   `messageLength` / route / method only (`src/errorLog.ts`); a failed sign-up insert no longer writes
+>   the e-mail or hash (contentLeak.test.ts drives it through the real handler). Other `{ err }` log sites remain → Phase 5.
+> - F-4: wrapped user text cannot close its own tag (`wrapTag`, `</tag` → `&lt;/tag`); `read_me` is named
+>   in the base prompt only when declared. Prompt kit: 76 offline pass, 19 live-only skipped, 0 `it.fails`.
+> - F-6: `.env.example` Gemini 3.8 Flash row = list rate $1.50 / $7.50 / cached $0.15 (worst-case rule).
+
 > **2026-10-14: Phase 1 — core turn, web chat, brand (task tech-p1). Branch `phase1/core-turn`, PR to `phase0/base-adoption`; local only, not deployed.**
 > - **C (Claude first-party, [ADR-0054](../decisions/0054-claude-first-party-api.md), [ADR-0055](../decisions/0055-three-models.md)):**
 >   `providers/anthropic.ts` (`@anthropic-ai/sdk`, `maxRetries: 0`, timeout N-43) replaces `anthropicVertex.ts`;
