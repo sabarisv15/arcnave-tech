@@ -20,7 +20,7 @@ const pages = [
 const escape = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 for (const [route, title, description] of pages) {
   const body = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [route] }, React.createElement(Site)));
-  const url = `https://www.arcnave.tech${route}`;
+  const url = `https://www.arcnave.in${route}`;
   let html = template.replace(/<title>[\s\S]*?<\/title>/, `<title>${escape(title)}</title>`)
     .replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?\s*>/, `<meta name="description" content="${escape(description)}" />`)
     .replace('<div id="root"></div>', `<div id="root">${body}</div>`)
@@ -33,7 +33,7 @@ for (const [route, title, description] of pages) {
   if (route !== '/') await mkdir(`dist${route}`, { recursive: true });
   await writeFile(file, html);
 }
-await writeFile('dist/robots.txt', 'User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /login\nDisallow: /signup\nDisallow: /chat/\nDisallow: /project/\nDisallow: /projects\nDisallow: /chats\nDisallow: /artifacts\nDisallow: /s/\nSitemap: https://www.arcnave.tech/sitemap.xml\n');
-await writeFile('dist/sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map(([route]) => `<url><loc>https://www.arcnave.tech${route}</loc></url>`).join('')}</urlset>`);
+await writeFile('dist/robots.txt', 'User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /login\nDisallow: /signup\nDisallow: /chat/\nDisallow: /project/\nDisallow: /projects\nDisallow: /chats\nDisallow: /artifacts\nDisallow: /s/\nSitemap: https://www.arcnave.in/sitemap.xml\n');
+await writeFile('dist/sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map(([route]) => `<url><loc>https://www.arcnave.in${route}</loc></url>`).join('')}</urlset>`);
 await rm(temporary, { recursive: true, force: true });
 console.log('Prerendered four public pages, sitemap and robots. No API requests were made.');

@@ -584,7 +584,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       void (async () => {
         try {
           // --- gather attachments: metadata + storage references for native and text paths ---
-          let attachmentManifest = '';
           let turnAttachments: AttachmentRef[] = [];
           if (attachmentIds.length > 0) {
             const rows = await db
@@ -604,13 +603,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
                 ),
               );
 
-            attachmentManifest = rows
-              .map(
-                (r) =>
-                  `- fileId: "${r.id}" | filename: "${r.filename}" | type: ${r.mimeType} | size: ${r.sizeBytes} bytes`,
-              )
-              .join('\n');
-
             // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
             turnAttachments = rows.map(toAttachmentRef);
           }
@@ -624,7 +616,6 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             modelAlias: model,
             projectId: chat.projectId,
             hasAttachments: attachmentIds.length > 0,
-            attachmentManifest,
             attachments: turnAttachments,
             codeExecution,
             effort,

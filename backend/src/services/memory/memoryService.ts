@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import { getDb } from '../../db/client.js';
 import { memoryItems, type MemoryItem } from '../../db/schema.js';
-import { checkPrivacy } from './privacy.js';
+import { checkPrivacy, neverStoredMessage } from './privacy.js';
 import type { CreateMemoryInput, UpdateMemoryInput } from './types.js';
 
 /** Letters and digits of a query, lower-cased and de-duplicated: safe to join into a tsquery. */
@@ -75,6 +75,22 @@ export function fileDescription(content: string): string {
   return (body.split('\n').find((l) => l.trim() !== '') ?? '').trim().slice(0, 200);
 }
 
+/**
+ * The frontmatter's aliases, other names the subject goes by (ADR-0052). The listing prints them so
+ * the model matches "the auth thing" to an existing file instead of starting a second one.
+ */
+export function fileAliases(content: string): string[] {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  const raw = fm ? /^aliases:\s*(.+)$/m.exec(fm[1]!)?.[1] : undefined;
+  if (!raw) return [];
+  return raw
+    .replace(/^\[|\]$/g, '')
+    .split(',')
+    .map((a) => a.trim().replace(/^["']|["']$/g, ''))
+    .filter((a) => a !== '')
+    .slice(0, 8);
+}
+
 /** Why a path or content cannot be stored, or null. */
 function checkFile(path: string, content: string): string | null {
   if (!MEMORY_PATH.test(path) || path.includes('..') || path.endsWith('/')) {
@@ -85,7 +101,7 @@ function checkFile(path: string, content: string): string | null {
     return `A memory file is at most ${String(MEMORY_FILE_MAX_BYTES)} bytes: condense it.`;
   }
   const secret = checkPrivacy(content);
-  if (secret.hasSecret) return `Memory never stores secrets or credentials: ${secret.violations.join(', ')}.`;
+  if (secret.hasSecret) return neverStoredMessage(secret);
   return null;
 }
 
@@ -95,9 +111,10 @@ export class MemoryService {
    */
   async createMemory(input: CreateMemoryInput, retried = false): Promise<MemoryItem> {
     const contentCheck = checkPrivacy(input.content);
-    if (contentCheck.hasSecret) {
+    if (contentCheck.secrets.length > 0) {
       throw new Error(`Cannot store memory containing sensitive secrets or credentials: ${contentCheck.violations.join(', ')}`);
     }
+    if (contentCheck.hasSecret) throw new Error(neverStoredMessage(contentCheck));
 
     const keyCheck = checkPrivacy(input.key);
     if (keyCheck.hasSecret) {
@@ -435,7 +452,8 @@ export class MemoryService {
     const byPath = new Map(rows.map((r) => [r.key, r]));
     const lines = rows.map((r) => {
       const d = fileDescription(r.content);
-      return `${r.key}${d ? ` — ${d}` : ''}`;
+      const aliases = fileAliases(r.content);
+      return `${r.key}${d ? ` — ${d}` : ''}${aliases.length ? ` (aliases: ${aliases.join(', ')})` : ''}`;
     });
     let listing = lines.join('\n');
     if (listing.length > maxChars) listing = `${listing.slice(0, maxChars)}\n(more files: memory_list shows them)`;

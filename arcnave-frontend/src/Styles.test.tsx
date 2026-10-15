@@ -21,6 +21,8 @@ const basePrefsDto = (
   defaultMode: "chat",
   sourceScope: "All sources",
   saveHistory: true,
+  memoryEnabled: true,
+  chatSearchEnabled: true,
   maxOutputTokens: 4096,
   dailyTokenBudget: null,
   monthlyTokenBudget: null,

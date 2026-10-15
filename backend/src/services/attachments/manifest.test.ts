@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAttachmentManifest, sandboxInputNames } from './manifest.js';
+import { buildAttachmentManifest, contextNote, sandboxInputNames } from './manifest.js';
 
 const pdf = { id: '970b76e7-2f4e-44bd-9d35-ef7b9f221e56', filename: 'kvb fedral.pdf', mimeType: 'application/pdf', sizeBytes: 10 };
 const csv = { id: 'aaaaaaaa-0000-0000-0000-000000000000', filename: 'data.csv', mimeType: 'text/csv', sizeBytes: 5 };
@@ -32,6 +32,39 @@ describe('buildAttachmentManifest', () => {
 
   it('is empty for no files', () => {
     expect(buildAttachmentManifest([], { sandbox: true })).toBe('');
+  });
+
+  // Live (turn 531d000c): a scanned PDF already in view as 12 page images was re-read with OCR
+  // over 26 tool calls. Each line now says whether the model can already see the file.
+  it("says on each line whether the file is already in the model's context", () => {
+    const text = buildAttachmentManifest([{ ...pdf, inContext: 'in your context: 12 page images, no text layer' }, csv], { sandbox: true });
+    expect(text).toContain('path: input/kvb_fedral.pdf | in your context: 12 page images, no text layer');
+    expect(text).toContain('not to read it again');
+  });
+});
+
+describe('contextNote', () => {
+  const page = (num: number, text: string) => ({ num, text, image: { mimeType: 'image/jpeg' as const, fileUri: `gs://b/p${String(num)}.jpg` } });
+
+  it('describes a PDF sent as pages by its images and text layer', () => {
+    expect(contextNote({ mimeType: 'application/pdf', pages: [page(1, ''), page(2, '')] })).toBe(
+      'in your context: 2 page images, no text layer',
+    );
+    expect(contextNote({ mimeType: 'application/pdf', pages: [page(1, 'Total 48'), page(2, '')] })).toBe(
+      'in your context: 2 page images, a text layer on 1 of 2',
+    );
+  });
+
+  it('marks a file read from its file, or left out, as not in context', () => {
+    expect(contextNote({ mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', omittedReason: 'read_with_code' })).toBe(
+      'not in your context: read it from its file',
+    );
+    expect(contextNote({ mimeType: 'application/pdf', omittedReason: 'history_budget' })).toBe('not in your context this turn');
+  });
+
+  it('names an image and a text file as in context', () => {
+    expect(contextNote({ mimeType: 'image/png', base64: 'AAAA' })).toBe('in your context as an image');
+    expect(contextNote({ mimeType: 'text/csv', extractedText: 'a,b' })).toBe('in your context as text');
   });
 });
 

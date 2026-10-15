@@ -1,0 +1,78 @@
+# CI for arcnave-tech (ADR-0053, Phase 0 base adoption).
+# Required checks for PRs to main: backend + frontend. A push to main deploys via Cloud Build
+# (outside this file), so this workflow never runs on main pushes — only PRs and feature branches.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: arcnave
+          POSTGRES_PASSWORD: arcnave
+          POSTGRES_DB: arcnave
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arcnave"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # src/test/harness.ts default; the suite creates arcnave_test itself (global-setup.ts).
+      TEST_DATABASE_URL: postgres://arcnave:arcnave@localhost:5432/arcnave_test
+      NODE_ENV: test
+      LOG_LEVEL: silent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      # poppler (pdftoppm/pdftotext) and python3 are used by attachment and trusted-work tests;
+      # their absence on a Windows dev box caused the 25 local failures noted in CURRENT.md.
+      - name: System tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils python3
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Tests
+        run: npx vitest run
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: arcnave-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: arcnave-frontend/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc -b
+      # `npm run build` also runs scripts/prerender.mjs (needs a browser); the Cloudflare deploy
+      # path runs that. CI checks the Vite build only.
+      - name: Build
+        run: npx vite build
+      - name: Tests
+        run: npx vitest run

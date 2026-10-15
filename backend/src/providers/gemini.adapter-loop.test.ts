@@ -324,6 +324,8 @@ describe('GeminiProvider tool-calling loop', () => {
     expect(last.role).toBe('user');
     expect(last.parts.every((p) => p.functionResponse !== undefined)).toBe(true);
     expect(events.filter((e) => e.type === 'delta').map((e) => (e as { text: string }).text).join('')).toBe('Here is the answer.');
+    // The turn was made to answer because it used every tool step: Continue is offered.
+    expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'tool_limit' });
   });
 
   it('a final round rejected with INVALID_ARGUMENT is retried once without toolConfig', async () => {

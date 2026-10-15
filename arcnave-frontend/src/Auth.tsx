@@ -79,7 +79,7 @@ export default function Auth({ initialMode = "in" }: { initialMode?: "in" | "up"
             <div>
               <strong>{error.title}</strong>
               <p>{error.detail}</p>
-              {error.code === "registration_closed" && <p><a href="mailto:admin@arcnave.tech">Contact admin@arcnave.tech about early access.</a></p>}
+              {error.code === "registration_closed" && <p><a href="mailto:admin@arcnave.in">Contact admin@arcnave.in about early access.</a></p>}
             </div>
           </div>
         )}

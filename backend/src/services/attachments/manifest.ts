@@ -9,11 +9,36 @@
  */
 import path from 'node:path';
 
+import type { AttachmentBlock } from '../../providers/types.js';
+
 export interface ManifestFile {
   id: string;
   filename: string;
   mimeType: string;
   sizeBytes?: number | null;
+  /** How this request carries the file's content, from `contextNote`; absent when it is not sent. */
+  inContext?: string;
+}
+
+/**
+ * How the request carries a file, told on its manifest line. Live (turn 531d000c), a scanned PDF
+ * whose 12 page images were in the request was read again with OCR over 26 tool calls: the list
+ * said only that the file was on the computer, never that the model could already see it.
+ */
+export function contextNote(a: AttachmentBlock): string {
+  if (a.omittedReason === 'read_with_code') return 'not in your context: read it from its file';
+  if (a.omittedReason) return 'not in your context this turn';
+  if (a.pages) {
+    const images = a.pages.filter((p) => p.image?.fileUri || p.image?.base64).length;
+    const withText = a.pages.filter((p) => p.text.trim() !== '').length;
+    const layer = withText === 0 ? 'no text layer' : `a text layer on ${String(withText)} of ${String(a.pages.length)}`;
+    const extra = a.textOnlyPageCount ? `; ${String(a.textOnlyPageCount)} more pages as text only` : '';
+    return `in your context: ${String(images)} page image${images === 1 ? '' : 's'}, ${layer}${extra}`;
+  }
+  if (a.base64 && a.mimeType.startsWith('image/')) return 'in your context as an image';
+  if (a.base64) return 'in your context';
+  if (a.extractedText) return 'in your context as text';
+  return 'not in your context this turn';
 }
 
 /** fileId -> name under `input/`. Stable for the same list: duplicate names get the first 8
@@ -46,11 +71,15 @@ export function buildAttachmentManifest(files: ManifestFile[], opts: ManifestOpt
   const lines = files.map((f) => {
     const parts = [`- fileId: "${f.id}"`, `filename: "${f.filename}"`, `type: ${f.mimeType}`, `size: ${String(f.sizeBytes ?? 0)} bytes`];
     if (opts.sandbox) parts.push(`path: input/${names.get(f.id)!}`);
+    if (f.inContext) parts.push(f.inContext);
     return parts.join(' | ');
   });
   const notes = ['Use fileId when filenames are ambiguous.'];
   if (opts.sandbox) {
-    notes.push('Every file above is also on the computer at its path, read-only.');
+    notes.push(
+      'Every file above is also on the computer at its path, read-only. A file in your context is already ' +
+        'read: use the computer to change that file or to build a new one, not to read it again.',
+    );
   }
   return `<available_attachments>\nAvailable conversation attachments:\n${lines.join('\n')}\n\n${notes.join('\n')}\n</available_attachments>`;
 }

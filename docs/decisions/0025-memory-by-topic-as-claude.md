@@ -1,6 +1,9 @@
 # ADR-0025: Memory is kept by topic, saved as the user chats, and loaded whole, as Claude's is
 
 - Status: accepted. Tested locally; not live.
+- Superseded in part by [ADR-0052](0052-prompt-gaps-closed-from-the-audit-and-turn-logs.md):
+  memory and past-chat search are each the user's own setting, and the memory policy follows the
+  reference's filing, privacy and application rules. Saving during the turn stays.
 - Date: 2026-09-26
 - Replaces: the per-prompt "relevant memory" search into the system prompt, and the memory
   policy that told the model to "store" with tools it did not have (audit C2, C3).

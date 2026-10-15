@@ -34,6 +34,10 @@ const preferencesSchema = z.object({
   defaultMode: z.string(),
   sourceScope: z.string(),
   saveHistory: z.boolean(),
+  /** Memory files are read and saved in chats. Off: no memory tool or memory text is sent. */
+  memoryEnabled: z.boolean(),
+  /** Past chats can be searched and opened. Off: no past-chat tool is sent. */
+  chatSearchEnabled: z.boolean(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable(),
   styleId: z.string(),
   /** Read-only here. Write through PATCH /usage/limits. */
@@ -86,6 +90,8 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
           defaultMode: z.enum(['chat', 'search', 'research']).optional(),
           sourceScope: z.string().trim().min(1).max(32).optional(),
           saveHistory: z.boolean().optional(),
+          memoryEnabled: z.boolean().optional(),
+          chatSearchEnabled: z.boolean().optional(),
           effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
           styleId: z.string().trim().min(1).max(64).optional(),
           version: z.number().int().optional(),
@@ -124,6 +130,8 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
         'defaultMode',
         'sourceScope',
         'saveHistory',
+        'memoryEnabled',
+        'chatSearchEnabled',
         'effort',
         'styleId',
       ] as const) {
@@ -171,6 +179,8 @@ function toDto(row: PrefsRow): z.infer<typeof preferencesSchema> {
     defaultMode: row.defaultMode,
     sourceScope: row.sourceScope,
     saveHistory: row.saveHistory,
+    memoryEnabled: row.memoryEnabled,
+    chatSearchEnabled: row.chatSearchEnabled,
     effort: (row.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null) ?? null,
     styleId: row.styleId ?? 'normal',
     maxOutputTokens: row.maxOutputTokens,

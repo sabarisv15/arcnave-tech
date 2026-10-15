@@ -185,6 +185,8 @@ describe("preferences mapping", () => {
     defaultMode: "chat",
     sourceScope: "All sources",
     saveHistory: true,
+    memoryEnabled: true,
+    chatSearchEnabled: true,
     maxOutputTokens: 4096,
     dailyTokenBudget: null,
     monthlyTokenBudget: null,
@@ -198,6 +200,15 @@ describe("preferences mapping", () => {
 
   it("keeps the version, which optimistic concurrency depends on", () => {
     expect(toPreferences(prefs()).version).toBe(3);
+  });
+
+  it("carries the two memory settings the Personalization switches show", () => {
+    const off = toPreferences(prefs({ memoryEnabled: false, chatSearchEnabled: false }));
+    expect(off.memoryEnabled).toBe(false);
+    expect(off.chatSearchEnabled).toBe(false);
+    const on = toPreferences(prefs());
+    expect(on.memoryEnabled).toBe(true);
+    expect(on.chatSearchEnabled).toBe(true);
   });
 
   it("falls back to a value the interface can render for an unknown theme or mode", () => {

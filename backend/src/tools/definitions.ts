@@ -82,13 +82,15 @@ export function codeToolDefinitions(persistent: boolean): ToolDefinition[] {
     {
       name: 'bash_tool',
       description:
+        // No library catalogue here: live (turn 531d000c) a list naming OCR and image libraries
+        // drew the model into 26 OCR calls on a PDF it could already see. The skills name the
+        // libraries each kind of work needs, at the point that work is done.
         'Runs a bash command on ' + machine.charAt(0).toLowerCase() + machine.slice(1) +
-        'No network access, and nothing can be installed. Python 3 with pandas, numpy, scipy, matplotlib, ' +
-        'openpyxl, xlrd, xlsxwriter, pdfplumber, pypdf, pymupdf (fitz), python-docx, python-pptx, pillow, ' +
-        'opencv and pytesseract; poppler (pdftoppm, pdftotext), pandoc and LibreOffice. The files in the ' +
-        'conversation are in input/ (read-only), at the path on each file\'s attachment line. Write files ' +
-        'for the user to output/ and hand them over with present_files. Output is truncated when long, ' +
-        'so print summaries, not whole tables.',
+        'No network access, and nothing can be installed: check that a library or program is there before ' +
+        'relying on it. The files of the conversation are in input/ (read-only), at the path on each file\'s ' +
+        'attachment line; a file already in your context needs no reading here. Write files for the user to ' +
+        'output/ and hand them over with present_files. Output is truncated when long, so print summaries, ' +
+        'not whole tables.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -200,7 +202,8 @@ export const WEB_FETCH: ToolDefinition = {
   description:
     'Fetches the readable text of a web page. Only a URL that already appears in this conversation can be ' +
     'fetched: one the user gave, or one a search or fetch result in this conversation returned. A URL recalled ' +
-    'from memory or made by editing a seen URL is refused. Pages behind a login ' +
+    'from memory or made by editing a seen URL is refused: do not add "www." or change a path, and when the ' +
+    'page you need is not in the results, search for it instead of building its address. Pages behind a login ' +
     'cannot be read. The URL must include https://.',
   inputSchema: {
     type: 'object',
@@ -215,13 +218,17 @@ export const WEB_FETCH: ToolDefinition = {
 export const IMAGE_SEARCH: ToolDefinition = {
   name: 'image_search',
   description:
-    'Finds images on the web and shows them to the user. Use it when pictures would help the user ' +
-    'understand (a place, an animal, a product, a style); skip it when the answer is text, code or support.',
+    'Finds images on the web and shows them to the user. Use it when seeing something would help the user ' +
+    'understand, engage with or act on the answer: places, animals, food, products, styles, diagrams, historical ' +
+    'photos, exercises, even a simple fact about a visual thing. Images add to the text; they do not replace it. ' +
+    'Skip it for drafting text, code, technical support, step-by-step instructions, numbers and data, maths, or ' +
+    'analysis of a non-visual topic. When several searches are needed, run them together after a short ' +
+    'introduction, then write the whole answer; never end the reply on an image search.',
   inputSchema: {
     type: 'object',
     properties: {
       query: { type: 'string', description: 'What to find images of.' },
-      max_results: { type: 'integer', minimum: 3, maximum: 5, description: 'How many images, 3 to 5. Defaults to 3.' },
+      max_results: { type: 'integer', minimum: 3, maximum: 4, description: 'How many images, 3 or 4. Defaults to 3.' },
     },
     required: ['query'],
     additionalProperties: false,
@@ -239,7 +246,7 @@ export const WEB_FETCH_WITH_BUILT_IN_SEARCH: ToolDefinition = {
     'Fetches the readable text of a web page. Only a URL that already appears in this conversation can be ' +
     'fetched: one the user gave, or one an earlier fetch result in this conversation returned. Results of the ' +
     'built-in web search are not URLs this tool can open. A URL recalled from memory or made by editing a seen ' +
-    'URL is refused. Pages behind a login cannot be read. The URL must include https://.',
+    'URL (adding "www.", changing a path) is refused. Pages behind a login cannot be read. The URL must include https://.',
 };
 
 export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH, IMAGE_SEARCH];
@@ -250,7 +257,18 @@ export const WEB_TOOL_DEFINITIONS: ToolDefinition[] = [WEB_SEARCH, WEB_FETCH, IM
 const VERSION_NEW =
   'The version token from your most recent memory_read or memory_write of this file, or the word new ' +
   'for a file that does not exist yet. Never make one up.';
-const PRIVACY = 'Never file, even when asked: government-ID, payment-card or bank-account numbers; immigration status; caste; a minor\'s own age or date of birth; sexual history; abuse; criminal history or being a victim of crime; suicide, self-harm or eating disorders; health or personality inferences the user did not state.';
+// ADR-0052: the reference's never-file list ("for anyone", violence, usage-rule conduct) and its
+// consent rule. ArcNave has no save-time consent step, so the consent-governed categories are
+// filed only on the user's own request; the reference says to leave them out where no check decides.
+const PRIVACY =
+  'PRIVACY: never file, for anyone, even when asked: government-ID numbers (Aadhaar, PAN, passport, driving ' +
+  'licence, voter ID, social security), payment-card or financial-account numbers (a card named only by its ' +
+  'last four digits is fine); immigration status; caste; a minor user\'s own age, date of birth or school grade; ' +
+  'sexual history or activity; sexual, physical or other abuse; criminal history, violence or crime-victim ' +
+  'status; suicide, self-harm or disordered eating; conduct that breaks ArcNave\'s usage rules; health or ' +
+  'personality inferences the user did not state. Stated health, sexual orientation, gender identity, race or ' +
+  'ethnicity, religion, political views, union membership, disability and finances are filed only when the ' +
+  'user asks you to remember that fact; otherwise leave them out. Omissions get no placeholder or reworded form.';
 
 export const MEMORY_LIST: ToolDefinition = {
   name: 'memory_list',
@@ -292,14 +310,16 @@ export const MEMORY_READ: ToolDefinition = {
 export const MEMORY_WRITE: ToolDefinition = {
   name: 'memory_write',
   description:
-    'Creates a memory file, or replaces one whole: every line left out is deleted. Pass the version from ' +
-    'your last memory_read of it, or new for a file not yet listed; a file already there must be read first. ' +
-    'A conflict returns the current content so you can merge and retry. ' + PRIVACY,
+    'Creates a memory file, or replaces one whole: every line left out is deleted. Use it for durable facts ' +
+    'and patterns, not today\'s events. Pass the version from your last memory_read of it, or new for a file ' +
+    'not yet listed; new on a path that exists is rejected, so a file already there must be read first. A ' +
+    'conflict returns the current content so you can merge and retry. Empty content is rejected, and files are ' +
+    'size-capped: the result shows the size against the cap. ' + PRIVACY,
   inputSchema: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Path of the file, e.g. "/topics/work.md".' },
-      content: { type: 'string', description: 'The whole file.' },
+      content: { type: 'string', minLength: 1, description: 'The whole file.' },
       if_version: { type: 'string', description: VERSION_NEW },
     },
     required: ['path', 'content', 'if_version'],
@@ -310,13 +330,14 @@ export const MEMORY_WRITE: ToolDefinition = {
 export const MEMORY_APPEND: ToolDefinition = {
   name: 'memory_append',
   description:
-    'Adds text on a new line at the end of a memory file, without resending the rest. Do not append a fact ' +
-    'the file already has: change that line with memory_str_replace. ' + PRIVACY,
+    'Adds text on a new line at the end of a memory file, without resending the rest; cheaper than ' +
+    'memory_write for one new fact. Do not append a fact the file already has: change that line with ' +
+    'memory_str_replace. Files are size-capped, so prefer editing and condensing over repeated appends. ' + PRIVACY,
   inputSchema: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Path of the file.' },
-      content: { type: 'string', description: 'Text to add at the end.' },
+      content: { type: 'string', minLength: 1, description: 'Text to add at the end.' },
       if_version: { type: 'string', description: VERSION_NEW },
     },
     required: ['path', 'content', 'if_version'],
@@ -327,13 +348,15 @@ export const MEMORY_APPEND: ToolDefinition = {
 export const MEMORY_STR_REPLACE: ToolDefinition = {
   name: 'memory_str_replace',
   description:
-    'Changes one part of a memory file: old_str must occur exactly once. An empty new_str deletes it. ' +
-    'Needs the version from your last memory_read or memory_write of the file. ' + PRIVACY,
+    'Changes one part of a memory file: old_str must match the file in exactly one place, spaces and line ' +
+    'breaks included; widen it with surrounding text until it is unique. An empty new_str deletes it. Needs ' +
+    'the version from your last memory_read or memory_write of the file. A failed match or a version conflict ' +
+    'returns the current content so you can retry at once. ' + PRIVACY,
   inputSchema: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Path of the file.' },
-      old_str: { type: 'string', description: 'The exact text to replace, occurring once.' },
+      old_str: { type: 'string', minLength: 1, description: 'The exact text to replace, occurring once.' },
       new_str: { type: 'string', description: 'The replacement; empty deletes old_str.' },
       if_version: { type: 'string', description: 'The version token from your last read or write of this file.' },
     },
@@ -346,7 +369,8 @@ export const MEMORY_DELETE: ToolDefinition = {
   name: 'memory_delete',
   description:
     'Deletes a whole memory file. Only when the user asks to forget that file or subject; to remove one line, ' +
-    'use memory_str_replace. Never delete to tidy up. Needs the version from a memory_read of the file.',
+    'use memory_str_replace. Never delete to tidy up. Needs the version from a memory_read of the file. A ' +
+    'delete cannot be undone.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -465,8 +489,11 @@ export const SHOW_WIDGET: ToolDefinition = {
         maxItems: 4,
         description:
           '1 to 4 messages of about 5 words shown while the visual draws, in the person\'s language. One for a simple ' +
-          'visual, more for a complex one. On a serious topic (illness, death, grief, war, disaster, trauma, abuse, ' +
-          'addiction, medical decisions) keep them plain and neutral.',
+          'visual, more for a complex one. On a serious topic (illness, disease, pandemics, death, grief, war, ' +
+          'conflict, poverty, disaster, trauma, abuse, addiction, medical decisions, politically charged subjects, or ' +
+          'anything the reader may be personally affected by) keep them plain: describe what the code is doing in ' +
+          'the dullest generic words, with no drama ("Setting up the model", not "Charting the battle ahead"). If ' +
+          'you have to ask whether a topic is serious, it is. Otherwise they can be playful.',
       },
       title: {
         type: 'string',

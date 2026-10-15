@@ -9,7 +9,7 @@
 import { z } from 'zod';
 
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
-import type { MemoryService, MemoryWriteResult } from '../services/memory/memoryService.js';
+import { MEMORY_FILE_MAX_BYTES, type MemoryFile, type MemoryService, type MemoryWriteResult } from '../services/memory/memoryService.js';
 
 const listInput = z.object({
   path_prefix: z.string().nullish(),
@@ -34,8 +34,31 @@ function jsonResult(toolCallId: string, data: unknown, ok = true): ToolResult {
   return { toolCallId, ok, content: [{ type: 'json', data }] };
 }
 
+/** A file's size against its cap, with a note once it is close (ADR-0052: reads report free space,
+ *  writes the new size, and a note tells the model to consolidate before the cap refuses a write).
+ *  85% is our threshold: it leaves room for a few more lines before a write is refused. */
+export function sizeReport(sizeBytes: number): { sizeBytes: number; capBytes: number; freeBytes: number; note?: string } {
+  return {
+    sizeBytes,
+    capBytes: MEMORY_FILE_MAX_BYTES,
+    freeBytes: Math.max(0, MEMORY_FILE_MAX_BYTES - sizeBytes),
+    ...(sizeBytes >= MEMORY_FILE_MAX_BYTES * 0.85
+      ? { note: 'This file is close to its size cap: consolidate it (merge overlapping lines, drop stale detail, or move a grown topic to its own file).' }
+      : {}),
+  };
+}
+
+function withSize(file: MemoryFile): MemoryFile & ReturnType<typeof sizeReport> {
+  return { ...file, ...sizeReport(file.sizeBytes) };
+}
+
 function writeResult(toolCallId: string, res: MemoryWriteResult): ToolResult {
-  if (res.ok) return jsonResult(toolCallId, res.file ? { path: res.file.path, version: res.file.version } : { deleted: true });
+  if (res.ok) {
+    return jsonResult(
+      toolCallId,
+      res.file ? { path: res.file.path, version: res.file.version, ...sizeReport(res.file.sizeBytes) } : { deleted: true },
+    );
+  }
   return jsonResult(toolCallId, { error: res.error, ...(res.current ? { current: res.current } : {}) }, false);
 }
 
@@ -69,7 +92,10 @@ export class MemoryToolExecutor implements ToolExecutor {
           if (!x.success) return textResult(call.id, false, `Invalid input: ${x.error.message}`);
           const paths = typeof x.data.path === 'string' ? [x.data.path] : x.data.path;
           const files = await Promise.all(
-            paths.map(async (path) => (await m.readFile(u, p, path)) ?? { path, error: `${path} does not exist.` }),
+            paths.map(async (path) => {
+              const file = await m.readFile(u, p, path);
+              return file ? withSize(file) : { path, error: `${path} does not exist.` };
+            }),
           );
           return jsonResult(call.id, { files }, files.some((f) => !('error' in f)));
         }

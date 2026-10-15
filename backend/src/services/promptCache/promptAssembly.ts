@@ -9,7 +9,7 @@
 
 import type { ToolDefinition } from '../../providers/types.js';
 import { STATIC_BASE_SYSTEM_PROMPT_V1 } from '../systemPrompt.js';
-import { STATIC_MEMORY_POLICY_V1 } from '../memory/policy.js';
+import { STATIC_MEMORY_POLICY_V1, STATIC_PAST_CHATS_POLICY_V1 } from '../memory/policy.js';
 import { STATIC_COMPACTION_POLICY_V1 } from '../compaction/policy.js';
 import { GENERATIVE_UI_POLICY_V1 } from '../ui/policy.js';
 import {
@@ -31,6 +31,8 @@ export function buildStablePrefix(authorizedTools: ToolDefinition[], allowedTool
   const systemText = [
     STATIC_BASE_SYSTEM_PROMPT_V1,
     ...(allowed.has('memory_read') ? [STATIC_MEMORY_POLICY_V1] : []),
+    // Past-chat search is its own user setting (ADR-0052), so its rules ride with its tools.
+    ...(allowed.has('conversation_search') ? [STATIC_PAST_CHATS_POLICY_V1] : []),
     STATIC_COMPACTION_POLICY_V1,
     // The visuals policy names show_widget and the cards, so it goes in only when they are
     // declared: a model can only call what it was declared (Gemini function calling).

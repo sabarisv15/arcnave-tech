@@ -3,6 +3,8 @@
 - Status: accepted by the owner on 2026-09-27 ("rule onne onu than claude la irukrathu nama kita
   iruntha pothum… vera mari irukratha claude mari maathu… missing ah claude mari build paniru").
   Tested locally; not deployed.
+- Superseded in part by [ADR-0052](0052-prompt-gaps-closed-from-the-audit-and-turn-logs.md):
+  `bash_tool` no longer lists libraries, and past-chat search has its own user setting.
 - Date: 2026-09-27
 - Amends: [ADR-0006](0006-turn-router-policy-boundary.md) and
   [ADR-0022](0022-requests-carry-what-the-conversation-did.md) (no discovery step: every allowed

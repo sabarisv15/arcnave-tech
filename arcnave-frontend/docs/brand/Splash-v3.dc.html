@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>arcnave splash v3</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300..800&amp;family=Newsreader:opsz,wght@6..72,300..600&amp;family=Noto+Sans+Tamil:wght@400..700&amp;family=Noto+Serif+Tamil:wght@400..600&amp;family=Noto+Sans+Devanagari:wght@400..700&amp;family=Source+Serif+4:opsz,wght@8..60,300..700&amp;family=JetBrains+Mono:wght@400..600&amp;display=swap">
+<style>
+body{margin:0}
+.t-light{--bg:#FFFFFF;--side:#F6F9F8;--surface:#FFFFFF;--raised:#FFFFFF;--hover:rgba(20,35,32,0.05);--press:rgba(20,35,32,0.08);--selected:#E5EFEB;--line:rgba(20,35,32,0.10);--line-2:rgba(20,35,32,0.16);--field:#7E918A;--text:#142320;--text-2:#3E4D47;--muted:#66756F;--placeholder:#66756F;--disabled:#A3B1AD;--brand:#2E8B63;--primary:#134E45;--primary-hover:#0E3D36;--on-primary:#FFFFFF;--link:#134E45;--focus:#2E8B63;--ring:rgba(46,139,99,0.22);--sky:#7CC8EE;--ok:#1E6E47;--ok-bg:#E6F4EC;--warn:#8A5300;--warn-bg:#FFF4DF;--err:#B3261E;--err-bg:#FDECEA;--on-err:#FFFFFF;--info:#1C6690;--info-bg:#E8F4FB;--inv-bg:#142320;--inv-text:#F2F6F4;--code-bg:#F7F9F8;--syn-key:#134E45;--syn-str:#9C4A2C;--syn-num:#1C6690;--syn-com:#66756F;--cite-bg:rgba(46,139,99,0.10);--shadow-1:0 1px 2px rgba(20,35,32,0.05);--shadow-2:0 0 0 1px rgba(20,35,32,0.10), 0 4px 18px rgba(20,35,32,0.06);--shadow-3:0 0 0 1px rgba(20,35,32,0.08), 0 18px 48px rgba(20,35,32,0.16);}.t-dark{--bg:#151C1A;--side:#19221F;--surface:#1C2522;--raised:#212B28;--hover:rgba(230,238,235,0.06);--press:rgba(230,238,235,0.09);--selected:#21352E;--line:rgba(230,238,235,0.10);--line-2:rgba(230,238,235,0.16);--field:#62746E;--text:#E8EEEB;--text-2:#BAC6C2;--muted:#94A39E;--placeholder:#8D9C97;--disabled:#52625D;--brand:#4FB585;--primary:#4FB585;--primary-hover:#63C495;--on-primary:#0F1615;--link:#6FCB9D;--focus:#6FCB9D;--ring:rgba(111,203,157,0.25);--sky:#7CC8EE;--ok:#8FD9B1;--ok-bg:#173526;--warn:#F3C77A;--warn-bg:#382B12;--err:#F2B8B5;--err-bg:#3E2120;--on-err:#2A0E0C;--info:#9BD3F2;--info-bg:#15303F;--inv-bg:#E8EEEB;--inv-text:#142320;--code-bg:#18201E;--syn-key:#6FCB9D;--syn-str:#F0B08F;--syn-num:#9BD3F2;--syn-com:#8D9C97;--cite-bg:rgba(79,181,133,0.16);--shadow-1:0 0 0 1px rgba(230,238,235,0.06);--shadow-2:0 0 0 1px rgba(230,238,235,0.12), 0 6px 20px rgba(0,0,0,0.30);--shadow-3:0 0 0 1px rgba(230,238,235,0.12), 0 24px 60px rgba(0,0,0,0.50);}
+.ds{box-sizing:border-box;font-family:'Plus Jakarta Sans',sans-serif;font-weight:400;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased;letter-spacing:-0.003em}
+.ds *{box-sizing:border-box}
+.serif .ans,.serif .greet{font-family:'Newsreader','Noto Serif Tamil',Georgia,serif}
+.serif .ans{font-size:17px;line-height:27px}
+.ta{font-family:'Noto Sans Tamil','Plus Jakarta Sans',sans-serif}
+.serif .ta{font-family:'Noto Serif Tamil','Newsreader',serif}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.k{font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sec{border:1px solid var(--line);border-radius:16px;padding:22px 24px;background:var(--surface);display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:8px}
+.note{font-size:12.5px;color:var(--muted);line-height:1.5}
+.btn{height:36px;padding:0 14px;border-radius:8px;font:500 14px/1 'Plus Jakarta Sans',sans-serif;display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;white-space:nowrap}
+.btn-sm{height:30px;padding:0 10px;font-size:13px;border-radius:7px}
+.btn-lg{height:44px;padding:0 18px;font-size:15px;border-radius:10px}
+.btn-primary{background:var(--primary);color:var(--on-primary)}
+.btn-primary.is-hover{background:var(--primary-hover)}
+.btn-secondary{background:var(--surface);color:var(--text);border-color:var(--line-2)}
+.btn-secondary.is-hover{background:var(--hover)}
+.btn-ghost{background:transparent;color:var(--text)}
+.btn-ghost.is-hover{background:var(--hover)}
+.btn-danger{background:var(--err);color:var(--on-err)}
+.is-disabled{opacity:.42}
+.is-focus{outline:2px solid var(--focus);outline-offset:2px}
+.iconbtn{width:32px;height:32px;border-radius:8px;display:inline-grid;place-items:center;color:var(--text-2);flex:none}
+.iconbtn.sm{width:28px;height:28px;border-radius:7px}
+.iconbtn.is-hover{background:var(--hover);color:var(--text)}
+.spin{width:15px;height:15px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;opacity:.85}
+.label{font-size:13px;font-weight:500;color:var(--text-2)}
+.input{height:40px;border:1px solid var(--field);border-radius:8px;padding:0 12px;background:var(--surface);font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px}
+.input .ph{color:var(--placeholder)}
+.input.is-on{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
+.input.is-err{border-color:var(--err)}
+.help{font-size:12.5px;color:var(--muted)}
+.err-text{font-size:12.5px;color:var(--err);display:flex;gap:6px;align-items:center}
+.codebox{width:44px;height:52px;border:1px solid var(--field);border-radius:10px;display:grid;place-items:center;font:500 22px/1 'Plus Jakarta Sans',sans-serif;background:var(--surface);color:var(--text)}
+.toggle{width:36px;height:22px;border-radius:999px;background:var(--line-2);position:relative;flex:none}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle.on{background:var(--primary)}.toggle.on::after{left:17px}
+.t-dark .toggle.on::after{background:#0F1615}
+.check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--field);display:grid;place-items:center;flex:none;background:var(--surface)}
+.check.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.radio{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--field);display:grid;place-items:center;flex:none}
+.radio.on{border-color:var(--primary)}.radio.on::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--primary)}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:var(--hover);gap:2px}
+.seg span{height:28px;padding:0 12px;border-radius:7px;display:inline-flex;align-items:center;font-size:13px;color:var(--text-2)}
+.seg span.on{background:var(--surface);color:var(--text);font-weight:500;box-shadow:var(--shadow-1)}
+.chip{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--line-2);display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--text);background:var(--surface)}
+.badge{height:22px;padding:0 7px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-warn{background:var(--warn-bg);color:var(--warn)}.b-err{background:var(--err-bg);color:var(--err)}.b-info{background:var(--info-bg);color:var(--info)}.b-neutral{background:var(--hover);color:var(--text-2)}
+.cite{display:inline-flex;align-items:center;gap:4px;height:21px;padding:0 6px;border-radius:6px;background:var(--cite-bg);color:var(--link);font:500 12px/1 'Plus Jakarta Sans',sans-serif;vertical-align:2px}
+.avatar{width:28px;height:28px;display:grid;place-items:center;font-size:11.5px;font-weight:600;background:var(--selected);color:var(--link);border-radius:10px 3px 10px 3px;flex:none}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.dialog{background:var(--raised);border-radius:16px;box-shadow:var(--shadow-3);padding:22px;display:flex;flex-direction:column;gap:12px}
+.toast{background:var(--inv-bg);color:var(--inv-text);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:var(--shadow-3)}
+.tip{background:var(--inv-bg);color:var(--inv-text);border-radius:6px;padding:5px 8px;font-size:12px;display:inline-block}
+.tabs{display:flex;gap:4px}
+.tabs span{height:30px;padding:0 10px;border-radius:7px;display:inline-flex;align-items:center;font-size:14px;color:var(--text-2)}
+.tabs span.on{background:var(--hover);color:var(--text);font-weight:500}
+.codeblk{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--code-bg)}
+.codeblk .hd{display:flex;align-items:center;gap:4px;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.codeblk pre{margin:0;padding:12px 14px;font:400 13px/20px 'JetBrains Mono',ui-monospace,monospace;color:var(--text);white-space:pre;overflow:hidden}
+.codeblk .ln{color:var(--disabled);display:inline-block;width:22px}
+.kw{color:var(--syn-key)}.st{color:var(--syn-str)}.nu{color:var(--syn-num)}.cm{color:var(--syn-com);font-style:italic}
+.tbl{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tbl table{border-collapse:collapse;width:100%;font-size:14.5px}
+.tbl th{text-align:left;font-weight:600;color:var(--text);padding:8px 12px;border-bottom:1px solid var(--line);background:var(--hover)}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--line);color:var(--text)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+.ubub{background:var(--hover);border-radius:12px 4px 12px 12px;padding:11px 16px;font-size:15px;line-height:22px;color:var(--text);max-width:520px}
+.ans{font-size:16px;line-height:26px;color:var(--text)}
+.ans p{margin:0 0 12px}.ans b{font-weight:600}
+.thinkline{font-size:14px;line-height:20px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.steps{display:flex;flex-direction:column;border-left:1.5px solid var(--line-2);margin-left:6px;padding-left:14px}
+.steps div{font-size:13.5px;color:var(--text-2);padding:4px 0;display:flex;gap:8px;align-items:center}
+.status{font-size:14px;color:var(--text-2);display:flex;align-items:center;gap:8px}
+.comp-new{background:var(--raised);border-radius:16px;box-shadow:var(--shadow-2);padding:14px 10px 8px 16px;display:flex;flex-direction:column;gap:10px}
+.comp-reply{background:var(--raised);border-radius:14px;box-shadow:var(--shadow-2);height:48px;padding:0 8px 0 16px;display:flex;align-items:center;gap:8px}
+.send{width:32px;height:32px;border-radius:8px;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;flex:none}
+.under{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.side{background:var(--side);border-right:1px solid var(--line)}
+.side-item{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text)}
+.side-item svg{color:var(--text-2)}
+.side-item.on{background:var(--selected);font-weight:500}
+.side-item.on svg{color:var(--brand)}
+.side-label{font-size:12.5px;color:var(--muted);padding:16px 10px 4px}
+.recent{height:30px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text-2);display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent.on{background:var(--selected);color:var(--text);font-weight:500}
+.greet{font-size:30px;line-height:38px;font-weight:500;letter-spacing:-0.02em;color:var(--text)}
+.serif .greet{font-size:34px;font-weight:400;letter-spacing:-0.01em}
+.t-light{--muted:#53625E;--placeholder:#53625E;--text-2:#2F3D38}
+.w2 .side-item{font-weight:500}.w2 .side-item.on{font-weight:600}
+.w2 .recent{font-weight:500}.w2 .recent.on{font-weight:600}
+.w2 .side-label{font-weight:500}
+
+</style>
+</helmet>
+<div class="ds t-light w2" style="width: 1440px; height: 1260px; padding: 52px 72px; display: flex; flex-direction: column; gap: 22px; font-weight: 500">
+<svg width="0" height="0" style="position: absolute" aria-hidden="true"><defs><path id="tL" d="M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z"></path>
+<path id="dL" d="M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z"></path>
+<mask id="mL" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#FFFFFF"></rect><use href="#dL" transform="translate(67 33) rotate(225) scale(0.62)" fill="#000000"></use></mask>
+<radialGradient id="glL" cx="0.67" cy="0.33" r="0.24"><stop offset="0" stop-color="#9BDAF6" stop-opacity="0.95"></stop><stop offset="1" stop-color="#9BDAF6" stop-opacity="0"></stop></radialGradient>
+<filter id="grL" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="7" result="n"></feTurbulence><feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.16 0"></feColorMatrix><feComposite in2="SourceGraphic" operator="in"></feComposite></filter>
+<symbol id="rich" viewBox="0 0 100 100"><g mask="url(#mL)"><use href="#tL" fill="#2E8B63"></use><use href="#tL" fill="#FFFFFF" filter="url(#grL)"></use><use href="#tL" fill="url(#glL)"></use></g></symbol>
+<symbol id="flatL" viewBox="0 0 100 100"><g mask="url(#mL)"><use href="#tL" fill="currentColor"></use></g></symbol><symbol id="wmL4" viewBox="-16 -20 692 140"><clipPath id="L4v"><rect x="-20" y="0" width="200" height="100"/></clipPath><g fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="butt" stroke-linejoin="round"><g transform="translate(0 0)"><path d="M48.8 10 A36.8 40 0 1 0 48.8 90 A36.8 40 0 1 0 48.8 10Z"/><path d="M73.6 100 V10 L97.6 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(109.6 0)"><path d="M0 100 V10 L24 0 V100Z" fill="currentColor" stroke="none"/><path d="M12 58 C12 28 26 12.0 50 12.0"/></g><g transform="translate(168.6 0)"><path d="M76.1 23.2 A36.8 40 0 1 0 76.1 76.8"/></g><g transform="translate(268.7 0)"><path d="M0 100 V10 L24 0 V100Z" fill="currentColor" stroke="none"/><path d="M12 46 C12 24 25.2 12.0 41.4 12.0 C57.6 12.0 70.9 24 70.9 46 V100"/></g><g transform="translate(360.6 0)"><path d="M48.8 10 A36.8 40 0 1 0 48.8 90 A36.8 40 0 1 0 48.8 10Z"/><path d="M73.6 100 V10 L97.6 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(466.2 0)"><g clip-path="url(#L4v)"><path d="M8.2 -12 L43.2 100 L78.3 -12" stroke-linejoin="miter"/></g></g><g transform="translate(562.4 0)"><path d="M12 50 H85.6 A36.8 40 0 1 0 77 75.7"/></g></g></symbol><symbol id="wmL4L" viewBox="-16 -20 646.4 140"><clipPath id="L4Lv"><rect x="-20" y="0" width="200" height="100"/></clipPath><g fill="none" stroke="currentColor" stroke-width="19" stroke-linecap="butt" stroke-linejoin="round"><g transform="translate(0 0)"><path d="M44.7 10 A35.2 40 0 1 0 44.7 90 A35.2 40 0 1 0 44.7 10Z"/><path d="M70.4 100 V10 L89.4 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(101.4 0)"><path d="M0 100 V10 L19 0 V100Z" fill="currentColor" stroke="none"/><path d="M9.5 58 C9.5 28 23.5 9.5 47.5 9.5"/></g><g transform="translate(157.9 0)"><path d="M70.9 23.2 A35.2 40 0 1 0 70.9 76.8"/></g><g transform="translate(250.3 0)"><path d="M0 100 V10 L19 0 V100Z" fill="currentColor" stroke="none"/><path d="M9.5 46 C9.5 24 22.2 9.5 37.7 9.5 C53.1 9.5 65.8 24 65.8 46 V100"/></g><g transform="translate(334.6 0)"><path d="M44.7 10 A35.2 40 0 1 0 44.7 90 A35.2 40 0 1 0 44.7 10Z"/><path d="M70.4 100 V10 L89.4 0 V100Z" fill="currentColor" stroke="none"/></g><g transform="translate(432 0)"><g clip-path="url(#L4Lv)"><path d="M7.8 -12 L41.4 100 L74.9 -12" stroke-linejoin="miter"/></g></g><g transform="translate(525 0)"><path d="M9.5 50 H79.9 A35.2 40 0 1 0 71.7 75.7"/></g></g></symbol><symbol id="wmTAL" viewBox="-16 -76 1068.1 274"><g fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="butt" stroke-linejoin="miter"><g transform="translate(3.0 0)"><circle cx="95" cy="36" r="19.5"/><path d="M75.5 36 C75.5 14 93 4 112 4 C136 4 153 26 153 53 C153 88 112 113 70 113 C36 113 7 102 7 88 C7 77 13 71 24 71 H190"/><path d="M182 104 V10 L198 0 V104Z" fill="currentColor" stroke="none"/><path d="M190 100 C190 86 204 79 221 79 C235 79 244 90 244 104 C244 132 208 149 170 149 C140 149 122 140 122 129 C122 121 131 117 143 117 C157 117 167 121 175 128"/></g><g transform="translate(268.0 0)"><path d="M9 116 V9 H113"/><path d="M63 9 V96 C63 118 30 128 14 158"/><circle cx="63" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g><g transform="translate(396.0 0)"><path d="M38 58 V9 H124"/><path d="M82 9 V76 C82 98 68 110 49 110 C26 110 9 95 9 80 C9 67 20 58 36 58 H110 C122 58 127.5 68 127.5 82 C127.5 100 119 110 107 110 C101 110 97 107 94 104"/><circle cx="60" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g><g transform="translate(548.5 0)"><circle cx="103" cy="-14" r="24"/><circle cx="103" cy="82" r="24"/><path d="M103 -38 C46 -38 11 0 11 34 C11 72 46 106 103 106"/></g><g transform="translate(699.5 0)"><path d="M16 116 V9 H116"/><path d="M62 9 V116"/><path d="M62 72 C62 60 74 53 89 53 C108 53 121.6 70 121.6 92 C121.6 118 102 136 76 136 H30 C17 136 8 144 8 155 C8 163 12 168 18 172"/></g><g transform="translate(848.1 0)"><path d="M33 86 C33 71 43 61 56 61 C71 61 81 72 81 87 C81 103 70 113 55 113 C28 113 9 93 9 68 C9 32 34 6 66 6 C98 6 122 30 122 57 C122 77 113 93 100 105"/><path d="M96 106 H178"/><path d="M170 116 V10 L186 0 V116Z" fill="currentColor" stroke="none"/><circle cx="120" cy="-30" r="10.5" fill="currentColor" stroke="none"/></g></g></symbol></defs></svg>
+<div class="row" style="justify-content: space-between; align-items: flex-end; flex-wrap: nowrap"><div class="col" style="gap: 10px"><div class="k" style="font-size: 13px; font-weight: 600">Freedom change · 1 · splash</div>
+<h1 style="margin: 0; font-size: 40px; font-weight: 700; line-height: 1.1; letter-spacing: -0.025em">Splash v3: scattered → one point</h1>
+<p style="margin: 0; font-size: 16px; color: var(--text-2); max-width: 1000px">The rocket landing is replaced by the brand motion. App open, sign-in and website now tell one story.</p></div>
+<span onClick="{{replay}}" class="btn btn-primary btn-sm" style="cursor: pointer; flex: none">▶ Replay all</span></div>
+<div class="sec"><div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding: 6px 0"><div class="col" style="gap: 12px; align-items: center; min-width: 0">
+<div data-sp="full" data-th="light" data-l="96" data-y="0.44" style="position: relative; width: 264px; height: 548px; border-radius: 38px; border: 9px solid #1C2421; background: #FFFFFF; overflow: hidden; box-shadow: 0 1px 0 rgba(20,35,32,.06), 0 18px 40px -22px rgba(20,35,32,.45)">
+<canvas aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block"></canvas>
+<div class="sp-logo" style="position: absolute; left: 50%; top: 44%; width: 96px; height: 96px; transform: translate(-50%,-50%); opacity: 0"><svg width="100%" height="100%" viewBox="0 0 100 100" aria-hidden="true"><use href="#rich"></use></svg></div>
+<div class="sp-word" style="position: absolute; left: 0; right: 0; top: calc(44% + 70px); display: flex; justify-content: center; opacity: 0"><svg width="90.0" height="18.2" style="flex: none; display: block; color: #142320" role="img" aria-label="arcnave"><use href="#wmL4"></use></svg></div>
+<div style="position: absolute; top: 9px; left: 50%; width: 74px; height: 20px; margin-left: -37px; border-radius: 12px; background: #1C2421"></div></div>
+<div style="text-align: center"><div style="font-size: 15px; font-weight: 700">First open · 3 s</div><div style="font-size: 13px; color: var(--muted); margin-top: 2px">after install or a big update</div></div></div><div class="col" style="gap: 12px; align-items: center; min-width: 0">
+<div data-sp="quick" data-th="light" data-l="96" data-y="0.44" style="position: relative; width: 264px; height: 548px; border-radius: 38px; border: 9px solid #1C2421; background: #FFFFFF; overflow: hidden; box-shadow: 0 1px 0 rgba(20,35,32,.06), 0 18px 40px -22px rgba(20,35,32,.45)">
+<canvas aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block"></canvas>
+<div class="sp-logo" style="position: absolute; left: 50%; top: 44%; width: 96px; height: 96px; transform: translate(-50%,-50%); opacity: 0"><svg width="100%" height="100%" viewBox="0 0 100 100" aria-hidden="true"><use href="#rich"></use></svg></div>
+<div class="sp-word" style="position: absolute; left: 0; right: 0; top: calc(44% + 70px); display: flex; justify-content: center; opacity: 0"><svg width="90.0" height="18.2" style="flex: none; display: block; color: #142320" role="img" aria-label="arcnave"><use href="#wmL4"></use></svg></div>
+<div style="position: absolute; top: 9px; left: 50%; width: 74px; height: 20px; margin-left: -37px; border-radius: 12px; background: #1C2421"></div></div>
+<div style="text-align: center"><div style="font-size: 15px; font-weight: 700">Every other open · 1 s</div><div style="font-size: 13px; color: var(--muted); margin-top: 2px">dots gather, tile, wordmark</div></div></div><div class="col" style="gap: 12px; align-items: center; min-width: 0">
+<div data-sp="quick" data-th="dark" data-l="96" data-y="0.44" style="position: relative; width: 264px; height: 548px; border-radius: 38px; border: 9px solid #1C2421; background: #151C1A; overflow: hidden; box-shadow: 0 1px 0 rgba(20,35,32,.06), 0 18px 40px -22px rgba(20,35,32,.45)">
+<canvas aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block"></canvas>
+<div class="sp-logo" style="position: absolute; left: 50%; top: 44%; width: 96px; height: 96px; transform: translate(-50%,-50%); opacity: 0"><svg width="100%" height="100%" viewBox="0 0 100 100" aria-hidden="true"><use href="#rich"></use></svg></div>
+<div class="sp-word" style="position: absolute; left: 0; right: 0; top: calc(44% + 70px); display: flex; justify-content: center; opacity: 0"><svg width="90.0" height="18.2" style="flex: none; display: block; color: #F2F6F4" role="img" aria-label="arcnave"><use href="#wmL4"></use></svg></div>
+<div style="position: absolute; top: 9px; left: 50%; width: 74px; height: 20px; margin-left: -37px; border-radius: 12px; background: #1C2421"></div></div>
+<div style="text-align: center"><div style="font-size: 15px; font-weight: 700">Dark mode · 1 s</div><div style="font-size: 13px; color: var(--muted); margin-top: 2px">light dots glow on #151C1A</div></div></div><div class="col" style="gap: 12px; align-items: center; min-width: 0">
+<div data-sp="android" data-th="green" data-l="124" data-y="0.46" style="position: relative; width: 264px; height: 548px; border-radius: 38px; border: 9px solid #1C2421; background: #134E45; overflow: hidden; box-shadow: 0 1px 0 rgba(20,35,32,.06), 0 18px 40px -22px rgba(20,35,32,.45)">
+<canvas aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block"></canvas>
+<div class="sp-logo" style="position: absolute; left: 50%; top: 46%; width: 124px; height: 124px; transform: translate(-50%,-50%); opacity: 0"><svg width="100%" height="100%" viewBox="0 0 100 100" aria-hidden="true"><g mask="url(#mL)"><use href="#tL" fill="#F2F6F4"></use></g>
+<use href="#dL" transform="translate(67 33) rotate(225) scale(0.62)" fill="#7CC8EE"></use></svg></div>
+<div style="position: absolute; left: 0; right: 0; bottom: 46px; display: flex; justify-content: center; opacity: .92"><svg width="69.2" height="14.0" style="flex: none; display: block; color: #F2F6F4" role="img" aria-label="arcnave"><use href="#wmL4"></use></svg></div>
+<div style="position: absolute; top: 9px; left: 50%; width: 74px; height: 20px; margin-left: -37px; border-radius: 12px; background: #1C2421"></div></div>
+<div style="text-align: center"><div style="font-size: 15px; font-weight: 700">Android system splash · 1 s</div><div style="font-size: 13px; color: var(--muted); margin-top: 2px">AVD, icon in the 192 dp circle</div></div></div></div></div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 20px">
+<div class="sec"><span class="k">First open · beat by beat</span><div class="col" style="gap: 10px"><div class="row" style="gap: 12px; flex-wrap: nowrap; align-items: baseline"><span style="width: 74px; flex: none; font-size: 12.5px; font-weight: 700; color: var(--brand)">0–0.7 s</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">College papers drift and flip. (First open only.)</span></div><div class="row" style="gap: 12px; flex-wrap: nowrap; align-items: baseline"><span style="width: 74px; flex: none; font-size: 12.5px; font-weight: 700; color: var(--brand)">0.7–1.1 s</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">Each paper turns into a dot of light.</span></div><div class="row" style="gap: 12px; flex-wrap: nowrap; align-items: baseline"><span style="width: 74px; flex: none; font-size: 12.5px; font-weight: 700; color: var(--brand)">1.0–2.3 s</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">Dots gather into the leaf. Sky dots fill the seed.</span></div><div class="row" style="gap: 12px; flex-wrap: nowrap; align-items: baseline"><span style="width: 74px; flex: none; font-size: 12.5px; font-weight: 700; color: var(--brand)">2.2–2.5 s</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">The dots settle: the logo is made of them (D1).</span></div><div class="row" style="gap: 12px; flex-wrap: nowrap; align-items: baseline"><span style="width: 74px; flex: none; font-size: 12.5px; font-weight: 700; color: var(--brand)">2.4–2.9 s</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">Wordmark rises in. Then straight to the app.</span></div></div>
+<div class="note">The 1 s version skips the papers: dots gather 0–0.65 s, wordmark 0.6–0.9 s. The dots stay as the logo. Android keeps a solid tile (system icon rules).</div></div>
+<div class="sec"><span class="k">Rules</span><div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px"><div class="col" style="gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--side)"><span style="font-size: 14.5px; font-weight: 700">Never adds waiting</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">The quick splash only covers loading. If the app is ready early, it jumps to the end frame in 200 ms. Max 1 s.</span></div><div class="col" style="gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--side)"><span style="font-size: 14.5px; font-weight: 700">Android 12+</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">System splash = AnimatedVectorDrawable, under 1,000 ms (Android guidance). ~60 big dots, not 500, so the AVD stays light. Icon inside the 192 dp circle, wordmark as the bottom brand image.</span></div><div class="col" style="gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--side)"><span style="font-size: 14.5px; font-weight: 700">iPhone</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">Apple wants the launch screen plain and close to the first screen, no logo. So: plain background at launch, then the 3 s intro only on first open. No 1 s splash on iPhone.</span></div><div class="col" style="gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--side)"><span style="font-size: 14.5px; font-weight: 700">Web (arcnave.in app)</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">No splash. Sign-in already carries the brand motion. If the app shell takes over 400 ms, the 1 s quick version is the loader.</span></div><div class="col" style="gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--side)"><span style="font-size: 14.5px; font-weight: 700">Reduce motion</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">Still logo + wordmark, no dots. Same timing, no movement.</span></div><div class="col" style="gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--side)"><span style="font-size: 14.5px; font-weight: 700">Same story everywhere</span><span style="font-size: 13.5px; color: var(--text-2); line-height: 1.5">Splash, sign-in, website hero and YouTube intro all use one idea: scattered → one point.</span></div></div></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1260}}'>
+class Component extends DCLogic {
+  componentDidMount() {
+    this.ph = [];
+    document.querySelectorAll('[data-sp]').forEach((el) => this.ph.push(this.make(el)));
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { this.ph.forEach((p) => p.draw(p.dur)); return; }
+    this.start = performance.now();
+    const loop = (now) => {
+      if (this.dead) return;
+      const e = (now - this.start) / 1000;
+      if (!document.hidden) this.ph.forEach((p) => { const cyc = p.dur + 2.2; p.draw(Math.min(e % cyc, p.dur)); });
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { this.dead = true; if (this.raf) cancelAnimationFrame(this.raf); }
+  replay() { this.start = performance.now(); }
+  make(el) {
+    const mode = el.dataset.sp, th = el.dataset.th;
+    const cv = el.querySelector('canvas'), ctx = cv.getContext('2d');
+    const logoEl = el.querySelector('.sp-logo'), wordEl = el.querySelector('.sp-word');
+    const TH = {
+      light: { bg: '#FFFFFF', dot: [46, 139, 99], seed: [124, 200, 238], glow: false },
+      dark: { bg: '#151C1A', dot: [111, 203, 157], seed: [155, 218, 246], glow: true },
+      green: { bg: '#134E45', dot: [242, 246, 244], seed: [155, 218, 246], glow: false },
+    }[th];
+    const dur = mode === 'full' ? 3.0 : 1.0;
+    let s = mode === 'android' ? 11 : 5; const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    const tile = new Path2D('M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z');
+    const drop = new Path2D('M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z');
+    const seedP = new Path2D(); seedP.addPath(drop, new DOMMatrix().translate(67, 33).rotate(225).scale(0.62));
+    const off = document.createElement('canvas').getContext('2d');
+    const step = mode === 'android' ? 8.5 : 3.3, sstep = mode === 'android' ? 6 : 2.4;
+    const T = [];
+    for (let y = 12 + step / 2; y < 88; y += step) for (let x = 12 + step / 2; x < 88; x += step) {
+      const jx = x + (rnd() - .5) * step * .45, jy = y + (rnd() - .5) * step * .45;
+      if (off.isPointInPath(tile, jx, jy) && !off.isPointInPath(seedP, jx, jy)) T.push([jx, jy, 0]); }
+    for (let y = 16; y < 50; y += sstep) for (let x = 50; x < 84; x += sstep) { if (off.isPointInPath(seedP, x, y)) T.push([x, y, 1]); }
+    const P = T.map((t) => ({ tx: t[0], ty: t[1], sky: t[2], x0: rnd(), y0: rnd(), a: rnd() * 6.283, rr: rnd(), d: rnd(),
+      vx: (rnd() - .5) * 26, vy: (rnd() - .5) * 26, rot: rnd() * 6.283, spin: (rnd() - .5) * 2.4, flip: 1 + rnd() * 2, z: .45 + rnd() * .55,
+      paper: mode === 'full' && rnd() < .24, pw: 10 + rnd() * 9 }));
+    const sprite = (c1, c2) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, c1); gr.addColorStop(.25, c2); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; };
+    const SG = sprite('rgba(235,255,245,1)', 'rgba(111,203,157,.55)'), SS = sprite('rgba(240,250,255,1)', 'rgba(124,200,238,.6)');
+    const cl = (u) => u < 0 ? 0 : u > 1 ? 1 : u;
+    const ease = (u) => { u = cl(u); return u * u * (3 - 2 * u); };
+    const ease2 = (u) => { u = cl(u); return u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
+    const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+    const draw = (t) => {
+      const r = cv.getBoundingClientRect(), DPR = Math.min(window.devicePixelRatio || 1, 2);
+      const W = r.width, H = r.height, w = Math.round(W * DPR), h = Math.round(H * DPR);
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = TH.bg; ctx.fillRect(0, 0, W, H);
+      const L = parseFloat(el.dataset.l), cx = W / 2, cy = H * parseFloat(el.dataset.y), k = L / 100, ox = cx - L / 2, oy = cy - L / 2;
+      // phase curves
+      let conv, tileA, wordA;
+      if (mode === 'full') { conv = (p) => ease((t - .7 - p.d * .3) / .4); tileA = 0; wordA = ease((t - 2.35) / .5); }
+      else if (mode === 'quick') { conv = () => 1; tileA = 0; wordA = ease((t - .6) / .3); }
+      else { conv = () => 1; tileA = ease((t - .58) / .2); wordA = 1; }
+      const gath = (p) => mode === 'full' ? ease2((t - .95 - p.d * .35) / .95) : mode === 'quick' ? ease2((t - p.d * .15) / .5) : ease2((t - p.d * .12) / .52);
+      for (const p of P) {
+        let sx, sy;
+        if (mode === 'full') { sx = p.x0 * W + p.vx * t; sy = p.y0 * H + p.vy * t; }
+        else { const R = (mode === 'quick' ? .34 : .22) * Math.min(W, H) * (1 + p.rr * 1.1); sx = cx + Math.cos(p.a) * R; sy = cy + Math.sin(p.a) * R; }
+        const b = gath(p), c = conv(p);
+        const tx = ox + p.tx * k, ty = oy + p.ty * k;
+        const x = sx + (tx - sx) * b, y = sy + (ty - sy) * b;
+        // paper (first open only)
+        if (p.paper && c < 1) {
+          const a = (1 - c) * (.35 + .55 * p.z);
+          ctx.save(); ctx.translate(x, y); ctx.rotate(p.rot + t * p.spin); ctx.scale(Math.max(.18, Math.abs(Math.cos(t * p.flip + p.rot))), 1);
+          const pw = p.pw * (1 - .6 * c), ph = pw * 1.32;
+          ctx.fillStyle = TH.glow ? `rgba(0,0,0,${a * .35})` : `rgba(20,35,32,${a * .16})`; ctx.fillRect(-pw / 2 + 1.5, -ph / 2 + 2, pw, ph);
+          ctx.fillStyle = TH.glow ? `rgba(240,237,226,${a})` : `rgba(250,248,242,${a})`; ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+          if (!TH.glow) { ctx.strokeStyle = `rgba(20,35,32,${a * .38})`; ctx.lineWidth = .8; ctx.strokeRect(-pw / 2, -ph / 2, pw, ph); }
+          ctx.fillStyle = `rgba(90,110,100,${a * .7})`;
+          for (let i = 1; i < 5; i++) ctx.fillRect(-pw * .36, -ph / 2 + ph * i / 5.6, pw * (i === 1 ? .45 : .72), Math.max(.6, ph * .03));
+          ctx.restore();
+        }
+        if (!p.paper || c > 0) {
+          const vis = (p.paper ? c : (mode === 'full' ? .35 + .65 * c : 1)) * (1 - tileA);
+          if (vis <= .01) continue;
+          const col = p.sky ? TH.seed : TH.dot;
+          if (TH.glow) {
+            ctx.globalCompositeOperation = 'lighter';
+            const rad = (mode === 'android' ? 9 : 4.2) * (.75 + .25 * b);
+            ctx.globalAlpha = vis * (.55 + .4 * p.z); ctx.drawImage(p.sky ? SS : SG, x - rad, y - rad, rad * 2, rad * 2); ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+          } else {
+            const rad = mode === 'android' ? 2.6 + 1.2 * b : (.95 + .55 * b) * (p.sky ? 1.15 : 1);
+            ctx.fillStyle = rgba(col, vis * (.45 + .55 * Math.max(b, p.z * .6)));
+            ctx.beginPath(); ctx.arc(x, y, rad, 0, 6.283); ctx.fill();
+          }
+        }
+      }
+      logoEl.style.opacity = tileA.toFixed(3);
+      logoEl.style.transform = `translate(-50%,-50%) scale(${(.96 + .04 * tileA).toFixed(4)})`;
+      if (wordEl) { wordEl.style.opacity = wordA.toFixed(3); wordEl.style.transform = `translateY(${(6 * (1 - wordA)).toFixed(2)}px)`; }
+    };
+    return { draw, dur };
+  }
+  renderVals() { return { replay: () => this.replay() }; }
+}
+</script>
+</body>
+</html>

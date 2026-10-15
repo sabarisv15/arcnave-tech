@@ -1,0 +1,543 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-10-12T05:46:47Z"
+ },
+ "title": "arcnave · Locked design",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "Brand-Locked.dc.html": {
+   "x": 0,
+   "y": 300,
+   "w": 1440,
+   "h": 1560,
+   "title": "arcnave brand sheet · locked (logo D1 + C, 12 Oct)",
+   "is_interactive": true
+  },
+  "Logo-Live.dc.html": {
+   "x": 1520,
+   "y": 300,
+   "w": 1440,
+   "h": 1800,
+   "title": "Living logo · LOCKED D1 + C papers (live)",
+   "is_interactive": true
+  },
+  "Brand-Motion.dc.html": {
+   "x": 0,
+   "y": 2220,
+   "w": 1440,
+   "h": 1420,
+   "title": "4 · One brand motion: scattered → one point",
+   "is_interactive": true
+  },
+  "R16-Wordmark.dc.html": {
+   "x": 1520,
+   "y": 2220,
+   "w": 1440,
+   "h": 1290,
+   "title": "R16 · 1 · Wordmark L4 + Tamil · LOCKED"
+  },
+  "R16-Icons.dc.html": {
+   "x": 0,
+   "y": 3760,
+   "w": 1440,
+   "h": 1010,
+   "title": "Icons · N2 leaf corners + seed · LOCKED"
+  },
+  "Splash-v3.dc.html": {
+   "x": 0,
+   "y": 5590,
+   "w": 1440,
+   "h": 1260,
+   "title": "1 · Splash v3: scattered → one point (3 s / 1 s / Android)",
+   "is_interactive": true
+  },
+  "States-Polish.dc.html": {
+   "x": 1520,
+   "y": 5590,
+   "w": 1440,
+   "h": 860,
+   "title": "2 · AI states: 32 px cut + live timing demo",
+   "is_interactive": true
+  },
+  "R14-Chat.dc.html": {
+   "x": 0,
+   "y": 6970,
+   "w": 1440,
+   "h": 1860,
+   "title": "R14 · AI states + chat flow · LOCKED",
+   "is_interactive": true
+  },
+  "V2-Tokens.dc.html": {
+   "x": 0,
+   "y": 9450,
+   "w": 1440,
+   "h": 1860,
+   "title": "V2 · 1 · Tokens v2"
+  },
+  "V2-Components-Light.dc.html": {
+   "x": 1520,
+   "y": 9450,
+   "w": 1440,
+   "h": 2740,
+   "title": "V2 · 2 · Components v2 light"
+  },
+  "V2-Components-Dark.dc.html": {
+   "x": 3040,
+   "y": 9450,
+   "w": 1440,
+   "h": 2740,
+   "title": "V2 · 3 · Components v2 dark"
+  },
+  "Final-New.dc.html": {
+   "x": 0,
+   "y": 12810,
+   "w": 1440,
+   "h": 900,
+   "title": "New chat · M2 icon rail · light · LOCKED (click the rail)",
+   "is_interactive": true
+  },
+  "Final-Chat-Light.dc.html": {
+   "x": 1520,
+   "y": 12810,
+   "w": 1440,
+   "h": 900,
+   "title": "Chat · M2 · light · LOCKED (click the rail)",
+   "is_interactive": true
+  },
+  "Final-Chat-Dark.dc.html": {
+   "x": 3040,
+   "y": 12810,
+   "w": 1440,
+   "h": 900,
+   "title": "Chat · M2 · dark · LOCKED (click the rail)",
+   "is_interactive": true
+  },
+  "S3-SignIn-4.dc.html": {
+   "x": 0,
+   "y": 14330,
+   "w": 1440,
+   "h": 900,
+   "title": "SI4 · light · Scattered → one point · LOCKED",
+   "is_interactive": true
+  },
+  "S3-SignIn-4-Dark.dc.html": {
+   "x": 1520,
+   "y": 14330,
+   "w": 1440,
+   "h": 900,
+   "title": "SI4 · dark · LOCKED",
+   "is_interactive": true
+  },
+  "S3-Code.dc.html": {
+   "x": 0,
+   "y": 15850,
+   "w": 1440,
+   "h": 900,
+   "title": "Code entry · light (live: try 123456)",
+   "is_interactive": true
+  },
+  "S3-Code-Dark.dc.html": {
+   "x": 1520,
+   "y": 15850,
+   "w": 1440,
+   "h": 900,
+   "title": "Code entry · dark (live)",
+   "is_interactive": true
+  },
+  "S3-Code-States.dc.html": {
+   "x": 0,
+   "y": 16870,
+   "w": 1440,
+   "h": 1920,
+   "title": "Code entry · 9 states + the e-mail + rules"
+  },
+  "S3-Link.dc.html": {
+   "x": 0,
+   "y": 19410,
+   "w": 1440,
+   "h": 900,
+   "title": "Link-confirm · light (live)",
+   "is_interactive": true
+  },
+  "S3-Link-Dark.dc.html": {
+   "x": 1520,
+   "y": 19410,
+   "w": 1440,
+   "h": 900,
+   "title": "Link-confirm · dark (live)",
+   "is_interactive": true
+  },
+  "S3-Link-States.dc.html": {
+   "x": 0,
+   "y": 20430,
+   "w": 1440,
+   "h": 960,
+   "title": "Link-confirm · 4 states + rules"
+  },
+  "S3-2Step.dc.html": {
+   "x": 0,
+   "y": 22010,
+   "w": 1440,
+   "h": 900,
+   "title": "2-step set-up · light (live: 123456)",
+   "is_interactive": true
+  },
+  "S3-2Step-Dark.dc.html": {
+   "x": 1520,
+   "y": 22010,
+   "w": 1440,
+   "h": 900,
+   "title": "2-step set-up · dark (live)",
+   "is_interactive": true
+  },
+  "S3-2Step-States.dc.html": {
+   "x": 0,
+   "y": 23030,
+   "w": 1440,
+   "h": 2030,
+   "title": "2-step · set-up + sign-in states + rules"
+  },
+  "S4-Invite.dc.html": {
+   "x": 0,
+   "y": 25760,
+   "w": 1440,
+   "h": 900,
+   "title": "Invite page · light",
+   "is_interactive": true
+  },
+  "S4-Invite-Dark.dc.html": {
+   "x": 1520,
+   "y": 25760,
+   "w": 1440,
+   "h": 900,
+   "title": "Invite page · dark",
+   "is_interactive": true
+  },
+  "S4-Welcome.dc.html": {
+   "x": 3040,
+   "y": 25760,
+   "w": 1440,
+   "h": 900,
+   "title": "First sign-in · welcome (once per user)",
+   "is_interactive": true
+  },
+  "S4-Invite-States.dc.html": {
+   "x": 0,
+   "y": 26780,
+   "w": 1440,
+   "h": 1740,
+   "title": "Invite · 2 mails + 5 states + rules"
+  },
+  "BS-Base.dc.html": {
+   "x": 0,
+   "y": 28940,
+   "w": 1440,
+   "h": 1850,
+   "title": "Base · logo, colour, type, shape, icons",
+   "is_interactive": true
+  },
+  "BS-Project-L.dc.html": {
+   "x": 0,
+   "y": 30910,
+   "w": 1440,
+   "h": 900,
+   "title": "Project page · light (rail works)",
+   "is_interactive": true
+  },
+  "BS-Project-D.dc.html": {
+   "x": 1520,
+   "y": 30910,
+   "w": 1440,
+   "h": 900,
+   "title": "Project page · dark",
+   "is_interactive": true
+  },
+  "BS-Artifact-L.dc.html": {
+   "x": 0,
+   "y": 31930,
+   "w": 1440,
+   "h": 900,
+   "title": "Artifact open beside chat · light",
+   "is_interactive": true
+  },
+  "BS-Artifact-D.dc.html": {
+   "x": 1520,
+   "y": 31930,
+   "w": 1440,
+   "h": 900,
+   "title": "Artifact open beside chat · dark",
+   "is_interactive": true
+  },
+  "BS-PartsA-L.dc.html": {
+   "x": 0,
+   "y": 32950,
+   "w": 1440,
+   "h": 2120,
+   "title": "Projects, Library, sharing, settings · light"
+  },
+  "BS-PartsA-D.dc.html": {
+   "x": 1520,
+   "y": 32950,
+   "w": 1440,
+   "h": 2120,
+   "title": "Projects, Library, sharing, settings · dark"
+  },
+  "BS-PartsB-L.dc.html": {
+   "x": 0,
+   "y": 35190,
+   "w": 1440,
+   "h": 1850,
+   "title": "Chat parts + visuals · light (hover the chart)"
+  },
+  "BS-PartsB-D.dc.html": {
+   "x": 1520,
+   "y": 35190,
+   "w": 1440,
+   "h": 1850,
+   "title": "Chat parts + visuals · dark"
+  },
+  "S5-Settings.dc.html": {
+   "x": 0,
+   "y": 37460,
+   "w": 1440,
+   "h": 900,
+   "title": "Settings · light (click the sections, toggle memory)",
+   "is_interactive": true
+  },
+  "S5-Settings-Dark.dc.html": {
+   "x": 1520,
+   "y": 37460,
+   "w": 1440,
+   "h": 900,
+   "title": "Settings · dark",
+   "is_interactive": true
+  },
+  "S5-Settings-States.dc.html": {
+   "x": 0,
+   "y": 38480,
+   "w": 1440,
+   "h": 1620,
+   "title": "Settings · confirms, fresh code, toasts, rules"
+  },
+  "S6-Chat.dc.html": {
+   "x": 0,
+   "y": 40520,
+   "w": 1440,
+   "h": 900,
+   "title": "Chat · light (try: model chip, Stop, edit, versions, title menu)",
+   "is_interactive": true
+  },
+  "S6-Chat-Dark.dc.html": {
+   "x": 1520,
+   "y": 40520,
+   "w": 1440,
+   "h": 900,
+   "title": "Chat · dark (live)",
+   "is_interactive": true
+  },
+  "S6-Chat-States.dc.html": {
+   "x": 0,
+   "y": 41540,
+   "w": 1440,
+   "h": 1860,
+   "title": "Chat · every other state · light"
+  },
+  "S6-Chat-States-Dark.dc.html": {
+   "x": 1520,
+   "y": 41540,
+   "w": 1440,
+   "h": 1860,
+   "title": "Chat · every other state · dark"
+  },
+  "S7-Expired.dc.html": {
+   "x": 0,
+   "y": 43820,
+   "w": 1440,
+   "h": 900,
+   "title": "Session ended over the chat · light",
+   "is_interactive": true
+  },
+  "S7-Expired-Dark.dc.html": {
+   "x": 1520,
+   "y": 43820,
+   "w": 1440,
+   "h": 900,
+   "title": "Session ended · dark",
+   "is_interactive": true
+  },
+  "S7-SignedOut.dc.html": {
+   "x": 0,
+   "y": 44840,
+   "w": 1440,
+   "h": 900,
+   "title": "Signed out page · light",
+   "is_interactive": true
+  },
+  "S7-SignedOut-Dark.dc.html": {
+   "x": 1520,
+   "y": 44840,
+   "w": 1440,
+   "h": 900,
+   "title": "Signed out page · dark",
+   "is_interactive": true
+  },
+  "S7-States.dc.html": {
+   "x": 0,
+   "y": 45860,
+   "w": 1440,
+   "h": 1340,
+   "title": "Why you were signed out · 6 reasons + rules"
+  }
+ },
+ "order": [
+  "Brand-Locked.dc.html",
+  "R14-Chat.dc.html",
+  "R16-Wordmark.dc.html",
+  "R16-Icons.dc.html",
+  "V2-Tokens.dc.html",
+  "V2-Components-Light.dc.html",
+  "V2-Components-Dark.dc.html",
+  "Final-New.dc.html",
+  "Final-Chat-Light.dc.html",
+  "Final-Chat-Dark.dc.html",
+  "S3-SignIn-4.dc.html",
+  "S3-SignIn-4-Dark.dc.html",
+  "Brand-Motion.dc.html",
+  "Splash-v3.dc.html",
+  "States-Polish.dc.html",
+  "S3-Code.dc.html",
+  "S3-Code-Dark.dc.html",
+  "S3-Code-States.dc.html",
+  "S3-Link.dc.html",
+  "S3-Link-Dark.dc.html",
+  "S3-Link-States.dc.html",
+  "S3-2Step.dc.html",
+  "S3-2Step-Dark.dc.html",
+  "S3-2Step-States.dc.html",
+  "Logo-Live.dc.html",
+  "S4-Invite.dc.html",
+  "S4-Invite-Dark.dc.html",
+  "S4-Welcome.dc.html",
+  "S4-Invite-States.dc.html",
+  "BS-Base.dc.html",
+  "BS-Project-L.dc.html",
+  "BS-Project-D.dc.html",
+  "BS-Artifact-L.dc.html",
+  "BS-Artifact-D.dc.html",
+  "BS-PartsA-L.dc.html",
+  "BS-PartsA-D.dc.html",
+  "BS-PartsB-L.dc.html",
+  "BS-PartsB-D.dc.html",
+  "S5-Settings.dc.html",
+  "S5-Settings-Dark.dc.html",
+  "S5-Settings-States.dc.html",
+  "S6-Chat.dc.html",
+  "S6-Chat-Dark.dc.html",
+  "S6-Chat-States.dc.html",
+  "S6-Chat-States-Dark.dc.html",
+  "S7-Expired.dc.html",
+  "S7-Expired-Dark.dc.html",
+  "S7-SignedOut.dc.html",
+  "S7-SignedOut-Dark.dc.html",
+  "S7-States.dc.html"
+ ],
+ "notes": {
+  "brandhead": {
+   "x": 0,
+   "y": 0,
+   "text": "1 · Brand · LOCKED (logo D1 + touch C, wordmark L4 + Tamil, icons N2, brand motion)",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "motionhead": {
+   "x": 0,
+   "y": 5290,
+   "text": "2 · Motion · LOCKED (splash v3, 9 AI states, 32 px chat cut + timing)",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "dshead": {
+   "x": 0,
+   "y": 9150,
+   "text": "3 · Design system · LOCKED · base v2 + locks: Onest UI font, W2 weights, Source Serif answers, C1, S1, M1",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "chathead": {
+   "x": 0,
+   "y": 12510,
+   "text": "4 · Chat screens · LOCKED · M2 icon rail + composer K3 (14 Oct)",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "signinhead": {
+   "x": 0,
+   "y": 14030,
+   "text": "5 · Sign-in · LOCKED (SI4 + Google button G1, Source Serif for all text)",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "codehead": {
+   "x": 0,
+   "y": 15550,
+   "text": "6 · Code entry · LOCKED",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "linkhead": {
+   "x": 0,
+   "y": 19110,
+   "text": "7 · Link-confirm · LOCKED",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "mfahead": {
+   "x": 0,
+   "y": 21710,
+   "text": "8 · 2-step · LOCKED",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "invitehead": {
+   "x": 0,
+   "y": 25460,
+   "text": "9 · Invite + first welcome · LOCKED",
+   "kind": "title1",
+   "maxW": 4480
+  },
+  "bshead": {
+   "x": 0,
+   "y": 28640,
+   "text": "10 · Brand sheet · app surfaces · LOCKED (logo language, chart colours, projects, artifacts, settings patterns)",
+   "kind": "title1",
+   "maxW": 2960
+  },
+  "sethead": {
+   "x": 0,
+   "y": 37160,
+   "text": "11 · Settings · LOCKED (profile, appearance, memory, sign-in & devices, data)",
+   "kind": "title1",
+   "maxW": 2960
+  },
+  "chatstateshead": {
+   "x": 0,
+   "y": 40220,
+   "text": "12 · Chat states · LOCKED (model + effort, labels, edit + versions, stop, cut short, errors, limits; composer K3)",
+   "kind": "title1",
+   "maxW": 2960
+  },
+  "sohead": {
+   "x": 0,
+   "y": 43520,
+   "text": "13 · Signed out + session expired · LOCKED",
+   "kind": "title1",
+   "maxW": 2960
+  }
+ },
+ "designSystems": []
+}

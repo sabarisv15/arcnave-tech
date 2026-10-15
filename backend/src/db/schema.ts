@@ -89,6 +89,10 @@ export const preferences = pgTable(
     defaultMode: varchar('default_mode', { length: 16 }).notNull().default('chat'),
     sourceScope: varchar('source_scope', { length: 32 }).notNull().default('All sources'),
     saveHistory: boolean('save_history').notNull().default(true),
+    // ADR-0052: the model cannot turn memory or past-chat search off itself; these are the
+    // settings it names when asked, and generation declares neither tool set while one is off.
+    memoryEnabled: boolean('memory_enabled').notNull().default(true),
+    chatSearchEnabled: boolean('chat_search_enabled').notNull().default(true),
     styleId: varchar('style_id', { length: 64 }).notNull().default('normal'),
 
     // Usage & limits

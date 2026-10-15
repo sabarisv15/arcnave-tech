@@ -42,7 +42,7 @@ These are not style preferences. Each one exists because the alternative ships a
 cd backend
 npm run dev            # :8080, Swagger UI at /docs
 npx tsc --noEmit       # must be clean before any commit
-npx vitest run         # 167 tests; needs Postgres for the integration files
+npx vitest run         # ~900 tests (CURRENT.md 2026-09-28: 906); needs Postgres for the integration files
 npm run openapi        # regenerate docs/openapi.json — run after any schema change
 npm run db:migrate
 
@@ -98,6 +98,31 @@ docker start arcnave-pg
 - **Comments state why, not what.** And a comment that asserts a guarantee needs a test that
   fails when the guarantee stops holding.
 - **Response style (Tanglish):** After every execution or task, always explain what was done in simple, clear Tanglish (Tamil + English in Latin script).
+
+## Build rules on this base (ADR-0053, 2026-10-14)
+
+The plan we follow is [`docs/architecture/00-Handoff/00-build-plan-arcnave-tech.md`](docs/architecture/00-Handoff/00-build-plan-arcnave-tech.md);
+the 21 stage checkpoints under `docs/architecture/` are the target spec (read-only mirror —
+edit in the owner's Architecture folder). The invariants above and the Tanglish rule still win.
+
+- **Branch-only work.** A push to `main` runs the Cloud Build trigger and deploys. Never push to
+  `main`; open a PR. Merge = deploy = owner only, after the local-stable gate.
+- **Models per task** are named in each brief: Opus 5.5 for high-risk items (gateway, auth, DB,
+  executor, layout refactor); Sonnet 5.5 for everything else; Haiku 5.5 only as a test runner.
+  The report names the models actually used.
+- **Numbers.** From Task tech-p1.A onward, no new literal for a value that has an N-id in
+  `docs/architecture/00-Handoff/00-numbers-register.md`; read it from settings/config with the
+  N-id in a comment.
+- **Forbidden:** SDK-level retries (`maxRetries: 0` stays — retries live in the app gateway per
+  the Stage 15 matrix); `temperature` / `top_p` / `top_k` parameters; model SDK calls outside
+  `backend/src/providers/`.
+- **Logging target (Stage 17 NO_CONTENT):** no user, file or model text in logs, metrics or
+  traces — ids, codes, sizes, durations only. Shadow-checked in Phase 1 (report), enforced in
+  Phase 5. `turn_logs` (ADR-0050) stays until Phase 5.
+- **Task briefs** live in `docs/architecture/build-tasks/tech-pX.Y.md`. One commit and one push
+  per task; do not wait for CI — the owner reads it and reports red.
+- **Models:** Gemini 3.8 Flash, Claude Sonnet 5.5, Claude Opus 5.5 only (ADR-0055). Claude via
+  the first-party Claude API (ADR-0054). Single user; company features are Phase 5.
 
 ## Before you finish a task
 

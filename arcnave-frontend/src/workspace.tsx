@@ -167,6 +167,8 @@ const defaultPreferences: Preferences = {
   reducedMotion: false,
   defaultMode: "chat",
   saveHistory: true,
+  memoryEnabled: true,
+  chatSearchEnabled: true,
   styleId: "normal",
   version: 0,
 };

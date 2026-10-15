@@ -13,7 +13,7 @@ The bucket is `arcnave-attachments`. Add every origin the frontend is served fro
 cat > /tmp/cors.json <<'EOF'
 [
   {
-    "origin": ["https://arcnave.tech", "https://www.arcnave.tech"],
+    "origin": ["https://arcnave.in", "https://www.arcnave.in"],
     "method": ["PUT", "POST", "OPTIONS"],
     "responseHeader": ["Content-Type", "Content-Range", "Range", "x-goog-resumable"],
     "maxAgeSeconds": 3600

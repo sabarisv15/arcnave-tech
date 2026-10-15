@@ -426,7 +426,9 @@ export const QUIZ_DISPLAY: ToolDefinition = {
       initial_mode: {
         type: 'string',
         enum: ['quiz', 'flashcards'],
-        description: "Which view opens first: 'quiz' (default, graded one at a time) or 'flashcards'.",
+        description:
+          "Which view opens first: 'quiz' (default, graded one at a time) or 'flashcards', for review or memorising " +
+          'rather than testing: use it when the user asks for flashcards or to study or review. The user can switch either way.',
       },
       questions: {
         type: 'array',
@@ -441,7 +443,7 @@ export const QUIZ_DISPLAY: ToolDefinition = {
             options: {
               type: 'array',
               minItems: 2,
-              description: 'The answer choices.',
+              description: 'The answer choices, at least 2, in a natural order.',
               items: {
                 type: 'object',
                 properties: { id: str("Short id within the question ('a')."), text: str('The answer text.') },
@@ -452,14 +454,23 @@ export const QUIZ_DISPLAY: ToolDefinition = {
             correct_option_id: str("The correct option's id; must be one of this question's option ids."),
             explanation: str('Why the correct answer is right, shown after answering.'),
             hint: str('Optional hint shown on request, nudging without giving the answer away.'),
-            correct_feedback: str("Optional short bold label for a right answer ('Exactly')."),
-            incorrect_feedback: str("Optional short bold label for a wrong answer ('Not quite')."),
+            correct_feedback: str(
+              "Optional short bold label for a right answer ('Exactly!'): a few words in the question's language, ending " +
+                'with a full stop or exclamation mark. Vary it across questions and match the tone of the quiz.',
+            ),
+            incorrect_feedback: str(
+              "Optional short bold label for a wrong answer ('Not quite.'): a few words in the question's language, ending " +
+                'with a full stop or exclamation mark. Encouraging, never mocking; vary it across questions.',
+            ),
           },
           required: ['id', 'question_type', 'prompt', 'options', 'correct_option_id', 'explanation'],
           additionalProperties: false,
         },
       },
-      summary: str('One short phrase (under 45 characters) naming what the card holds.'),
+      summary: str(
+        "One short phrase (under 45 characters) naming what the card holds ('5-question quiz on photosynthesis'), with " +
+          'no full stop: it is shown as a compact label. Write it last.',
+      ),
     },
     required: ['questions', 'summary', 'title'],
     additionalProperties: false,

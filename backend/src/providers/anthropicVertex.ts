@@ -401,16 +401,20 @@ export class AnthropicVertexProvider implements Provider {
           return request.systemInstruction || undefined;
         })();
 
-        // If on the final round, disable tools so the model is forced to synthesize text
-        const isFinalRound = isLastRound(round, maxRounds);
+        // The final round must end in an answer. The tools stay declared and tool_choice "none"
+        // switches calling off: dropping the tools instead changes the tool-built system prompt
+        // under a history full of tool_use blocks, and "none" is accepted on every Claude 5
+        // model, including those that reject forced tool use (Define tools, "Forcing tool use").
+        const isFinalRound = useTools && isLastRound(round, maxRounds);
         const currentToolDefs = request.tools ?? toolDefs;
         const currentUseTools = currentToolDefs.length > 0 && Boolean(request.toolExecutor);
         const roundTools = [
           ...(grounded ? [WEB_SEARCH_TOOL] : []),
           ...(currentUseTools ? currentToolDefs.map(toAnthropicTool) : []),
         ];
-        const effectiveTools = isFinalRound ? [] : roundTools;
-        const effectiveUseTools = isFinalRound ? false : currentUseTools;
+        const effectiveTools = roundTools;
+        const toolChoice: Anthropic.ToolChoice | undefined =
+          roundTools.length === 0 ? undefined : isFinalRound ? { type: 'none' } : currentUseTools ? { type: 'auto' } : undefined;
 
         const stream = this.getClient().messages.stream(
           {
@@ -425,7 +429,7 @@ export class AnthropicVertexProvider implements Provider {
             messages,
             ...(systemParam !== undefined ? { system: systemParam } : {}),
             ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
-            ...(effectiveUseTools ? { tool_choice: { type: 'auto' } } : {}),
+            ...(toolChoice ? { tool_choice: toolChoice } : {}),
           },
           { signal: request.signal },
         );
@@ -492,6 +496,13 @@ export class AnthropicVertexProvider implements Provider {
         const toolUseBlocks = (final.content ?? []).filter(
           (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
         );
+        // The final round is reached only while the model is still working, and it was made to
+        // answer: the turn used every tool step it may, so the caller offers Continue. A call on
+        // that round is not run, as in the Gemini adapter: no round is left to answer after it.
+        if (isFinalRound && final.stop_reason !== 'refusal') {
+          finishReason = 'tool_limit';
+          break;
+        }
         if (!useTools || toolUseBlocks.length === 0) break;
 
         messages = [...messages, { role: 'assistant', content: final.content }];
@@ -537,8 +548,6 @@ export class AnthropicVertexProvider implements Provider {
           finishReason = 'stop';
           break;
         }
-
-        if (isLastRound(round, maxRounds)) finishReason = 'tool_limit';
       }
     } catch (err) {
       if (request.signal.aborted) throw err;

@@ -44,7 +44,7 @@ it("uses confirmed company facts on the public about page", () => {
   expect(host.textContent).toContain("end of 2026");
   expect(host.textContent).toContain("15 September 2025");
   expect(host.textContent).toContain("venture funding within the next 12 months");
-  expect(host.querySelector('a[href="mailto:admin@arcnave.tech"]')).not.toBeNull();
+  expect(host.querySelector('a[href="mailto:admin@arcnave.in"]')).not.toBeNull();
 });
 
 it("opens mobile navigation with an accessible expanded state", () => {
