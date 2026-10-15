@@ -94,6 +94,27 @@ export async function authRoutes(app: AppInstance): Promise<void> {
   );
 
   typed.post(
+    '/auth/google',
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Sign in with a Google ID token; links by verified e-mail or creates the account',
+        body: z.object({ credential: z.string().min(1).max(8192) }),
+        response: { 200: z.object({ user: userResponse, created: z.boolean() }) },
+      },
+      config: { rateLimit: { max: app.services.cfg.RATE_LIMIT_AUTH_PER_MINUTE, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const { googleVerifier, auth, cfg } = request.services;
+      if (!googleVerifier) throw new ApiError('google_signin_disabled');
+      const identity = await googleVerifier.verify(request.body.credential);
+      const result = await auth.loginWithGoogle(identity, request.headers['user-agent'] ?? '');
+      setSessionCookie(reply, cfg, result.token, result.expiresAt);
+      return reply.send({ user: result.user, created: result.created });
+    },
+  );
+
+  typed.post(
     '/auth/logout',
     { schema: { tags: ['auth'], summary: 'End the current session', response: { 204: z.null() } } },
     async (request, reply) => {

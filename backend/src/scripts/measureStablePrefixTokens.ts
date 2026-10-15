@@ -3,7 +3,7 @@
  * models and tool bundles using live Vertex token-counting APIs.
  */
 
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
+import { createAnthropicClient } from '../providers/anthropic.js';
 import { GoogleGenAI } from '@google/genai';
 import { loadConfig } from '../config.js';
 import {
@@ -16,7 +16,7 @@ import {
 } from '../tools/definitions.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
-import { toAnthropicTool } from '../providers/anthropicVertex.js';
+import { toAnthropicTool } from '../providers/anthropic.js';
 import { toGeminiFunctionDeclaration } from '../providers/gemini.js';
 
 const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
@@ -69,10 +69,7 @@ async function main() {
     location: cfg.geminiLocation,
   });
 
-  const anthropicClient = new AnthropicVertex({
-    projectId: cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974',
-    region: cfg.VERTEX_LOCATION,
-  });
+  const anthropicClient = createAnthropicClient(cfg);
 
   for (const b of BUNDLES) {
     const prefix = buildStablePrefix(b.tools);

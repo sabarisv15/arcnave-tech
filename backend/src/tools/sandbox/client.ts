@@ -1,7 +1,7 @@
 /**
  * The seam between CodeExecutionToolExecutor and an actual sandbox backend. Exists so tests can
  * inject a fake and never touch a real GCP resource — same reasoning as the injectable
- * SDK-client seam on the provider adapters (gemini.ts/anthropicVertex.ts).
+ * SDK-client seam on the provider adapters (gemini.ts/anthropic.ts).
  */
 
 export interface SandboxExecutionResult {

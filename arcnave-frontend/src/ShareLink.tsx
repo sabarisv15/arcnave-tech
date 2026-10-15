@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
-import { Copy, Globe, Link2, Loader2, Lock } from "lucide-react";
+import { Link2, Loader2 } from "lucide-react";
 import { api, ApiError, type ShareLinkDto } from "./api";
 import { useWorkspace } from "./workspace";
+import { Icon } from "./brand";
 
 /**
  * The public link of a chat or an artifact (ADR-0039): create it, copy it, move its snapshot to
  * now, or turn it off.
+ *
+ * Drawn as the share dialog of BS-PartsA "Artifact actions": two radio options, then the link and
+ * Copy link. The board's third option, "People in <college>", needs company-only links, which the
+ * backend does not have, so it is not drawn.
  */
 export function PublicLink({ target }: { target: { type: "chat" | "artifact"; id: string } }) {
   const { toast } = useWorkspace();
@@ -46,6 +51,12 @@ export function PublicLink({ target }: { target: { type: "chat" | "artifact"; id
         toast(fresh ? "Public link created" : "Link updated");
       }
     });
+  const stop = (current: ShareLinkDto) =>
+    run(async () => {
+      await api.share.revoke(current.id);
+      setLink(null);
+      toast("Link turned off");
+    });
 
   if (link === undefined)
     return (
@@ -53,57 +64,77 @@ export function PublicLink({ target }: { target: { type: "chat" | "artifact"; id
         <Loader2 size={14} className="spin" /> Checking sharing…
       </p>
     );
-  if (!link)
-    return (
-      <div className="public-link">
-        <p className="public-link-state">
-          <Lock size={15} /> Only you can see this {target.type === "chat" ? "conversation" : "artifact"}.
-        </p>
-        <button className="button primary" disabled={busy} onClick={() => void share()}>
-          <Link2 size={16} /> Create public link
-        </button>
-      </div>
-    );
+  const noun = target.type === "chat" ? "conversation" : "artifact";
   return (
-    <div className="public-link">
-      <p className="public-link-state">
-        <Globe size={15} /> Anyone with the link can view it, as of{" "}
-        {link.snapshotAt ? new Date(link.snapshotAt).toLocaleString() : "now"}.
-      </p>
-      <div className="public-link-row">
-        <input className="input" readOnly value={url} aria-label="Public link" onFocus={(e) => e.currentTarget.select()} />
+    <div className="sf-share">
+      <div className="sf-opts" role="radiogroup" aria-label="Who can see this">
         <button
-          className="button"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(url);
-              toast("Link copied");
-            } catch {
-              toast("Clipboard unavailable. Select the link and copy it.");
-            }
+          type="button"
+          role="radio"
+          aria-checked={Boolean(link)}
+          className={`sf-opt ${link ? "on" : ""}`}
+          disabled={busy}
+          onClick={() => {
+            if (!link) void share();
           }}
         >
-          <Copy size={15} /> Copy
-        </button>
-      </div>
-      <div className="public-link-row">
-        <button className="button" disabled={busy} onClick={() => void share()}>
-          Update to now
+          <span className="sf-radio" aria-hidden="true" />
+          <span className="sf-opt-text">
+            <b>Anyone with the link</b>
+            <small>
+              {link
+                ? `Can view it, as of ${link.snapshotAt ? new Date(link.snapshotAt).toLocaleString() : "now"}`
+                : `Creates a link to a snapshot of this ${noun}`}
+            </small>
+          </span>
         </button>
         <button
-          className="button danger"
+          type="button"
+          role="radio"
+          aria-checked={!link}
+          className={`sf-opt ${link ? "" : "on"}`}
           disabled={busy}
-          onClick={() =>
-            void run(async () => {
-              await api.share.revoke(link.id);
-              setLink(null);
-              toast("Link turned off");
-            })
-          }
+          onClick={() => {
+            if (link) void stop(link);
+          }}
         >
-          Stop sharing
+          <span className="sf-radio" aria-hidden="true" />
+          <span className="sf-opt-text">
+            <b>Only me</b>
+            <small>{link ? "Turns the link off" : `Only you can see this ${noun}`}</small>
+          </span>
         </button>
       </div>
+      {link && (
+        <>
+          <div className="sf-linkrow">
+            <label className="sf-field sf-field-mono">
+              <Icon icon={Link2} size={16} />
+              <input readOnly value={url} aria-label="Public link" onFocus={(e) => e.currentTarget.select()} />
+            </label>
+            <button
+              type="button"
+              className="sf-pbtn"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(url);
+                  toast("Link copied");
+                } catch {
+                  toast("Clipboard unavailable. Select the link and copy it.");
+                }
+              }}
+            >
+              Copy link
+            </button>
+          </div>
+          <div className="sf-share-foot">
+            <span>The link shows the {noun} as of the time above. Later changes stay private until you update it.</span>
+            <button type="button" className="sf-gbtn sf-gbtn-sm" disabled={busy} onClick={() => void share()}>
+              Update to now
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -104,7 +104,7 @@ import type { SkillDetail, SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import { formatContext, formatWholeFiles, projectFileTexts } from './retrieval.js';
-import type { UsageService } from './usage.js';
+import { usdToInr, type UsageService } from './usage.js';
 import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
 import { resolveStyle } from './styles.js';
 
@@ -189,9 +189,15 @@ export interface UsageDto {
   /** False means the provider reported nothing. The UI must not present zeros as measured. */
   exact: boolean;
   costUsd: number | null;
+  /** `costUsd` at the planning rate (N-37); null whenever `costUsd` is. */
+  costInr: number | null;
 }
 
-export function toUsageDto(usage: ProviderUsage, costUsd: number | null): UsageDto {
+export function toUsageDto(
+  usage: ProviderUsage,
+  costUsd: number | null,
+  costInr: number | null = null,
+): UsageDto {
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -200,6 +206,7 @@ export function toUsageDto(usage: ProviderUsage, costUsd: number | null): UsageD
     cacheWriteTokens: usage.cacheWriteTokens,
     exact: usage.exact,
     costUsd,
+    costInr,
   };
 }
 
@@ -1208,10 +1215,11 @@ export class GenerationService {
       log.info({ debugTrace }, 'Runtime debug trace');
       yield { type: 'debug', trace: debugTrace };
 
+      const costUsd = computeCostFor(this.cfg, entry.providerModelId!, usage);
       yield {
         type: 'done',
         questions,
-        usage: toUsageDto(usage, computeCostFor(this.cfg, entry.providerModelId!, usage)),
+        usage: toUsageDto(usage, costUsd, usdToInr(this.cfg, costUsd)),
         finishReason,
         ...(reasoningEffort ? { effort: reasoningEffort } : {}),
       };
@@ -1339,16 +1347,22 @@ export class GenerationService {
   /* ------------------------------------------------------------------ retry */
 
   /**
-   * Retry transient provider failures with exponential backoff.
+   * Retry transient provider failures, per the Stage 15 matrix (ER-1, ER-2; N-42).
    *
    * Only retries before the first event is yielded downstream. Once the client has seen a
    * token, a restart would duplicate text, so the failure propagates instead.
    *
+   * At most PROVIDER_MAX_RETRIES retries; attempt k waits a full-jitter random part of
+   * PROVIDER_RETRY_BASE_MS·2^(k-1), capped at PROVIDER_RETRY_MAX_BACKOFF_MS. A provider
+   * Retry-After is waited for when it is at most PROVIDER_RETRY_AFTER_MAX_MS; a longer one fails
+   * the turn at once (there is no other model to fall back to: Invariant 1). The SDKs' own
+   * retries are off, so these are the only retries.
+   *
    * There is no first-token cutoff: a request is bounded by the
    * adapter's PROVIDER_TIMEOUT_MS (10 minutes, the SDK's default) and retried only when it fails
-   * (connection error, timeout, 408/409/429/5xx), never for being slow. A 12 s cutoff aborted
+   * (connection error, timeout, 408/409/429/5xx/529), never for being slow. A 12 s cutoff aborted
    * large follow-ups that were still reading, and each retry repeated the same slow request
-   * (ADR-0024).
+   * (ADR-0024, kept by ADR-0054).
    */
   private async *streamWithRetry(
     open: (req: GenerationRequest) => AsyncGenerator<ProviderEvent>,
@@ -1429,11 +1443,9 @@ export class GenerationService {
 
         const retryable = err instanceof ProviderError && err.retryable;
         if (userVisibleOutputEmitted || !retryable || attempt >= this.cfg.PROVIDER_MAX_RETRIES) throw err;
+        const delay = retryDelayMs(attempt + 1, (err as ProviderError).retryAfterMs, this.cfg);
+        if (delay === null) throw err;
         attempt += 1;
-        // Exponential backoff with jitter, so a burst of failed requests does not retry in
-        // lockstep and re-create the spike that caused the failure.
-        const base = 300 * 2 ** (attempt - 1);
-        const delay = base + Math.random() * base * 0.5;
         log.warn({ attempt, delay, err: String(err) }, 'retrying provider call');
         await sleep(delay, currentRequest.signal);
       }
@@ -2321,6 +2333,23 @@ export function mapProviderError(err: unknown): { code: string; title: string; d
   }
   const api = new ApiError('provider_error');
   return { code: api.code, title: api.title, detail: api.detail };
+}
+
+/**
+ * How long retry `attempt` (1-based) waits, or null when the provider asked for longer than the
+ * matrix allows (ER-2: Retry-After honoured up to N-42 10 s). Full jitter spreads a burst of
+ * failed requests so they do not retry in lockstep and re-create the spike that caused them.
+ */
+export function retryDelayMs(
+  attempt: number,
+  retryAfterMs: number | undefined,
+  cfg: Pick<Config, 'PROVIDER_RETRY_BASE_MS' | 'PROVIDER_RETRY_MAX_BACKOFF_MS' | 'PROVIDER_RETRY_AFTER_MAX_MS'>,
+  random: () => number = Math.random,
+): number | null {
+  if (retryAfterMs !== undefined && retryAfterMs > cfg.PROVIDER_RETRY_AFTER_MAX_MS) return null;
+  const ceiling = Math.min(cfg.PROVIDER_RETRY_MAX_BACKOFF_MS, cfg.PROVIDER_RETRY_BASE_MS * 2 ** (attempt - 1));
+  const backoff = random() * ceiling;
+  return retryAfterMs === undefined ? backoff : Math.max(backoff, retryAfterMs);
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

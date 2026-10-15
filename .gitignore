@@ -53,3 +53,4 @@ arcnave-frontend.zip
 # Python bytecode
 __pycache__/
 Python/
+.claude/worktrees/

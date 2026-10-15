@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="arcnave">
+<defs>
+<path id="t" d="M50 12 H84 Q88 12 88 16 V50 A38 38 0 0 1 50 88 H16 Q12 88 12 84 V50 A38 38 0 0 1 50 12 Z"/>
+<path id="d" d="M0 -24 C6 -14 11 -8 11 -1 A11 11 0 0 1 -11 -1 C-11 -8 -6 -14 0 -24Z"/>
+<mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#FFFFFF"/><use href="#d" transform="translate(67 33) rotate(225) scale(0.62)" fill="#000000"/></mask>
+<radialGradient id="g" cx="0.67" cy="0.33" r="0.24"><stop offset="0" stop-color="#9BDAF6" stop-opacity="0.95"/><stop offset="1" stop-color="#9BDAF6" stop-opacity="0"/></radialGradient>
+<filter id="f" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="7" result="n"/><feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.16 0"/><feComposite in2="SourceGraphic" operator="in"/></filter>
+</defs>
+<!-- docs/brand/Logo-Live.dc.html symbol #rich: leaf matte tile, grain, sky glow, seed cut out -->
+<g mask="url(#m)"><use href="#t" fill="#2E8B63"/><use href="#t" fill="#FFFFFF" filter="url(#f)"/><use href="#t" fill="url(#g)"/></g>
+</svg>

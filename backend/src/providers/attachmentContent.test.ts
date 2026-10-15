@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { readOfficeFilesWithCode } from '../services/generation.js';
-import { buildAnthropicMessages } from './anthropicVertex.js';
+import { buildAnthropicMessages } from './anthropic.js';
 import { asReadWithCode } from './attachmentContent.js';
 import { buildGeminiContents } from './gemini.js';
 import type { AttachmentBlock, GenerationRequest, Turn } from './types.js';

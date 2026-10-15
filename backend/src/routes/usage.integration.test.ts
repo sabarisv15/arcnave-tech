@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { usageRecords } from '../db/schema.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, signUp } from '../test/harness.js';
 
@@ -33,7 +34,7 @@ describe('usage summary', () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
-      today: { totalTokens: number; costUsd: number | null; requests: number };
+      today: { totalTokens: number; costUsd: number | null; costInr: number | null; requests: number };
       pricingConfigured: boolean;
       limits: { dailyTokenBudget: number | null; timezone: string };
     };
@@ -41,6 +42,7 @@ describe('usage summary', () => {
     expect(body.today).toMatchObject({ totalTokens: 0, requests: 0 });
     // Null, not 0: no pricing table is configured in the test environment.
     expect(body.today.costUsd).toBeNull();
+    expect(body.today.costInr).toBeNull();
     expect(body.pricingConfigured).toBe(false);
     expect(body.limits.dailyTokenBudget).toBeNull();
     expect(body.limits.timezone).toBe('UTC');
@@ -233,7 +235,7 @@ describe('preferences', () => {
     );
   });
 
-  it.each(['Auto', 'Opus 5', 'Gemini 3.8 Flash'])('accepts the real alias %j', async (modelAlias) => {
+  it.each(['Auto', 'Opus 5.5', 'Sonnet 5.5', 'Gemini 3.8 Flash'])('accepts the real alias %j', async (modelAlias) => {
     const owner = await signUp(ctx);
     const response = await ctx.app.inject({
       method: 'PATCH',
@@ -290,7 +292,7 @@ describe('CSV export', () => {
 
     const lines = response.body.trim().split('\r\n');
     expect(lines[0]).toContain('started_at,completed_at,latency_ms,model_alias');
-    expect(lines[0]).toContain('cost_usd');
+    expect(lines[0]).toContain('cost_usd,cost_inr');
     expect(lines).toHaveLength(1);
   });
 });
@@ -356,5 +358,97 @@ describe('isolation', () => {
     expect(
       (forB.json() as { limits: { dailyTokenBudget: number | null } }).limits.dailyTokenBudget,
     ).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- rupee cost */
+
+describe('costInr beside costUsd', () => {
+  const row = (userId: string, over: Partial<typeof usageRecords.$inferInsert>): typeof usageRecords.$inferInsert => ({
+    userId,
+    requestId: `req-${Math.random().toString(36).slice(2)}`,
+    modelAlias: 'Sonnet 5.5',
+    provider: 'anthropic',
+    providerModelId: 'claude-sonnet-5-5',
+    startedAt: new Date(),
+    totalTokens: 10,
+    ...over,
+  });
+
+  it('sums both, and reports null for both when nothing is priced', async () => {
+    const owner = await signUp(ctx);
+    await ctx.db.insert(usageRecords).values([
+      row(owner.id, { costUsd: 0.5, costInr: 44 }),
+      row(owner.id, { costUsd: 0.25, costInr: 22 }),
+      row(owner.id, { costUsd: null, costInr: null }),
+    ]);
+    const priced = (await ctx.app.inject({ url: '/v1/usage', headers: { cookie: owner.cookie } })).json() as {
+      allTime: { costUsd: number | null; costInr: number | null; requests: number };
+      byModel: Array<{ costUsd: number | null; costInr: number | null }>;
+    };
+    expect(priced.allTime).toMatchObject({ costUsd: 0.75, costInr: 66, requests: 3 });
+    expect(priced.byModel[0]).toMatchObject({ costUsd: 0.75, costInr: 66 });
+
+    const other = await signUp(ctx);
+    await ctx.db.insert(usageRecords).values(row(other.id, {}));
+    const unpriced = (await ctx.app.inject({ url: '/v1/usage', headers: { cookie: other.cookie } })).json() as {
+      allTime: { costUsd: number | null; costInr: number | null };
+    };
+    expect(unpriced.allTime.costUsd).toBeNull();
+    expect(unpriced.allTime.costInr).toBeNull();
+  });
+
+  it('does not sum rupees over rows that have a USD price but no rupee figure', async () => {
+    const owner = await signUp(ctx);
+    // A row written before cost_inr existed: priced in USD, no rupee figure and no known rate.
+    await ctx.db.insert(usageRecords).values([
+      row(owner.id, { costUsd: 1, costInr: null }),
+      row(owner.id, { costUsd: 0.5, costInr: 44 }),
+    ]);
+    const body = (await ctx.app.inject({ url: '/v1/usage', headers: { cookie: owner.cookie } })).json() as {
+      allTime: { costUsd: number | null; costInr: number | null };
+    };
+    expect(body.allTime.costUsd).toBe(1.5);
+    expect(body.allTime.costInr).toBeNull();
+  });
+
+  it('carries both on the per-message route and the CSV export', async () => {
+    const priced = await createTestApp({
+      PRICING_TABLE: JSON.stringify({
+        'fake-flash': { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 },
+      }),
+      PRICING_INR_PER_USD: '90',
+    });
+    try {
+      const owner = await signUp(priced);
+      const headers = { cookie: owner.cookie };
+      const chatId = (
+        (await priced.app.inject({ method: 'POST', url: '/v1/chats', headers, payload: { title: 'priced' } })).json() as {
+          id: string;
+        }
+      ).id;
+      await priced.app.inject({
+        method: 'POST',
+        url: `/v1/chats/${chatId}/generate`,
+        headers,
+        payload: { prompt: 'hello', model: 'Gemini 3.8 Flash' },
+      });
+
+      const items = (
+        (await priced.app.inject({ url: `/v1/usage/messages?chatId=${chatId}`, headers })).json() as {
+          items: Array<{ costUsd: number | null; costInr: number | null }>;
+        }
+      ).items;
+      expect(items).toHaveLength(1);
+      const { costUsd, costInr } = items[0]!;
+      expect(costUsd).not.toBeNull();
+      expect(costInr).toBe(Math.round(costUsd! * 90 * 1e6) / 1e6);
+
+      const csv = (await priced.app.inject({ url: '/v1/usage/export', headers })).body.trim().split('\r\n');
+      const cols = csv[0]!.split(',');
+      expect(csv[1]!.split(',')[cols.indexOf('cost_inr')]).toBe(String(costInr));
+    } finally {
+      await priced.close();
+    }
   });
 });

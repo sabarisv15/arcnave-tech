@@ -19,7 +19,7 @@
  * 12. Disabled capability -> Respects disabled tool, no hallucinated execution
  */
 import { GeminiProvider } from '../providers/gemini.js';
-import { AnthropicVertexProvider } from '../providers/anthropicVertex.js';
+import { AnthropicProvider } from '../providers/anthropic.js';
 import type { GenerationRequest, Provider, ToolCall, ToolDefinition, ToolResult } from '../providers/types.js';
 import { loadConfig } from '../config.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
@@ -264,7 +264,7 @@ async function main() {
   const masterPrompt = buildBaseSystemPrompt(cfg, registry);
 
   const isClaude = targetProvider === 'claude';
-  const provider: Provider = isClaude ? new AnthropicVertexProvider(cfg) : new GeminiProvider(cfg);
+  const provider: Provider = isClaude ? new AnthropicProvider(cfg) : new GeminiProvider(cfg);
   const modelId = isClaude ? cfg.MODEL_SONNET || 'claude-sonnet-5' : cfg.MODEL_GEMINI_FLASH || 'gemini-3.8-flash';
 
   console.log(`Target Provider   : ${isClaude ? 'Anthropic Vertex' : 'Google Vertex'}`);

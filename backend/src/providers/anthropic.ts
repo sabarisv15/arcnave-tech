@@ -1,16 +1,11 @@
 /**
- * Claude on Vertex, via `@anthropic-ai/vertex-sdk`.
+ * Claude through the first-party Claude API, via `@anthropic-ai/sdk` (ADR-0054).
  *
- * The SDK handles both Vertex-specific request differences for us: `model` goes in the URL,
- * and `anthropic_version: vertex-2023-10-16` goes in the body. We never hand-roll that call.
- *
- * Region defaults to `global` — the only endpoint type that serves Opus 5 / Sonnet 5, and the
- * only one with no pricing premium. Regional endpoints top out at Sonnet 4.6.
- * See docs/backend-research.md section 2.
+ * The client is built with the SDK's retries off: the only retry is the app's own, in
+ * `streamWithRetry`, per the Stage 15 matrix (ER-1, ER-2), so attempts, backoff and usage stay
+ * in one place. The API key comes from the environment and is never logged.
  */
-import type Anthropic from '@anthropic-ai/sdk';
-import { APIConnectionError, APIConnectionTimeoutError } from '@anthropic-ai/sdk';
-import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
+import Anthropic, { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/sdk';
 
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
@@ -29,10 +24,35 @@ import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachme
 
 const log = logger.child({ module: 'provider:anthropic' });
 
-const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
+/**
+ * Stage 15 ER-2: transient before the first token. 529 is the API's `overloaded_error`
+ * (Claude docs, Errors). A 429 that is a spend limit is not transient; `classifyStatus` says so.
+ */
+const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
 
-/** The tool version string is part of the API contract, not a date to be freshened casually. */
-const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as const;
+/**
+ * The tool version string is part of the API contract, not a date to be freshened casually.
+ * The 2026-02-09 version (dynamic filtering) is the one the first-party API serves for Sonnet 5.5
+ * and Opus 5.5 (Claude docs, Web search tool); Vertex only had the 2025-03-05 one.
+ */
+const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: 5 } as const;
+
+/** The SDK surface this adapter uses, so tests can inject a fake client (no network). */
+export type AnthropicClient = Pick<Anthropic, 'messages'>;
+
+/** The one place the first-party client is built: retries off (ER-1), timeout from config (N-43). */
+export function createAnthropicClient(cfg: Config): Anthropic {
+  if (!cfg.ANTHROPIC_API_KEY) {
+    throw new ProviderError('ANTHROPIC_API_KEY is not set', { code: 'model_unavailable' });
+  }
+  return new Anthropic({
+    apiKey: cfg.ANTHROPIC_API_KEY,
+    // N-42: retries live in the app gateway only; the SDK's default of 2 would hide attempts.
+    maxRetries: 0,
+    // N-43 (repo value, ADR-0024): one request, stream included.
+    timeout: cfg.PROVIDER_TIMEOUT_MS,
+  });
+}
 
 /** How often a call's partial input is parsed and reported while it streams (ADR-0037). */
 const PARTIAL_INPUT_INTERVAL_MS = 120;
@@ -72,6 +92,58 @@ export function toAnthropicToolResultBlock(
       })),
     ],
   };
+}
+
+/**
+ * A failure that is the account's limit, not the request's: the organisation spend cap (429
+ * `enforced_spend_limit_reached` without a usable retry), a workspace usage limit (400 "API usage
+ * limits") or billing (402). Stage 15 doc-sync 2026-10-12: never retried; the turn says so.
+ */
+function isAccountLimit(err: unknown, status: number | undefined): boolean {
+  if (status === 402) return true;
+  const text = err instanceof Error ? err.message : String(err);
+  if (status === 429 && /spend[_ ]limit/i.test(text)) return true;
+  if (status === 400 && /usage limits/i.test(text)) return true;
+  return false;
+}
+
+/** A provider `retry-after` (seconds) or `retry-after-ms`, in milliseconds; undefined when absent. */
+function retryAfterMs(err: unknown): number | undefined {
+  if (!(err instanceof APIError) || !err.headers) return undefined;
+  const headers = err.headers as Headers | Record<string, string | undefined>;
+  const read = (name: string): string | null | undefined =>
+    typeof (headers as Headers).get === 'function' ? (headers as Headers).get(name) : (headers as Record<string, string | undefined>)[name];
+  const ms = Number(read('retry-after-ms'));
+  if (Number.isFinite(ms) && ms >= 0 && read('retry-after-ms') != null) return ms;
+  const seconds = Number(read('retry-after'));
+  if (read('retry-after') != null && Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  return undefined;
+}
+
+/** The typed error a failed Claude call becomes, classified per the Stage 15 matrix. */
+export function classifyAnthropicError(err: unknown, modelId: string): ProviderError {
+  const status = statusOf(err);
+  if (status === 404) return new ModelNotFoundError(modelId, 'global');
+  if (isAccountLimit(err, status)) {
+    return new ProviderError(`Claude account limit reached: ${String(err)}`, {
+      code: 'provider_limit',
+      retryable: false,
+      ...(status !== undefined ? { statusCode: status } : {}),
+    });
+  }
+  if (status === 401 || status === 403) {
+    return new ProviderError(`Claude rejected the credentials or permissions: ${String(err)}`, {
+      code: 'model_unavailable',
+      retryable: false,
+      statusCode: status,
+    });
+  }
+  const after = retryAfterMs(err);
+  return new ProviderError(`Claude request failed: ${String(err)}`, {
+    retryable: status !== undefined && RETRYABLE_STATUS.has(status),
+    ...(status !== undefined ? { statusCode: status } : {}),
+    ...(after !== undefined ? { retryAfterMs: after } : {}),
+  });
 }
 
 function statusOf(err: unknown): number | undefined {
@@ -168,7 +240,8 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
         ...(page.image?.base64
           ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: page.image.mimeType, data: page.image.base64 } }]
           : page.image
-            ? // Claude on Vertex reads base64 only; a URI here is a wiring bug, said, not dropped.
+            ? // Page images reach this adapter as base64 only (gs:// URIs are Gemini's, ADR-0016);
+              // a URI here is a wiring bug, said, not dropped.
               [{ type: 'text' as const, text: `The image of page ${String(page.num)} could not be sent to this model.` }]
             : []),
         {
@@ -228,9 +301,8 @@ function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number
  * A turn with an attachment becomes a content-block array (media first, text last — Anthropic's
  * documented order); a plain-text turn stays a bare string, the cheapest wire shape. The
  * `cache_control` breakpoint marks everything through the previous assistant turn as cacheable;
- * the newest user turn is never marked, since by definition it is new on every call. Vertex only
- * supports the SDK's default 5-minute cache — the 1-hour variant needs an `anthropic-beta` header
- * Vertex rejects, so none is sent here.
+ * the newest user turn is never marked, since by definition it is new on every call. The cache
+ * TTL is the default 5 minutes (N-74: 1 h is not used, its write costs 2×).
  */
 export function buildAnthropicMessages(request: GenerationRequest): Anthropic.MessageParam[] {
   const turns = request.history.filter(
@@ -306,34 +378,22 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
   return normalized as Anthropic.MessageParam[];
 }
 
-export class AnthropicVertexProvider implements Provider {
+export class AnthropicProvider implements Provider {
   readonly name = 'anthropic';
-  private client: Pick<AnthropicVertex, 'messages'> | undefined;
+  private client: AnthropicClient | undefined;
 
   constructor(
     private readonly cfg: Config,
-    private readonly injectedClient?: Pick<AnthropicVertex, 'messages'>,
+    private readonly injectedClient?: AnthropicClient,
   ) {}
 
   supportsGrounding(): boolean {
     return this.cfg.ENABLE_ANTHROPIC_WEB_SEARCH;
   }
 
-  private getClient(): Pick<AnthropicVertex, 'messages'> {
+  private getClient(): AnthropicClient {
     if (this.injectedClient) return this.injectedClient;
-    if (!this.client) {
-      if (!this.cfg.GOOGLE_CLOUD_PROJECT) {
-        throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });
-      }
-      this.client = new AnthropicVertex({
-        projectId: this.cfg.GOOGLE_CLOUD_PROJECT,
-        region: this.cfg.VERTEX_LOCATION,
-        timeout: this.cfg.PROVIDER_TIMEOUT_MS,
-        // Retries are handled by our own policy so backoff and usage accounting stay in one
-        // place; the SDK's internal retry would hide attempts from both.
-        maxRetries: 0,
-      });
-    }
+    this.client ??= createAnthropicClient(this.cfg);
     return this.client;
   }
 
@@ -359,7 +419,9 @@ export class AnthropicVertexProvider implements Provider {
     let finishReason = 'stop';
     const searchBlocks: SearchResultBlock[] = [];
     let messages = buildAnthropicMessages(request);
-    const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
+    // A grounded turn may need a round to resume a paused server tool (pause_turn), so it gets
+    // the same bound as a tool turn; a turn with neither stays single-shot.
+    const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools || grounded);
 
     const tools = [
       ...(grounded ? [WEB_SEARCH_TOOL] : []),
@@ -493,6 +555,19 @@ export class AnthropicVertexProvider implements Provider {
         }
         for (const block of final.content ?? []) searchBlocks.push(...collectSearchResults(block));
 
+        // A server tool (web search) hit the API's own iteration limit mid-answer. The documented
+        // resume is to send the paused assistant turn back as is, with no new user message
+        // (Claude docs, Server tools, "pause_turn"). It takes one of this turn's rounds.
+        if (final.stop_reason === 'pause_turn') {
+          if (isLastRound(round, maxRounds)) {
+            // No round left to resume in: the caller offers Continue, as at the tool limit.
+            finishReason = 'tool_limit';
+            break;
+          }
+          messages = [...messages, { role: 'assistant', content: final.content }];
+          continue;
+        }
+
         const toolUseBlocks = (final.content ?? []).filter(
           (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
         );
@@ -551,8 +626,8 @@ export class AnthropicVertexProvider implements Provider {
       }
     } catch (err) {
       if (request.signal.aborted) throw err;
-      // Not the caller's abort: the SDK's timeout or a dropped connection, both of which Claude's
-      // SDK retries by default ("Connection errors ... are all retried").
+      // Not the caller's abort: the SDK's timeout or a dropped connection, both transient
+      // (ER-2: "connection/408/409"); the app's retry decides, the SDK's is off.
       if (isAbort(err) || err instanceof APIConnectionError) {
         const timedOut = isAbort(err) || err instanceof APIConnectionTimeoutError;
         throw new ProviderError(`Claude request ${timedOut ? 'timed out' : 'lost its connection'}: ${String(err)}`, {
@@ -560,14 +635,7 @@ export class AnthropicVertexProvider implements Provider {
           ...(timedOut ? { code: 'provider_timeout' as const } : {}),
         });
       }
-      const status = statusOf(err);
-      if (status === 404) {
-        throw new ModelNotFoundError(request.providerModelId, this.cfg.VERTEX_LOCATION);
-      }
-      throw new ProviderError(`Claude request failed: ${String(err)}`, {
-        retryable: status !== undefined && RETRYABLE_STATUS.has(status),
-        ...(status !== undefined ? { statusCode: status } : {}),
-      });
+      throw classifyAnthropicError(err, request.providerModelId);
     }
 
     if (grounded && !request.signal.aborted) {
@@ -605,13 +673,8 @@ export class AnthropicVertexProvider implements Provider {
         { signal },
       );
     } catch (err) {
-      log.debug({ err, providerModelId }, 'anthropic probe failed');
-      const status = statusOf(err);
-      if (status === 404) throw new ModelNotFoundError(providerModelId, this.cfg.VERTEX_LOCATION);
-      throw new ProviderError(String(err), {
-        retryable: status !== undefined && RETRYABLE_STATUS.has(status),
-        ...(status !== undefined ? { statusCode: status } : {}),
-      });
+      log.debug({ status: statusOf(err), providerModelId }, 'anthropic probe failed');
+      throw classifyAnthropicError(err, providerModelId);
     }
   }
 }

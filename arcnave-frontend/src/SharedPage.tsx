@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Link2, Loader2 } from "lucide-react";
 import { api, ApiError, describeError, type PublicShareDto, type SharedArtifactDto } from "./api";
+import { answerLang } from "./answerLang";
 import { Markdown, MarkdownErrorBoundary } from "./Content";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
 import { SandboxFrame } from "./SandboxFrame";
@@ -13,7 +14,7 @@ import { SlidesView } from "./SlidesView";
 import { applyTheme } from "./session";
 import type { UIBlock } from "./generative-ui/types";
 import type { Source } from "./types";
-import { BrandMark } from "./ui";
+import { Logo, Wordmark } from "./brand";
 import { ReadOnlyWorkspace } from "./workspace";
 
 const when = (iso: string | null) =>
@@ -73,8 +74,9 @@ export default function SharedPage() {
       <div className="shared-page">
         <header className="shared-top">
           <Link to="/" className="shared-brand">
-            <BrandMark />
-            <span>ArcNave</span>
+            <Logo size={26} variant="rich" />
+            <Wordmark width={65.7} color="var(--color-text)" />
+            <span className="sr-only">ArcNave</span>
           </Link>
           <Link to="/" className="button">
             Start your own
@@ -116,6 +118,7 @@ export default function SharedPage() {
                           <Suspense fallback={<p className="markdown">{m.text}</p>}>
                             <Markdown
                               text={m.text}
+                              lang={answerLang(m.text)}
                               sources={m.sources.map(
                                 (s): Source => ({ ...s, type: "Web", snippet: "" }),
                               )}
@@ -132,6 +135,7 @@ export default function SharedPage() {
             </>
           )}
         </main>
+        <footer className="shared-foot">Made with ArcNave · AI can make mistakes</footer>
         {toastText && (
           <div className="toast" role="status">
             {toastText}

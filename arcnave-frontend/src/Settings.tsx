@@ -1,26 +1,43 @@
+/**
+ * Settings, as the locked page (docs/brand/S5-Settings.dc.html, S5-Settings-Dark.dc.html,
+ * S5-Settings-States.dc.html): a page in the white sheet with a section list on the left and one
+ * section at a time on the right. Styles are in settings.css.
+ *
+ * The board's five sections are Profile, Appearance, Memory, Sign-in & devices and Data &
+ * privacy. ArcNave adds Models, Usage & limits and Keyboard shortcuts, which the app already
+ * had and the board does not draw; they use the same rows.
+ *
+ * Only what the server can do today is a control. A board row whose backend does not exist yet
+ * (changing your name, 2-step verification, the list of signed-in devices, "Log out everywhere",
+ * "Delete all chats", the language and text-size settings, the college rows) is either left out
+ * or shown read-only with "Not available yet". Nothing here is a button that does nothing.
+ */
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
+  Brain,
   Check,
   Download,
   Gauge,
   KeyRound,
   Loader2,
   Moon,
-  Sun,
-  Monitor,
-  RefreshCw,
-  SlidersHorizontal,
   Palette,
-  UserRound,
-  Cpu,
-  Shield,
-  Keyboard,
-  TriangleAlert,
-  Trash2,
-  Plus,
   Pencil,
+  Plus,
+  RefreshCw,
+  Shield,
+  Sun,
+  Cpu,
   Copy,
+  Keyboard,
+  Info,
+  Lock,
+  Trash2,
+  TriangleAlert,
   Upload,
+  UserRound,
 } from "lucide-react";
 import { ApiError, api } from "./api";
 import type { LimitsDto, MemoryExportDto, MemoryItemDto, ShareLinkDto, UsageSummaryDto } from "./api";
@@ -29,199 +46,207 @@ import { downloadAuthenticated } from "./storage";
 import { useWorkspace } from "./workspace";
 import { Modal } from "./ui";
 import type { Preferences } from "./types";
+import { formatCost } from "./formatCost";
 
-const categories = [
-  ["General", SlidersHorizontal],
-  ["Appearance", Palette],
-  ["Personalization", UserRound],
-  ["Models", Cpu],
-  ["Usage & limits", Gauge],
-  ["Account", KeyRound],
-  ["Data & privacy", Shield],
-  ["Keyboard shortcuts", Keyboard],
+const SECTIONS = [
+  { id: "profile", label: "Profile", icon: UserRound, board: true },
+  { id: "appearance", label: "Appearance", icon: Palette, board: true },
+  { id: "memory", label: "Memory", icon: Brain, board: true },
+  { id: "signin", label: "Sign-in & devices", icon: KeyRound, board: true },
+  { id: "models", label: "Models", icon: Cpu, board: false },
+  { id: "usage", label: "Usage & limits", icon: Gauge, board: false },
+  { id: "data", label: "Data & privacy", icon: Shield, board: true },
+  { id: "shortcuts", label: "Keyboard shortcuts", icon: Keyboard, board: false },
 ] as const;
 
-export default function Settings() {
-  const {
-    preferences: p,
-    updatePreferences,
-    settings,
-    setSettings,
-  } = useWorkspace();
-  const [category, setCategory] = useState<string>("General");
-  const { user } = useSession();
+export type SettingsSection = (typeof SECTIONS)[number]["id"];
 
-  const toggle = (
-    label: string,
-    desc: string,
-    key: "enterToSend" | "reducedMotion" | "memoryEnabled" | "chatSearchEnabled",
-  ) => (
-    <div className="setting-row">
-      <div>
-        <strong>{label}</strong>
-        <p>{desc}</p>
-      </div>
-      <button
-        role="switch"
-        aria-label={label}
-        aria-checked={p[key]}
-        className={`switch ${p[key] ? "on" : ""}`}
-        onClick={() =>
-          updatePreferences({ [key]: !p[key] } as Partial<Preferences>)
-        }
-      >
-        <span />
-      </button>
-    </div>
-  );
+/** The section list as the page shows it, in order. Exported so a test can pin it to the board. */
+export const SETTINGS_SECTIONS = SECTIONS.map(({ id, label, board }) => ({ id, label, board }));
+
+const isSection = (value: string | null): value is SettingsSection =>
+  SECTIONS.some((s) => s.id === value);
+
+const initialsOf = (name: string | undefined, email: string | undefined) => {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) return (words[0]![0]! + words[1]![0]!).toUpperCase();
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return (email ?? "?").slice(0, 2).toUpperCase();
+};
+
+export default function Settings() {
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get("section");
+  const section: SettingsSection = isSection(wanted) ? wanted : "profile";
+  const choose = (id: SettingsSection) => setParams(id === "profile" ? {} : { section: id }, { replace: true });
+
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "Settings — ArcNave";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
 
   return (
-    <Modal
-      open={settings}
-      onClose={() => setSettings(false)}
-      title="Settings"
-      className="settings-modal"
-    >
-      <div className="settings-layout">
-        <nav aria-label="Settings categories">
-          {categories.map(([label, Icon]) => (
+    <div className="st-page">
+      <h1 className="st-title">Settings</h1>
+      <div className="st-body">
+        <nav className="st-nav" aria-label="Settings sections">
+          {SECTIONS.map(({ id, label, icon: Glyph }) => (
             <button
-              key={label}
-              className={category === label ? "active" : ""}
-              onClick={() => setCategory(label)}
-              aria-current={category === label ? "page" : undefined}
+              key={id}
+              type="button"
+              className={section === id ? "on" : ""}
+              aria-current={section === id ? "page" : undefined}
+              onClick={() => choose(id)}
             >
-              <Icon size={17} />
+              <Glyph size={18} aria-hidden="true" />
               {label}
             </button>
           ))}
         </nav>
-        <section className="settings-content">
-          <h2>{category}</h2>
-          {category === "General" && (
-            <>
-              <div className="setting-row">
-                <div>
-                  <strong>Signed in as</strong>
-                  <p>{user?.email}</p>
-                </div>
-                <span className="subtle">{user?.name || "No name set"}</span>
-              </div>
-              {toggle(
-                "Enter to send",
-                "Use Shift + Enter to add a new line.",
-                "enterToSend",
-              )}
-              <div className="setting-row">
-                <div>
-                  <strong>Default conversation mode</strong>
-                  <p>How a new conversation begins.</p>
-                </div>
-                <select
-                  aria-label="Default conversation mode"
-                  value={p.defaultMode}
-                  onChange={(e) =>
-                    updatePreferences({
-                      defaultMode: e.target.value as Preferences["defaultMode"],
-                    })
-                  }
-                >
-                  <option value="chat">Chat</option>
-                  <option value="search">Search</option>
-                  <option value="research">Research</option>
-                </select>
-              </div>
-            </>
+        <section className="st-content" aria-labelledby="st-heading">
+          {section === "profile" && <ProfileSection />}
+          {section === "appearance" && <AppearanceSection />}
+          {section === "memory" && <MemorySection />}
+          {section === "signin" && <SignInSection />}
+          {section === "models" && (
+            <Head title="Models" sub="Which model answers. Auto routes by mode, attachments, and context size.">
+              <Models />
+            </Head>
           )}
-          {category === "Appearance" && (
-            <>
-              <p className="section-description">
-                Make this space comfortable for you.
-              </p>
-              <div className="theme-options">
-                {(
-                  [
-                    ["light", Sun, "Light"],
-                    ["dark", Moon, "Dark"],
-                    ["system", Monitor, "System"],
-                  ] as const
-                ).map(([value, Icon, label]) => (
-                  <button
-                    key={value}
-                    className={`theme-option ${p.theme === value ? "selected" : ""}`}
-                    aria-pressed={p.theme === value}
-                    onClick={() => updatePreferences({ theme: value })}
-                  >
-                    <div className={`theme-preview ${value}`}>
-                      <span />
-                      <i />
-                      <i />
-                    </div>
-                    <span>
-                      <Icon size={16} />
-                      {label}
-                      {p.theme === value && <Check size={15} />}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div className="setting-row">
-                <div>
-                  <strong>Conversation font</strong>
-                  <p>Choose how you like to read.</p>
-                </div>
-                <select
-                  aria-label="Conversation font"
-                  value={p.font}
-                  onChange={(e) =>
-                    updatePreferences({
-                      font: e.target.value as Preferences["font"],
-                    })
-                  }
-                >
-                  <option value="sans">Default</option>
-                  <option value="system">Match system</option>
-                  <option value="dyslexic">Dyslexic friendly</option>
-                </select>
-              </div>
-              {toggle(
-                "Reduce motion",
-                "Keep transitions and streaming understated.",
-                "reducedMotion",
-              )}
-            </>
+          {section === "usage" && (
+            <Head title="Usage & limits" sub="What you have used, in rupees first, and the limits you set.">
+              <Usage />
+            </Head>
           )}
-          {category === "Personalization" && <Personalization />}
-          {category === "Models" && <Models />}
-          {category === "Usage & limits" && <Usage />}
-          {category === "Account" && <Account />}
-          {category === "Data & privacy" && <Privacy />}
-          {category === "Keyboard shortcuts" && (
-            <div className="shortcuts">
-              {[
-                ["New conversation", "Ctrl / ⌘ + Shift + O or Ctrl / ⌘ + K"],
-                ["Search conversations", "Ctrl / ⌘ + P"],
-                ["Copy last answer", "Ctrl / ⌘ + Shift + C"],
-                ["Open settings", "Ctrl / ⌘ + ,"],
-                ["Close an overlay", "Esc"],
-                ["Send a message", "Enter"],
-                ["New line", "Shift + Enter"],
-                ["Send with Enter disabled", "Ctrl / ⌘ + Enter"],
-                ["Browse menu options", "↑ / ↓"],
-              ].map(([label, key]) => (
-                <div key={label}>
-                  <span>{label}</span>
-                  <kbd>{key}</kbd>
-                </div>
-              ))}
-              <p className="section-description" style={{ marginTop: "16px" }}>
-                Note: In some browsers, Ctrl + Shift + C may open Developer Tools, or Ctrl + Shift + O may open Bookmarks.
-              </p>
-            </div>
-          )}
+          {section === "data" && <DataSection />}
+          {section === "shortcuts" && <ShortcutsSection />}
         </section>
       </div>
-    </Modal>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ small parts */
+
+function Head({ title, sub, children }: { title: string; sub?: string; children?: ReactNode }) {
+  return (
+    <>
+      <h2 id="st-heading" className="st-h2">
+        {title}
+      </h2>
+      {sub && <p className="st-sub">{sub}</p>}
+      {children}
+    </>
+  );
+}
+
+function Group({ children }: { children: ReactNode }) {
+  return <h3 className="st-grp">{children}</h3>;
+}
+
+/** A settings row: what it is, what it does, and its control on the right. */
+function Row({
+  title,
+  hint,
+  children,
+  stack = false,
+}: {
+  title: string;
+  hint?: ReactNode;
+  children?: ReactNode;
+  stack?: boolean;
+}) {
+  return (
+    <div className={`st-row${stack ? " stack" : ""}`}>
+      <div className="st-tx">
+        <b>{title}</b>
+        {hint && <span className="st-hint">{hint}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Shown where the board has a row and the server has nothing behind it yet. Read-only. */
+function NotYet({ children = "Not available yet" }: { children?: ReactNode }) {
+  return (
+    <span className="st-notyet">
+      <Lock size={13} aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
+function Toggle({
+  label,
+  hint,
+  field,
+}: {
+  label: string;
+  hint: string;
+  field: "enterToSend" | "reducedMotion" | "memoryEnabled" | "chatSearchEnabled";
+}) {
+  const { preferences: p, updatePreferences } = useWorkspace();
+  return (
+    <Row title={label} hint={hint}>
+      <button
+        type="button"
+        role="switch"
+        aria-label={label}
+        aria-checked={p[field]}
+        className={`st-tgl${p[field] ? " on" : ""}`}
+        onClick={() => updatePreferences({ [field]: !p[field] } as Partial<Preferences>)}
+      />
+    </Row>
+  );
+}
+
+/* ------------------------------------------------------------------ profile */
+
+function ProfileSection() {
+  const { user } = useSession();
+  const { preferences: p, updatePreferences } = useWorkspace();
+  return (
+    <Head title="Profile" sub="How you show up in arcnave.">
+      <div className="st-who">
+        <span className="st-bigav" aria-hidden="true">
+          {initialsOf(user?.name, user?.email)}
+        </span>
+        <div>
+          <div className="st-who-name">{user?.name || "No name set"}</div>
+          <div className="st-who-mail">{user?.email}</div>
+        </div>
+      </div>
+
+      <Group>About you</Group>
+      <Row title="Full name" hint={<NotYet>Changing your name is not available yet</NotYet>}>
+        <span className="st-ro">{user?.name || "No name set"}</span>
+      </Row>
+      <Row title="E-mail" hint={<NotYet>Your sign-in e-mail cannot be changed here</NotYet>}>
+        <span className="st-ro st-mono">{user?.email}</span>
+      </Row>
+      <Instructions />
+
+      <Group>In chat</Group>
+      <Toggle label="Enter to send" hint="Use Shift + Enter to add a new line." field="enterToSend" />
+      <Row title="Default conversation mode" hint="How a new conversation begins.">
+        <select
+          className="st-select"
+          aria-label="Default conversation mode"
+          value={p.defaultMode}
+          onChange={(e) =>
+            updatePreferences({ defaultMode: e.target.value as Preferences["defaultMode"] })
+          }
+        >
+          <option value="chat">Chat</option>
+          <option value="search">Search</option>
+          <option value="research">Research</option>
+        </select>
+      </Row>
+    </Head>
   );
 }
 
@@ -231,109 +256,136 @@ export default function Settings() {
  * Typed locally and saved explicitly. Saving on every keystroke would send one request per
  * character and make the optimistic-concurrency version fight itself.
  */
-function Personalization() {
+function Instructions() {
   const { preferences, updatePreferences } = useWorkspace();
   const [text, setText] = useState(preferences.instructions);
-  useEffect(
-    () => setText(preferences.instructions),
-    [preferences.instructions],
-  );
+  useEffect(() => setText(preferences.instructions), [preferences.instructions]);
   const dirty = text !== preferences.instructions;
   return (
-    <>
-      <p className="section-description">
-        A little context for future conversations.
-      </p>
-      <label className="field-label">
-        Your standing instructions
-        <textarea
-          rows={5}
-          maxLength={20000}
-          placeholder="How would you like responses to be written?"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-      </label>
-      <p className="field-help">
-        Sent with every message as part of the system instructions.
-      </p>
-      <div className="dialog-actions">
-        <button
-          className="button"
-          disabled={!dirty}
-          onClick={() => setText(preferences.instructions)}
-        >
+    <div className="st-row stack">
+      <div className="st-tx">
+        <label htmlFor="st-instructions">
+          <b>Your standing instructions</b>
+        </label>
+        <span className="st-hint">
+          Sent with every message as part of the system instructions. How would you like responses to
+          be written?
+        </span>
+      </div>
+      <textarea
+        id="st-instructions"
+        className="st-field st-area"
+        rows={5}
+        maxLength={20000}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="st-actions">
+        <button type="button" className="st-btn" disabled={!dirty} onClick={() => setText(preferences.instructions)}>
           Revert
         </button>
         <button
-          className="button primary"
+          type="button"
+          className="st-btn primary"
           disabled={!dirty}
           onClick={() => updatePreferences({ instructions: text })}
         >
           Save instructions
         </button>
       </div>
-
-      <hr style={{ margin: "24px 0", borderColor: "var(--border-subtle, #333)" }} />
-
-      {/* The assistant is told it cannot switch these off and names them by these labels. */}
-      <MemorySwitch
-        label="Use and update memory"
-        description="Chats read what is remembered about you and save what you ask them to. Off: nothing is read or saved; your memory stays below."
-        field="memoryEnabled"
-      />
-      <MemorySwitch
-        label="Search and reference past chats"
-        description="Chats can search and open your earlier conversations when you refer to them."
-        field="chatSearchEnabled"
-      />
-
-      <MemoryTopics />
-    </>
-  );
-}
-
-/** One of the two memory settings (ADR-0052), saved at once like the other switches. */
-function MemorySwitch({
-  label,
-  description,
-  field,
-}: {
-  label: string;
-  description: string;
-  field: "memoryEnabled" | "chatSearchEnabled";
-}) {
-  const { preferences, updatePreferences } = useWorkspace();
-  const on = preferences[field];
-  return (
-    <div className="setting-row">
-      <div>
-        <strong>{label}</strong>
-        <p>{description}</p>
-      </div>
-      <button
-        role="switch"
-        aria-label={label}
-        aria-checked={on}
-        className={`switch ${on ? "on" : ""}`}
-        onClick={() => updatePreferences({ [field]: !on } as Partial<Preferences>)}
-      >
-        <span />
-      </button>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ appearance */
+
+function ThemeMini({ value }: { value: "light" | "dark" | "system" }) {
+  const half = (tone: "light" | "dark") => (
+    <div className={`st-mini ${tone}`}>
+      <i />
+      <i />
+    </div>
+  );
+  if (value === "system")
+    return (
+      <div className="st-mini-split">
+        {half("light")}
+        {half("dark")}
+      </div>
+    );
+  return half(value);
+}
+
+function AppearanceSection() {
+  const { preferences: p, updatePreferences } = useWorkspace();
+  return (
+    <Head title="Appearance" sub="How arcnave looks.">
+      <Group>Theme</Group>
+      <div className="st-thm" role="group" aria-label="Theme">
+        {(
+          [
+            ["light", Sun, "Light"],
+            ["dark", Moon, "Dark"],
+            ["system", null, "Same as device"],
+          ] as const
+        ).map(([value, Glyph, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={`st-thc${p.theme === value ? " on" : ""}`}
+            aria-pressed={p.theme === value}
+            onClick={() => updatePreferences({ theme: value })}
+          >
+            <ThemeMini value={value} />
+            <b>
+              {Glyph && <Glyph size={15} aria-hidden="true" />}
+              {label}
+              {p.theme === value && <Check size={15} aria-hidden="true" className="st-tick" />}
+            </b>
+          </button>
+        ))}
+      </div>
+
+      <Group>Reading</Group>
+      <Row title="Conversation font" hint="Choose how you like to read.">
+        <select
+          className="st-select"
+          aria-label="Conversation font"
+          value={p.font}
+          onChange={(e) => updatePreferences({ font: e.target.value as Preferences["font"] })}
+        >
+          <option value="sans">Default</option>
+          <option value="system">Match system</option>
+          <option value="dyslexic">Dyslexic friendly</option>
+        </select>
+      </Row>
+
+      <Group>Motion</Group>
+      <Toggle
+        label="Reduce motion"
+        hint="Shows the still logo and keeps transitions and streaming understated. On by itself when your device asks for less motion."
+        field="reducedMotion"
+      />
+    </Head>
+  );
+}
+
+/* ------------------------------------------------------------------ memory */
+
 /**
- * Memory, by topic. Every topic can be read, edited and deleted, and the
- * user can add one themselves (ADR-0025).
+ * Memory, by topic (ADR-0025, board "Memory"). Every topic can be read, edited and forgotten,
+ * and the person can add one. Forget and Reset each ask first, and say what goes.
  */
-function MemoryTopics() {
+function MemorySection() {
+  const { preferences: p, toast } = useWorkspace();
   const [memories, setMemories] = useState<MemoryItemDto[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string | null; key: string; content: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [forgetting, setForgetting] = useState<MemoryItemDto | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -345,18 +397,19 @@ function MemoryTopics() {
   };
   useEffect(load, []);
 
-  const remove = async (id: string) => {
-    setBusyId(id);
+  const forget = async (item: MemoryItemDto) => {
+    setBusyId(item.id);
     try {
-      await api.memory.delete(id);
-      setMemories((prev) => prev.filter((m) => m.id !== id));
+      await api.memory.delete(item.id);
+      setMemories((prev) => prev.filter((m) => m.id !== item.id));
+      toast("Forgotten");
     } catch {
       setError("Could not delete that topic.");
     }
     setBusyId(null);
+    setForgetting(null);
   };
 
-  const [importing, setImporting] = useState(false);
   const exportMemory = async () => {
     try {
       const data = await api.memory.export();
@@ -371,16 +424,17 @@ function MemoryTopics() {
     }
   };
 
-  const clearAll = async () => {
-    if (!window.confirm("Delete everything ArcNave remembers about you?")) return;
+  const resetAll = async () => {
     setLoading(true);
     try {
       await api.memory.clearAll();
       setMemories([]);
+      toast("Memory reset");
     } catch {
       setError("Could not clear memory.");
     }
     setLoading(false);
+    setResetting(false);
   };
 
   const save = async () => {
@@ -398,134 +452,189 @@ function MemoryTopics() {
         : await api.memory.create({ key: editing.key.trim(), content: editing.content.trim() });
       setMemories((prev) => [item, ...prev.filter((m) => m.id !== item.id)]);
       setEditing(null);
+      toast("Saved");
     } catch (err) {
-      setError(err instanceof ApiError && err.code === "conflict"
-        ? "That topic changed since you opened it. Reload and try again."
-        : "Could not save that topic.");
+      setError(
+        err instanceof ApiError && err.code === "conflict"
+          ? "That topic changed since you opened it. Reload and try again."
+          : "Could not save that topic.",
+      );
     }
     setBusyId(null);
   };
 
   return (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-        <div>
-          <strong style={{ fontSize: "14px" }}>Memory</strong>
-          <p className="field-help" style={{ margin: "2px 0 0" }}>
-            What ArcNave remembers about you, by topic. New chats start from it. ArcNave adds to it as you
-            chat; you can edit or delete any topic.
-          </p>
+    <Head
+      title="Memory"
+      sub="What arcnave remembers about you, by topic. New chats start from it. You can edit or delete any topic."
+    >
+      {!p.memoryEnabled && (
+        <div className="st-banner" role="status">
+          <TriangleAlert size={18} aria-hidden="true" />
+          Memory is paused. Nothing is read or saved until you turn it back on. What is saved stays below.
         </div>
-        <div style={{ display: "flex", gap: "6px" }}>
-          <button className="button" style={{ fontSize: "12px" }} onClick={() => setEditing({ id: null, key: "", content: "" })}>
-            <Plus size={12} /> Add
-          </button>
-          <button className="button" style={{ fontSize: "12px" }} onClick={() => setImporting(true)}>
-            <Upload size={12} /> Import
-          </button>
-          {memories.length > 0 && (
-            <button className="button" style={{ fontSize: "12px" }} onClick={() => void exportMemory()}>
-              <Download size={12} /> Export
-            </button>
-          )}
-          {memories.length > 0 && (
-            <button className="button" style={{ fontSize: "12px", color: "var(--danger, #ff6b6b)" }} onClick={clearAll} disabled={loading}>
-              Clear all
-            </button>
-          )}
-        </div>
+      )}
+      {/* The assistant is told it cannot switch these off and names them by these labels. */}
+      <Toggle
+        label="Use and update memory"
+        hint="Chats read what is remembered about you and save what you ask them to. Off: nothing is read or saved; your memory stays below."
+        field="memoryEnabled"
+      />
+      <Toggle
+        label="Search and reference past chats"
+        hint="Chats can search and open your earlier conversations when you refer to them."
+        field="chatSearchEnabled"
+      />
+
+      <div className="st-saved-head">
+        <h3 className="st-saved">Saved</h3>
+        <span className="st-count" aria-live="polite">
+          {loading ? "" : `${memories.length} ${memories.length === 1 ? "topic" : "topics"}`}
+        </span>
+        <span className="st-spacer" />
+        <button type="button" className="st-btn" onClick={() => setEditing({ id: null, key: "", content: "" })}>
+          <Plus size={14} aria-hidden="true" /> Add
+        </button>
+        <button type="button" className="st-btn" onClick={() => setImporting(true)}>
+          <Upload size={14} aria-hidden="true" /> Import
+        </button>
       </div>
-      {error && <p className="field-help" style={{ color: "var(--danger, #ff6b6b)" }}>{error}</p>}
+      {error && (
+        <p className="st-error" role="alert">
+          {error}
+        </p>
+      )}
       <MemoryImport open={importing} onClose={() => setImporting(false)} onDone={load} />
+
       {editing && (
-        <div className="memory-editor" style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
-          <input
-            placeholder="Topic, e.g. Work"
-            maxLength={200}
-            value={editing.key}
-            onChange={(e) => setEditing({ ...editing, key: e.target.value })}
-          />
-          <textarea
-            rows={4}
-            maxLength={20000}
-            placeholder="What to remember"
-            value={editing.content}
-            onChange={(e) => setEditing({ ...editing, content: e.target.value })}
-          />
-          <div className="dialog-actions">
-            <button className="button" onClick={() => setEditing(null)}>Cancel</button>
-            <button className="button primary" disabled={busyId !== null} onClick={() => void save()}>Save</button>
+        <div className="st-card st-editor">
+          <label className="st-label">
+            Topic
+            <input
+              className="st-field"
+              placeholder="Topic, e.g. Work"
+              maxLength={200}
+              value={editing.key}
+              onChange={(e) => setEditing({ ...editing, key: e.target.value })}
+            />
+          </label>
+          <label className="st-label">
+            What to remember
+            <textarea
+              className="st-field st-area"
+              rows={4}
+              maxLength={20000}
+              value={editing.content}
+              onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+            />
+          </label>
+          <div className="st-actions">
+            <button type="button" className="st-btn" onClick={() => setEditing(null)}>
+              Cancel
+            </button>
+            <button type="button" className="st-btn primary" disabled={busyId !== null} onClick={() => void save()}>
+              Save
+            </button>
           </div>
         </div>
       )}
+
       {loading ? (
-        <p className="loading-line" style={{ fontSize: "13px" }}>
+        <p className="loading-line">
           <Loader2 size={14} className="spin" />
           Loading memory…
         </p>
       ) : memories.length === 0 ? (
-        <p style={{ fontSize: "13px", color: "var(--text-muted, #888)", fontStyle: "italic" }}>
-          Nothing remembered yet.
-        </p>
+        <p className="st-empty">Nothing remembered yet.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "320px", overflowY: "auto" }}>
+        <ul className="st-topics">
           {memories.map((m) => (
-            <div
-              key={m.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                padding: "8px 12px",
-                borderRadius: "6px",
-                background: "var(--bg-subtle, rgba(255,255,255,0.03))",
-                border: "1px solid var(--border-subtle, rgba(255,255,255,0.08))",
-                fontSize: "13px",
-              }}
-            >
-              <div style={{ flex: 1, marginRight: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                  <strong style={{ fontSize: "12px" }}>{m.key}</strong>
-                  {m.scope === "project" && (
-                    <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "4px", background: "rgba(255, 255, 255, 0.08)", color: "#aaa" }}>
-                      project
-                    </span>
-                  )}
-                </div>
-                <p style={{ margin: 0, color: "var(--text, #eee)", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>{m.content}</p>
+            <li key={m.id} className="st-card st-topic">
+              <div className="st-topic-text">
+                <b>
+                  {m.key}
+                  {m.scope === "project" && <span className="st-tag">project</span>}
+                </b>
+                <p>{m.content}</p>
               </div>
               <button
-                className="button-icon"
-                title="Edit this topic"
+                type="button"
+                className="st-ibt"
+                aria-label={`Edit ${m.key}`}
                 onClick={() => setEditing({ id: m.id, key: m.key, content: m.content })}
-                style={{ padding: "4px", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted, #888)" }}
               >
-                <Pencil size={14} />
+                <Pencil size={15} aria-hidden="true" />
               </button>
               <button
-                className="button-icon"
-                title="Delete this topic"
+                type="button"
+                className="st-ibt"
+                aria-label={`Forget ${m.key}`}
                 disabled={busyId === m.id}
-                onClick={() => void remove(m.id)}
-                style={{ padding: "4px", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted, #888)" }}
+                onClick={() => setForgetting(m)}
               >
-                {busyId === m.id ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}
+                {busyId === m.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} aria-hidden="true" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="st-actions between">
+        <button type="button" className="st-btn" disabled={memories.length === 0} onClick={() => void exportMemory()}>
+          <Download size={14} aria-hidden="true" /> Export memory
+        </button>
+        <button type="button" className="st-btn danger" disabled={memories.length === 0 || loading} onClick={() => setResetting(true)}>
+          <Trash2 size={14} aria-hidden="true" /> Reset memory
+        </button>
+      </div>
+
+      <Modal
+        open={forgetting !== null}
+        onClose={() => setForgetting(null)}
+        title="Forget this?"
+      >
+        {forgetting && (
+          <>
+            <div className="st-card st-topic-text">
+              <b>{forgetting.key}</b>
+              <p>{forgetting.content}</p>
+            </div>
+            <p className="st-dialog-text">
+              arcnave stops using it. To bring it back, tell arcnave again.
+            </p>
+            <div className="st-actions">
+              <button type="button" className="st-btn" onClick={() => setForgetting(null)}>
+                Cancel
+              </button>
+              <button type="button" className="st-btn primary" onClick={() => void forget(forgetting)}>
+                Forget
               </button>
             </div>
-          ))}
+          </>
+        )}
+      </Modal>
+      <Modal open={resetting} onClose={() => setResetting(false)} title="Reset all memory?">
+        <p className="st-dialog-text">
+          All {memories.length} {memories.length === 1 ? "topic is" : "topics are"} deleted, including
+          things you asked arcnave to remember. Your chats stay.
+        </p>
+        <div className="st-banner info" role="note">
+          <Info size={18} aria-hidden="true" />
+          You can export your memory first.
         </div>
-      )}
-    </>
+        <div className="st-actions">
+          <button type="button" className="st-btn" onClick={() => void exportMemory()}>
+            <Download size={14} aria-hidden="true" /> Export first
+          </button>
+          <button type="button" className="st-btn primary err" onClick={() => void resetAll()}>
+            Reset memory
+          </button>
+        </div>
+      </Modal>
+    </Head>
   );
 }
 
-/**
- * Models.
- *
- * The list comes from `GET /models`; the frontend ships no model table of its own. An alias
- * that is not configured stays visible and selectable-looking is avoided — it is disabled with
- * the server's reason attached, so "where did that model go" never has to be asked.
- */
 /** The request to paste into another assistant, so it lists what it remembers one per line. */
 const IMPORT_REQUEST =
   "List everything you have stored about me in your memory, exactly as it is stored. " +
@@ -620,6 +729,13 @@ function MemoryImport({ open, onClose, onDone }: { open: boolean; onClose: () =>
   );
 }
 
+/**
+ * Models.
+ *
+ * The list comes from `GET /models`; the frontend ships no model table of its own. An alias that
+ * is not configured is disabled with the server's reason attached, so "where did that model go"
+ * never has to be asked.
+ */
 function Models() {
   const { preferences, updatePreferences } = useWorkspace();
   const { models, refreshModels } = useSession();
@@ -712,8 +828,8 @@ function Models() {
 }
 
 const number = (value: number) => value.toLocaleString();
-const money = (value: number | null) =>
-  value === null ? "—" : `$${value.toFixed(4)}`;
+const money = (usd: number | null, inr: number | null) =>
+  formatCost(usd, inr) ?? "—";
 
 /**
  * Usage & limits.
@@ -830,7 +946,7 @@ function Usage() {
         {number(totals.requests)} request{totals.requests === 1 ? "" : "s"}
       </small>
       <small>
-        {summary.pricingConfigured ? money(totals.costUsd) : "cost not priced"}
+        {summary.pricingConfigured ? money(totals.costUsd, totals.costInr) : "cost not priced"}
       </small>
     </div>
   );
@@ -923,7 +1039,7 @@ function Usage() {
                 <td>{row.key ?? "Unattributed"}</td>
                 <td>{number(row.requests)}</td>
                 <td>{number(row.totalTokens)}</td>
-                <td>{summary.pricingConfigured ? money(row.costUsd) : "—"}</td>
+                <td>{summary.pricingConfigured ? money(row.costUsd, row.costInr) : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -1027,7 +1143,14 @@ function Usage() {
   );
 }
 
-function Account() {
+/* ------------------------------------------------------------------ sign-in & devices */
+
+/**
+ * Sign-in & devices. What works today is signing out of this device and changing the password.
+ * Two-step verification and the list of signed-in devices have no backend yet (Phase 5), so they
+ * are named and marked "Not available yet" instead of drawn as controls.
+ */
+function SignInSection() {
   const { user, signOut } = useSession();
   const [current, setCurrent] = useState(""),
     [next, setNext] = useState(""),
@@ -1035,25 +1158,17 @@ function Account() {
     [message, setMessage] = useState<string | null>(null),
     [error, setError] = useState<string | null>(null);
   return (
-    <>
-      <div className="setting-row">
-        <div>
-          <strong>Account</strong>
-          <p>{user?.email}</p>
-        </div>
-        <button className="button" onClick={() => void signOut()}>
+    <Head title="Sign-in & devices" sub="How you sign in, and where you are signed in.">
+      <Group>This device</Group>
+      <Row title="Signed in as" hint={user?.email}>
+        <button type="button" className="st-btn" onClick={() => void signOut()}>
           Sign out
         </button>
-      </div>
-      <DeleteAccount />
-      <h3 className="project-section-title">Change password</h3>
-      <p className="field-help">
-        Changing your password ends every session, including this one. You will
-        be asked to sign in again.
-      </p>
-      {error && <p className="source-warning">{error}</p>}
-      {message && <p className="field-help">{message}</p>}
+      </Row>
+
+      <Group>Password</Group>
       <form
+        className="st-form"
         onSubmit={(event) => {
           event.preventDefault();
           setBusy(true);
@@ -1069,18 +1184,25 @@ function Account() {
               void signOut();
             })
             .catch((failure) =>
-              setError(
-                failure instanceof ApiError
-                  ? failure.detail
-                  : "The password could not be changed.",
-              ),
+              setError(failure instanceof ApiError ? failure.detail : "The password could not be changed."),
             )
             .finally(() => setBusy(false));
         }}
       >
-        <label className="field-label">
+        <p className="st-hint">
+          Changing your password ends every session, including this one. You will be asked to sign in
+          again.
+        </p>
+        {error && (
+          <p className="st-error" role="alert">
+            {error}
+          </p>
+        )}
+        {message && <p className="st-hint">{message}</p>}
+        <label className="st-label">
           Current password
           <input
+            className="st-field"
             type="password"
             autoComplete="current-password"
             value={current}
@@ -1088,9 +1210,10 @@ function Account() {
             required
           />
         </label>
-        <label className="field-label">
+        <label className="st-label">
           New password
           <input
+            className="st-field"
             type="password"
             autoComplete="new-password"
             minLength={12}
@@ -1098,19 +1221,26 @@ function Account() {
             onChange={(e) => setNext(e.target.value)}
             required
           />
-          <span className="field-help">At least 12 characters.</span>
+          <span className="st-hint">At least 12 characters.</span>
         </label>
-        <div className="dialog-actions">
-          <button
-            className="button primary"
-            disabled={busy || !current || !next}
-          >
+        <div className="st-actions">
+          <button type="submit" className="st-btn primary" disabled={busy || !current || !next}>
             {busy && <Loader2 size={14} className="spin" />}
             Change password
           </button>
         </div>
       </form>
-    </>
+
+      <Group>2-step verification</Group>
+      <Row title="Ask for a second code" hint="A code from an authenticator app, after you sign in.">
+        <NotYet />
+      </Row>
+
+      <Group>Signed-in devices</Group>
+      <Row title="Where you are signed in" hint="A list of your devices, and a way to log out of all of them.">
+        <NotYet />
+      </Row>
+    </Head>
   );
 }
 
@@ -1118,7 +1248,8 @@ const DELETE_PHRASE = "delete my account";
 
 /**
  * Deletes the account and everything in it (ADR-0040). It cannot be undone, so it needs the
- * password and the phrase typed out.
+ * password and the phrase typed out. (The board's "Ask admin" is for college-managed accounts;
+ * ArcNave has no admin, so the person deletes their own.)
  */
 function DeleteAccount() {
   const { signOut } = useSession();
@@ -1128,14 +1259,15 @@ function DeleteAccount() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="setting-row">
-      <div>
-        <strong>Delete account</strong>
-        <p>Removes your conversations, projects, artifacts, files, memory and settings. This cannot be undone.</p>
-      </div>
-      <button className="button danger" onClick={() => setOpen(true)}>
-        <Trash2 size={15} /> Delete account
-      </button>
+    <div className="st-danger">
+      <Row
+        title="Delete my account"
+        hint="Removes your conversations, projects, artifacts, files, memory and settings. This cannot be undone."
+      >
+        <button type="button" className="st-btn danger" onClick={() => setOpen(true)}>
+          <Trash2 size={14} aria-hidden="true" /> Delete account
+        </button>
+      </Row>
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -1154,20 +1286,34 @@ function DeleteAccount() {
               .finally(() => setBusy(false));
           }}
         >
-          <label className="field-label">
+          <label className="st-label">
             Type <strong>{DELETE_PHRASE}</strong> to confirm
-            <input value={phrase} onChange={(e) => setPhrase(e.target.value)} autoComplete="off" />
+            <input className="st-field" value={phrase} onChange={(e) => setPhrase(e.target.value)} autoComplete="off" />
           </label>
-          <label className="field-label">
+          <label className="st-label">
             Password
-            <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input
+              className="st-field"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </label>
-          {error && <p className="source-warning">{error}</p>}
-          <div className="dialog-actions">
-            <button type="button" className="button" onClick={() => setOpen(false)}>
+          {error && (
+            <p className="st-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="st-actions">
+            <button type="button" className="st-btn" onClick={() => setOpen(false)}>
               Cancel
             </button>
-            <button className="button danger" disabled={busy || phrase.trim().toLowerCase() !== DELETE_PHRASE || !password}>
+            <button
+              type="submit"
+              className="st-btn primary err"
+              disabled={busy || phrase.trim().toLowerCase() !== DELETE_PHRASE || !password}
+            >
               {busy && <Loader2 size={14} className="spin" />}
               Delete account
             </button>
@@ -1178,33 +1324,35 @@ function DeleteAccount() {
   );
 }
 
-function Privacy() {
+/* ------------------------------------------------------------------ data & privacy */
+
+function DataSection() {
   const { toast } = useWorkspace();
   const [busy, setBusy] = useState(false);
   return (
-    <>
-      <div className="settings-note">
-        <strong>Where your work lives</strong>
-        <p>
-          Conversations, projects, artifacts, uploaded files, and preferences
-          are stored on the ArcNave server against your account. Prompts and
-          uploaded text are sent to the configured model provider to produce a
-          reply. This browser keeps only interface state: the theme, the sidebar
+    <Head title="Data & privacy" sub="Your chats, where they live, and how to remove them.">
+      <div className="st-banner info" role="note">
+        <Info size={18} aria-hidden="true" />
+        <span>
+          Conversations, projects, artifacts, uploaded files, and preferences are stored on the ArcNave
+          server against your account. Prompts and uploaded text are sent to the configured model
+          provider to produce a reply. This browser keeps only interface state: the theme, the sidebar
           width, and any unsaved artifact draft.
-        </p>
+        </span>
       </div>
+
+      <Group>Your data</Group>
       <ExportData />
       <div className="setting-row">
         <div>
           <strong>Export usage records</strong>
           <p>
-            One CSV row per generation attempt, including cancellations and
-            failures. An empty cost cell means no price is configured for that
-            model, not zero.
+            One CSV row per generation attempt, including cancellations and failures. An empty cost cell
+            means no price is configured for that model, not zero.
           </p>
         </div>
-        <a className="button" href={api.usage.exportUrl()} download>
-          <Download size={15} />
+        <a className="st-btn" href={api.usage.exportUrl()} download>
+          <Download size={14} aria-hidden="true" />
           Export CSV
         </a>
       </div>
@@ -1212,12 +1360,13 @@ function Privacy() {
         <div>
           <strong>Discard unsent uploads</strong>
           <p>
-            Files you attached but never sent are kept so a reload does not lose
-            them. This deletes them now.
+            Files you attached but never sent are kept so a reload does not lose them. This deletes them
+            now.
           </p>
         </div>
         <button
-          className="button"
+          type="button"
+          className="st-btn"
           disabled={busy}
           onClick={() => {
             setBusy(true);
@@ -1239,7 +1388,41 @@ function Privacy() {
         </button>
       </div>
       <SharedLinks />
-    </>
+
+      <Group>Delete</Group>
+      <DeleteAccount />
+    </Head>
+  );
+}
+
+/* ------------------------------------------------------------------ keyboard shortcuts */
+
+function ShortcutsSection() {
+  return (
+    <Head title="Keyboard shortcuts">
+      <div className="shortcuts st-shortcuts">
+        {[
+          ["New conversation", "Ctrl / ⌘ + Shift + O or Ctrl / ⌘ + K"],
+          ["Search conversations", "Ctrl / ⌘ + P"],
+          ["Copy last answer", "Ctrl / ⌘ + Shift + C"],
+          ["Open settings", "Ctrl / ⌘ + ,"],
+          ["Close an overlay", "Esc"],
+          ["Send a message", "Enter"],
+          ["New line", "Shift + Enter"],
+          ["Send with Enter disabled", "Ctrl / ⌘ + Enter"],
+          ["Browse menu options", "↑ / ↓"],
+        ].map(([label, key]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <kbd>{key}</kbd>
+          </div>
+        ))}
+        <p className="st-hint">
+          Note: In some browsers, Ctrl + Shift + C may open Developer Tools, or Ctrl + Shift + O may open
+          Bookmarks.
+        </p>
+      </div>
+    </Head>
   );
 }
 

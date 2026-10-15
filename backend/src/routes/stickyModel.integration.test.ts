@@ -31,9 +31,9 @@ it('keeps the model Auto chose on the first turn for the rest of the chat', asyn
   const chatId = (chat.json() as { id: string }).id;
 
   const first = await resolved(user.cookie, chatId, 'a long question '.repeat(10));
-  expect(first).toBe('Sonnet 5'); // long_prompt → balanced
+  expect(first).toBe('Sonnet 5.5'); // long_prompt → balanced
   // A short follow-up alone would route to economy; the chat keeps its model.
-  expect(await resolved(user.cookie, chatId, 'and then?')).toBe('Sonnet 5');
+  expect(await resolved(user.cookie, chatId, 'and then?')).toBe('Sonnet 5.5');
 
   // A new chat routes afresh.
   const other = await ctx.app.inject({ method: 'POST', url: '/v1/chats', headers: { cookie: user.cookie }, payload: { title: 'y' } });

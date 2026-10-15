@@ -7,6 +7,8 @@
  */
 import { z } from 'zod';
 
+import { NUMBERS } from './config/numbers.js';
+
 const csv = (fallback: string[]) =>
   z
     .string()
@@ -23,6 +25,17 @@ const csv = (fallback: string[]) =>
 const int = (fallback: number) =>
   z.coerce.number().int().catch(fallback).default(fallback);
 
+/**
+ * A positive decimal with a documented default. Unlike `int`, a bad value fails the boot: this
+ * one multiplies money, and a silent fallback would print a wrong rupee figure with no warning.
+ * Empty counts as unset (compose passes `${VAR:-}`).
+ */
+const positiveNumber = (fallback: number) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.coerce.number().positive().default(fallback),
+  );
+
 const bool = (fallback: boolean) =>
   z
     .string()
@@ -34,6 +47,16 @@ const optionalStr = z
   .string()
   .optional()
   .transform((v) => (v && v.trim() !== '' ? v.trim() : undefined));
+
+/**
+ * A model id with a documented default. Unset takes the default; set to an empty string turns
+ * the alias off (reported `not_configured`, never swapped for another model).
+ */
+const modelId = (fallback: string) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? fallback : v.trim() === '' ? undefined : v.trim()));
 
 const pricingSchema = z.record(
   z.string(),
@@ -57,17 +80,23 @@ const envSchema = z.object({
   API_PREFIX: z.string().default('/v1'),
   CORS_ORIGINS: csv(['http://127.0.0.1:5173', 'http://localhost:5173']),
   SESSION_COOKIE_NAME: z.string().default('arcnave_session'),
-  SESSION_TTL_HOURS: int(24 * 14),
+  /** N-49 (repo value, absolute session lifetime). */
+  SESSION_TTL_HOURS: int(NUMBERS.SESSION_TTL_HOURS.value),
   /** Only set true behind HTTPS; a Secure cookie is silently dropped over plain HTTP. */
   SESSION_COOKIE_SECURE: bool(false),
   /** Signs the cookie so tampering is detectable. Required in production. */
   COOKIE_SECRET: optionalStr,
-  /** Off closes POST /auth/register with a typed error. Default on; flip off for single-account testing. */
+  /** Off closes POST /auth/register with a typed error. Default on; flip off for single-account testing.
+   *  It also stops Google sign-in from creating accounts (existing ones still sign in). */
   REGISTRATION_ENABLED: bool(true),
+  /** OAuth client id (Web) for Google sign-in, ADR-0056. Not a secret (the browser sees it).
+   *  Unset, POST /auth/google answers `google_signin_disabled`. */
+  GOOGLE_OAUTH_CLIENT_ID: optionalStr,
 
   // --- Database -----------------------------------------------------------
   DATABASE_URL: z.string().default('postgres://arcnave:arcnave@localhost:5432/arcnave'),
-  DB_POOL_MAX: int(10),
+  /** N-66 (repo value). */
+  DB_POOL_MAX: int(NUMBERS.DB_POOL_MAX.value),
   /**
    * Cloud SQL's Unix-domain-socket directory (e.g. `/cloudsql/project:region:instance`).
    * `postgres.js` has no equivalent of `pg`'s `?host=` query-string convention — passing a
@@ -77,46 +106,54 @@ const envSchema = z.object({
    */
   DB_SOCKET_PATH: optionalStr,
 
-  // --- Vertex AI ----------------------------------------------------------
+  // --- Vertex AI (Gemini) ------------------------------------------------
   GOOGLE_CLOUD_PROJECT: optionalStr,
-  /**
-   * "global" is the only endpoint type that serves Opus 5 / Sonnet 5 and it carries no pricing
-   * premium; regional endpoints top out at Sonnet 4.6. See docs/backend-research.md section 2.
-   */
+  /** Vertex endpoint for Gemini. Claude no longer goes through Vertex (ADR-0054). */
   VERTEX_LOCATION: z.string().default('global'),
   /** Gemini 3.8 Flash is global-only, so it gets its own knob. */
   GEMINI_LOCATION: optionalStr,
-  /**
-   * gpt-oss is a Model-as-a-Service open model and is NOT served at the `global` endpoint —
-   * a request there 404s. Verified 2026-09-17: present in `us-central1`, absent from
-   * `global`. It therefore needs its own location, because VERTEX_LOCATION must stay
-   * `global` for Opus 5 / Sonnet 5.
-   */
-  GPT_OSS_LOCATION: optionalStr,
 
-  // --- Model registry -----------------------------------------------------
-  // Each is an exact publisher model ID, verified present in your project and region.
-  // Unset means "not configured" -> the alias reports unavailable. Never guessed.
+  // --- Claude API (first party, ADR-0054) ---------------------------------
+  /**
+   * Secret. Read from the environment (backend/.env locally, Secret Manager in a deployment),
+   * never committed. Unset, the Claude aliases report `anthropic_not_configured`; in production
+   * a Claude model id set explicitly without a key fails the boot.
+   */
+  ANTHROPIC_API_KEY: optionalStr,
+
+  // --- Model registry (ADR-0055: three models) ----------------------------
+  // Each is an exact model id. Unset means "not configured" for Gemini (no documented default
+  // for this deployment's Vertex project). The Claude ids default to the first-party ids on
+  // https://docs.claude.com/en/docs/about-claude/models (read 2026-10-14); an empty value
+  // turns the alias off.
   MODEL_GEMINI_FLASH: optionalStr,
-  MODEL_SONNET: optionalStr,
-  MODEL_OPUS: optionalStr,
-  MODEL_GPT_OSS: optionalStr,
+  MODEL_SONNET: modelId('claude-sonnet-5-5'),
+  MODEL_OPUS: modelId('claude-opus-5-5'),
 
   AUTO_ROUTE_LONG_PROMPT_CHARS: int(2000),
   AUTO_ROUTE_LONG_CONTEXT_CHARS: int(8000),
   MODEL_PROBE_TTL_SECONDS: int(300),
-  /** One provider request, stream included: 10 minutes, the provider SDK default; there is no separate first-token cutoff (ADR-0024). */
-  PROVIDER_TIMEOUT_MS: int(600_000),
+  /** N-43 (repo value, ADR-0024/0054): one provider request, stream included; no first-token cutoff. */
+  PROVIDER_TIMEOUT_MS: int(NUMBERS.PROVIDER_TIMEOUT_MS.value),
   PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
-  PROVIDER_MAX_RETRIES: int(2),
+  /** N-42: retries before the first token (Stage 15 ER-2). The SDKs' own retries stay 0. */
+  PROVIDER_MAX_RETRIES: int(NUMBERS.PROVIDER_MAX_RETRIES.value),
+  /** N-42: backoff base; attempt k waits a full-jitter random part of base·2^(k-1), capped. */
+  PROVIDER_RETRY_BASE_MS: int(NUMBERS.PROVIDER_RETRY_BASE_MS.value),
+  /** N-42: backoff cap. */
+  PROVIDER_RETRY_MAX_BACKOFF_MS: int(NUMBERS.PROVIDER_RETRY_MAX_BACKOFF_MS.value),
+  /** N-42: the longest provider Retry-After waited for; a longer one fails the turn instead. */
+  PROVIDER_RETRY_AFTER_MAX_MS: int(NUMBERS.PROVIDER_RETRY_AFTER_MAX_MS.value),
   /** Whole-turn deadline. Keep it under the platform request timeout (Cloud Run: set to
    *  3600 s) so a slow turn ends with a typed error, not a severed connection. */
-  TURN_DEADLINE_MS: int(3_540_000),
+  /** N-43 (repo value; register says turn 10 min). */
+  TURN_DEADLINE_MS: int(NUMBERS.TURN_DEADLINE_MS.value),
 
   // --- Generation limits --------------------------------------------------
   // 64,000 for agentic work (128,000 at xhigh or max effort). A turn
   // never asks for more than its model's own maximum (capabilitiesTable maxOutputTokens).
-  DEFAULT_MAX_OUTPUT_TOKENS: int(64_000),
+  /** N-74 (repo value; register has per-profile limits). */
+  DEFAULT_MAX_OUTPUT_TOKENS: int(NUMBERS.DEFAULT_MAX_OUTPUT_TOKENS.value),
   MAX_OUTPUT_TOKENS_CEILING: int(128_000),
   /** Clearing old tool results (providers/contextEditing.ts), with the provider defaults. */
   CONTEXT_EDIT_TRIGGER_TOKENS: int(100_000),
@@ -129,8 +166,8 @@ const envSchema = z.object({
   REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   /** Project files go into the prompt whole while their text totals at most this many
    *  characters; past it, the model searches them with search_project_files (ADR-0020).
-   *  This one is ArcNave's, small enough for the smallest configured
-   *  window (GPT-OSS, 128,000 tokens) to keep room for the conversation. */
+   *  This one is ArcNave's: about 50,000 tokens, a fraction of every configured model's
+   *  1M-token window, so the conversation keeps its room. */
   PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
   /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
    *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
@@ -165,10 +202,12 @@ const envSchema = z.object({
    *  Continue at the per-turn tool-use limit. 16, not 8:
    *  search, skill, extract, analyze, one repair and the answer must all fit, and on the real
    *  statement 8 ran out before analysis (G11). TURN_DEADLINE_MS bounds the time. */
-  TOOL_MAX_ROUNDS: int(16),
+  /** N-06 (repo value; register has per-profile tool steps). */
+  TOOL_MAX_ROUNDS: int(NUMBERS.TOOL_MAX_ROUNDS.value),
   /** Hard server-side cap on `read_project_file`'s returned text, regardless of what `maxChars`
    *  the model requests. Keeps one large document from ever being handed over whole. */
-  READ_PROJECT_FILE_MAX_CHARS: int(6000),
+  /** N-09 (repo value, characters). */
+  READ_PROJECT_FILE_MAX_CHARS: int(NUMBERS.READ_PROJECT_FILE_MAX_CHARS.value),
   /** Length of the `tool_result` SSE preview string. Independent of what the model receives
    *  (the full bounded result) and what is persisted (the same full bounded result) — this is
    *  the UI's budget only. */
@@ -208,7 +247,8 @@ const envSchema = z.object({
   SANDBOX_SERVICE_AUTH: z.enum(['id-token', 'none']).default('id-token'),
   /** How long one run_python call's code may run on the warm service. Real document work
    *  (OCR, a 12-page render) takes minutes, not the Job's 10 s. */
-  RUN_PYTHON_WARM_CODE_TIMEOUT_MS: int(300_000),
+  /** N-08 (repo value). */
+  RUN_PYTHON_WARM_CODE_TIMEOUT_MS: int(NUMBERS.RUN_PYTHON_WARM_CODE_TIMEOUT_MS.value),
   /** Region for the arcnave-python-sandbox Cloud Run Job, independent of VERTEX_LOCATION/
    *  GEMINI_LOCATION (which cover only the two model APIs). See docs/decisions/0005-cloud-run-sandbox.md. */
   SANDBOX_LOCATION: z.string().default('us-central1'),
@@ -222,7 +262,8 @@ const envSchema = z.object({
   MAX_CODE_BYTES: int(20 * 1024),
   /** In-container deadline (passed as RUN_PYTHON_CODE_TIMEOUT_MS) bounding only the user's
    *  Python subprocess — never reused as the client-side orchestration deadline below. */
-  RUN_PYTHON_CODE_TIMEOUT_MS: int(10_000),
+  /** N-08 (repo value). */
+  RUN_PYTHON_CODE_TIMEOUT_MS: int(NUMBERS.RUN_PYTHON_CODE_TIMEOUT_MS.value),
   /** Client-side deadline covering the entire jobs:run -> Operation -> Execution -> Cloud
    *  Logging round trip. Must stay comfortably larger than RUN_PYTHON_CODE_TIMEOUT_MS plus
    *  realistic Cloud Run scheduling and Cloud Logging indexing lag. */
@@ -235,7 +276,8 @@ const envSchema = z.object({
    *  bounds what the model receives and what is persisted; the SSE preview is bounded again by
    *  TOOL_RESULT_PREVIEW_CHARS, unchanged. 30,000 is the usual read-back size;
    *  past it, the head and tail are kept. */
-  RUN_PYTHON_MAX_OUTPUT_CHARS: int(30_000),
+  /** N-09 (repo value, characters). */
+  RUN_PYTHON_MAX_OUTPUT_CHARS: int(NUMBERS.RUN_PYTHON_MAX_OUTPUT_CHARS.value),
   /** Global cap on concurrent run_python executions, across every backend instance — enforced in
    *  Postgres (tools/sandbox/semaphore.ts), not per-instance, since the service autoscales.
    *  Chosen well under the project's Cloud Run quotas (RunningExecutionsPerProject: 1000;
@@ -290,7 +332,8 @@ const envSchema = z.object({
    */
   MODEL_INPUT_BUCKET: optionalStr,
   /** A deleted chat's rows and uploaded files are removed this long after deletion. */
-  CHAT_PURGE_AFTER_DAYS: int(30),
+  /** N-33 (repo value; register says soft delete 7 d, total <= 30 d). */
+  CHAT_PURGE_AFTER_DAYS: int(NUMBERS.CHAT_PURGE_AFTER_DAYS.value),
   /** An upload never sent with a message is removed after this long. */
   UNSENT_UPLOAD_TTL_HOURS: int(24),
   /** A chat's sandbox workspace is checkpointed after this long without a run. */
@@ -302,12 +345,14 @@ const envSchema = z.object({
    * project files, whose limit is 30 MB. The body limit adds 1 MiB for framing, which
    * keeps the request under Cloud Run's 32 MiB cap.
    */
-  MAX_UPLOAD_BYTES: int(30 * 1024 * 1024),
+  /** N-10 (repo value). */
+  MAX_UPLOAD_BYTES: int(NUMBERS.MAX_UPLOAD_BYTES.value),
   /**
    * Ceiling for a chat attachment, which the browser uploads straight to storage (the
    * per-file limit). Cloud Run caps a request at 32 MiB, so only the direct path can reach it.
    */
-  ATTACHMENT_MAX_BYTES: int(500 * 1024 * 1024),
+  /** N-10 (repo value). */
+  ATTACHMENT_MAX_BYTES: int(NUMBERS.ATTACHMENT_MAX_BYTES.value),
   /**
    * Peak memory one upload's text extraction may take; extractions run one at a time per
    * instance. With EXTRACTION_MEMORY_PER_BYTE this gives each type's size limit for extraction
@@ -317,13 +362,20 @@ const envSchema = z.object({
   EXTRACTION_MEMORY_BUDGET_BYTES: int(4 * 1024 * 1024 * 1024),
 
   // --- Rate limiting ------------------------------------------------------
-  RATE_LIMIT_GENERATE_PER_MINUTE: int(20),
-  RATE_LIMIT_WRITE_PER_MINUTE: int(120),
+  /** N-01 (user 20 req/min). */
+  RATE_LIMIT_GENERATE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_GENERATE_PER_MINUTE.value),
+  /** N-01 (repo value). */
+  RATE_LIMIT_WRITE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_WRITE_PER_MINUTE.value),
   RATE_LIMIT_AUTH_PER_MINUTE: int(10),
   /** Anonymous reads of shared links, per IP (ADR-0039). */
   RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: int(60),
 
   // --- Pricing ------------------------------------------------------------
+  /**
+   * N-37: rupees per US dollar, used to put `costInr` beside every `costUsd`. A planning rate
+   * (Stage 18 cost log), not an invoice rate. A null cost stays null in rupees too.
+   */
+  PRICING_INR_PER_USD: positiveNumber(NUMBERS.PRICING_INR_PER_USD.value),
   /**
    * JSON: {"<providerModelId>": {"input": <usd per 1M>, "output": <usd per 1M>,
    *        "cacheRead": <usd per 1M>, "cacheWrite": <usd per 1M>}}
@@ -352,8 +404,8 @@ export interface Config extends Env {
   readonly isProduction: boolean;
   readonly isTest: boolean;
   readonly vertexConfigured: boolean;
+  readonly anthropicConfigured: boolean;
   readonly geminiLocation: string;
-  readonly gptOssLocation: string;
   readonly sessionTtlMs: number;
 }
 
@@ -379,6 +431,12 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     if (!env.SESSION_COOKIE_SECURE) {
       throw new Error('SESSION_COOKIE_SECURE must be true in production.');
     }
+    // A Claude model named on purpose with no key would show as unavailable at every turn;
+    // the defaults alone do not count, so a Gemini-only deployment needs no key.
+    const claudeNamed = [source.MODEL_SONNET, source.MODEL_OPUS].some((v) => v !== undefined && v.trim() !== '');
+    if (claudeNamed && !env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY must be set when MODEL_SONNET or MODEL_OPUS is set in production.');
+    }
   }
 
   return {
@@ -386,8 +444,8 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
     vertexConfigured: Boolean(env.GOOGLE_CLOUD_PROJECT),
+    anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY),
     geminiLocation: env.GEMINI_LOCATION ?? env.VERTEX_LOCATION,
-    gptOssLocation: env.GPT_OSS_LOCATION ?? env.VERTEX_LOCATION,
     sessionTtlMs: env.SESSION_TTL_HOURS * 60 * 60 * 1000,
   };
 }

@@ -800,6 +800,41 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `npx vitest run src/services/attachments/manifest.test.ts
   src/test/behaviorEvaluation.test.ts`; live, the same question on the same PDF makes no OCR call.
 
+- **2026-10-14 (brand foundation G0, frontend)** — No new heading (at the cap). Two found
+  before shipping. (1) The brand boards name their variables `--bg`, `--surface`, `--hover`,
+  `--muted`, `--line`: the same names `styles.css` already uses with other values, so pasting the
+  boards' tokens would have silently recoloured every old rule. Rule: brand tokens carry a prefix
+  (`--color-*`) and the old variables are aliased to them in one place. Verify: `brand.test.tsx`
+  "defines the core light tokens". (2) The generator that copied the AI-state CSS out of the board
+  dropped the resting-state rules, because a filter meant to remove two unlocked variants matched
+  their shared lines; the marks would have shown tools at full size at rest. Rule: after
+  generating CSS from a design file, diff the selector list against the source, not only the
+  keyframes. Verify: `logo.css` carries `.w-qin,.s-lin,...{transform:scale(0)}`.
+
+- **2026-10-14 (app shell G1, frontend)** — No new heading (at the cap). The K3 composer edge
+  rendered darker than the board in Chromium although `tokens.css` set `--composer-edge` on
+  `:root`: `styles.css` already sets a `--composer-edge` on `.composer` itself, and a custom
+  property set on the element beats the `:root` one for every `var()` there. jsdom tests could
+  not see it; the computed `border-top-color` in a real browser did. Rule: before adding a global
+  custom property, grep every stylesheet for that name being set on any selector, and prefix new
+  tokens by component and variant (`--composer-k3-*`). Verify: `grep -n -- "--composer-k3-"
+  arcnave-frontend/src/styles.css` is empty; in Chromium the composer's computed border colour is
+  `rgba(46, 139, 99, 0.38)` (light) / `rgba(111, 203, 157, 0.42)` (dark).
+
+- **2026-10-14 (chat states + Settings G3, frontend)** — No new heading (at the cap). Three found
+  before shipping. (1) Restyling `.dropdown` in the new stylesheet did not change the model menu's
+  corners: `styles.css` had a later, more specific `.dropdown[aria-label="Model selection"]
+  {border-radius:10px}`. jsdom cannot see it; the computed `border-radius` in Chromium did. Rule: before
+  restyling a shared selector, grep every stylesheet for its attribute-qualified variants.
+  Verify: `getComputedStyle(document.querySelector(".dropdown")).borderTopLeftRadius` is `22px`.
+  (2) Moving "edit a message" into the bubble left the old composer prefill and `edit` state live, so a
+  message typed in the composer while an edit was open would have been sent as that edit
+  (`workspace.send` reads `edit`). Rule: when a flag selects behaviour in a shared function, every other
+  caller must be blocked or reset while it is set. Verify: `ChatView.test.tsx` "the composer waits while a
+  message is being edited". (3) The Tamil answer rule `.markdown:lang(ta)` in `shell.css` outranked the
+  user's Conversation font (system, dyslexic) for Tamil only. Rule: a language rule needs the same
+  `[data-font]` carve-outs as the base rule. Verify: `chat-states.css` has the two `:lang(ta)` overrides.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1318,3 +1353,73 @@ practice, not canon.
   and reads how the prompt and a skill combine on one real request; "no conflict" is said only
   after that. Verify: `skills.test.ts` "splits PDF reading from PDF building" and
   `behaviorEvaluation.test.ts` Eval 11b2.
+- **2026-10-14 (tech-p1.A, rupee cost)** — No new heading (at the cap). Two near-misses while
+  adding `usage_records.cost_inr` beside `cost_usd`. (1) My first aggregate was a plain
+  `sum(cost_inr)`; every row written before the column existed has a USD price and a NULL rupee
+  figure, so the rupee total silently understated spend beside a USD total that included those
+  rows. Rule: a new nullable column summed beside an old one needs a guard for rows that
+  predate it (null the total, never skip the rows), and is not back-filled with today's rate.
+  Verify: `usage.integration.test.ts` "does not sum rupees over rows that have a USD price but
+  no rupee figure". (2) The worktree was cut from `main`, not from `phase1/core-turn`, so
+  `numbers.ts`, the register and 0024 were missing; `git log` and `ls drizzle` before the first
+  edit caught it, and `git merge --ff-only phase1/core-turn` fixed it. Rule: check the base
+  branch's tip before reading the brief's file list as fact.
+- **2026-10-14 (tech-p1.G2, sign-in screens)** — No new heading (at the cap). `styles.css` has
+  bare element rules (`button:hover { background }`, `button:disabled { opacity: .45 }`,
+  `input:focus-visible { outline }`) that out-rank any single-class rule in a new stylesheet, so
+  text-style buttons would have grown a grey hover box and disabled primaries would have been
+  dimmed twice. Rule: when styling controls in a new CSS file, read the element rules in
+  `styles.css` first and state `:hover`, `:disabled` and `:focus-visible` explicitly, with
+  enough specificity to win. Verify: `grep -n "^button" arcnave-frontend/src/styles.css` before
+  writing the file. Also: a test that asserts "no mailto link" must scope the query to the
+  element under test (the page footer has a Help mailto), or it fails for the wrong reason.
+- **2026-10-14 (tech-p1.G4, app surfaces)** — No new heading (at the cap). (1) `ChartBlock.tsx`,
+  `.ui-chart-*` and the other generative-ui CSS styled themselves with `var(--card, #fff)`,
+  `var(--border, #e2e8f0)`, `var(--foreground)`, `var(--muted-foreground)`: shadcn names that no
+  stylesheet here defines, so every one fell back to its literal hex and dark mode never reached
+  them. Nothing failed; the colours were just never ours. Rule: never reference a CSS variable
+  without checking that a stylesheet defines it (a fallback hides the miss). Verify:
+  `grep -rn -- "--card:" src` returns a definition before any `var(--card` is trusted. Only the chart
+  classes are fixed; ADR-0057 lists the rest. (2) A test that split `tokens.css` at the first
+  `:root[data-theme="dark"]` hit the sentence in the file's header comment, not the rule, and read
+  every light value as missing. Rule: cut a stylesheet at the rule (`"\n:root[data-theme=\"dark\"] {"`),
+  never at a selector string that a comment may also contain. (3) A series-colour check that reads
+  `style.fill` proves what the code wrote; the frame's own computed fill
+  (`getComputedStyle(rect).fill` inside the iframe) proved `--c1` was brand green.
+- **2026-10-14 (tech-p1 lead, parallel agents)** — No new heading (at the cap). Four from running
+  the phase as one lead plus worktree agents. (1) Every isolated worktree was cut from `main`, not
+  from the working branch; the first agent wrote its prompt-kit assertions against the pre-ADR-0052
+  prompt and had to redo them. Rule: an agent's first command is `git reset --hard <working branch>`,
+  and its report names the base hash; check it before merging. (2) `git add -A` after agents ran
+  committed `.claude/worktrees/*` as embedded repositories. Rule: `.claude/worktrees/` is in
+  `.gitignore`; `git show --stat HEAD` after every add-all. (3) Parallel sessions ran migrations with
+  different hand-stamped sets against the one shared `arcnave_test`; a database that has 0026 skips a
+  later-arriving 0025 for good (the 2026-09-25 rule). Rule: each session runs with its own
+  `TEST_DATABASE_URL` (e.g. `arcnave_test_lead`), dropped when the migration set changes. (4) With
+  `MODEL_SONNET` defaulting to the first-party id, `compose.yaml`'s `${MODEL_SONNET:-}` passes an
+  empty string, which now means "alias off". Rule: when a default moves into config, grep every
+  place that passes the variable through. Verify: `registry.test.ts` "an empty value turns an alias
+  off"; `compose.yaml` spells the defaults. Also found by the boot smoke, not a test: a failed query
+  logs its params (sign-up e-mail + Argon2 hash) at `src/app.ts:172` — logged in contentLeak.test.ts
+  as the Phase 5 enforce item.
+- **2026-10-15 (tech-p1 owner review, F-1/F-4)** — No new heading (at the cap). (1) The error
+  handler logged `{ err: error }` for every unhandled error. A failed query is a `DrizzleQueryError`
+  whose message and `params` carry the query's values (sign-up: the e-mail and the Argon2 hash) and
+  whose `cause` (postgres.js) carries `detail: Key (email)=(...)`, so one sign-up failure wrote a
+  user's e-mail and password hash to logs that outlive any delete. The shadow check passed because
+  it only ran the happy path. Rule: never log an error object, its message, `params`, `query` or
+  `stack` from a path that can touch user data; log `errorLogFields(error)` (type, code, SQLSTATE,
+  message length) plus request id, method and route pattern. Verify: `npx vitest run
+  src/test/contentLeak.test.ts` makes a real insert fail through the real Fastify handler and asserts
+  the sentinel e-mail and hash are absent while the `unhandled error` line is present. Other
+  `{ err }` log sites outside this handler (`generation.ts`, `files.ts`, `index.ts`, ...) are the
+  same risk and remain a Phase 5 enforce item. (2) `assemblePrompt` wrapped user text in
+  `<memory>`, `<standing_preferences>` etc. with `trim()` only, so text containing `</memory>` ended
+  the wrapper. A blanket `<` escape would have been wrong: the memory block legitimately carries the
+  system's own `<memory_listing>`. Rule: neutralise only the wrapper's own closing tag (`</tag` to
+  `&lt;/tag`, any case, optional spaces), in the one `wrapTag` helper every wrapper uses. Verify:
+  prompt-kit PK-PREC-04 and `promptCache.test.ts` "Wrapper text cannot close its own tag". (3) The
+  static `<tool_use>` text named `read_me` for every turn (the 2026-09-26 rule again, in a sentence
+  that only forbids narrating the tool). Rule: a sentence in the static base that names a tool is
+  built from `buildStaticBasePrompt(allowed.has('read_me'))`, not written once. Verify: PK-HON-05
+  with no `it.fails` left in `src/test/promptKit`.

@@ -14,12 +14,14 @@ import {
   ArrowDown,
   ArrowUpRight,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
   Download,
   Feather,
   FileText,
+  Folder,
   GitBranch,
   Loader2,
   Menu,
@@ -38,19 +40,31 @@ import {
   X,
 } from "lucide-react";
 import { WorkspaceProvider, useWorkspace } from "./workspace";
+import {
+  CutShortNote,
+  DroppedNote,
+  FailureCard,
+  InlineEdit,
+  ModelLabel,
+  StoppedNote,
+} from "./ChatStates";
 import { SessionProvider, useSession } from "./session";
 import { handleAppKeyDown } from "./shortcuts";
 import Auth from "./Auth";
-import Sidebar, { ChatMenu, SearchDialog } from "./Navigation";
+import { WelcomeGate } from "./auth/WelcomeGate";
+import AppNav, { ChatMenu, SearchDialog } from "./Navigation";
+import { AiStateMark, Icon, LivingDots } from "./brand";
+import { aiStateForMessage, aiStatusLabel } from "./aiState";
+import { answerLang } from "./answerLang";
 import { relevantFollowUps } from "./followUps";
 import { BrandMark, Dropdown, EmptyState, IconButton, Modal } from "./ui";
 import Composer, { AttachmentChip } from "./Composer";
 import Settings from "./Settings";
 import { PublicLink } from "./ShareLink";
 import { ArtifactsPage, ChatsPage, ProjectPage, ProjectsPage } from "./Pages";
-import { api, describeError } from "./api";
+import { api } from "./api";
 import { downloadAuthenticated, readLocal, writeLocal } from "./storage";
-import type { Message, MessageUsage, Mode, ReasoningEffort, ToolCall } from "./types";
+import type { Chat, Message, MessageUsage, Mode, ReasoningEffort, ToolCall } from "./types";
 import { extractToolCardData, type DeliverableData, type ImageData } from "./toolCards";
 import { DRAWN_TOOLS, cutOffReason } from "./types";
 import { GenerativeUIRenderer } from "./generative-ui/GenerativeUIRenderer";
@@ -60,6 +74,7 @@ import { AuthenticatedImage, MarkdownErrorBoundary } from "./Content";
 import ToolActivity, { ThinkingBlock } from "./ToolActivity";
 import QuestionOptions, { extractAskUserInput } from "./QuestionOptions";
 import SelectionFloatingButton from "./SelectionFloatingButton";
+import { formatCost } from "./formatCost";
 
 const ContextPanel = lazy(() => import("./Panels"));
 const Markdown = lazy(() =>
@@ -143,33 +158,46 @@ function Gate() {
   return (
     <WorkspaceProvider>
       <Shell />
+      <WelcomeGate />
     </WorkspaceProvider>
   );
 }
 
+/** localStorage key (through storage.ts) for the rail / sidebar choice. */
+const NAV_STORAGE_KEY = "sidebar";
+
+/**
+ * The app shell, "M2 icon rail" (docs/brand/Final-New, Final-Chat-Light/Dark): a light green
+ * canvas holding the rail (or the full sidebar) and one white sheet with the page in it. The
+ * rail is the default; "Expand sidebar" opens the full sidebar and the choice is remembered.
+ * On a phone the rail is hidden and the sidebar opens as a drawer from the sheet's menu button.
+ */
 function Shell() {
   const {
     chats,
+    projects,
     ready,
     loadError,
     panel,
     setPanel,
     toastText,
     setSearch,
+    settings,
     setSettings,
     activeRun,
     messages,
     toast,
   } = useWorkspace();
-  const [collapsed, setCollapsed] = useState(
-      () => readLocal("sidebar") === "collapsed",
-    ),
+  const [wide, setWide] = useState(() => readLocal(NAV_STORAGE_KEY) === "expanded"),
     [drawer, setDrawer] = useState(false),
     [offline, setOffline] = useState(!navigator.onLine);
   const navigate = useNavigate(),
     location = useLocation();
   const activeChat = location.pathname.startsWith("/chat/")
     ? chats.find((c) => c.id === location.pathname.split("/")[2])
+    : undefined;
+  const activeProject = activeChat?.projectId
+    ? projects.find((p) => p.id === activeChat.projectId)
     : undefined;
 
   useEffect(() => {
@@ -188,6 +216,13 @@ function Shell() {
     return () => window.removeEventListener("keydown", handler);
   }, [navigate, setPanel, setSearch, setSettings, toast, activeChat?.id, messages]);
 
+  // Settings is a page (S5). The account menu and Ctrl/Cmd + , still ask for it by flag.
+  useEffect(() => {
+    if (!settings) return;
+    setSettings(false);
+    navigate("/settings");
+  }, [settings, setSettings, navigate]);
+
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine);
     window.addEventListener("online", update);
@@ -204,11 +239,11 @@ function Shell() {
       : "ArcNave — A little room to think";
   }, [activeChat?.title]);
 
-  const collapse = () =>
-    setCollapsed((c) => {
-      writeLocal("sidebar", c ? "expanded" : "collapsed");
-      return !c;
-    });
+  const toggleNav = () => {
+    const next = !wide;
+    writeLocal(NAV_STORAGE_KEY, next ? "expanded" : "collapsed");
+    setWide(next);
+  };
 
   if (!ready)
     return (
@@ -223,39 +258,38 @@ function Shell() {
 
   return (
     <div
-      className={`app-shell ${collapsed ? "collapsed" : ""} ${panel.kind !== "closed" ? "has-panel" : ""}`}
+      className={`an-shell ${panel.kind !== "closed" ? "has-panel" : ""}`}
+      data-nav={wide ? "wide" : "rail"}
     >
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
-      <Sidebar
-        collapsed={collapsed}
-        onCollapse={collapse}
-        onNavigate={() => setDrawer(false)}
-      />
+      <div className="an-nav-desktop">
+        <AppNav
+          mode={wide ? "wide" : "rail"}
+          onToggle={toggleNav}
+          onNavigate={() => setDrawer(false)}
+        />
+      </div>
       <Dialog.Root open={drawer} onOpenChange={setDrawer}>
         <Dialog.Portal>
           <Dialog.Overlay className="drawer-overlay" />
-          <Dialog.Content
-            className="drawer-content"
-            aria-describedby={undefined}
-          >
+          <Dialog.Content className="an-drawer" aria-describedby={undefined}>
             <Dialog.Title className="sr-only">Navigation</Dialog.Title>
-            <Sidebar
-              mobile
-              collapsed={false}
-              onCollapse={() => setDrawer(false)}
+            <AppNav
+              mode="drawer"
+              onToggle={() => setDrawer(false)}
               onNavigate={() => setDrawer(false)}
             />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      <main className="main-area" id="main-content">
+      <main className="an-sheet" id="main-content">
         <header
-          className={`topbar ${activeChat ? "topbar-chat" : "topbar-idle"}`}
+          className={`an-topbar ${activeChat ? "an-topbar-chat" : "an-topbar-idle"}`}
         >
           <IconButton
-            className="mobile-menu"
+            className="an-mobile-menu"
             label="Open navigation"
             onClick={() => setDrawer(true)}
           >
@@ -263,8 +297,13 @@ function Shell() {
           </IconButton>
           {activeChat ? (
             <>
-              <span className="conversation-title">{activeChat.title}</span>
-              <ChatMenu chat={activeChat} />
+              <ChatTitle chat={activeChat} />
+              {activeChat.projectId && (
+                <Link className="an-pchip" to={`/project/${activeChat.projectId}`}>
+                  <Icon icon={Folder} size={14} />
+                  <span>{activeProject?.title ?? "Project"}</span>
+                </Link>
+              )}
               <div className="spacer" />
               <ShareButton chatId={activeChat.id} />
             </>
@@ -298,6 +337,7 @@ function Shell() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/project/:id" element={<ProjectPage />} />
           <Route path="/artifacts" element={<ArtifactsPage />} />
+          <Route path="/settings" element={<Settings />} />
           <Route
             path="*"
             element={
@@ -326,7 +366,6 @@ function Shell() {
           <ContextPanel />
         </Suspense>
       )}
-      <Settings />
       <SearchDialog />
       <SelectionFloatingButton />
       {toastText && (
@@ -336,6 +375,62 @@ function Shell() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The chat's title in the sheet's header (S6-Chat): a button that opens the chat menu, and
+ * Rename turns it into a field in place. Enter saves, Esc cancels. The title ArcNave wrote stays
+ * until the person changes it.
+ */
+function ChatTitle({ chat }: { chat: Chat }) {
+  const { renameChat } = useWorkspace();
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(chat.title);
+  if (renaming)
+    return (
+      <form
+        className="cs-rename"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim() && name.trim() !== chat.title) renameChat(chat.id, name);
+          setRenaming(false);
+        }}
+      >
+        <input
+          autoFocus
+          aria-label="Conversation title"
+          value={name}
+          maxLength={180}
+          onChange={(e) => setName(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setRenaming(false);
+            }
+          }}
+        />
+        <button type="submit" className="cs-btn cs-primary" disabled={!name.trim()}>
+          Save
+        </button>
+      </form>
+    );
+  return (
+    <ChatMenu
+      chat={chat}
+      align="start"
+      onRename={() => {
+        setName(chat.title);
+        setRenaming(true);
+      }}
+      trigger={
+        <button className="an-ttl conversation-title cs-title" aria-label={`Actions for ${chat.title}`}>
+          <span>{chat.title}</span>
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
+      }
+    />
   );
 }
 
@@ -366,11 +461,14 @@ function Home() {
   const grounded = models?.capabilities.groundedSearch ?? true;
   return (
     <>
+      {/* New chat, Final-New: living logo 44 px, greeting, one quiet line, composer K3, chips. */}
       <div className="home">
         <div className="home-intro">
-          <BrandMark />
-          <p className="eyebrow">A LITTLE ROOM TO THINK</p>
+          <span className="home-logo">
+            <LivingDots size={44} pad={1.6} mode="none" intro />
+          </span>
           <h1>{greeting}</h1>
+          <p className="home-sub">What should we finish today?</p>
         </div>
         <Composer initialPrompt={suggestion} initialMode={mode} />
         <div className="suggestions">
@@ -414,9 +512,6 @@ function Home() {
             Make something
           </button>
         </div>
-        <p className="home-note">
-          From a passing thought to a clearer picture.
-        </p>
       </div>
       <footer className="app-footer">
         {models && !models.auto.available
@@ -453,6 +548,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
             cacheWriteTokens: row.cacheWriteTokens,
             exact: row.exact,
             costUsd: row.costUsd,
+            costInr: row.costInr,
           };
         setUsage(map);
       })
@@ -468,7 +564,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
 
 function Conversation() {
   const { id } = useParams();
-  const { chats, projects, messages, transcript, openChat, activeRun, send, versionAnchor } =
+  const { chats, messages, transcript, openChat, activeRun, send, versionAnchor } =
     useWorkspace();
   const chat = chats.find((c) => c.id === id);
   const state = id ? transcript[id] : undefined;
@@ -584,17 +680,9 @@ function Conversation() {
             );
         }}
       >
+        {/* Messages M1 (Final-Chat-Light/Dark): one 760 px column, 26 px between turns. The
+            project this chat belongs to is the chip in the sheet's header. */}
         <div className="messages" ref={messageList}>
-          {chat?.projectId && (
-            <Link
-              className="conversation-project"
-              to={`/project/${chat.projectId}`}
-            >
-              {projects.find((p) => p.id === chat.projectId)?.title ??
-                "Project"}
-              <ChevronRight size={13} />
-            </Link>
-          )}
           {history.map((m) => (
             <MessageView
               key={m.id}
@@ -602,6 +690,7 @@ function Conversation() {
               chatId={chat?.id ?? id!}
               usage={m.usage ?? usage[m.id]}
               turnAnchorRef={m.id === activeUserId ? activeTurn : undefined}
+              latest={m.id === last?.id}
             />
           ))}
           <div ref={bottom} />
@@ -682,45 +771,34 @@ function toolActivity(name: string, running: boolean) {
   return running ? `Using ${readable}` : `Finished ${readable}`;
 }
 
-function ResponseActivity({ message: m }: { message: Message }) {
-  const [seconds, setSeconds] = useState(1);
-  useEffect(() => {
-    const startedAt = Date.now();
-    const timer = window.setInterval(
-      () => setSeconds(Math.max(1, Math.floor((Date.now() - startedAt) / 1000))),
-      500,
-    );
-    return () => window.clearInterval(timer);
-  }, [m.id]);
-
-  const latestResearchEvent = m.events?.at(-1);
-  const activeTool = [...(m.toolCalls ?? [])]
-    .reverse()
-    .find((call) => call.ok === undefined && !DRAWN_TOOLS.has(call.name));
-  const latestTool = [...(m.toolCalls ?? [])]
-    .reverse()
-    .find((call) => !DRAWN_TOOLS.has(call.name));
-  const activity = activeTool
-    ? { label: toolActivity(activeTool.name, true), detail: "Tool is running" }
-    : latestResearchEvent && latestResearchEvent.stage !== "complete"
-      ? { label: latestResearchEvent.label || "Researching", detail: latestResearchEvent.detail }
-      : latestTool
-        ? { label: toolActivity(latestTool.name, false), detail: "Reviewing the result" }
-        : m.status === "submitting"
-          ? { label: "Sending request", detail: "Connecting to the model" }
-          : { label: "Thinking", detail: "The model is working on your request" };
-
+/**
+ * The status row of a reply (Final-Chat-Light, R14-Chat): the 32 px logo in the AI state the
+ * turn is in, then what it is doing. The state comes from the turn's existing events (the
+ * mapping is in aiState.ts); the words are the running step when one is named (a tool call or
+ * a research stage, with the labels this row has always used), else the state's own name.
+ * It shows while the reply works, and on the latest reply when it is waiting for the user.
+ */
+function AiStatusRow({ message: m }: { message: Message }) {
+  const state = aiStateForMessage(m);
+  if (!state) return null;
+  const working = m.status === "submitting" || m.status === "generating";
+  const tool = working
+    ? [...(m.toolCalls ?? [])]
+        .reverse()
+        .find((call) => call.ok === undefined && !DRAWN_TOOLS.has(call.name))
+    : undefined;
+  const event = working ? m.events?.at(-1) : undefined;
+  const step = tool
+    ? toolActivity(tool.name, true)
+    : event && event.stage !== "complete" && event.label
+      ? event.label
+      : undefined;
   return (
-    <div className="response-wait" role="status" aria-live="polite">
-      <span className="response-wait-mark" aria-hidden="true">
-        <i />
-        <i />
+    <div className="ai-status-row" data-state={state}>
+      <AiStateMark state={state} size={32} decorative />
+      <span className="ai-status" role="status" aria-live="polite">
+        {aiStatusLabel(state, step)}
       </span>
-      <span className="response-wait-copy">
-        <span>{activity.label}</span>
-        <small>{activity.detail}</small>
-      </span>
-      <time>{seconds}s</time>
     </div>
   );
 }
@@ -753,9 +831,7 @@ function UsageRow({
             <span>{tokens(usage.cacheReadTokens)} cached</span>
           )}
           <span>
-            {usage.costUsd === null
-              ? "cost not priced"
-              : `$${usage.costUsd.toFixed(4)}`}
+            {formatCost(usage.costUsd, usage.costInr) ?? "cost not priced"}
           </span>
         </>
       ) : (
@@ -770,11 +846,14 @@ function MessageView({
   chatId,
   usage,
   turnAnchorRef,
+  latest = false,
 }: {
   message: Message;
   chatId: string;
   usage?: MessageUsage;
   turnAnchorRef?: RefObject<HTMLDivElement | null>;
+  /** The newest message of the conversation: only it can be waiting for the user. */
+  latest?: boolean;
 }) {
   const {
     artifacts,
@@ -788,9 +867,24 @@ function MessageView({
     feedback,
     saveResponseAsArtifact,
     send,
+    edit,
   } = useWorkspace();
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const pending = m.id.startsWith("pending-");
+  const loading = m.status === "submitting" || m.status === "generating";
+  // R14: the seal stamps "Done" when a reply this tab was watching finishes, then steps aside.
+  const wasLoading = useRef(loading);
+  const [justDone, setJustDone] = useState(false);
+  useEffect(() => {
+    const finished = wasLoading.current && !loading && m.status === "complete";
+    wasLoading.current = loading;
+    if (!finished) return;
+    setJustDone(true);
+    const timer = setTimeout(() => setJustDone(false), 4000);
+    return () => clearTimeout(timer);
+  }, [loading, m.status]);
+  const continueAnswer = () => send("Continue exactly where you stopped.", m.mode, [], chatId);
 
   const handleAction = (action: SafeAction) => {
     switch (action.actionType) {
@@ -836,6 +930,14 @@ function MessageView({
   if (m.role === "user")
     return (
       <div className="user-message" ref={turnAnchorRef} data-seq={m.seq}>
+        {edit && edit.chatId === chatId && edit.messageId === m.id ? (
+          // S6-Chat-States 3: the editor takes the bubble's place; sending makes a new version.
+          <InlineEdit
+            initial={edit.text}
+            onCancel={() => setEdit(null)}
+            onSend={(text) => send(text, m.mode, [], chatId)}
+          />
+        ) : (
         <div className="user-bubble">
           {m.attachments?.length ? (
             <div className="attachments">
@@ -846,6 +948,7 @@ function MessageView({
           ) : null}
           <p>{m.text}</p>
         </div>
+        )}
         <div className="message-actions user-actions">
           <IconButton label="Copy prompt" onClick={() => void copy()}>
             {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -858,7 +961,7 @@ function MessageView({
             <Pencil size={14} />
           </IconButton>
           {m.versions && (
-            <div className="version-switcher" role="group" aria-label="Versions of this prompt">
+            <div className="version-switcher cs-vers" role="group" aria-label="Versions of this prompt">
               <IconButton
                 label="Previous version"
                 disabled={!!activeRun || m.versions.index === 0}
@@ -882,8 +985,7 @@ function MessageView({
       </div>
     );
 
-  const loading = m.status === "submitting" || m.status === "generating";
-  const failure = m.status === "error" ? describeError(m.error) : null;
+  const failure = m.status === "error" ? m.error ?? "unknown" : null;
   return (
     <article
       className={`assistant-message ${loading ? "is-generating" : ""}`}
@@ -915,9 +1017,6 @@ function MessageView({
           </button>
         </div>
       )}
-      {loading && !m.text && !m.thinking && !m.toolCalls?.some((c) => !DRAWN_TOOLS.has(c.name)) && (
-        <ResponseActivity message={m} />
-      )}
       {m.segments && m.segments.length > 0 ? (
         // In order: each stretch of thinking, text and tool steps where it happened.
         m.segments.map((seg, i) => {
@@ -936,6 +1035,7 @@ function MessageView({
               <Suspense fallback={<p className="markdown">{seg.text}</p>}>
                 <Markdown
                   text={seg.text}
+                  lang={answerLang(seg.text)}
                   sources={m.sources}
                   isStreaming={loading && last}
                   onCitation={(selected) =>
@@ -957,6 +1057,7 @@ function MessageView({
               <Suspense fallback={<p className="markdown">{m.text}</p>}>
                 <Markdown
                   text={m.text}
+                  lang={answerLang(m.text)}
                   sources={m.sources}
                   isStreaming={loading}
                   onCitation={(selected) =>
@@ -996,44 +1097,37 @@ function MessageView({
           </div>
         );
       })()}
+      {(loading || justDone || (latest && !pending && aiStateForMessage(m) === "needs-input")) && (
+        <AiStatusRow message={m} />
+      )}
       <div className="generation-status" role="status" aria-live="polite">
         {m.status === "stopped" && (
-          <span className="stopped-label">
-            Response stopped
-            <button onClick={() => retry(chatId, m.id)}>Regenerate</button>
-          </span>
+          <StoppedNote
+            onContinue={continueAnswer}
+            onRegenerate={() => retry(chatId, m.id)}
+            disabled={!!activeRun || pending}
+          />
         )}
-        {m.status === "complete" && cutOffReason(m.finishReason) && (
-          <span className="stopped-label">
-            {cutOffReason(m.finishReason) === "output_limit"
-              ? "Answer cut off: it reached the output limit"
-              : "Answer cut off: it used every tool step this turn allows"}
-            <button
-              disabled={!!activeRun}
-              onClick={() => send("Continue exactly where you stopped.", m.mode, [], chatId)}
-            >
-              Continue
-            </button>
-          </span>
+        {m.status === "complete" && (
+          <CutShortNote
+            finishReason={m.finishReason}
+            onContinue={continueAnswer}
+            disabled={!!activeRun}
+          />
         )}
       </div>
-      {failure && (
-        <div className="error-card" role="alert">
-          <TriangleAlert size={19} />
-          <div>
-            <strong>{m.errorTitle || failure.title}</strong>
-            <p>{m.errorDetail || failure.detail}</p>
-            <button
-              className="button"
-              onClick={() => retry(chatId, m.id)}
-              disabled={!!activeRun || pending}
-            >
-              <RotateCcw size={14} />
-              Retry response
-            </button>
-          </div>
-        </div>
-      )}
+      {failure && m.error === "network" && m.text.trim() ? (
+        <DroppedNote onContinue={continueAnswer} disabled={!!activeRun || pending} />
+      ) : failure ? (
+        <FailureCard
+          code={m.error}
+          title={m.errorTitle}
+          detail={m.errorDetail}
+          onRetry={() => retry(chatId, m.id)}
+          retryDisabled={!!activeRun || pending}
+          onOpenLimits={() => navigate("/settings?section=usage")}
+        />
+      ) : null}
       {m.sources && m.sources.length > 0 && (
         <button
           className="source-summary"
@@ -1154,6 +1248,7 @@ function MessageView({
             ]}
           />
           {copied && <span className="copy-label">Copied</span>}
+          <ModelLabel modelAlias={m.modelAlias} effort={m.effort} />
         </div>
       )}
       {!loading && !m.text && !pending && (m.status === "error" || m.status === "stopped") && (

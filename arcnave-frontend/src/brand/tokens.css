@@ -1,0 +1,434 @@
+/*
+ * ArcNave brand tokens ("Kulam & Marigold").
+ *
+ * Every value below is copied from the owner's locked design boards in docs/brand/ and
+ * cites its board. A value that is not on the sheet is a `TODO(brand)` comment, not a guess.
+ *
+ * Names: the boards call their variables --bg, --side, --text, ... The app's styles.css already
+ * owns --bg, --surface, --hover, --muted, --line with older meanings, so brand tokens use a
+ * prefix (--color-*, --radius-*, --size-*, --font-*, --weight-*, --text-*, --motion-*, --ease-*).
+ * Board name -> token name is given in each group's comment.
+ *
+ * Theme: light is the default (on :root). Dark is `:root[data-theme="dark"]`, the attribute
+ * session.tsx `applyTheme()` already writes on <html>; nothing else switches themes.
+ *
+ * Layout rule from Brand-Locked: no animation in the app shell (main area, sidebar). Motion
+ * tokens exist for the logo, the AI states, the splash and sign-in only.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---------------------------------------------------------------- colour: surfaces
+     V2-Tokens.dc.html ".t-light" (also identical in BS-Base, V2-Components-*, Final-Chat-*).
+     board --bg -> --color-bg, --side -> --color-sidebar, --line-2 -> --color-line-strong. */
+  --color-bg: #ffffff; /* main area, plain white */
+  --color-sidebar: #f6f9f8; /* sidebar, light green tint */
+  --color-surface: #ffffff;
+  --color-raised: #ffffff; /* dialogs, menus, composer */
+  --color-hover: rgba(20, 35, 32, 0.05); /* hover, user bubble (5% ink) */
+  --color-press: rgba(20, 35, 32, 0.08);
+  --color-selected: #e5efeb; /* active nav, active recent */
+  --color-line: rgba(20, 35, 32, 0.1); /* borders, dividers (10% ink) */
+  --color-line-strong: rgba(20, 35, 32, 0.16);
+  --color-field: #7e918a; /* form input border (3:1) */
+
+  /* ---------------------------------------------------------------- colour: text
+     V2-Tokens .t-light, then the AA override that every locked board layers on top
+     (Final-Chat-Light.dc.html line 106: `.t-light{--muted:#53625E;--placeholder:#53625E;
+     --text-2:#2F3D38}`; Brand-Locked swatches list the same Ink/Text 2/Muted). */
+  --color-text: #142320;
+  --color-text-2: #2f3d38;
+  --color-muted: #53625e;
+  --color-placeholder: #53625e;
+  --color-disabled: #a3b1ad; /* disabled only */
+
+  /* ---------------------------------------------------------------- colour: brand
+     V2-Tokens .t-light. Leaf matte #2E8B63 is for logo, icons, focus; buttons use the deeper
+     Kulam green so white text passes AA (V2-Tokens note; Brand-Locked "Leaf matte"/"Kulam green"). */
+  --color-brand: #2e8b63;
+  --color-primary: #134e45; /* primary button */
+  --color-primary-hover: #0e3d36;
+  --color-on-primary: #ffffff;
+  --color-link: #134e45; /* links, citations */
+  --color-focus: #2e8b63;
+  --color-ring: rgba(46, 139, 99, 0.22);
+  --color-sky: #7cc8ee; /* the seed only, never text (Brand-Locked) */
+  --color-seed-glow: #9bdaf6; /* glow stop inside the logo and AI-state seed (States-Polish defs) */
+
+  /* ---------------------------------------------------------------- colour: status
+     V2-Tokens .t-light. Always paired with an icon and a word (BS-Base rule). */
+  --color-ok: #1e6e47;
+  --color-ok-bg: #e6f4ec;
+  --color-warn: #8a5300;
+  --color-warn-bg: #fff4df;
+  --color-err: #b3261e;
+  --color-err-bg: #fdecea;
+  --color-on-err: #ffffff;
+  --color-info: #1c6690;
+  --color-info-bg: #e8f4fb;
+  --color-inverse-bg: #142320; /* toast, tooltip */
+  --color-inverse-text: #f2f6f4;
+
+  /* ---------------------------------------------------------------- colour: code + citations
+     V2-Tokens .t-light (--code-bg, --syn-*, --cite-bg). */
+  --color-code-bg: #f7f9f8;
+  --syn-key: #134e45;
+  --syn-str: #9c4a2c;
+  --syn-num: #1c6690;
+  --syn-com: #66756f;
+  --color-cite-bg: rgba(46, 139, 99, 0.1);
+
+  /* ---------------------------------------------------------------- colour: app surfaces
+     BS-Base.dc.html ".t-light" (projects, artifacts, library, settings pages).
+     --canvas -> --color-canvas, --soft -> --color-soft, --sel -> --color-selection.
+     BS "--sheet" is the same value as --color-bg, so there is no separate token. */
+  --color-canvas: #eef4f1; /* behind the rail + sheets */
+  --color-soft: #f6f9f8; /* cards, side cards */
+  --color-selection: rgba(124, 200, 238, 0.32);
+
+  /* Tile tints label file types and project tiles only; marigold and terracotta stay out of the
+     UI chrome (BS-Base "Colour" note). Pairs are background / foreground. */
+  --tint-green: #e4f1ea;
+  --tint-green-fg: #2e8b63;
+  --tint-sky: #e5f2fa;
+  --tint-sky-fg: #2c7fb0;
+  --tint-marigold: #f7eedd;
+  --tint-marigold-fg: #a86a12;
+  --tint-terracotta: #f8e7e1;
+  --tint-terracotta-fg: #a9472e;
+  --tint-jamun: #eee9f7;
+  --tint-jamun-fg: #6a4fa3;
+
+  /* Chart series c1..c6 (BS-Base .t-light; BS-PartsB shows them named: Kulam green, Marigold,
+     Sky, ...). */
+  --chart-1: #2e8b63;
+  --chart-2: #c98512;
+  --chart-3: #2f7fb8;
+  --chart-4: #c2553a;
+  --chart-5: #7a5bb0;
+  --chart-6: #8e9a2c;
+  --chart-grid: rgba(20, 35, 32, 0.08);
+  --chart-axis: rgba(20, 35, 32, 0.22);
+
+  /* ---------------------------------------------------------------- colour: logo + wordmark
+     Logo ink: R16-Wordmark / R16-Icons draw the wordmark and main-nav icons in #0F3B33 on white.
+     Flat logo: Brand-Locked "Versions" draws #flatL in Kulam green #134E45.
+     Night greens: Brand-Locked / Brand-Motion backdrop `radial-gradient(#163A2E, #0C2219, #06120D)`. */
+  --color-logo-ink: #0f3b33;
+  --color-logo-flat: #134e45;
+  --color-logo-leaf: #2e8b63;
+  --color-night-1: #163a2e;
+  --color-night-2: #0c2219;
+  --color-night-3: #06120d;
+
+  /* ---------------------------------------------------------------- shadows
+     V2-Tokens .t-light --shadow-1/2/3. */
+  --shadow-1: 0 1px 2px rgba(20, 35, 32, 0.05);
+  --shadow-2: 0 0 0 1px rgba(20, 35, 32, 0.1), 0 4px 18px rgba(20, 35, 32, 0.06);
+  --shadow-3: 0 0 0 1px rgba(20, 35, 32, 0.08), 0 18px 48px rgba(20, 35, 32, 0.16);
+
+  /* ---------------------------------------------------------------- type: families
+     Brand-Locked "Typography": Onest for the app UI; Source Serif 4 for AI answers and every
+     sign-in page, Tamil answers in Noto Serif Tamil; Tamil UI in Noto Sans Tamil (BS-Base `.ta`:
+     'Noto Sans Tamil','Onest'); code in JetBrains Mono. Families are the names @fontsource-variable
+     registers (see fonts.ts). Hindi (Noto Sans Devanagari) is on the sheet but not self-hosted yet. */
+  --font-ui: "Onest Variable", "Noto Sans Tamil Variable", system-ui, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-answer: "Source Serif 4 Variable", "Noto Serif Tamil Variable", Georgia, "Times New Roman",
+    serif;
+  /* Sign-in pages (sign-in, code, link, 2-step) set all their text in Source Serif 4:
+     Brand-Locked "Source Serif 4: AI answers + every sign-in page"; docs/brand/README.md. */
+  --font-signin: var(--font-answer);
+  --font-answer-tamil: "Noto Serif Tamil Variable", "Source Serif 4 Variable", Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  /* type: weights. Brand-Locked "W2": 700 headings, 600 buttons + labels, 500 body + menus.
+     Answer text 450 / bold 650 / Tamil 500 (Final-Chat-Light `.lk .ans`). Sidebar rows 500, active
+     600 (`.w2 .side-item`). */
+  --weight-heading: 700;
+  --weight-button: 600;
+  --weight-label: 600;
+  --weight-body: 500;
+  --weight-menu: 500;
+  --weight-nav: 500;
+  --weight-nav-active: 600;
+  --weight-answer: 450;
+  --weight-answer-strong: 650;
+  --weight-answer-tamil: 500;
+
+  /* type: scale (size / line-height). V2-Tokens "Type v2" for sizes and tracking (its weights are
+     superseded by W2 above); the answer size is Final-Chat-Light `.lk .ans` (16.5/27, Tamil 30). */
+  --text-greeting: 30px;
+  --text-greeting-line: 38px;
+  --text-greeting-tracking: -0.02em;
+  --text-h1: 26px;
+  --text-h1-line: 34px;
+  --text-h1-tracking: -0.015em;
+  --text-h2: 21px;
+  --text-h2-line: 28px;
+  --text-h3: 17px;
+  --text-h3-line: 24px;
+  --text-answer: 16.5px;
+  --text-answer-line: 27px;
+  --text-answer-tamil-line: 30px;
+  --text-body: 15px;
+  --text-body-line: 22px;
+  --text-ui: 14px;
+  --text-ui-line: 20px;
+  --text-label: 13px;
+  --text-label-line: 18px;
+  --text-caption: 12px;
+  --text-caption-line: 16px;
+  --text-base-tracking: -0.003em; /* `.ds` letter-spacing */
+
+  /* ---------------------------------------------------------------- radii
+     V2-Tokens "Radius v2" (6 badge/cite, 8 button/input/nav row/table, 10 code/toast, 12 card/user
+     bubble, 14 reply composer, 16 new-chat composer/dialog, leaf corner) plus the sizes the
+     component CSS uses (5 checkbox, 7 small button, 999 pill, 3/4 px leaf corners).
+     BS-Base "Corners" (12 buttons/fields, 18 project cards, 22 sheets, 11/4 leaf tile) is the
+     app-surfaces scale: kept as --radius-surface-*; see the report for the 8-vs-12 conflict. */
+  --radius-check: 5px;
+  --radius-badge: 6px;
+  --radius-btn-sm: 7px;
+  --radius-control: 8px;
+  --radius-code: 10px;
+  --radius-card: 12px;
+  --radius-composer-reply: 14px;
+  --radius-dialog: 16px;
+  --radius-pill: 999px;
+  --radius-leaf: 10px 3px 10px 3px; /* avatar, V2-Components `.avatar` */
+  --radius-bubble-user: 12px 4px 12px 12px; /* V2-Components `.ubub` */
+  --radius-surface-control: 12px;
+  --radius-surface-card: 18px;
+  --radius-surface-sheet: 22px;
+  --radius-leaf-tile: 11px 4px 11px 4px; /* BS-Base `.tile` */
+
+  /* ---------------------------------------------------------------- sizes
+     V2-Tokens "Sizes": nav row 32, button 36, input 40, reply composer 48, sidebar 268, chat
+     column 760, new-chat composer 640, icons 18 nav / 15 message actions, 1.75 stroke.
+     Button sm 30 / lg 44 are V2-Components `.btn-sm/.btn-lg`. */
+  --size-nav-row: 32px;
+  --size-button: 36px;
+  --size-button-sm: 30px;
+  --size-button-lg: 44px;
+  --size-input: 40px;
+  --size-reply-composer: 48px;
+  --size-sidebar: 268px;
+  --size-chat-column: 760px;
+  --size-new-chat-composer: 640px;
+  --size-icon-nav: 18px;
+  --size-icon-action: 15px;
+  --icon-stroke: 1.75;
+  /* Logo sizes: sidebar 24 and at-rest 22 are V2-Tokens "Sizes"; the working logo is 32 px in
+     Final-Chat-Light and Brand-Locked ("32 px writing logo"), which replaces V2-Tokens' 52. */
+  --size-logo-sidebar: 24px;
+  --size-logo-rest: 22px;
+  --size-logo-working: 32px;
+
+  /* ---------------------------------------------------------------- spacing
+     BS-Base "Space": 4 8 12 16 20 24 32 40; page padding 40 px desktop, 16 px phone.
+     (styles.css keeps its own --s2..--s64 scale until the shell refactor.) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-page-desktop: 40px;
+  --space-page-phone: 16px;
+
+  /* ---------------------------------------------------------------- motion
+     AI states (Brand-Locked "AI states (9)", States-Polish): loop while active, a state shows at
+     least 1.2 s, 300 ms cross-fade between states; the chat cut runs at --k 1.25 (`.sp{--k:1.25}`),
+     every keyframe duration is calc(var(--k) * Ns).
+     Dots logo (Logo-Live "How it behaves"): gather 1.6 s, light wave every 6.5 s.
+     Splash (Brand-Locked "Logo motion", Splash-v3): first open 3 s, other opens 1 s, jump to the end
+     frame in 200 ms when the app is ready. Sign-in loop: 16 s (Brand-Motion LOOP).
+     Rail button hover: Final-Chat-Light `.lay .rbtn{transition:background .15s,box-shadow .15s}`. */
+  --motion-ai-k: 1.25;
+  --motion-ai-crossfade: 300ms;
+  --motion-ai-min-dwell: 1200ms;
+  --motion-dots-gather: 1.6s;
+  --motion-dots-wave: 6.5s;
+  --motion-splash-first: 3s;
+  --motion-splash-quick: 1s;
+  --motion-splash-skip: 200ms;
+  --motion-loop: 16s;
+  --motion-ui-fast: 150ms;
+  /* easings named in the boards' CSS (`ease`, `ease-in-out`, `ease-out`, `linear`) */
+  --ease-standard: ease;
+  --ease-in-out: ease-in-out;
+  --ease-out: ease-out;
+  --ease-linear: linear;
+
+  /* ---------------------------------------------------------------- app shell: M2 icon rail (G1)
+     Final-New / Final-Chat-Light / Final-Chat-Dark `.lay` rules and the inline styles of
+     `<nav class="rail">`, `<aside class="wide">`, `<aside class="panel">` and `<main>`.
+     The boards' M2 sheet scale (12 nav row, 14 rail button, 22 sheet) is used for the shell, not
+     V2-Tokens' 8 px controls: the M2 boards are the locked source for this surface. */
+  --shell-rail-width: 76px; /* nav.rail width */
+  --shell-sidebar-width: 272px; /* aside.wide width */
+  --shell-panel-width: 264px; /* aside.panel width */
+  --shell-sheet-margin: 10px; /* main margin */
+  --radius-sheet: 22px; /* main border-radius */
+  --shadow-sheet: 0 1px 2px rgba(20, 35, 32, 0.06), 0 20px 50px -30px rgba(20, 35, 32, 0.35);
+  --shell-rail-button: 44px; /* .rail .rbtn */
+  --radius-rail-button: 14px;
+  --shell-nav-row: 38px; /* .lay .nav */
+  --radius-nav-row: 12px;
+  --shell-recent-row: 34px; /* .lay .rec */
+  --radius-recent-row: 10px;
+  --shell-icon-button: 36px; /* .lay .ibtn */
+  --radius-icon-button: 11px;
+  --shell-new-button: 42px; /* .lay .newbtn */
+  --radius-new-button: 14px;
+  --shell-topbar: 64px; /* the sheet's header row */
+  --shell-nav-text: var(--color-text-2); /* #2F3D38 */
+  --shell-nav-icon: var(--color-muted); /* #53625E */
+  --shell-nav-on-bg: #ffffff;
+  --shell-nav-on-text: var(--color-link); /* #134E45 */
+  --shell-nav-on-icon: var(--color-brand); /* #2E8B63 */
+  --shell-nav-on-shadow: 0 1px 2px rgba(20, 35, 32, 0.06), 0 4px 12px -8px rgba(20, 35, 32, 0.25);
+  --shell-rail-hover: rgba(255, 255, 255, 0.6);
+  --shell-recent-on-bg: rgba(46, 139, 99, 0.1);
+  --shell-label: #7e918a; /* .lay .lbl, same in dark (no override on the board) */
+  --shell-new-bg: var(--color-primary);
+  --shell-new-fg: #ffffff;
+  --shell-new-shadow: 0 6px 16px -10px rgba(19, 78, 69, 0.8);
+  --shell-panel-bg: rgba(255, 255, 255, 0.78);
+  --shell-panel-shadow: 0 1px 2px rgba(20, 35, 32, 0.05);
+  --radius-panel: 20px;
+  --shell-panel-item-hover: rgba(46, 139, 99, 0.07);
+  --shell-panel-small: #7e918a;
+  --shell-avatar-bg: #cfe7db;
+  --shell-avatar-fg: #134e45;
+  --shell-chip-bg: rgba(46, 139, 99, 0.1); /* .lay .pchip */
+  --shell-secondary-bg: #ffffff; /* .lay .sbtn */
+  --shell-secondary-line: rgba(20, 35, 32, 0.12);
+  --shell-title: #142320; /* .lay .ttl */
+
+  /* ---------------------------------------------------------------- composer K3 (G1)
+     docs/brand-extra/Fix-Composer.dc.html "K3 · Lifted, green edge" (locked 14 Oct), identical to
+     the `.lay .comp-new/.comp-reply` rules in Final-Chat-Light/Dark:
+     `.k3 .comp-new{border:1.5px solid rgba(46,139,99,.38);box-shadow:0 2px 4px rgba(20,35,32,.06),
+     0 18px 40px -18px rgba(19,78,69,.45);border-radius:24px 8px 24px 8px}`
+     `.k3 .comp-reply{border-radius:20px 7px 20px 7px}` `.k3 .send{border-radius:11px 4px 11px 4px}`. */
+  --composer-k3-bg: var(--color-surface);
+  --composer-k3-edge: rgba(46, 139, 99, 0.38);
+  --composer-k3-edge-width: 1.5px;
+  --composer-k3-shadow: 0 2px 4px rgba(20, 35, 32, 0.06), 0 18px 40px -18px rgba(19, 78, 69, 0.45);
+  --composer-k3-focus-shadow: 0 0 0 3px var(--color-ring), 0 18px 40px -18px rgba(19, 78, 69, 0.45);
+  --radius-composer-new: 24px 8px 24px 8px;
+  --radius-composer-reply-leaf: 20px 7px 20px 7px;
+  --radius-leaf-button: 11px 4px 11px 4px; /* send + stop */
+}
+
+/* ---------------------------------------------------------------- dark theme
+   V2-Tokens ".t-dark", then Final-Chat-Dark.dc.html line 291:
+   `.t-dark{--text-2:#C3CEC9;--muted:#9AA8A3;--placeholder:#9AA8A3}`. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #151c1a;
+  --color-sidebar: #19221f;
+  --color-surface: #1c2522;
+  --color-raised: #212b28;
+  --color-hover: rgba(230, 238, 235, 0.06);
+  --color-press: rgba(230, 238, 235, 0.09);
+  --color-selected: #21352e;
+  --color-line: rgba(230, 238, 235, 0.1);
+  --color-line-strong: rgba(230, 238, 235, 0.16);
+  --color-field: #62746e;
+
+  --color-text: #e8eeeb;
+  --color-text-2: #c3cec9;
+  --color-muted: #9aa8a3;
+  --color-placeholder: #9aa8a3;
+  --color-disabled: #52625d;
+
+  --color-brand: #4fb585;
+  --color-primary: #4fb585;
+  --color-primary-hover: #63c495;
+  --color-on-primary: #0f1615;
+  --color-link: #6fcb9d;
+  --color-focus: #6fcb9d;
+  --color-ring: rgba(111, 203, 157, 0.25);
+  --color-sky: #7cc8ee;
+
+  --color-ok: #8fd9b1;
+  --color-ok-bg: #173526;
+  --color-warn: #f3c77a;
+  --color-warn-bg: #382b12;
+  --color-err: #f2b8b5;
+  --color-err-bg: #3e2120;
+  --color-on-err: #2a0e0c;
+  --color-info: #9bd3f2;
+  --color-info-bg: #15303f;
+  --color-inverse-bg: #e8eeeb;
+  --color-inverse-text: #142320;
+
+  --color-code-bg: #18201e;
+  --syn-key: #6fcb9d;
+  --syn-str: #f0b08f;
+  --syn-num: #9bd3f2;
+  --syn-com: #8d9c97;
+  --color-cite-bg: rgba(79, 181, 133, 0.16);
+
+  /* BS-Base .t-dark */
+  --color-canvas: #0f1513;
+  --color-soft: #1b2421;
+  --color-selection: rgba(124, 200, 238, 0.28);
+  --tint-green: #1f3a2e;
+  --tint-green-fg: #6fcb9d;
+  --tint-sky: #17303f;
+  --tint-sky-fg: #9bd3f2;
+  --tint-marigold: #3a2e16;
+  --tint-marigold-fg: #f0c374;
+  --tint-terracotta: #3c231c;
+  --tint-terracotta-fg: #f0a68e;
+  --tint-jamun: #2c2540;
+  --tint-jamun-fg: #c3b2ee;
+  --chart-1: #3fa676;
+  --chart-2: #c2841f;
+  --chart-3: #4a93cc;
+  --chart-4: #d66a4c;
+  --chart-5: #9478cb;
+  --chart-6: #8f9b35;
+  --chart-grid: rgba(230, 238, 235, 0.08);
+  --chart-axis: rgba(230, 238, 235, 0.24);
+
+  /* R16-Wordmark: the dark panel draws logo + wordmark in #E6EEEB. */
+  --color-logo-ink: #e6eeeb;
+  --color-logo-flat: #4fb585; /* TODO(brand): dark flat-logo colour is not on the sheet; reusing --color-brand */
+
+  --shadow-1: 0 0 0 1px rgba(230, 238, 235, 0.06);
+  --shadow-2: 0 0 0 1px rgba(230, 238, 235, 0.12), 0 6px 20px rgba(0, 0, 0, 0.3);
+  --shadow-3: 0 0 0 1px rgba(230, 238, 235, 0.12), 0 24px 60px rgba(0, 0, 0, 0.5);
+
+  /* App shell M2, dark: Final-Chat-Dark `.t-dark.lay` rules (the sheet keeps its light shadow). */
+  --shell-nav-on-bg: #22332c;
+  --shell-nav-on-text: #6fcb9d;
+  --shell-nav-on-icon: #6fcb9d;
+  --shell-nav-on-shadow: none;
+  --shell-rail-hover: rgba(255, 255, 255, 0.06);
+  --shell-recent-on-bg: rgba(111, 203, 157, 0.12);
+  --shell-new-fg: #0c2219;
+  --shell-panel-bg: rgba(27, 36, 33, 0.92);
+  --shell-panel-small: #9aa8a3;
+  --shell-avatar-bg: #22332c;
+  --shell-avatar-fg: #6fcb9d;
+  --shell-chip-bg: rgba(111, 203, 157, 0.12);
+  --shell-secondary-bg: #18201e;
+  --shell-secondary-line: rgba(255, 255, 255, 0.12);
+  --shell-title: #e6edea;
+
+  /* Composer K3, dark: Fix-Composer `.t-dark.k3 .comp-new{background:#1C2522;
+     border-color:rgba(111,203,157,.42);box-shadow:0 18px 40px -18px rgba(0,0,0,.75),
+     0 0 24px -8px rgba(79,181,133,.25)}`, focus `box-shadow:0 0 0 3px var(--ring)`. */
+  --composer-k3-edge: rgba(111, 203, 157, 0.42);
+  --composer-k3-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.75), 0 0 24px -8px rgba(79, 181, 133, 0.25);
+  --composer-k3-focus-shadow: 0 0 0 3px var(--color-ring);
+}

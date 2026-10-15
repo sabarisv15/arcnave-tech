@@ -100,7 +100,7 @@ describe('G18: provider limits from the selected model', () => {
     const fileId = await uploadFile('noise.png', noisePng(2000), 'image/png');
 
     const callsBefore = ctx.provider.seen.length;
-    const refused = parseSse((await generate(await newChat(), 'Opus 5', fileId)).body).at(-1)!;
+    const refused = parseSse((await generate(await newChat(), 'Opus 5.5', fileId)).body).at(-1)!;
     expect(refused).toMatchObject({ event: 'error', data: { code: 'provider_payload_limit' } });
     expect(ctx.provider.seen.length).toBe(callsBefore);
 
@@ -115,7 +115,7 @@ describe('G18: provider limits from the selected model', () => {
 
   it('a 601-page PDF goes to Claude as text, so its 600-page PDF limit does not apply (ADR-0013)', async () => {
     const fileId = await uploadFile('long.pdf', await longPdf(601), 'application/pdf');
-    const done = parseSse((await generate(await newChat(), 'Opus 5', fileId)).body).at(-1)!;
+    const done = parseSse((await generate(await newChat(), 'Opus 5.5', fileId)).body).at(-1)!;
     expect(done.event).toBe('done');
     const sent = ctx.provider.seen.at(-1)!.attachments!.find((a) => a.id === fileId)!;
     expect(sent).toMatchObject({ textOnlyPageCount: 601 });

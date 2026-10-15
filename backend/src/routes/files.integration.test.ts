@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { attachments } from '../db/schema.js';
-import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import { ProviderError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';

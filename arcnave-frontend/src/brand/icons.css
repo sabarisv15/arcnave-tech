@@ -1,0 +1,9 @@
+/* Icons N2 (R16-Icons.dc.html). Active icon: brand green on the selected row; sidebar rows are
+   `--color-selected` (V2-Components `.side-item.on svg{color:var(--brand)}`). */
+.brand-icon {
+  flex: none;
+  overflow: visible;
+}
+.brand-icon--active {
+  color: var(--color-brand);
+}

@@ -229,17 +229,20 @@ export function Markdown({
   onCitation,
   isStreaming = false,
   rehypePlugins: customRehypePlugins,
+  lang,
 }: {
   text: string;
   sources?: Source[];
   onCitation?: (id: number) => void;
   isStreaming?: boolean;
   rehypePlugins?: NonNullable<Options["rehypePlugins"]>;
+  /** The answer's language when it is known (`ta` sets Tamil answer type, see shell.css). */
+  lang?: string;
 }) {
   return (
     <MarkdownErrorBoundary fallbackText={text}>
       <MarkdownContext.Provider value={{ isStreaming, rawText: text }}>
-        <div className="markdown">
+        <div className="markdown" lang={lang}>
           <ReactMarkdown
             remarkPlugins={remarkPlugins}
             rehypePlugins={customRehypePlugins ?? rehypePlugins}

@@ -1,0 +1,894 @@
+/*
+ * App shell "M2 icon rail", composer "K3" and messages "M1" (task tech-p1, item G1).
+ *
+ * Sources, all read-only in docs/:
+ *   brand/Final-New.dc.html, brand/Final-Chat-Light.dc.html, brand/Final-Chat-Dark.dc.html
+ *     (`.lay` rules + the inline styles of nav.rail / aside.wide / aside.panel / main),
+ *   brand-extra/Fix-Composer.dc.html ("K3 · Lifted, green edge", locked 14 Oct),
+ *   brand/R14-Chat.dc.html + brand/States-Polish.dc.html (32 px AI-state mark beside the status).
+ * Values live in src/brand/tokens.css (shell-*, composer-*); this file only places them.
+ *
+ * Radius / height choice: the shell and composer follow the M2 boards (12 px nav rows, 14 px
+ * rail buttons, 22 px sheet, 24/8 and 20/7 leaf composers, 32 px send), not V2-Tokens' 8 px /
+ * 36 px controls. Pages inside the sheet keep their own controls until G2-G4 restyle them.
+ *
+ * No animation in the app shell (Brand-Locked layout rule): no transitions on the rail, the
+ * sidebar, the panel or the sheet. The board's `.panel{animation:pin .18s}` and
+ * `.rbtn{transition:background .15s}` are deliberately left out. Motion is for the logo and the
+ * AI states only.
+ *
+ * Loaded after styles.css (main.tsx), so equal-specificity rules here win.
+ */
+
+/* ------------------------------------------------------------------ shell */
+
+.an-shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--color-canvas); /* the light green behind the rail and the sheet */
+}
+
+.an-shell .an-rail,
+.an-shell .an-wide,
+.an-shell .an-panel,
+.an-shell .an-sheet,
+.an-shell .an-rail button,
+.an-shell .an-wide button,
+.an-shell .an-panel button,
+.an-drawer,
+.an-drawer button,
+.drawer-overlay,
+.an-topbar button,
+.an-topbar a {
+  transition: none;
+  animation: none;
+}
+
+.an-nav-desktop {
+  display: flex;
+  flex: none;
+  min-height: 0;
+}
+
+.an-sheet {
+  flex: 1;
+  min-width: 0;
+  margin: var(--shell-sheet-margin);
+  border-radius: var(--radius-sheet);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sheet);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* the artifact / sources panel sits on the canvas as a second sheet */
+.an-shell > .context-panel {
+  margin: var(--shell-sheet-margin) var(--shell-sheet-margin) var(--shell-sheet-margin) 0;
+  height: auto;
+  border-left: 0;
+  border-radius: var(--radius-sheet);
+  box-shadow: var(--shadow-sheet);
+  overflow: hidden;
+  animation: none;
+}
+
+/* focus, Final-Chat `.lay .rbtn:focus-visible,.lay .nav:focus-visible,.lay .rec:focus-visible` */
+.an-rbtn:focus-visible,
+.an-nav:focus-visible,
+.an-rec:focus-visible,
+.an-pitem:focus-visible,
+.an-ibtn:focus-visible,
+.an-newbtn:focus-visible,
+.an-account:focus-visible,
+.an-avatar-button:focus-visible,
+.an-rail-logo:focus-visible,
+.an-wide-brand:focus-visible {
+  outline: 2px solid #2e8b63;
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ rail (collapsed) */
+
+.an-rail {
+  width: var(--shell-rail-width);
+  flex: none;
+  padding: 16px 0 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.an-rail-logo {
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+}
+
+.an-rbtn {
+  position: relative;
+  width: var(--shell-rail-button);
+  height: var(--shell-rail-button);
+  border-radius: var(--radius-rail-button);
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--shell-nav-icon);
+}
+
+.an-rbtn:hover {
+  background: var(--shell-rail-hover);
+}
+
+.an-rbtn.on,
+.an-rbtn.on:hover {
+  background: var(--shell-nav-on-bg);
+  color: var(--shell-nav-on-icon);
+  box-shadow: var(--shell-nav-on-shadow);
+}
+
+.an-rbtn.on .brand-icon,
+.an-nav.on .brand-icon {
+  color: var(--shell-nav-on-icon);
+}
+
+.an-rbtn-new,
+.an-rbtn-new:hover {
+  margin-top: 14px;
+  background: var(--shell-new-bg);
+  color: var(--shell-new-fg);
+  box-shadow: var(--shell-new-shadow);
+}
+
+.an-cap {
+  font-size: 10.5px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin-top: -4px;
+  margin-bottom: 4px;
+}
+
+.an-rail-spacer {
+  margin-top: auto;
+}
+
+.an-avatar-button {
+  margin-top: 6px;
+  padding: 0;
+  border-radius: 12px;
+  flex: none;
+}
+
+.an-avatar-button:hover {
+  background: none;
+}
+
+.an-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--shell-avatar-bg);
+  color: var(--shell-avatar-fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ rail panel */
+
+.an-panel {
+  width: var(--shell-panel-width);
+  flex: none;
+  margin: 10px 0;
+  border-radius: var(--radius-panel);
+  background: var(--shell-panel-bg);
+  box-shadow: var(--shell-panel-shadow);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.an-ptitle {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 6px;
+}
+
+.an-ptitle b {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--shell-title);
+}
+
+.an-ptitle .an-ibtn {
+  margin-left: auto;
+}
+
+.an-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.an-pitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  color: var(--shell-nav-text);
+  text-align: left;
+}
+
+.an-pitem:hover {
+  background: var(--shell-panel-item-hover);
+}
+
+.an-pitem > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.an-pitem small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--shell-panel-small);
+}
+
+/* Final-Chat `.pitem` "New project": the panel's own action row */
+.an-pitem-link {
+  color: var(--color-brand);
+  font-weight: 600;
+}
+
+.an-empty {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.an-ibtn {
+  width: var(--shell-icon-button);
+  height: var(--shell-icon-button);
+  border-radius: var(--radius-icon-button);
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--color-muted);
+}
+
+/* ------------------------------------------------------------------ sidebar (expanded) */
+
+.an-wide {
+  width: var(--shell-sidebar-width);
+  flex: none;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 12px 14px;
+}
+
+.an-wide-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 14px;
+}
+
+.an-wide-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+}
+
+.an-wide-head .an-ibtn {
+  margin-left: auto;
+}
+
+.an-newbtn,
+.an-newbtn:hover {
+  width: 100%;
+  height: var(--shell-new-button);
+  flex: none;
+  border-radius: var(--radius-new-button);
+  background: var(--shell-new-bg);
+  color: var(--shell-new-fg);
+  box-shadow: var(--shell-new-shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.an-wide-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  flex: none;
+}
+
+.an-nav {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-width: 0;
+  height: var(--shell-nav-row);
+  padding: 0 12px;
+  border-radius: var(--radius-nav-row);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--shell-nav-text);
+  text-align: left;
+}
+
+.an-nav .brand-icon {
+  color: var(--shell-nav-icon);
+}
+
+.an-nav.on,
+.an-nav.on:hover {
+  background: var(--shell-nav-on-bg);
+  color: var(--shell-nav-on-text);
+  font-weight: 600;
+  box-shadow: var(--shell-nav-on-shadow);
+}
+
+.an-nav-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.an-lbl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--shell-label);
+}
+
+.an-wide-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.an-rec-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.an-rec {
+  width: 100%;
+  min-width: 0;
+  height: var(--shell-recent-row);
+  display: flex;
+  align-items: center;
+  padding: 0 32px 0 12px;
+  border-radius: var(--radius-recent-row);
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--shell-nav-text);
+  text-align: left;
+}
+
+.an-rec > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.an-rec:hover {
+  background: var(--shell-panel-item-hover);
+}
+
+.an-rec.on,
+.an-rec.on:hover {
+  background: var(--shell-recent-on-bg);
+  color: var(--shell-nav-on-text);
+  font-weight: 600;
+}
+
+.an-rec-row .chat-menu {
+  position: absolute;
+  right: 4px;
+}
+
+.an-rec-row:hover .chat-menu,
+.an-rec-row:focus-within .chat-menu {
+  opacity: 1;
+}
+
+.an-wide-foot {
+  flex: none;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.an-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.an-account-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.an-account-name,
+.an-account small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.an-account-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.an-account small {
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+
+.an-account-chevron {
+  margin-left: auto;
+  color: var(--shell-label);
+}
+
+/* phone drawer: the full sidebar over the sheet */
+.an-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 80;
+  width: min(var(--shell-sidebar-width), calc(100vw - 48px));
+  display: flex;
+  background: var(--color-canvas);
+  outline: none;
+}
+
+.an-drawer .an-wide {
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ sheet header */
+
+.an-topbar {
+  flex: none;
+  height: var(--shell-topbar);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+}
+
+.an-topbar-idle {
+  height: 0;
+  padding: 0;
+}
+
+.an-mobile-menu {
+  display: none;
+}
+
+.an-ttl {
+  display: block;
+  min-width: 0;
+  max-width: none;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 36px;
+  color: var(--shell-title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.an-pchip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--shell-chip-bg);
+  color: var(--color-link);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.an-pchip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Final-Chat `.lay .sbtn` */
+.an-topbar .share-button {
+  height: 36px;
+  padding: 0 14px;
+  gap: 7px;
+  border-radius: 12px;
+  border: 1px solid var(--shell-secondary-line);
+  background: var(--shell-secondary-bg);
+  color: var(--shell-nav-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.an-topbar .chat-menu {
+  opacity: 1;
+  width: var(--shell-icon-button);
+  height: var(--shell-icon-button);
+  border-radius: var(--radius-icon-button);
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ new chat (Final-New) */
+
+.home {
+  width: min(680px, calc(100% - 64px));
+  margin: auto;
+  transform: none;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding-bottom: 40px;
+}
+
+.home-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  text-align: center;
+}
+
+.home-logo {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 44px;
+  flex: none;
+}
+
+.home h1 {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+.home-sub {
+  margin: 0;
+  font-size: 16px;
+  color: var(--color-muted);
+}
+
+.home .suggestions {
+  margin: 0;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Final-New `.lay .chip` */
+.home .suggestions button {
+  height: 40px;
+  padding: 0 16px;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--shell-secondary-bg);
+  color: var(--color-text-2);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.home .suggestions button svg {
+  color: var(--color-brand);
+}
+
+/* ------------------------------------------------------------------ composer K3 */
+
+.composer-wrap > .composer.composer-k3 {
+  background: var(--composer-k3-bg);
+  border: var(--composer-k3-edge-width) solid var(--composer-k3-edge);
+  border-radius: var(--radius-composer-new);
+  box-shadow: var(--composer-k3-shadow);
+  transition: none;
+  transform: none;
+}
+
+.composer-wrap > .composer.composer-k3::before {
+  content: none;
+}
+
+.composer-wrap > .composer.composer-k3:hover {
+  border-color: var(--composer-k3-edge);
+  box-shadow: var(--composer-k3-shadow);
+}
+
+.composer-wrap > .composer.composer-k3:focus-within {
+  border-color: var(--color-brand);
+  box-shadow: var(--composer-k3-focus-shadow);
+}
+
+/* `.comp-new{padding:14px 10px 8px 16px}`; new chat, project page, artifact dialog */
+.composer-wrap > .composer.composer-k3-new {
+  padding: 14px 10px 8px 16px;
+}
+
+/* `.comp-reply{height:48px;padding:0 8px 0 16px}`; the reply grows while someone writes and
+   keeps its controls inside, so it is a minimum height with 4 px top and bottom (ours). */
+.composer-wrap > .composer.composer-k3-reply {
+  border-radius: var(--radius-composer-reply-leaf);
+  min-height: var(--size-reply-composer);
+  padding: 4px 8px 4px 16px;
+}
+
+.composer-wrap .composer-k3 textarea {
+  padding: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+  letter-spacing: var(--text-base-tracking);
+  color: var(--color-text);
+}
+
+.composer-wrap .composer-k3 textarea::placeholder {
+  color: var(--color-placeholder);
+}
+
+.composer-wrap .composer-k3-new textarea {
+  min-height: 44px;
+}
+
+.composer-wrap .composer-k3-reply textarea {
+  padding-top: 9px;
+}
+
+.composer-wrap .composer-k3 .send-button,
+.composer-wrap .composer-k3 .send-button:not(:disabled):hover {
+  width: 32px;
+  height: 32px;
+  margin-left: 4px;
+  border-radius: var(--radius-leaf-button);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  box-shadow: none;
+  transform: none;
+  transition: none;
+}
+
+.composer-wrap .composer-k3 .send-button:not(:disabled):hover {
+  background: var(--color-primary-hover);
+}
+
+.composer-wrap .composer-k3 .send-button:disabled {
+  background: var(--color-hover);
+  color: var(--color-disabled);
+  box-shadow: none;
+}
+
+/* ------------------------------------------------------------------ messages M1 */
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  width: calc(100% - 48px);
+  max-width: var(--size-chat-column);
+  padding: 8px 0 18px;
+}
+
+.conversation-composer > .composer-wrap {
+  max-width: 780px; /* Final-Chat: the reply composer row is 780 wide under a 760 column */
+}
+
+/* Final-Chat: the composer row is `padding: 6px 0 16px` inside the sheet */
+@media (min-width: 761px) {
+  .conversation-composer {
+    padding: 6px 18px 16px;
+  }
+}
+
+/* Final-Chat has no fade above the reply composer; the old one washed out the status row. */
+.conversation-composer::before {
+  content: none;
+}
+
+/* user turn: `.ubub` + its action row */
+.user-message {
+  gap: 4px;
+  margin: 0;
+}
+
+.user-bubble {
+  max-width: min(520px, 88%);
+  padding: 11px 16px;
+  border-radius: var(--radius-bubble-user);
+  background: var(--color-hover);
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+/* answer: `.lk .ans` Source Serif 4, 16.5/27, 450, bold 650; Tamil `.lk .ans.ta` */
+.assistant-message {
+  padding: 0;
+}
+
+.assistant-message .markdown {
+  font-family: var(--font-answer);
+  font-size: var(--text-answer);
+  line-height: var(--text-answer-line);
+  font-weight: var(--weight-answer);
+  color: var(--color-text);
+}
+
+.assistant-message .markdown p {
+  margin: 0 0 12px;
+}
+
+.assistant-message .markdown strong,
+.assistant-message .markdown b {
+  font-weight: var(--weight-answer-strong);
+}
+
+.assistant-message .markdown:lang(ta) {
+  font-family: var(--font-answer-tamil);
+  font-weight: var(--weight-answer-tamil);
+  line-height: var(--text-answer-tamil-line);
+}
+
+/* tables in answers: `.tbl` */
+.assistant-message .markdown table {
+  font-family: var(--font-ui);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.assistant-message .markdown th {
+  font-weight: 600;
+  background: var(--color-hover);
+}
+
+/* action rows: `.iconbtn.sm` 28 px, radius 7, gap 2, muted 12 px */
+.message-actions {
+  gap: 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.message-actions .icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-btn-sm);
+  color: var(--color-text-2);
+}
+
+.user-actions {
+  margin-top: 0;
+}
+
+/* the board draws the answer's action row at rest, not only on hover */
+.assistant-message .assistant-actions {
+  margin: 0 0 0 -4px;
+  opacity: 1;
+}
+
+/* status row while the reply works: 32 px logo + `.status` (14 px, text-2, 500) */
+.ai-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--size-logo-working);
+  margin: 4px 0;
+}
+
+.ai-status {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-2);
+}
+
+/* ------------------------------------------------------------------ phone */
+
+@media (max-width: 760px) {
+  .an-nav-desktop {
+    display: none;
+  }
+
+  .an-sheet {
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .an-mobile-menu {
+    display: inline-flex;
+  }
+
+  .an-topbar,
+  .an-topbar-idle {
+    height: 56px;
+    padding: 0 12px;
+  }
+
+  .an-pchip {
+    display: none;
+  }
+
+  .messages {
+    width: calc(100% - 32px);
+  }
+
+  .home {
+    width: calc(100% - 32px);
+  }
+
+  .home h1 {
+    font-size: 28px;
+  }
+
+  .an-shell > .context-panel {
+    margin: 0;
+    border-radius: 0;
+  }
+}

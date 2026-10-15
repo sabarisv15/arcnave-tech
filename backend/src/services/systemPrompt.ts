@@ -15,7 +15,14 @@ import type { CapabilityRegistry } from '../capabilities/registry.js';
 import type { Config } from '../config.js';
 import { usesWarmSandbox } from '../tools/catalog.js';
 
-export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
+/**
+ * The static base prompt. `readMeDeclared` is true only on a turn that declares read_me (it ships
+ * with show_widget): a sentence that names a tool belongs in the prompt only when the turn can
+ * call it (mistakes.md 2026-09-26, Invariant 1). Everything else is identical, so the prefix is
+ * still stable per tool set.
+ */
+export function buildStaticBasePrompt(readMeDeclared: boolean): string {
+  return [
   // Plain, calm instructions: current models follow them precisely, and emphatic wording
   // ("NEVER", capitals) makes them over-apply a rule.
   // No anti-laziness push and no standing verification steps: both make current models
@@ -101,7 +108,7 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
     `Run independent calls together; keep dependent ones in order. Read each important result before deciding the next step: a call that was accepted has not necessarily succeeded.\n\n` +
     // ADR-0052 supersedes ADR-0032's "update only on important findings": an 819 s turn with 26
     // calls ran silent. The reference: one short sentence every couple of calls.
-    `When a task takes many tool calls, keep the user in the loop: one short sentence every couple of calls on what you are doing. Do not justify the choice of a search or a tool, and never narrate reading memory, loading read_me, or the choice of a card or visual. After your last tool call, give the answer the user asked for in one or two sentences, without repeating what you wrote before the calls; a sign-off such as "Done." is not a reply.\n\n` +
+    `When a task takes many tool calls, keep the user in the loop: one short sentence every couple of calls on what you are doing. Do not justify the choice of a search or a tool, and never narrate reading memory, ${readMeDeclared ? 'loading read_me, ' : ''}or the choice of a card or visual. After your last tool call, give the answer the user asked for in one or two sentences, without repeating what you wrote before the calls; a sign-off such as "Done." is not a reply.\n\n` +
     `When a tool fails:\n1. read the actual error;\n2. decide whether the input or approach should change;\n3. retry only when there is a reason it could now succeed;\n4. switch approaches when the same failure repeats;\n5. carry on with independent work.\n\n` +
     `Do not endlessly repeat the same failing operation.\n\n` +
     `</tool_use>`,
@@ -156,6 +163,10 @@ export const STATIC_BASE_SYSTEM_PROMPT_V1 = [
     `The final answer stands on its own and leads with the outcome: what was done, the important result, and only material limitations. For unfinished work, say what remains and the actual blocker. After tool-heavy work or a created file, keep it concise rather than repeating contents already shown. Stop when the useful response is complete.\n\n` +
     `</final_response>`,
 ].join('\n\n');
+}
+
+/** The base with no tool named that a turn might not declare; what callers without a tool set get. */
+export const STATIC_BASE_SYSTEM_PROMPT_V1 = buildStaticBasePrompt(false);
 
 // Guidance for a tool goes in only when the turn allows that tool.
 const UPLOADED_FILES_GUIDANCE =

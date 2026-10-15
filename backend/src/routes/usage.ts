@@ -4,7 +4,8 @@
  * Everything here reports what was measured. Two rules the shapes exist to keep:
  *
  * - `costUsd: null` means "no verified price for this model", not "free". The UI must render
- *   those differently, so `pricingConfigured` is returned alongside the numbers.
+ *   those differently, so `pricingConfigured` is returned alongside the numbers. `costInr` is
+ *   the same figure at the planning rate (N-37) and is null whenever `costUsd` is.
  * - `exact: false` means the provider returned no token metadata for that call. The counts are
  *   zeros, and they are labelled rather than quietly estimated.
  *
@@ -31,6 +32,7 @@ const totalsSchema = z.object({
   cacheReadTokens: z.number(),
   cacheWriteTokens: z.number(),
   costUsd: z.number().nullable(),
+  costInr: z.number().nullable(),
   requests: z.number(),
 });
 
@@ -40,6 +42,7 @@ const groupSchema = z.object({
   outputTokens: z.number(),
   totalTokens: z.number(),
   costUsd: z.number().nullable(),
+  costInr: z.number().nullable(),
   requests: z.number(),
 });
 
@@ -82,6 +85,7 @@ const messageUsageSchema = z.object({
   cacheWriteTokens: z.number(),
   exact: z.boolean(),
   costUsd: z.number().nullable(),
+  costInr: z.number().nullable(),
   latencyMs: z.number().nullable(),
   status: z.string(),
   finishReason: z.string().nullable(),
@@ -266,6 +270,7 @@ export async function usageRoutes(app: AppInstance): Promise<void> {
             cacheWriteTokens: r.cacheWriteTokens,
             exact: r.tokensExact,
             costUsd: r.costUsd,
+            costInr: r.costInr,
             latencyMs: r.latencyMs,
             status: r.status,
             finishReason: r.finishReason,
@@ -317,6 +322,7 @@ export async function usageRoutes(app: AppInstance): Promise<void> {
         'finish_reason',
         'error_code',
         'cost_usd',
+        'cost_inr',
         'chat_id',
         'message_id',
         'project_id',
@@ -342,6 +348,7 @@ export async function usageRoutes(app: AppInstance): Promise<void> {
           r.errorCode ?? '',
           // Empty, not 0: an unpriced model has no cost figure to report.
           r.costUsd ?? '',
+          r.costInr ?? '',
           r.chatId ?? '',
           r.messageId ?? '',
           r.projectId ?? '',

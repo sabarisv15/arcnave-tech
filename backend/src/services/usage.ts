@@ -130,6 +130,30 @@ export function computeCost(
   return Math.round(cost * 1e6) / 1e6;
 }
 
+/**
+ * INR figure for a USD cost at the planning rate (N-37), or null when the USD cost is null.
+ *
+ * It multiplies the USD figure that is stored, so the two columns can never disagree about
+ * which call was priced. No price means no rupee figure either: null is not zero.
+ */
+export function usdToInr(cfg: Config, costUsd: number | null): number | null {
+  if (costUsd === null) return null;
+  return Math.round(costUsd * cfg.PRICING_INR_PER_USD * 1e6) / 1e6;
+}
+
+/**
+ * SQL for a summed rupee cost. Null when nothing is priced, and also null when any priced
+ * (USD) row has no rupee figure, which is every row written before `cost_inr` existed: a sum
+ * that skipped them would understate the spend beside a USD sum that includes them.
+ */
+const sumCostInr = sql<number | null>`case
+  when count(*) filter (where ${usageRecords.costUsd} is not null and ${usageRecords.costInr} is null) > 0 then null
+  else sum(${usageRecords.costInr})
+end`;
+
+const roundCost = (v: unknown): number | null =>
+  v == null ? null : Math.round(Number(v) * 1e6) / 1e6;
+
 /* -------------------------------------------------------------------------- budgets */
 
 export class BudgetExceededError extends ApiError {
@@ -312,6 +336,8 @@ export class UsageService {
     const completedAt = new Date();
     const total = totalTokens(input.usage);
 
+    const costUsd = computeCost(this.cfg, input.providerModelId, input.usage);
+
     await this.db.insert(usageRecords).values({
       userId: input.userId,
       requestId: input.requestId,
@@ -336,7 +362,8 @@ export class UsageService {
       finishReason: input.finishReason ?? null,
       status: input.status,
       errorCode: input.errorCode ?? null,
-      costUsd: computeCost(this.cfg, input.providerModelId, input.usage),
+      costUsd,
+      costInr: usdToInr(this.cfg, costUsd),
     });
 
     if (total > 0) {
@@ -393,6 +420,7 @@ export class UsageService {
         cacheWriteTokens: sql<number>`coalesce(sum(${usageRecords.cacheWriteTokens}), 0)::int`,
         // Deliberately not coalesced to 0: null means "nothing priced", not "free".
         costUsd: sql<number | null>`sum(${usageRecords.costUsd})`,
+        costInr: sumCostInr,
         requests: sql<number>`count(*)::int`,
       })
       .from(usageRecords)
@@ -404,7 +432,8 @@ export class UsageService {
       totalTokens: row?.totalTokens ?? 0,
       cacheReadTokens: row?.cacheReadTokens ?? 0,
       cacheWriteTokens: row?.cacheWriteTokens ?? 0,
-      costUsd: row?.costUsd == null ? null : Math.round(Number(row.costUsd) * 1e6) / 1e6,
+      costUsd: roundCost(row?.costUsd),
+      costInr: roundCost(row?.costInr),
       requests: row?.requests ?? 0,
     };
   }
@@ -420,6 +449,7 @@ export class UsageService {
         outputTokens: sql<number>`coalesce(sum(${usageRecords.outputTokens}), 0)::int`,
         totalTokens: sql<number>`coalesce(sum(${usageRecords.totalTokens}), 0)::int`,
         costUsd: sql<number | null>`sum(${usageRecords.costUsd})`,
+        costInr: sumCostInr,
         requests: sql<number>`count(*)::int`,
       })
       .from(usageRecords)
@@ -432,7 +462,8 @@ export class UsageService {
       inputTokens: r.inputTokens,
       outputTokens: r.outputTokens,
       totalTokens: r.totalTokens,
-      costUsd: r.costUsd == null ? null : Math.round(Number(r.costUsd) * 1e6) / 1e6,
+      costUsd: roundCost(r.costUsd),
+      costInr: roundCost(r.costInr),
       requests: r.requests,
     }));
   }
@@ -492,6 +523,8 @@ export interface UsageTotals {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costUsd: number | null;
+  /** `costUsd` at the planning rate (N-37); null when nothing in the window has a rupee figure. */
+  costInr: number | null;
   requests: number;
 }
 

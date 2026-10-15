@@ -1,10 +1,10 @@
 /**
  * ArcNave Claude Sonnet 5 Real-Model E2E Behavior Evaluation Script.
  *
- * Tests Claude on Vertex AI (`claude-sonnet-5`) using AnthropicVertexProvider
+ * Tests Claude on Vertex AI (`claude-sonnet-5`) using AnthropicProvider
  * and the frozen Base System Prompt v1.
  */
-import { AnthropicVertexProvider } from '../providers/anthropicVertex.js';
+import { AnthropicProvider } from '../providers/anthropic.js';
 import type { GenerationRequest, ToolCall, ToolDefinition, ToolResult } from '../providers/types.js';
 import { loadConfig } from '../config.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
@@ -42,7 +42,7 @@ async function main() {
 
   const registry = buildCapabilityRegistry(cfg);
   const masterPrompt = buildBaseSystemPrompt(cfg, registry);
-  const provider = new AnthropicVertexProvider(cfg);
+  const provider = new AnthropicProvider(cfg);
   const modelId = cfg.MODEL_SONNET || 'claude-sonnet-5';
 
   console.log(`Target Model      : ${modelId}`);

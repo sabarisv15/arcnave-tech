@@ -241,5 +241,6 @@ function usageZero() {
     cacheWriteTokens: 0,
     exact: false,
     costUsd: null,
+    costInr: null,
   };
 }

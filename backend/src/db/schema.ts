@@ -41,7 +41,8 @@ export const users = pgTable(
   {
     id: id(),
     email: varchar('email', { length: 320 }).notNull(),
-    passwordHash: text('password_hash').notNull(),
+    /** Null for an account made with Google sign-in (ADR-0056); password sign-in then fails. */
+    passwordHash: text('password_hash'),
     name: varchar('name', { length: 120 }).notNull().default(''),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: createdAt(),
@@ -626,6 +627,12 @@ export const usageRecords = pgTable(
 
     /** Null unless a verified pricing entry exists. Null != 0. */
     costUsd: doublePrecision('cost_usd'),
+    /**
+     * `costUsd` x the planning rate PRICING_INR_PER_USD (N-37) at the time of the call. Null
+     * exactly when `costUsd` is null, and for rows written before this column existed (their
+     * rate is unknown; they are not back-filled with today's). Null != 0.
+     */
+    costInr: doublePrecision('cost_inr'),
   },
   (t) => [
     index('ix_usage_user_started').on(t.userId, t.startedAt),

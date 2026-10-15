@@ -1,0 +1,518 @@
+/*
+ * Chat states (Phase 1 item G3). Loaded after styles.css and shell.css.
+ *
+ * Sources, all in docs/brand/ and read as locked:
+ *   S6-Chat-States.dc.html / S6-Chat-States-Dark.dc.html  notes, edit box, versions, menus, toasts
+ *   S6-Chat.dc.html / S6-Chat-Dark.dc.html                title menu, model chip, composer row
+ *   Final-Chat-Light.dc.html / Final-Chat-Dark.dc.html    answer type (Source Serif 4, Tamil serif)
+ *   docs/brand-extra/Fix-Composer.dc.html                 the row under the composer
+ * Board names -> tokens (brand/tokens.css): --soft -> --color-soft, --tg -> --tint-green,
+ * --raised -> --color-raised, --sheet -> --color-bg, --line-2 -> --color-line-strong.
+ * Dark values come from the same tokens, so nothing here names a theme.
+ */
+
+/* ------------------------------------------------------------------ notes (S6 `.note`) */
+
+.generation-status {
+  display: block;
+  margin: 0;
+}
+
+.generation-status:empty {
+  display: none;
+}
+
+.cs-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px 4px 14px 4px;
+  background: var(--color-soft);
+  color: var(--color-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.cs-note > svg,
+.cs-note > .ai-mark {
+  flex: none;
+}
+
+.cs-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cs-text b {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.cs-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cs-err {
+  background: var(--color-err-bg);
+  color: var(--color-err);
+}
+
+.cs-err .cs-text b {
+  color: var(--color-err);
+}
+
+.cs-warn {
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+}
+
+.cs-warn .cs-text b {
+  color: var(--color-warn);
+}
+
+/* a refusal is not a fault: the board draws it as the plain note with a shield */
+.cs-info {
+  background: var(--color-soft);
+  color: var(--color-text-2);
+}
+
+/* S6 `.gbtn2` (secondary) and `.pbtn` (primary), at the note's 32 px size */
+.cs-btn {
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cs-btn:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.cs-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cs-btn.cs-primary {
+  border-color: transparent;
+  border-radius: 13px 4px 13px 4px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.cs-btn.cs-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+/* ------------------------------------------------------------------ model label (S6 `.mlab`) */
+
+.cs-mlab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cs-mlab b {
+  color: var(--color-text-2);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ edit in place (S6 `.edbox`) */
+
+.cs-edit {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--color-brand);
+  border-radius: 18px 6px 18px 6px;
+  background: var(--color-bg);
+  box-shadow: 0 0 0 3px var(--color-ring);
+}
+
+.cs-edit textarea {
+  width: 100%;
+  min-height: 44px;
+  max-height: 40vh;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.cs-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cs-edit-hint {
+  margin-right: auto;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cs-edit-row .cs-btn {
+  height: 34px;
+}
+
+/* ------------------------------------------------------------------ versions (S6 `.vers2`) */
+
+.cs-vers {
+  gap: 0;
+  color: var(--color-text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.cs-vers .icon-button {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--color-muted);
+}
+
+.cs-vers .icon-button:disabled {
+  opacity: 0.35;
+}
+
+.cs-vers .version-count {
+  min-width: 36px;
+  color: var(--color-text-2);
+}
+
+/* ------------------------------------------------------------------ title menu + rename (S6 `.ttlb`, `.rn`) */
+
+.an-ttl.cs-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.an-ttl.cs-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.an-ttl.cs-title > svg {
+  flex: none;
+  color: var(--color-muted);
+}
+
+.an-ttl.cs-title:hover,
+.an-ttl.cs-title[data-state="open"] {
+  background: var(--color-hover);
+}
+
+.an-ttl.cs-title:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cs-rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 460px;
+  min-width: 0;
+}
+
+.cs-rename input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1.5px solid var(--color-brand);
+  border-radius: 12px;
+  background: var(--color-bg);
+  box-shadow: 0 0 0 3px var(--color-ring);
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+  outline: 0;
+}
+
+.cs-rename .cs-btn {
+  height: 34px;
+}
+
+/* ------------------------------------------------------------------ under the composer (Fix-Composer `.under`) */
+
+.composer-under {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 4px 0;
+}
+
+.composer-under-note {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* S6 `.mchip`: the model, then the effort in the muted tone, then a chevron */
+.cs-model-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 62%;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cs-model-chip:hover,
+.cs-model-chip[data-state="open"] {
+  background: var(--color-hover);
+}
+
+.cs-model-chip:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cs-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.cs-model-effort {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-model-chip > svg {
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ menus (S6 `.menu`, `.mi`, `.mh`) */
+
+.dropdown {
+  padding: 6px;
+  border: 0;
+  border-radius: 22px 7px 22px 7px;
+  background: var(--color-raised);
+  box-shadow: var(--shadow-3);
+}
+
+.dropdown .menu-item {
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dropdown .menu-item[data-highlighted] {
+  border-radius: 10px 3px 10px 3px;
+  background: var(--color-hover);
+}
+
+.dropdown .menu-item[data-selected="true"] {
+  border-radius: 10px 3px 10px 3px;
+  background: var(--tint-green);
+}
+
+.dropdown .menu-item > svg:not(.menu-check) {
+  color: var(--color-muted);
+}
+
+.dropdown .menu-check {
+  color: var(--color-brand);
+}
+
+.dropdown .menu-item.danger,
+.dropdown .menu-item.danger > svg {
+  color: var(--color-err);
+}
+
+.dropdown .menu-separator {
+  margin: 5px 4px;
+  background: var(--color-line);
+}
+
+.menu-heading {
+  padding: 8px 12px 4px;
+  color: var(--color-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* the model menu: name over a one-line description, 52 px rows */
+.dropdown[aria-label="Model selection"] {
+  width: min(380px, calc(100vw - 24px));
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 6px;
+  border-radius: 22px 7px 22px 7px; /* styles.css sets 10px on this selector, so it is repeated here */
+}
+
+.dropdown[aria-label="Model selection"] .menu-item {
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+.dropdown[aria-label="Model selection"] .menu-item > span {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dropdown[aria-label="Model selection"] .menu-item small {
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ toasts, offline bar, dialogs */
+
+/* S6 `.toast2`: bottom centre, inverse colours, leaf corners */
+.toast {
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 14px 4px 14px 4px;
+  background: var(--color-inverse-bg);
+  color: var(--color-inverse-text);
+  box-shadow: var(--shadow-3);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* S6 `.cbar` (error): above the composer */
+.offline-banner {
+  margin: 0 18px;
+  padding: 10px 14px;
+  border-radius: 14px 4px 14px 4px;
+  background: var(--color-err-bg);
+  color: var(--color-err);
+  filter: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  gap: 10px;
+}
+
+/* S6 `.dialog` */
+.modal {
+  padding: 22px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--color-raised);
+  box-shadow: var(--shadow-3);
+}
+
+.modal-heading h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ answers (Final-Chat `.lk .ans`) */
+
+/*
+ * A Tamil answer keeps its serif (shell.css, `.markdown:lang(ta)`), unless the person chose the
+ * system or the dyslexia-friendly font in Settings > Appearance; that choice wins for Tamil too.
+ * `[data-font]` is set on <html> by applyTheme().
+ */
+[data-font="system"] .assistant-message .markdown:lang(ta) {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+[data-font="dyslexic"] .assistant-message .markdown:lang(ta) {
+  font-family: "OpenDyslexic", system-ui, sans-serif;
+  line-height: 1.8;
+}
+
+/* ------------------------------------------------------------------ display cards in answers */
+
+/*
+ * The generative-ui card styles (`.ui-cards-*`, `.ui-comparison-*`, and the other blocks, in
+ * styles.css) read --card, --border, --foreground and --muted-foreground, which no stylesheet
+ * defined, so they fell back to slate hex values and ignored the dark theme. Naming them here
+ * maps every one of those rules onto the brand tokens, light and dark, without editing the rules.
+ * (Checked: no other stylesheet or inline style sets these four names.)
+ */
+:root {
+  --card: var(--color-surface);
+  --border: var(--color-line);
+  --foreground: var(--color-text);
+  --muted-foreground: var(--color-muted);
+}
+
+/* ------------------------------------------------------------------ phone */
+
+@media (max-width: 760px) {
+  .cs-note {
+    padding: 10px;
+  }
+
+  .cs-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .cs-rename {
+    flex-basis: 100%;
+  }
+
+  .composer-under {
+    padding-inline: 2px;
+  }
+
+  .cs-model-chip {
+    max-width: 58%;
+  }
+}

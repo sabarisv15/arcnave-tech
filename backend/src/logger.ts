@@ -37,7 +37,7 @@ function prettyAvailable(): boolean {
  * Wildcards cover nested objects one level deep in the usual places (`req.headers.cookie`,
  * `body.password`). Anything deeper should not be logged wholesale in the first place.
  */
-const REDACT_PATHS = [
+export const REDACT_PATHS = [
   'password',
   'newPassword',
   'passwordHash',
@@ -50,6 +50,11 @@ const REDACT_PATHS = [
   'clientSecret',
   'refreshToken',
   'accessToken',
+  // A Google ID token (POST /auth/google body, ADR-0056) and the Claude API key (ADR-0054).
+  'credential',
+  '*.credential',
+  'ANTHROPIC_API_KEY',
+  '*.ANTHROPIC_API_KEY',
   '*.password',
   '*.passwordHash',
   '*.token',

@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-17
+- Amended by: [ADR-0054](0054-claude-first-party-api.md) (Claude via the first-party API, not Vertex)
 - Supersedes: [ADR-0001](0001-stack.md)
 
 ## Context

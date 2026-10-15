@@ -118,6 +118,7 @@ describe("message mapping", () => {
           cacheWriteTokens: 0,
           exact: false,
           costUsd: null,
+          costInr: null,
         },
       }),
     );
@@ -136,6 +137,7 @@ describe("message mapping", () => {
           cacheWriteTokens: 0,
           exact: true,
           costUsd: null,
+          costInr: null,
         },
       }),
     );
@@ -250,6 +252,7 @@ describe("error copy", () => {
       "provider_payload_limit",
       "model_refused",
       "provider_timeout",
+      "provider_limit",
       "turn_deadline_exceeded",
       "empty_response",
       "context_overflow",

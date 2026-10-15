@@ -4,7 +4,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { ModelInputStore } from '../services/attachments/modelInputStore.js';
 import { pdfWithPages } from '../test/fixtures/files.js';
@@ -50,7 +50,7 @@ describe('page images by URI for Gemini', () => {
     expect(stored[0]!.subarray(0, 3).toString('hex')).toBe('ffd8ff'); // a JPEG
 
     // The next turn goes to Claude, with the PDF from the history: bytes, no URIs.
-    const claude = JSON.stringify(buildAnthropicMessages(await send('Opus 5', [])));
+    const claude = JSON.stringify(buildAnthropicMessages(await send('Opus 5.5', [])));
     expect(claude).toContain('"type":"base64"');
     expect(claude).toContain('"media_type":"image/jpeg"');
     expect(claude).not.toContain('gs://');
@@ -105,7 +105,7 @@ describe('earlier files over the inline budget (ADR-0019)', () => {
     expect(old.omittedReason).toBeUndefined();
     expect(JSON.stringify(buildGeminiContents(gemini))).toContain('"fileUri":"gs://model-inputs/pages/');
 
-    const claude = await send('Opus 5');
+    const claude = await send('Opus 5.5');
     const forClaude = claude.history.flatMap((t) => t.attachments ?? []).find((a) => a.id === fileId)!;
     expect(forClaude.omittedReason).toBeUndefined();
     expect(JSON.stringify(buildAnthropicMessages(claude))).toContain('"type":"base64"');

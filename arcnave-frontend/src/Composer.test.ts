@@ -96,7 +96,7 @@ describe("describeEffortControl", () => {
         reasoningEfforts: ["low", "medium", "high"],
       },
       {
-        alias: "Sonnet 5",
+        alias: "Sonnet 5.5",
         description: "Efficient for everyday tasks",
         provider: "anthropic",
         tier: "balanced",
@@ -105,20 +105,21 @@ describe("describeEffortControl", () => {
         detail: "OK",
         supportsGrounding: true,
         contextWindow: 1_000_000,
-        providerModelId: "claude-sonnet-5",
+        providerModelId: "claude-sonnet-5-5",
         reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
       },
       {
-        alias: "GPT-OSS 120B",
-        description: "Open-weight reasoning and coding",
-        provider: "openai-oss",
+        // Synthetic: no served model lacks effort today, but the picker must still cope.
+        alias: "No-effort model",
+        description: "A model with no effort control",
+        provider: "google",
         tier: "balanced",
         available: true,
         reason: "ok",
         detail: "OK",
         supportsGrounding: false,
         contextWindow: 128_000,
-        providerModelId: "gpt-oss-120b",
+        providerModelId: "no-effort-model",
         reasoningEfforts: [],
       },
     ],
@@ -127,7 +128,7 @@ describe("describeEffortControl", () => {
 
   it("hides the effort control when the selected model exposes fewer than 2 levels", () => {
     expect(
-      describeEffortControl(modelsFixture, "GPT-OSS 120B", "medium"),
+      describeEffortControl(modelsFixture, "No-effort model", "medium"),
     ).toBeNull();
   });
 
@@ -140,7 +141,7 @@ describe("describeEffortControl", () => {
 
   it("for Auto when chat already has a sticky model, lists that model's supported levels", () => {
     const assistantMsg = message("assistant", "Here is the answer.");
-    assistantMsg.modelAlias = "Sonnet 5";
+    assistantMsg.modelAlias = "Sonnet 5.5";
     const state = describeEffortControl(modelsFixture, "Auto", "xhigh", [
       message("user", "Hello"),
       assistantMsg,

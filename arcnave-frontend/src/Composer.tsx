@@ -261,7 +261,6 @@ export default function Composer({
     stop,
     toast,
     edit,
-    setEdit,
     messages,
     quote,
     consumeQuote,
@@ -332,12 +331,6 @@ export default function Composer({
   useEffect(() => {
     if (artifactIntent) setArtifact(true);
   }, [artifactIntent]);
-  useEffect(() => {
-    if (edit && edit.chatId === chatId) {
-      setText(edit.text);
-      textarea.current?.focus();
-    }
-  }, [edit, chatId]);
   // Each composer instance pastes a quote once. A quote for one chat stays until it is sent or
   // the user leaves that chat, because the conversation's composer can remount while the chat
   // loads and a fresh instance must paste it again. The composer of the page being left does
@@ -380,7 +373,10 @@ export default function Composer({
     if (!chatId) return "";
     return deriveFollowUpSuggestion(messages[chatId] ?? []);
   }, [chatId, messages]);
-  const showFollowUp = inlineReply && !busy && !text && !files.length && !artifact && !edit;
+  // A message is being edited in its own bubble (ChatStates InlineEdit). Sending from here would
+  // be taken as that edit, so the composer waits until the edit is sent or cancelled.
+  const editing = !!edit && edit.chatId === chatId;
+  const showFollowUp = inlineReply && !busy && !text && !files.length && !artifact && !editing;
 
   /**
    * Upload each file as it is chosen.
@@ -452,7 +448,7 @@ export default function Composer({
   );
 
   const submit = () => {
-    if (busy || pending || (!text.trim() && !files.length)) return;
+    if (editing || busy || pending || (!text.trim() && !files.length)) return;
     const ready = files.filter(
       (f) => f.status === "ready" || f.status === "unsupported",
     );
@@ -508,6 +504,40 @@ export default function Composer({
       ),
     [models, preferences.modelAlias, preferences.effort, chatId, messages],
   );
+  const modelMenu = (
+    <Dropdown
+      label="Model selection"
+      side="top"
+      align="end"
+      trigger={
+        <button
+          type="button"
+          className="cs-model-chip"
+          aria-label={`Model: ${preferences.modelAlias}${effortControl ? `, ${effortControl.ariaLabel}` : ""}`}
+        >
+          <span className="cs-model-name">{preferences.modelAlias}</span>
+          {effortControl && <span className="cs-model-effort">{effortControl.buttonLabel}</span>}
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
+      }
+      items={[
+        { label: "Model", heading: true },
+        ...modelItems,
+        // Effort lives in the model menu: the levels offered are the ones this model accepts.
+        ...(effortControl
+          ? [
+              { label: "Effort", heading: true, separator: true },
+              ...effortControl.items.map((item) => ({
+                label: item.label,
+                description: item.description,
+                selected: item.selected,
+                onSelect: () => updatePreferences({ effort: item.level }),
+              })),
+            ]
+          : []),
+      ]}
+    />
+  );
   const activeStyleId = preferences.styleId || "normal";
   const activeStyleName =
     stylePresets.find((p) => p.id === activeStyleId)?.name ??
@@ -541,22 +571,10 @@ export default function Composer({
 
   return (
     <div className="composer-wrap">
-      {edit && edit.chatId === chatId && (
-        <div className="edit-notice">
-          Sending this makes a new version of the conversation from here. The
-          current one stays, and you can switch back to it.
-          <button
-            onClick={() => {
-              setEdit(null);
-              setText("");
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+      {/* Composer K3 on every screen that has one (docs/brand-extra/Fix-Composer.dc.html):
+          lifted, green edge, leaf corners. A live conversation uses the reply corners. */}
       <div
-        className={`composer ${inlineReply ? "composer-inline" : ""} ${dragging ? "dragging" : ""}`}
+        className={`composer composer-k3 ${inlineReply ? "composer-inline composer-k3-reply" : "composer-k3-new"} ${dragging ? "dragging" : ""}`}
         onDragEnter={(e) => {
           e.preventDefault();
           dragDepth.current++;
@@ -625,8 +643,10 @@ export default function Composer({
               artifactIntent
                 ? "Describe the artifact you want to create…"
                 : chatId
-                ? ""
-                : "Ask a question. Follow a thought."
+                ? showFollowUp && followUpSuggestion
+                  ? ""
+                  : "Reply…"
+                : "How can I help today? English, தமிழ், Tanglish…"
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -772,39 +792,6 @@ export default function Composer({
           />
           <div className="spacer" />
           <DictationButton text={text} setText={setText} onError={toast} disabled={!!ownRun} />
-          <Dropdown
-            label="Model selection"
-            side="top"
-            align="end"
-            trigger={
-              <button
-                className="quiet-button model-button"
-                aria-label={`Model: ${preferences.modelAlias}${effortControl ? `, ${effortControl.ariaLabel}` : ""}`}
-              >
-                <span className="composer-model-label">{preferences.modelAlias}</span>
-                {/* The effort shows beside the model only when it is not the default. */}
-                {effortControl && (effortControl.steppedDown || effortControl.applied !== effortControl.defaultLevel) && (
-                  <span className="model-effort">{effortControl.buttonLabel}</span>
-                )}
-                <ChevronDown size={13} />
-              </button>
-            }
-            items={[
-              ...modelItems,
-              // Effort lives in the model menu: the levels offered are the ones this model accepts.
-              ...(effortControl
-                ? [
-                    { label: "Effort", disabled: true, separator: true },
-                    ...effortControl.items.map((item) => ({
-                      label: item.label,
-                      description: item.description,
-                      selected: item.selected,
-                      onSelect: () => updatePreferences({ effort: item.level }),
-                    })),
-                  ]
-                : []),
-            ]}
-          />
           {ownRun ? (
             <button
               className="send-button"
@@ -816,9 +803,9 @@ export default function Composer({
           ) : (
             <button
               className="send-button"
-              aria-label={edit ? "Send edited message" : "Send message"}
+              aria-label="Send message"
               onClick={submit}
-              disabled={busy || pending || (!text.trim() && !files.length)}
+              disabled={editing || busy || pending || (!text.trim() && !files.length)}
             >
               <ArrowUp size={19} />
             </button>
@@ -836,6 +823,12 @@ export default function Composer({
             e.target.value = "";
           }}
         />
+      </div>
+      {/* Under the composer (docs/brand-extra/Fix-Composer.dc.html): the model and effort on the
+          right; in a conversation the reminder in the middle. */}
+      <div className="composer-under">
+        {inlineReply && <span className="composer-under-note">arcnave can make mistakes.</span>}
+        {modelMenu}
       </div>
       {(pending || unusable) && (
         <p className="composer-disclaimer">

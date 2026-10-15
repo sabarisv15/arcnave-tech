@@ -13,7 +13,7 @@ async function pdf(pages: number): Promise<string> {
 }
 
 const spec = (over: Partial<ModelCapabilitySpec>): ModelCapabilitySpec => ({
-  ...getModelCapability('Opus 5'),
+  ...getModelCapability('Opus 5.5'),
   ...over,
 });
 
@@ -36,7 +36,7 @@ describe('enforceModelLimits (G18)', () => {
     const current: AttachmentBlock[] = [{ id: 'f1', filename: 'big.pdf', mimeType: 'application/pdf', base64: await pdf(3) }];
     const err = await limitError(enforceModelLimits(spec({ maxPdfPagesPerRequest: 2 }), current, []));
     expect(err.code).toBe('provider_payload_limit');
-    expect(err.meta).toMatchObject({ fileId: 'f1', limit: 'pdf_pages', max: 2, actual: 3, model: 'Opus 5' });
+    expect(err.meta).toMatchObject({ fileId: 'f1', limit: 'pdf_pages', max: 2, actual: 3, model: 'Opus 5.5' });
   });
 
   it('refuses this turn\'s image over the per-image limit', async () => {
@@ -68,7 +68,7 @@ describe('enforceModelLimits (G18)', () => {
 
   it('is model-specific: the same 601-page PDF fails on Claude and is not checked on Gemini', async () => {
     const current: AttachmentBlock[] = [{ id: 'p', filename: 'long.pdf', mimeType: 'application/pdf', base64: await pdf(601) }];
-    const err = await limitError(enforceModelLimits(getModelCapability('Opus 5'), current, []));
+    const err = await limitError(enforceModelLimits(getModelCapability('Opus 5.5'), current, []));
     expect(err.meta).toMatchObject({ limit: 'pdf_pages', max: 600, actual: 601 });
     await expect(enforceModelLimits(getModelCapability('Gemini 3.8 Flash'), current, [])).resolves.toEqual([]);
   });

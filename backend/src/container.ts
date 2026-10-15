@@ -8,14 +8,14 @@
 import type { Config } from './config.js';
 import type { Database } from './db/client.js';
 import { getDb } from './db/client.js';
-import { AnthropicVertexProvider } from './providers/anthropicVertex.js';
+import { AnthropicProvider } from './providers/anthropic.js';
 import { GeminiProvider } from './providers/gemini.js';
-import { GptOssVertexProvider } from './providers/gptOssVertex.js';
 import { ModelRegistry } from './providers/registry.js';
 import type { Provider } from './providers/types.js';
 import { buildCapabilityRegistry } from './capabilities/factory.js';
 import type { CapabilityRegistry } from './capabilities/registry.js';
 import { AuthService } from './services/auth.js';
+import { GisTokenVerifier, type GoogleTokenVerifier } from './services/googleSignIn.js';
 import { GenerationService } from './services/generation.js';
 import type { Retriever } from './services/retrieval.js';
 import { LexicalRetriever } from './services/retrieval.js';
@@ -46,6 +46,8 @@ export interface Services {
   registry: ModelRegistry;
   capabilities: CapabilityRegistry;
   auth: AuthService;
+  /** Null when GOOGLE_OAUTH_CLIENT_ID is unset: Google sign-in is off (ADR-0056). */
+  googleVerifier: GoogleTokenVerifier | null;
   usage: UsageService;
   generation: GenerationService;
   skills: SkillService;
@@ -76,7 +78,9 @@ export interface Services {
 
 export interface BuildOptions {
   db?: Database;
-  providers?: Partial<Record<'google' | 'anthropic' | 'openai-oss', Provider>>;
+  /** Test seam: a fake Google ID-token verifier, so tests never call Google. */
+  googleVerifier?: GoogleTokenVerifier;
+  providers?: Partial<Record<'google' | 'anthropic', Provider>>;
   storage?: ObjectStorage;
   retriever?: Retriever;
   skills?: SkillService;
@@ -96,8 +100,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
 
   const providers = options.providers ?? {
     google: new GeminiProvider(cfg),
-    anthropic: new AnthropicVertexProvider(cfg),
-    'openai-oss': new GptOssVertexProvider(cfg),
+    anthropic: new AnthropicProvider(cfg),
   };
 
   const registry = new ModelRegistry(cfg, providers);
@@ -237,6 +240,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     registry,
     capabilities,
     auth: new AuthService(db, cfg),
+    googleVerifier: cfg.GOOGLE_OAUTH_CLIENT_ID ? (options.googleVerifier ?? new GisTokenVerifier(cfg.GOOGLE_OAUTH_CLIENT_ID)) : null,
     usage,
     generation,
     skills,

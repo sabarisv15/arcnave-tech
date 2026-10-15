@@ -7,7 +7,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { conversationCompactions, usageRecords } from '../db/schema.js';
-import { buildAnthropicMessages } from '../providers/anthropicVertex.js';
+import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import { KEEP_TURNS, SUMMARY_PROMPT, compactionTrigger } from '../services/compaction/autoCompact.js';

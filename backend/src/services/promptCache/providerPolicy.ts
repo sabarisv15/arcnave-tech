@@ -15,11 +15,13 @@ export function getProviderCacheCapability(provider: string, modelId: string): P
   const m = modelId.toLowerCase();
 
   if (provider === 'anthropic') {
-    // Claude Opus 5 / Sonnet 5: 1024 tokens minimum on Vertex AI
+    // Minimum cacheable prefix (Anthropic prompt-caching page, read 2026-10-14): 512 tokens on
+    // the 5.5 models (claude-opus-5-5, claude-sonnet-5-5), 1024 on the earlier generation.
+    const is55 = m.includes('5-5') || m.includes('5.5');
     return {
       supportsImplicitCaching: false,
       supportsExplicitCaching: true,
-      minPrefixTokens: m.includes('opus') || m.includes('sonnet') ? 1024 : 2048,
+      minPrefixTokens: is55 ? 512 : m.includes('opus') || m.includes('sonnet') ? 1024 : 2048,
     };
   }
 

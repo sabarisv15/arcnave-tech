@@ -61,22 +61,25 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
 
-      # Vertex AI. Absent, every model alias reports `vertex_not_configured` and the app runs
+      # Vertex AI (Gemini). Absent, Gemini reports `vertex_not_configured` and the app runs
       # and says so rather than failing obscurely at the first message.
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
       VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
       GEMINI_LOCATION: ${GEMINI_LOCATION:-}
-      # gpt-oss is not served at `global`; it needs a region of its own. See .env.example.
-      GPT_OSS_LOCATION: ${GPT_OSS_LOCATION:-}
+      # Claude through the first-party Claude API (ADR-0054). A secret: set it in .env, never
+      # here. Absent, the Claude aliases report `anthropic_not_configured`.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MODEL_GEMINI_FLASH: ${MODEL_GEMINI_FLASH:-}
-      MODEL_SONNET: ${MODEL_SONNET:-}
-      MODEL_OPUS: ${MODEL_OPUS:-}
-      MODEL_GPT_OSS: ${MODEL_GPT_OSS:-}
+      # An empty value turns the alias off, so the defaults are spelled out here.
+      MODEL_SONNET: ${MODEL_SONNET:-claude-sonnet-5-5}
+      MODEL_OPUS: ${MODEL_OPUS:-claude-opus-5-5}
       ENABLE_GOOGLE_SEARCH_GROUNDING: ${ENABLE_GOOGLE_SEARCH_GROUNDING:-false}
       ENABLE_ANTHROPIC_WEB_SEARCH: ${ENABLE_ANTHROPIC_WEB_SEARCH:-false}
 
       # No entry for a model means its cost is reported as null, never 0.
       PRICING_TABLE: ${PRICING_TABLE:-}
+      # Empty means the planning rate of config/numbers.ts (N-37).
+      PRICING_INR_PER_USD: ${PRICING_INR_PER_USD:-}
 
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_LOCAL_PATH: /data/uploads

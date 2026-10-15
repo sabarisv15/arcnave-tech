@@ -145,6 +145,7 @@ export interface MessageUsage {
   /** False means the provider reported nothing; the counts are zeros, not measurements. */
   exact: boolean;
   costUsd: number | null;
+  costInr: number | null;
 }
 
 /** One stretch of an answer, in the order it happened. */
@@ -343,6 +344,7 @@ export function toUsage(dto: UsageDto): MessageUsage {
     cacheWriteTokens: dto.cacheWriteTokens,
     exact: dto.exact,
     costUsd: dto.costUsd,
+    costInr: dto.costInr,
   };
 }
 

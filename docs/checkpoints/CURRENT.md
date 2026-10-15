@@ -1,5 +1,45 @@
 # ArcNave — current checkpoint
 
+> **2026-10-15: tech-p1 fix round (owner review), same branch, PR #40.**
+> - F-1: the app error handler logs `errorType` / `errorCode` / `rootType` / `rootCode` (SQLSTATE) /
+>   `messageLength` / route / method only (`src/errorLog.ts`); a failed sign-up insert no longer writes
+>   the e-mail or hash (contentLeak.test.ts drives it through the real handler). Other `{ err }` log sites remain → Phase 5.
+> - F-4: wrapped user text cannot close its own tag (`wrapTag`, `</tag` → `&lt;/tag`); `read_me` is named
+>   in the base prompt only when declared. Prompt kit: 76 offline pass, 19 live-only skipped, 0 `it.fails`.
+> - F-6: `.env.example` Gemini 3.8 Flash row = list rate $1.50 / $7.50 / cached $0.15 (worst-case rule).
+
+> **2026-10-14: Phase 1 — core turn, web chat, brand (task tech-p1). Branch `phase1/core-turn`, PR to `phase0/base-adoption`; local only, not deployed.**
+> - **C (Claude first-party, [ADR-0054](../decisions/0054-claude-first-party-api.md), [ADR-0055](../decisions/0055-three-models.md)):**
+>   `providers/anthropic.ts` (`@anthropic-ai/sdk`, `maxRetries: 0`, timeout N-43) replaces `anthropicVertex.ts`;
+>   gpt-oss removed everywhere; aliases = Gemini 3.8 Flash, Sonnet 5.5 (`claude-sonnet-5-5`), Opus 5.5 (`claude-opus-5-5`) + Auto;
+>   the "only Gemini active" registry gate is gone (`anthropic_not_configured` without `ANTHROPIC_API_KEY`).
+>   `streamWithRetry` follows Stage 15 ER-2 (N-42: 1 s → 2 s full jitter, cap 8 s, Retry-After ≤ 10 s, +529,
+>   spend/usage limits never retried → `provider_limit`); first-token / stall / 10-min turn timers kept off (ADR-0024, matrix table in ADR-0054).
+>   Web search `web_search_20260209`, `pause_turn` resumed. Migration 0027 moves saved `Sonnet 5`/`Opus 5`/`GPT-OSS 120B` defaults.
+> - **A (numbers + ₹):** `backend/src/config/numbers.ts` holds every config default with an N-id (values unchanged);
+>   `usage_records.cost_inr` (migration 0025) = `cost_usd` × `PRICING_INR_PER_USD` (N-37, ₹88), null when USD is null;
+>   `/usage` and the done event carry `costInr`; the usage view shows ₹ first. `.env.example` seeds the 3-model price table (Stage 18).
+> - **B (Google sign-in, [ADR-0056](../decisions/0056-google-sign-in.md)):** `POST /v1/auth/google` (verified e-mail links or creates;
+>   `users.password_hash` nullable, migration 0026; `google_signin_disabled` when `GOOGLE_OAUTH_CLIENT_ID` is unset;
+>   `REGISTRATION_ENABLED=false` blocks new accounts). Frontend `GoogleSignInButton` (official GIS script under the G1 face),
+>   hidden without `VITE_GOOGLE_OAUTH_CLIENT_ID`. Known gap: a Google-only account cannot delete itself yet (deletion asks for a password).
+> - **E (content leak, shadow):** `backend/src/test/contentLeak.test.ts` — no sentinel in any log line of a full turn (passes).
+>   Error path not covered: `src/app.ts:172` logs a failed query's params (sign-up e-mail + hash) — Phase 5 enforce.
+> - **D (prompt kit):** `backend/src/test/promptKit/` — 89 derived cases in 13 categories (the 68-case kit file is not in the mirror),
+>   70 offline (68 pass, 2 `it.fails` findings: PK-PREC-04 user text can close its own wrapper tag; PK-HON-05 prompt names `read_me`
+>   when generative UI is off), 19 live-only skipped (LV-59/51/61/85). Critical offline gates fail the suite.
+> - **G (brand, frontend):** G0 `src/brand/` (tokens light/dark, Onest / Source Serif 4 / Noto Serif Tamil self-hosted, logo D1,
+>   LivingDots, 9 AI-state marks, ScatterToPoint, N2 icons, L4 wordmark en + ta); G1 shell M2 icon rail (persisted, no shell animation),
+>   composer K3, messages M1, 32 px AI-state mark (`aiState.ts`); G2 sign-in SI4, welcome once per user, signed-out vs expired,
+>   code/link/2-step/invite screens UI-only (no backend, N-72), splash v3 not mounted on web; G3 chat states by error code, serif
+>   answers incl. shared page, Settings page `/settings?section=` with unbuilt features shown "Not available yet"; G4 project page,
+>   projects/library, share dialog, artifact panel, chart colours from the brand sheet ([ADR-0057](../decisions/0057-app-surfaces-and-chart-colours-from-the-brand-sheet.md)).
+>   Sources: `arcnave-frontend/docs/brand/` (owner's locked export) + `docs/brand-extra/Fix-Composer.dc.html` (K3).
+> - **Checks:** backend tsc clean, vitest 1068 pass / 2 expected fail / 19 skipped (109 files); frontend tsc -b clean,
+>   vitest 390 pass (41 files), vite build OK; server boot smoke (register, `/models`, `/usage`, `/auth/google`) OK.
+> - **Owner to do:** `ANTHROPIC_API_KEY` in `backend/.env`; Google OAuth client (ADR-0056 §Owner to-do) → `GOOGLE_OAUTH_CLIENT_ID`
+>   + `VITE_GOOGLE_OAUTH_CLIENT_ID`; branch protection on `main`; decide the Gemini price row (2026 promo vs list rate, `.env.example`).
+
 > **2026-10-14: Phase 0 base adoption ([ADR-0053](../decisions/0053-prototype-base-and-target-spec.md)). Branch `phase0/base-adoption`; local only, not deployed.**
 > - This repo is now the build base; the 21-stage architecture (owner's Architecture folder) is the
 >   target spec, mirrored read-only under `docs/architecture/`. Plan: `docs/architecture/00-Handoff/00-build-plan-arcnave-tech.md`.
@@ -1714,6 +1754,7 @@ Names only — **never commit values**. See `.env.example` (to be written).
 | `CORS_ORIGINS` | Comma-separated; cannot be `*` in production |
 | `REGISTRATION_ENABLED` | Default `true`. Set `false` to close `POST /auth/register` (`registration_closed`, 403) while only the existing test account should be able to sign in — set on the live Cloud Run service 2026-09-17. |
 | `PRICING_TABLE` | JSON. Absent ⇒ cost reported as `null`, never `0`. Populated in `.env.example` 2026-09-17 with real Vertex global-endpoint rates for all four aliases — **not yet propagated to the live Cloud Run service**, see [Blocked on the user](#blocked-on-the-user). |
+| `PRICING_INR_PER_USD` | Planning rupees per dollar (N-37, default 88 from `backend/src/config/numbers.ts`). Every `usage_records` row stores `cost_inr` = `cost_usd` x this rate (migration 0025); null whenever `cost_usd` is null, and null on rows written before 0025. `.env.example` 2026-10-14 carries the three-model `PRICING_TABLE` seed (Gemini 3.8 Flash doubles on 2027-01-01; the table has no effective date). |
 | `HISTORY_MAX_ATTACHMENT_BYTES` | Default 12,000,000. Total bytes of image/PDF attachment data carried forward from earlier turns in one chat, per generate call; oldest drops first past the cap. Added 2026-09-17 with the multimodal file input feature. |
 | `STORAGE_BACKEND` | `local` or `gcs` |
 

@@ -90,6 +90,7 @@ describe("WP-05 Styles frontend support", () => {
                     cacheWriteTokens: 0,
                     exact: true,
                     costUsd: null,
+                    costInr: null,
                   },
                   finishReason: "stop",
                 })}\n\n`,

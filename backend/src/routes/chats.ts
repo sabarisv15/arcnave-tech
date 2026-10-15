@@ -142,6 +142,7 @@ const messageSchema = z.object({
       cacheWriteTokens: z.number(),
       exact: z.boolean(),
       costUsd: z.number().nullable(),
+      costInr: z.number().nullable(),
     })
     .nullable(),
 });

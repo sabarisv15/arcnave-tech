@@ -328,17 +328,22 @@ export interface GenerationRequest {
  * `retryable` drives the backoff policy; `code` is mapped onto an API error code by the
  * service, so provider-specific vocabulary stops at this boundary.
  */
+export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit';
+
 export class ProviderError extends Error {
   readonly retryable: boolean;
-  readonly code: 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow';
+  readonly code: ProviderErrorCode;
   readonly statusCode: number | undefined;
+  /** The provider's own Retry-After, in ms, when it sent one (Stage 15 ER-2 honours it ≤ N-42). */
+  readonly retryAfterMs: number | undefined;
 
   constructor(
     message: string,
     options: {
       retryable?: boolean;
-      code?: 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow';
+      code?: ProviderErrorCode;
       statusCode?: number;
+      retryAfterMs?: number;
     } = {},
   ) {
     super(message);
@@ -346,6 +351,7 @@ export class ProviderError extends Error {
     this.retryable = options.retryable ?? false;
     this.code = options.code ?? 'provider_error';
     this.statusCode = options.statusCode;
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 

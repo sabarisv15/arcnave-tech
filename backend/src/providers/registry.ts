@@ -1,5 +1,5 @@
 /**
- * The model registry: UI aliases -> verified Vertex publisher model IDs.
+ * The model registry: UI aliases -> exact provider model IDs.
  *
  * Three invariants live here so no other module has to remember them:
  *
@@ -10,8 +10,9 @@
  * 3. `Auto` is not a model. It is the routing function in ./routing.ts, and the alias it
  *    selected is always returned to the caller in response metadata.
  *
- * See docs/decisions/0002-model-aliases.md for the alias table and why "GPT 5 Terra" became
- * "GPT-OSS 120B".
+ * Three models (ADR-0055): Gemini 3.8 Flash on Vertex, Claude Sonnet 5.5 and Opus 5.5 on the
+ * first-party Claude API (ADR-0054). An alias's status comes only from configuration, probes and
+ * real request outcomes; no alias is switched off by code.
  */
 import type { Config } from '../config.js';
 import type { Provider } from './types.js';
@@ -23,7 +24,7 @@ export const AUTO_ALIAS = 'Auto';
 export interface ModelEntry {
   alias: string;
   description: string;
-  provider: 'google' | 'anthropic' | 'openai-oss';
+  provider: 'google' | 'anthropic';
   tier: Tier;
   /** Undefined when this deployment has not configured the alias. */
   providerModelId: string | undefined;
@@ -37,6 +38,7 @@ export type UnavailableReason =
   | 'ok'
   | 'not_configured'
   | 'vertex_not_configured'
+  | 'anthropic_not_configured'
   | 'probe_failed'
   | 'unknown';
 
@@ -63,43 +65,27 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       contextWindow: 1_000_000,
     },
     {
-      alias: 'Sonnet 5',
+      alias: 'Sonnet 5.5',
       description: 'Efficient for everyday tasks',
       provider: 'anthropic',
       tier: 'balanced',
       providerModelId: cfg.MODEL_SONNET,
-      location: cfg.VERTEX_LOCATION,
+      // The first-party Claude API has one global endpoint; there is no region to choose.
+      location: 'global',
       supportsGrounding: true,
       supportsVision: true,
       contextWindow: 1_000_000,
     },
     {
-      alias: 'Opus 5',
+      alias: 'Opus 5.5',
       description: 'Strongest for complex work',
       provider: 'anthropic',
       tier: 'quality',
       providerModelId: cfg.MODEL_OPUS,
-      location: cfg.VERTEX_LOCATION,
+      location: 'global',
       supportsGrounding: true,
       supportsVision: true,
       contextWindow: 1_000_000,
-    },
-    {
-      // Relabelled from the composer's original "GPT 5 Terra" entry. GPT-5.6 Terra is a
-      // proprietary OpenAI model that is not served on Vertex at all; this alias is backed by
-      // the open-weight gpt-oss-120b MaaS endpoint, so the label names the model that answers.
-      alias: 'GPT-OSS 120B',
-      description: 'Open-weight reasoning and coding',
-      provider: 'openai-oss',
-      tier: 'balanced',
-      providerModelId: cfg.MODEL_GPT_OSS,
-      // Not cfg.VERTEX_LOCATION: this endpoint is regional and 404s at `global`.
-      location: cfg.gptOssLocation,
-      // The OpenAI-compatible shim exposes no Google Search tool.
-      supportsGrounding: false,
-      // gpt-oss-120b has no vision capability on Vertex or anywhere else.
-      supportsVision: false,
-      contextWindow: 128_000,
     },
   ];
 }
@@ -130,23 +116,21 @@ export class ModelRegistry {
 
   /** Statuses knowable without a network call. */
   private staticStatus(entry: ModelEntry): ModelStatus | null {
-    // Only Gemini 3.8 Flash is active in live environments; Claude and GPT models are disabled
-    if (this.cfg.NODE_ENV !== 'test' && (entry.provider === 'anthropic' || entry.provider === 'openai-oss')) {
-      return {
-        entry,
-        available: false,
-        reason: 'not_configured',
-        detail: `Model "${entry.alias}" is disabled. Only Gemini 3.8 Flash is active.`,
-        checkedAt: null,
-      };
-    }
-
-    if (!this.cfg.vertexConfigured) {
+    if (entry.provider === 'google' && !this.cfg.vertexConfigured) {
       return {
         entry,
         available: false,
         reason: 'vertex_not_configured',
         detail: 'Set GOOGLE_CLOUD_PROJECT to enable Vertex AI models.',
+        checkedAt: null,
+      };
+    }
+    if (entry.provider === 'anthropic' && !this.cfg.anthropicConfigured) {
+      return {
+        entry,
+        available: false,
+        reason: 'anthropic_not_configured',
+        detail: 'Set ANTHROPIC_API_KEY to enable the Claude models.',
         checkedAt: null,
       };
     }
@@ -157,8 +141,7 @@ export class ModelRegistry {
         reason: 'not_configured',
         detail:
           `No model ID configured for "${entry.alias}". Set the corresponding MODEL_* ` +
-          'environment variable to an exact Vertex publisher model ID that is enabled in ' +
-          'your project and region.',
+          'environment variable to an exact model ID the provider serves.',
         checkedAt: null,
       };
     }
@@ -177,8 +160,8 @@ export class ModelRegistry {
   /**
    * Probe an alias, honouring the cache TTL.
    *
-   * Probes are real one-token calls because neither provider exposes a usable catalogue
-   * endpoint on Vertex — Anthropic's Models endpoint is explicitly unsupported there. Results
+   * Probes are real one-token calls, the same request shape a turn sends, so a probe fails for
+   * the same reasons a turn would (key, model id, billing). Results
    * are cached so the composer does not spend quota on every page load, and concurrent callers
    * share a single in-flight probe rather than stampeding.
    *
