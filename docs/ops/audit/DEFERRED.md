@@ -383,3 +383,42 @@ MINOR or NIT (no BLOCKER/MAJOR is open); the reason it waits is given.
 
 **Untouched findings from explain.3** — F7 (safeFetch timer tests), F19 (old ODT `manifest.xml`
 PUBLIC DOCTYPE refused): not in this task's items.
+
+---
+
+## tech-p05 — found while splitting `runTurn`, not fixed (behaviour-neutral task, ADR-0073)
+
+Lines are on `build/turn-split` after the split; the pre-split line (`generation.ts` at `b448929`)
+is in brackets. Each is old behaviour the split kept on purpose.
+
+- **Reservation kept on a throw before the stream** — `turn/turnContext.ts:167` reserves; a throw
+  in `buildToolExecutors`, `useNormalisedImages`, `hydrateAttachmentBytes` /
+  `hydrateHistoryAttachments`, `applyFileBudget`, `applyManyImagesRule`, `chatFilesOf` or
+  `previousContextTokensOf` (`turnContext.ts:180-260`) reaches runTurn's outer catch
+  (`generation.ts:228`) with the reservation held; only `limitToModel` is handed the release
+  (`turn/contextAttachments.ts:181-183`). [old `:392-510`, `:895`] Raised by review gate 0,
+  `/code-review`, R-A, R-B. P08 (reservations get an owner and an expiry, A-05/A-06).
+- **The forced answer bypasses the retry wrapper and runs unreserved** — `turn/forcedAnswer.ts:48`
+  calls `provider.stream` directly, not `streamWithRetry`, after `streamAndCollect`'s `finally`
+  released the reservation (`turn/streamAndCollect.ts:274-276`). A transient 429/5xx becomes
+  `empty_response`; the second billed request is not reserved. [old `:786`, `:761-763`] P11 / P08.
+- **A stop or the deadline during the forced answer is saved as `empty_response`** —
+  `forcedAnswer.ts:72-80` logs any synthesis failure and falls to `empty_response`
+  (`:82-93`), so the row is `error`, not `stopped` / `turn_deadline_exceeded`. Pinned by scenario
+  (8d). [old `:810-831`] P11.
+- **A failure after `start` outside the stream writes no usage row** — e.g. `limitToModel`
+  refusing: the outer catch rethrows and the route marks the row failed; no `usage.record`.
+  Pinned by scenario (L). [old `:895-900`] P08.
+- **Rejected after checking:** `/code-review` said `AnswerProtocolGuard.finish()` keeps
+  `codeDelimiter`, so an open fence from the first stream would hide `[Tool call]` in the forced
+  answer. Not reachable: the forced answer runs only when the collected text trims empty, and any
+  fence character is kept in that text (`answerProtocolGuard.ts:14` holds a bare fence back, `finish()` at `:34-37` returns it).
+- **Not covered by a scenario** (the split moved this code verbatim; a mistake there would not be
+  caught): a stop or deadline during `compactStage`; a deadline during the forced answer; a throw
+  from `finalise` / `usage.record` after yields; the answer guard's tail flush
+  (`streamAndCollect.ts:190-196`, `:219-225`); draft ids after earlier tool calls
+  (`streamAndCollect.ts:111`); the order of `finalise` against release / record; log text.
+- **Cleanups proposed by `/code-review`, not done (not moves):** `addSegment` and the tail flush
+  into `turnState.ts`; `listSkills` computed twice (`turnContext.ts:126`, `:285`); history and
+  current attachment hydration in parallel (`turnContext.ts:205`, a timing change); one exported
+  project row type.

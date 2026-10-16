@@ -64,25 +64,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-17 — A Cloud Run service attached to a VPC with no NAT reached nothing
-
-- **Symptom:** The deployed backend passed its health check and served `/healthz`, but every
-  database call failed with `ETIMEDOUT` — both the startup migration and a live signup insert.
-  Vertex AI would have failed identically for the same reason, just not yet observed.
-- **Cause:** The service had Direct VPC egress to a custom network with `vpc-egress: all-traffic`
-  — routing *every* outbound call, not just private-range traffic, through that VPC. The VPC's
-  only firewall rule was `deny-all-egress` to `0.0.0.0/0`, and the project had zero Cloud
-  Routers and zero Cloud NATs anywhere. Nothing could leave the instance. `/healthz` deliberately
-  checks nothing but the process (by design, see the Dockerfile), so the container reported
-  healthy while completely unable to reach Neon or any external API.
-- **Rule:** **A "healthy" Cloud Run service has not been shown to have working egress.** Before
-  trusting a deployment, either confirm there is no VPC attached, or confirm the attached VPC
-  has a Cloud NAT (or Private Google Access, for Google APIs specifically). `all-traffic` egress
-  with no NAT is a silent, total outage that passes liveness checks.
-- **Verify:** `gcloud run services describe <svc> --format=json | grep network-interfaces` — if
-  present, `gcloud compute routers list` must show a router with a NAT in the same region, or
-  the service should use `--clear-network` instead.
-
 ### 2026-09-17 — `gcloud run services update --set-env-vars` after a failed deploy compounded the damage
 
 - **Symptom:** Adding two Vertex env vars with `--set-env-vars` crashed the new revision on
@@ -824,6 +805,21 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `ls docs/decisions | cut -d- -f1 | sort | uniq -d` prints nothing; same for
   `ls backend/drizzle/*.sql | sed 's#.*/##' | cut -d_ -f1 | sort | uniq -d`.
 
+### 2026-10-16 — Two full suites run side by side failed a test that passes alone
+
+- **Symptom:** In tech-p05, the step-0 baseline and step 1 were run as two full `npx vitest run`
+  at once (separate databases). Both reported `1 failed | 1521 passed`: the
+  `filePipeline.integration.test.ts` parity test hit its 20 s timeout. Alone, the file passed
+  16 of 16 on both commits.
+- **Cause:** Each suite spawns a worker per file; two suites doubled the CPU load, and a test
+  with a fixed 20 s budget that builds two apps and reads every fixture ran out of time. Nothing
+  in the code differed.
+- **Rule:** **Run gate suites one at a time. A timeout under parallel load is not a result:
+  rerun that file alone before calling it red or green, and record the clean sequential run as
+  the gate.**
+- **Verify:** `docs/ops/p05-result.md` per-step gates come from one sequential script
+  (`docs/ops/p05-gates.sh`); every step shows the same count with 0 failed.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -848,6 +844,18 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-10-16 (tech-p05, runTurn split)** — Added the parallel-suites entry. Retired the
+  oldest, "A Cloud Run service attached to a VPC with no NAT reached nothing" (2026-09-17), by the
+  owner's rule for this task (cap 40, prune oldest); its rule stays here: a healthy Cloud Run
+  service has not been shown to have working egress, check for a VPC without Cloud NAT. Not new
+  headings: (1) a `cmd && check && commit ...; git push` line pushed `main`'s commit to the WIP
+  branch when the check failed (the 2026-09-28 note again: chain every step that must follow with
+  `&&`, never `;`); the next push fast-forwarded it. (2) A reviewer brief named a file
+  (`wt-split-base-generation.ts`) that was written only after the agent started; it read another
+  copy and said so. Write every file a brief names before launching the agent. (3) The visual
+  block id (`blk_` + 12 hex) is random: the first snapshot run passed, the second failed, and the
+  2026-10-16 rule (run a new snapshot test at least twice) caught it before the commit.
+  **40 entries.**
 - **2026-10-16 (tech-build.3)** — Added five entries (trustProxy number, SDK default from types,
   nginx `add_header`, security flag effect, worktree base). Retired the five oldest, by the
   owner's rule for this task ("cap 40, prune oldest"): "A failure *before* the stream opened left
