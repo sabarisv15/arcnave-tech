@@ -27,7 +27,7 @@ import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { type ModelRegistry, AUTO_ALIAS } from '../providers/registry.js';
 import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
-import { type AttachmentBlock, type GenerationRequest, type ReasoningEffort, addRequestUsage, isAbort, ModelNotFoundError, toolCallAsText, toolResultPreview, withoutImageBytes } from '../providers/types.js';
+import { type AttachmentBlock, type GenerationRequest, type ReasoningEffort, isAbort, ModelNotFoundError, toolResultPreview, withoutImageBytes } from '../providers/types.js';
 import { buildAttachmentManifest, contextNote } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { applyFileBudget, applyManyImagesRule, familyOf, useNormalisedImages } from './attachments/fileBudget.js';
@@ -58,6 +58,7 @@ import { streamWithRetry, FailedAfterToolRun, refusalError, isTurnDeadline, mapP
 import { persistEvent, persistToolCall, finalise } from './turn/persistence.js';
 import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
 import { settleTurn } from './turn/settle.js';
+import { forcedAnswer } from './turn/forcedAnswer.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -745,71 +746,7 @@ export class GenerationService {
     // --- persist ----------------------------------------------------------
     let text = state.collectedText.join('');
 
-    // Guaranteed Final Outcome: synthesize text if tool loop finished blank. Not after a provider
-    // failure that ended the turn partial: it ends with what it has (ER-2b).
-    if (state.status === 'complete' && !state.endedPartial && text.trim().length === 0) {
-      turnLog.stage('empty reply', { note: 'the tool loop ended with no text; one more request, without tools, asks for the answer' });
-      try {
-        // The loop's tool steps live only in the adapter's own request, so they are written into
-        // this one: an answer "from the results above" with no results in the request is a re-do.
-        const workDone = state.turnCalls.map((c) => toolCallAsText(c)).join('\n\n');
-        const synthesisRequest: GenerationRequest = {
-          ...request,
-          tools: [],
-          toolExecutor: undefined,
-          prompt:
-            request.prompt +
-            (workDone ? `\n\n<this_turn_tool_steps>\n${workDone}\n</this_turn_tool_steps>` : '') +
-            `\n\n[System Instruction: Answer the user now from the conversation${workDone ? " and this turn's tool steps above" : ''}. ` +
-            'Do not call a tool. If the work is not finished, say what is done and what remains.]',
-        };
-        const synthesisStream = provider.stream(synthesisRequest);
-        for await (const event of synthesisStream) {
-          if (event.type === 'delta' && event.text) {
-            const safe = state.answerGuard.push(event.text);
-            state.collectedText.push(safe);
-            addSegment('text', safe);
-            turnLog.text(safe);
-            if (safe) yield { type: 'delta', text: safe };
-          } else if (event.type === 'completed') {
-            const tail = state.answerGuard.finish();
-            if (tail) {
-              state.collectedText.push(tail);
-              addSegment('text', tail);
-              turnLog.text(tail);
-              yield { type: 'delta', text: tail };
-            }
-            // A second request of the same turn: billed on top of the first.
-            state.usage = addRequestUsage(state.usage, event.usage);
-            // A loop that ran out of tool steps stays marked so: the user is offered Continue, and
-            // the forced answer's own "stop" must not hide that the work was cut short.
-            if (state.finishReason !== 'tool_limit') state.finishReason = event.finishReason;
-          }
-        }
-        text = state.collectedText.join('');
-      } catch (synthErr) {
-        log.warn({ err: synthErr }, 'Forced synthesis round failed');
-        if (synthErr instanceof ApiError && synthErr.code === 'tool_protocol_in_text') {
-          state.status = 'error';
-          state.errorCode = synthErr.code;
-          text = state.collectedText.join('');
-          yield { type: 'error', code: synthErr.code, title: synthErr.title, detail: synthErr.detail, usage: toUsageDto(state.usage, null) };
-        }
-      }
-
-      if (state.status !== 'error' && text.trim().length === 0) {
-        state.status = 'error';
-        state.errorCode = 'empty_response';
-        const emptyApi = new ApiError('empty_response');
-        yield {
-          type: 'error',
-          code: emptyApi.code,
-          title: emptyApi.title,
-          detail: emptyApi.detail,
-          usage: toUsageDto(state.usage, null),
-        };
-      }
-    }
+    text = yield* forcedAnswer(state, { request, provider, turnLog, addSegment }, text);
 
     yield* settleTurn(this.svc, input, state, {
       entry,
