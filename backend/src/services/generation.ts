@@ -17,7 +17,6 @@
  * - **Cancellation still writes a usage row.** A run that streamed 800 tokens before the user
  *   pressed stop cost those tokens; dropping the record would understate real spend.
  */
-import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { asc } from 'drizzle-orm';
 import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 import type { Config } from '../config.js';
@@ -27,7 +26,7 @@ import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { type ModelRegistry, AUTO_ALIAS } from '../providers/registry.js';
 import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
-import { type AttachmentBlock, type GenerationRequest, type ReasoningEffort, isAbort, ModelNotFoundError, toolResultPreview, withoutImageBytes } from '../providers/types.js';
+import { type AttachmentBlock, type GenerationRequest, type ReasoningEffort } from '../providers/types.js';
 import { buildAttachmentManifest, contextNote } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { applyFileBudget, applyManyImagesRule, familyOf, useNormalisedImages } from './attachments/fileBudget.js';
@@ -36,7 +35,7 @@ import { TurnLog } from './turnLog.js';
 import { buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
-import { StreamTimeSplit, TurnTiming } from './turnTiming.js';
+import { TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
 import { WEB_FETCH_WITH_BUILT_IN_SEARCH } from '../tools/definitions.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
@@ -47,18 +46,18 @@ import type { Retriever } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import { routeTurn } from './routing/turnRouter.js';
 import type { TurnServices } from './turn/services.js';
-import { type StreamEvent, presentedFiles, type ModelInfo, toUsageDto, toSourceDto } from './turn/events.js';
+import type { StreamEvent, ModelInfo } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
 import { loadPreferences, loadProject, loadHistory, compactIfNeeded, previousContextTokens as previousContextTokensOf } from './turn/context.js';
 import { readOfficeFilesWithCode, chatFilesOf, hydrateAttachmentBytes, limitToModel, hydrateHistoryAttachments } from './turn/contextAttachments.js';
 import { buildSkillsContext, buildSystemInstruction } from './turn/contextPrompt.js';
 import { resolveModel } from './turn/modelRouting.js';
 import { buildToolExecutors } from './turn/toolset.js';
-import { streamWithRetry, FailedAfterToolRun, refusalError, isTurnDeadline, mapProviderError, visualDrafts } from './turn/providerLoop.js';
-import { persistEvent, persistToolCall, finalise } from './turn/persistence.js';
+import { persistEvent } from './turn/persistence.js';
 import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
 import { settleTurn } from './turn/settle.js';
 import { forcedAnswer } from './turn/forcedAnswer.js';
+import { streamAndCollect } from './turn/streamAndCollect.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -517,230 +516,23 @@ export class GenerationService {
       if (last && last.type === type) last.text += text;
       else state.segments.push({ type, text });
     };
-    try {
-      const stream = streamWithRetry(this.svc, provider.stream.bind(provider), request);
-      timing.mark('before_provider');
-      let firstProviderEvent = true;
-      let toolCallCount = 0;
-      // Splits the stream's time between waiting on the model and waiting on tools, so a slow
-      // turn's log says which one it was (a 462 s turn with 2 tool calls said neither).
-      const split = new StreamTimeSplit();
-
-      for await (const event of stream) {
-        if (firstProviderEvent) {
-          firstProviderEvent = false;
-          timing.mark('provider_first_event');
-          turnLog.stage('provider first event', { event: event.type });
-        }
-        split.observe(event.type);
-        timing.note('streamMs', split.summary());
-        if (event.type === 'tool_use') timing.note('toolCalls', (toolCallCount += 1));
-        switch (event.type) {
-          case 'delta': {
-            const safe = state.answerGuard.push(event.text);
-            state.collectedText.push(safe);
-            addSegment('text', safe);
-            turnLog.text(safe);
-            if (safe) yield { type: 'delta', text: safe };
-            break;
-          }
-
-          case 'thinking':
-            turnLog.thinking(event.text);
-            state.collectedThinking.push(event.text);
-            addSegment('thinking', event.text);
-            yield { type: 'thinking', text: event.text };
-            break;
-
-          case 'sources': {
-            state.collectedSources.push(...event.sources);
-            if (event.searchEntryPoint) state.searchEntryPoint = event.searchEntryPoint;
-            const dtos = event.sources.map((s, i) => toSourceDto(s, i + 1));
-            yield {
-              type: 'sources',
-              sources: dtos,
-              ...(event.searchEntryPoint ? { searchEntryPoint: event.searchEntryPoint } : {}),
-            };
-            break;
-          }
-
-          case 'code':
-            yield {
-              type: 'code',
-              ...(event.code ? { code: event.code } : {}),
-              ...(event.language ? { language: event.language } : {}),
-              ...(event.output ? { output: event.output } : {}),
-            };
-            break;
-
-          case 'tool_input_partial': {
-            if (event.name !== 'show_widget') break;
-            // A call's index restarts each response; the calls already made keep the id unique.
-            for (const draft of visualDrafts(event.input, `${String(state.toolsCalled.length + event.index)}`)) {
-              const sent = state.draftSent.get(draft.draftId) ?? 0;
-              const html = draft.html.slice(0, VISUAL_MAX_HTML_BYTES);
-              if (html.length <= sent) continue;
-              state.draftSent.set(draft.draftId, html.length);
-              yield { type: 'ui_draft', draftId: draft.draftId, title: draft.title, from: sent, text: html.slice(sent) };
-            }
-            break;
-          }
-
-          case 'tool_use': {
-            state.toolsCalled.push(event.name);
-            {
-              const last = state.segments.at(-1);
-              if (last?.type === 'tools') last.toolCallIds.push(event.toolCallId);
-              else state.segments.push({ type: 'tools', toolCallIds: [event.toolCallId] });
-            }
-            state.pendingToolInputs.set(event.toolCallId, event.input);
-            turnLog.call(event.toolCallId, event.name, event.input);
-              if (event.thoughtSignature) state.pendingSignatures.set(event.toolCallId, event.thoughtSignature);
-            yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
-            break;
-          }
-
-          case 'tool_result': {
-            turnLog.result(event.toolCallId, event.result);
-            state.turnCalls.push({
-              id: event.toolCallId,
-              name: event.name,
-              input: state.pendingToolInputs.get(event.toolCallId),
-              result: { ...event.result, content: withoutImageBytes(event.result.content) },
-            });
-            const preview = toolResultPreview(event.result, this.cfg.TOOL_RESULT_PREVIEW_CHARS);
-            const files = presentedFiles(event.name, event.result);
-            yield {
-              type: 'tool_result',
-              toolCallId: event.toolCallId,
-              name: event.name,
-              ok: event.result.ok,
-              preview,
-              ...(files?.length ? { files } : {}),
-              ...(event.result.errorCode ? { errorCode: event.result.errorCode } : {}),
-            };
-            await persistToolCall(
-              this.svc,
-              input.messageId,
-              event.toolCallId,
-              event.name,
-              state.pendingToolInputs.get(event.toolCallId),
-              event.result,
-              state.eventOrdinal++,
-              state.pendingSignatures.get(event.toolCallId),
-            );
-            while (pendingUiEvents.length > 0) {
-              yield pendingUiEvents.shift()!;
-            }
-            break;
-          }
-
-          case 'progress': {
-            const out: StreamEvent = {
-              type: 'research',
-              event: {
-                stage: event.stage,
-                label: event.label,
-                detail: event.detail,
-                at: new Date().toISOString(),
-              },
-            };
-            yield out;
-            await persistEvent(this.svc, input.messageId, out, state.eventOrdinal++);
-            break;
-          }
-
-          case 'refusal':
-            throw refusalError(event);
-
-          case 'completed':
-            {
-              const tail = state.answerGuard.finish();
-              if (tail) {
-                state.collectedText.push(tail);
-                addSegment('text', tail);
-                turnLog.text(tail);
-                yield { type: 'delta', text: tail };
-              }
-            }
-            state.usage = event.usage;
-            state.finishReason = event.finishReason;
-            this.registry.recordOutcome(entry.alias, { available: true });
-            turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: state.toolsCalled.length, stream: split.summary() });
-            break;
-        }
-      }
-    } catch (err) {
-      if (err instanceof ModelNotFoundError) {
-        this.registry.recordOutcome(entry.alias, { available: false, detail: err.message });
-      }
-      const deadlineHit = isTurnDeadline(input.signal.reason);
-      if (err instanceof FailedAfterToolRun && !deadlineHit && !input.signal.aborted) {
-        // The answer so far, the tool calls already stored, and a typed code: never a second run
-        // of a tool, never a failure presented as a finished answer (done carries `partial`).
-        state.endedPartial = true;
-        state.errorCode = 'partial_after_tool_run';
-        state.finishReason = 'partial';
-        const cause = mapProviderError(err.failure).code;
-        turnLog.stage('provider failed after a tool ran', { code: cause, toolCalls: state.toolsCalled.length });
-        log.warn({ code: cause, chatId: input.chatId, requestId: input.requestId, toolCalls: state.toolsCalled.length }, 'provider failed after a tool ran; ending the turn partial');
-        const tail = state.answerGuard.finish();
-        if (tail) {
-          state.collectedText.push(tail);
-          addSegment('text', tail);
-          turnLog.text(tail);
-          yield { type: 'delta', text: tail };
-        }
-      } else if (!deadlineHit && (isAbort(err) || input.signal.aborted)) {
-        state.status = 'cancelled';
-      } else {
-        state.status = 'error';
-        const mapped = mapProviderError(deadlineHit ? input.signal.reason : err);
-        state.errorCode = mapped.code;
-        turnLog.fail(err);
-        turnLog.stage('provider failed', { code: mapped.code, deadline: deadlineHit, toolCalls: state.toolsCalled.length });
-        log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
-        await finalise(this.svc, input, {
-          text: state.collectedText.join(''),
-          thinking: state.collectedThinking.join(''),
-          segments: state.segments,
-          sources: state.collectedSources,
-          searchEntryPoint: state.searchEntryPoint,
-          status: 'error',
-          errorCode: mapped.code,
-          finishReason: null,
-          entry,
-          mode: input.mode,
-          effort: reasoningEffort,
-        });
-        await releaseReservation();
-        await this.usage.record({
-          userId: input.userId,
-          prefs,
-          requestId: input.requestId,
-          chatId: input.chatId,
-          messageId: input.messageId,
-          projectId: input.projectId,
-          modelAlias: entry.alias,
-          provider: entry.provider,
-          providerModelId: entry.providerModelId!,
-          usage: state.usage,
-          startedAt,
-          status: 'error',
-          errorCode: mapped.code,
-        });
-        Object.assign(logOutcome, { status: 'error', errorCode: mapped.code, usage: state.usage });
-        yield {
-          type: 'error',
-          code: mapped.code,
-          title: mapped.title,
-          detail: mapped.detail,
-          usage: toUsageDto(state.usage, null),
-        };
-        return;
-      }
-    } finally {
-      await releaseReservation();
+    if (
+      yield* streamAndCollect(this.svc, input, state, {
+        provider,
+        request,
+        entry,
+        prefs,
+        reasoningEffort,
+        startedAt,
+        timing,
+        turnLog,
+        logOutcome,
+        releaseReservation,
+        addSegment,
+        pendingUiEvents,
+      })
+    ) {
+      return;
     }
 
     // --- persist ----------------------------------------------------------
