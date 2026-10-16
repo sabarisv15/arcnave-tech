@@ -54,3 +54,7 @@ arcnave-frontend.zip
 __pycache__/
 Python/
 .claude/worktrees/
+
+# Live eval full answers (owner machine only, never committed)
+backend/eval-out/
+eval-out/

@@ -1,3 +1,4 @@
+// P03 (X-6) repaired: the project comes from configuration only (no hard-coded project id). Owner-run; spends quota; never run by tests or CI.
 /**
  * Live Conversation Compaction Evaluation Script (Phase 5.4).
  *
@@ -23,12 +24,12 @@ async function main() {
   console.log('===============================================================');
   console.log('ArcNave Phase 5.3 — Live Conversation Compaction Evaluation');
   console.log('===============================================================');
-  console.log(`GCP Project: ${cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974'}`);
+  console.log(`GCP Project configured: ${Boolean(cfg.GOOGLE_CLOUD_PROJECT)}`);
   console.log(`Gemini Location: ${cfg.geminiLocation}`);
 
   const googleClient = new GoogleGenAI({
     vertexai: true,
-    project: cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974',
+    project: cfg.GOOGLE_CLOUD_PROJECT ?? (() => { throw new Error('GOOGLE_CLOUD_PROJECT is not set'); })(),
     location: cfg.geminiLocation,
   });
 

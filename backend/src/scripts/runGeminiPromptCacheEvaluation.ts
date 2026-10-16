@@ -1,3 +1,4 @@
+// P03 (X-6) repaired: the project comes from configuration only (no hard-coded project id). Owner-run; spends quota; never run by tests or CI.
 /**
  * ArcNave Phase 5.1 — Gemini Prompt Caching Live Evaluation (Vertex AI).
  *
@@ -21,9 +22,9 @@ import { normalizeCacheMetrics } from '../services/promptCache/telemetry.js';
 
 async function main() {
   const cfg = config();
-  const projectId = cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974';
+  const projectId = cfg.GOOGLE_CLOUD_PROJECT ?? (() => { throw new Error('GOOGLE_CLOUD_PROJECT is not set'); })();
   const location = cfg.geminiLocation || 'global';
-  const model = cfg.MODEL_GEMINI_FLASH || 'gemini-3.8-flash';
+  const model = cfg.MODEL_GEMINI_FLASH ?? (() => { throw new Error('MODEL_GEMINI_FLASH is not set'); })();
 
   console.log('===============================================================');
   console.log('ArcNave Phase 5.1 — Gemini Live Prompt Caching Evaluation');

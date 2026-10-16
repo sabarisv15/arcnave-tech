@@ -64,26 +64,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-17 — `gcloud run services update --set-env-vars` after a failed deploy compounded the damage
-
-- **Symptom:** Adding two Vertex env vars with `--set-env-vars` crashed the new revision on
-  `COOKIE_SECRET must be set to at least 32 characters`. Cloud Run correctly kept serving the
-  last good revision, but the *next* `--update-env-vars` call — which should only have merged in
-  two more keys — produced the exact same crash.
-- **Cause:** `--set-env-vars` replaces the entire env var set, not just the keys given, so the
-  first command deleted `COOKIE_SECRET`, `DATABASE_URL`, and everything else in the same
-  request. Separately, and less obviously: a `gcloud run services update` call persists its env
-  vars onto the Service object's desired spec **the moment it is submitted**, regardless of
-  whether the resulting Revision ever passes its startup probe. The second, "safe" merge command
-  was merging onto that already-emptied spec, not onto the last Revision that actually served
-  traffic — there was nothing left under it to merge onto.
-- **Rule:** **Never use `--set-env-vars` for an incremental change; use `--update-env-vars` or an
-  `--env-vars-file` with the complete desired state.** And after any failed deploy, assume the
-  service's *spec* — not just its live traffic — is now in the failed state; the fix is to
-  restate every variable in one file-based update, not to patch on top of the last command.
-- **Verify:** `gcloud run revisions describe <new-revision> --format='value(status.conditions)'`
-  reports `True` before trusting any subsequent incremental update to it.
-
 ### 2026-09-17 — The frontend pointed at the Cloud Run URL directly, and the session cookie stopped working
 
 - **Symptom:** Logging in returned `200` with the correct user object — server logs showed
@@ -820,6 +800,24 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `docs/ops/p05-result.md` per-step gates come from one sequential script
   (`docs/ops/p05-gates.sh`); every step shows the same count with 0 failed.
 
+### 2026-10-16 — New guards and a fixture were wrong in ways the first green run hid
+
+- **Symptom:** (1) The grep guard for `topP` (case-insensitive) matched "stopped" in 10 source files;
+  it only showed because it was run over the real tree. (2) The offline requirement `lm.limits_listed`
+  (`/email|calendar/`) passed on the unrelated words "email address" in the prompt: a false pass that
+  looked like a met requirement. (3) The golden PDF snapshot failed on the second run: the fixture
+  helper stamps the current time into the file, so "size: 1110 bytes" became 1113.
+- **Cause:** A pattern was written for the word it should find, and run only where it was expected to
+  succeed. Nothing made it fail where it should not match. A fixture was reused from tests that never
+  printed its size.
+- **Rule:** Every pattern guard or requirement regex gets a negative case that must NOT match
+  ("stopped", "email address") and an assertion on what it matched; use `\b` with names that are
+  substrings of common words. Run any new snapshot test at least three times before trusting it, and
+  build fixtures that a snapshot prints byte-for-byte reproducibly (fixed dates, no random ids).
+- **Verify:** `forbiddenParams.test.ts` ("would catch each name" / "stopped" is fine) and
+  `promptKit.test.ts` (each requirement's gap flips both ways); `for i in 1 2 3; do npx vitest run
+  src/test/goldenRequests.integration.test.ts; done` is green every time.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -844,6 +842,16 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-10-16 (tech-p03, quality harness)** — Added the new-guards entry. Retired the oldest,
+  "`gcloud run services update --set-env-vars` after a failed deploy compounded the damage"
+  (2026-09-17), by the cap-40 rule; its rule stays here: never use `--set-env-vars` for an
+  incremental change (use `--update-env-vars` or a complete `--env-vars-file`), and after a failed
+  deploy assume the service spec, not only live traffic, is in the failed state. Not new headings:
+  the brief named `backend/scripts/` but the scripts live in `backend/src/scripts/` (read the tree
+  before placing files); the kit's `tools: false` means tool calling is off, not "no web tool" (read
+  the field's use in the source before mapping it); a golden snapshot of a Gemini request must not
+  pass `codeExecution: true` (the turn refuses it with `capability_unavailable` unless the provider
+  supports it, so no request is sent and the capture is empty).
 - **2026-10-16 (tech-p05, runTurn split)** — Added the parallel-suites entry. Retired the
   oldest, "A Cloud Run service attached to a VPC with no NAT reached nothing" (2026-09-17), by the
   owner's rule for this task (cap 40, prune oldest); its rule stays here: a healthy Cloud Run

@@ -1,7 +1,8 @@
+// P03 (X-6) repaired: configuration comes from the environment only, and the stale hard-coded prompt token figure is removed. Owner-run; spends quota; never run by tests or CI.
 /**
  * ArcNave Claude Sonnet 5 Real-Model E2E Behavior Evaluation Script.
  *
- * Tests Claude on the Claude API (`claude-sonnet-5`) using AnthropicProvider
+ * Tests Claude on the Claude API (the configured MODEL_SONNET) using AnthropicProvider
  * and the frozen Base System Prompt v1.
  */
 import { AnthropicProvider } from '../providers/anthropic.js';
@@ -31,9 +32,7 @@ async function main() {
   console.log('======================================================================\n');
 
   const cfg = loadConfig({
-    GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974',
-    VERTEX_LOCATION: 'global',
-    MODEL_SONNET: 'claude-sonnet-5',
+    ...process.env,
     ENABLE_TOOL_USE: 'true',
     ENABLE_RUN_PYTHON: 'true',
     ENABLE_WEB: 'true',
@@ -43,10 +42,10 @@ async function main() {
   const registry = buildCapabilityRegistry(cfg);
   const masterPrompt = buildBaseSystemPrompt(cfg, registry);
   const provider = new AnthropicProvider(cfg);
-  const modelId = cfg.MODEL_SONNET || 'claude-sonnet-5';
+  const modelId = (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })());
 
   console.log(`Target Model      : ${modelId}`);
-  console.log(`Prompt Tokens     : 7,186 (Claude exact count)\n`);
+  console.log('');
 
   // Run core sanity check: Casual Greeting and Tool Boundary
   console.log('Testing Scenario 1: Casual greeting ("Hi")...');

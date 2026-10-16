@@ -1,0 +1,44 @@
+[
+  {
+    "id": "stop_then_greeting",
+    "rules": "extra: after Stop, a new short message",
+    "gate": "E",
+    "tools": false,
+    "history": [
+      {
+        "role": "user",
+        "text": "500 words ku oru tamil essay eluthu"
+      },
+      {
+        "role": "assistant",
+        "text": "தமிழ் மொழியின் சிறப்பு\n\nதமிழ் உலகின் மிகத் தொன்மையான மொழிகளில் ஒன்றாகும். இதன் இலக்கியங்கள் இரண்டாயிரம் ஆண்டுகளுக்கும் மேலான வரலாற்றைக் கொண்டவை. சங்க இலக்கியம், திருக்குறள், சிலப்பதிகாரம் போன்றவை தமிழின் பெருமையை உலகிற்கு",
+        "status": "stopped"
+      }
+    ],
+    "user": "hai",
+    "expect": "a short greeting back; does not write or continue the essay",
+    "fail_if": "the reply continues, restarts or rewrites the earlier essay",
+    "judge_context": "Earlier in this chat the user asked for a 500-word Tamil essay and the assistant's answer was stopped part-way, cut mid-sentence. The user then sent only 'hai'.",
+    "judge_question": "Did the reply answer 'hai' as a greeting without regenerating the earlier essay?"
+  },
+  {
+    "id": "missing_topic_excel",
+    "rules": "extra: request with the topic missing",
+    "gate": "E",
+    "tools": true,
+    "user": "simple excel create panu",
+    "expect": "either (a) one short clarifying question, or (b) a sample sheet created; both are acceptable and only labelled",
+    "fail_if": "not scored: label only",
+    "label_kind": "file"
+  },
+  {
+    "id": "missing_topic_essay",
+    "rules": "extra: request with the topic missing",
+    "gate": "E",
+    "tools": false,
+    "user": "500 words ku oru tamil essay eluthu",
+    "expect": "either (a) one short clarifying question, or (b) an essay written on a chosen topic; both are acceptable and only labelled",
+    "fail_if": "not scored: label only",
+    "label_kind": "essay"
+  }
+]

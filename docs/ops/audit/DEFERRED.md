@@ -422,3 +422,33 @@ is in brackets. Each is old behaviour the split kept on purpose.
   into `turnState.ts`; `listSkills` computed twice (`turnContext.ts:126`, `:285`); history and
   current attachment hydration in parallel (`turnContext.ts:205`, a timing change); one exported
   project row type.
+
+## tech-p03 — found while building the quality measurement harness, not fixed (measurement-only task, ADR-0074)
+
+P03 measures; it changes no prompt, tool, routing or gateway behaviour. Each item below was seen and
+left. The prompt gaps the offline gates found are in `backend/evals/prompt-kit/offlineGates.ts`
+(`EXPECTED_GAPS`, 34 case/requirement pairs, each with its reason) and in
+[`p03-result.md`](../p03-result.md); they are P07 / P10 work, not repeated here.
+
+- **Stale live scripts (X-6), not repaired.** `backend/src/scripts/` (the scripts live under `src/`,
+  not `backend/scripts/`). Seven were repaired (one-line `P03 (X-6) repaired:` header). The rest:
+  - `runBehaviorEvaluation.ts` — stale: frozen Master Prompt v1 scenarios, removed tool `read_uploaded_file`, hard-coded project id and retired model name; superseded by `npm run eval:prompt`.
+  - `runReliabilityMatrix.ts` — stale: built on the `runBehaviorEvaluation` scenarios and the old builder, hard-coded project id; superseded by `npm run eval:prompt`.
+  - `testBatch6RehydrationLive.ts` — stale: describes the removed in-memory tool registry (LOAD_SKILL / SEARCH_TOOLS) and the `inspectPdf` tool.
+  - `testCloudRunDirect.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `testDynamicOutput.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `testNetworkEgress.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `testSaDenied.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `testSignedUrls.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `testTokenAuthority.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `testUnshare.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `verifyBatch22Live.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `verifyBatch24Live.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - `verifyBatch2Live.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
+  - Unverified (no stale marker found by reading, never run): `evalScope.ts`, `testBatch6ContextPressureLive.ts`, `verifyBatch6OverflowLive.ts`, `verifyRepairLoopLive.ts`. Guarded by `src/test/liveScripts.test.ts`: a new script must be classified.
+  - The sandbox scripts' identifiers are a real finding: `identifierGuard.test.ts` skips `scripts/`, so a project id sits in 17 files under `src/scripts/`. Move to configuration or delete with the sandbox live-check (PH-4 follow-up).
+- **A stopped answer goes back to the model as a finished one.** `services/history/failedExchanges.ts` keeps a `stopped` answer that has text (on purpose: its content is real), and the history carries it word for word with no marker; nothing in the system instruction says an earlier answer was cut. Live, Gemini 3.8 Flash continued the essay after Stop + "hai". Proved offline by `stopThenGreeting.integration.test.ts`. P07 (prompt) / P11 (stop semantics): decide between a marker on the stored turn and a rule in the prompt.
+- **The live runner is not the database-backed turn.** `eval:prompt` builds the request with the deployed prompt and tool builders and runs the existing adapters' tool loop against mock tools; it does not run `runTurn` (no database, no compaction, no history loader, no file pipeline). Cases that need those (documents as attachments, document memory, company tier) run with the nearest deployed form and carry an `approximations` count. A DB-backed live runner is a later step.
+- **Judge verdicts are report-only.** No calibration of the judge against human grades exists; until it does, a judge pass/fail gates nothing. Calibration set and agreement figure: not started.
+- **Kit cases the deployed request cannot express** (company tier, per-format switch, pending operations, effort profile as prompt text): run approximately live and fail their offline requirement as listed gaps. Closing them is P07/P10 (and Phase 5 for the company tier).
+- **No token-count budget.** Size budgets are in characters; provider-reported tokens need a live call. `eval:prompt` and `measureTokens` record the provider counts when run.
