@@ -59,6 +59,8 @@ export type StreamEvent =
       preview: string;
       /** What present_files gave the user (ADR-0048). */
       files?: Array<{ attachmentId: string; filename: string; mimeType: string; sizeBytes: number; downloadUrl: string }>;
+      /** A failure named by a stable code (`sandbox_misconfigured`, ADR-0070); its copy is api.errorCopy's. */
+      errorCode?: string;
     }
   | {
       type: "artifact_created";

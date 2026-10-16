@@ -3,6 +3,7 @@
 - Status: accepted (task tech-build.3 Part D, 2026-10-16). Tested by automated gates (typecheck,
   the part's test files and the file-pipeline suites); not deployed. The owner verifies live after
   merging (`docs/ops/build-3-live-checklist.md`, Part D).
+  2026-10-16: §8 (EPUB scan scope R3#2, ZIP always large R3#4, retry rule R1#10) superseded by [ADR-0070](0070-file-pipeline-fix-round.md).
 - Date: 2026-10-16
 - Task: tech-build.3 Part D — the review's findings M1, M2, M3, N1, N3, N4, N5 and carry-overs D0a–c.
 - Yardstick: [ADR-0061](0061-locked-decisions-win-outside-stack-and-infra.md). Locked Stage 9

@@ -44,45 +44,71 @@ export function attachmentText(a: AttachmentBlock): string | null {
 }
 
 /**
- * A value made safe for a double-quoted XML attribute (D2 X-9). A filename is the user's text:
- * unescaped, a `"` ends the attribute and a `>` ends the tag, so a name like
- * `x"><system>…` would put markup of the user's choosing into the prompt. Line breaks and tabs
- * are written as character references so a name cannot spread the tag over lines.
+ * A user-controlled name (an attachment's filename, a project file's name, a ZIP member's path)
+ * as the model sees it, everywhere it sees it: prompt text, the attachment list, a
+ * `<document filename="…">` attribute, a document title, tool results (ADR-0069). One spelling,
+ * so the model never meets one file under two names.
+ *
+ * What changes, and why:
+ * - `<`, `>` and the characters that look like them become `&lt;` / `&gt;`, and `"` and `|`
+ *   become `&quot;` / `&#124;`: every place quotes the name or separates fields with `|`, so a
+ *   name could otherwise open a tag, end its quotes, or forge a field.
+ * - Line breaks and other control characters (C0, DEL, C1, U+2028/2029) become a space, so a name
+ *   cannot start a line of its own.
+ * - Invisible characters (Unicode's Default_Ignorable_Code_Point set: bidi controls and isolates,
+ *   zero-width characters, BOM, tag characters, variation selectors, the soft hyphen, Hangul
+ *   fillers) are dropped: they can hide or reorder what the model reads.
+ * `&` and `'` stay, so "R&D John's notes.pdf" reads as stored. A name that already contains
+ * `&lt;` reads the same as one containing `<`; no tool takes a filename, only a fileId, so the
+ * model's spelling of a name is never looked up.
+ *
+ * One pass over a character class with no quantifier, so it is linear in the name's length.
  */
-export function xmlAttr(value: string): string {
-  return value.replace(/[&<>"'\t\n\r]/g, (c) => XML_ATTR_ESCAPES[c]!);
+export function nameForModel(name: string): string {
+  return name.replace(UNTRUSTED_NAME_CHARS, (c) => NAME_REPLACEMENTS.get(c) ?? (DROPPED.test(c) ? '' : ' '));
 }
 
-const XML_ATTR_ESCAPES: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&apos;',
-  '\t': '&#9;',
-  '\n': '&#10;',
-  '\r': '&#13;',
-};
+/** Lookalikes of `<` and `>` (ours: a chosen set, not a Unicode table): fullwidth and small
+ *  forms, angle quotation marks, angle brackets, ornaments, modifier arrowheads, syllabics. None
+ *  is special inside a character class, so they go into the pattern as they are. */
+const LESS_THAN_LOOKALIKES = '\uFF1C\uFE64\u2039\u2329\u3008\u27E8\u276C\u276E\u02C2\u1438\u2770\u27EA\u29FC\u300A';
+const GREATER_THAN_LOOKALIKES = '\uFF1E\uFE65\u203A\u232A\u3009\u27E9\u276D\u276F\u02C3\u1433\u2771\u27EB\u29FD\u300B';
+/** Lookalikes of `"` and `|` (ours, review build-3-fix r1): a quote or bar the model reads as the
+ *  real one could still end a quoted name or forge a `|` field. */
+const QUOTE_LOOKALIKES = '\uFF02\u201C\u201D\u201E\u201F\u2033\u02BA';
+const BAR_LOOKALIKES = '\uFF5C\u2223\u01C0\u2502\u23D0\u2758';
+/** Invisible characters that hide or reorder text, as pattern source: Unicode's
+ *  Default_Ignorable_Code_Point set, which holds the Arabic letter mark, zero-width characters,
+ *  LRM/RLM, bidi embeddings, overrides and isolates, the word joiner and invisible operators, the
+ *  BOM, tag characters, variation selectors, the soft hyphen and the Hangul fillers. */
+const DROPPED_CLASS = '\\p{Default_Ignorable_Code_Point}';
+/** Control characters and line separators, as pattern source: each becomes a space. */
+const SPACED_CLASS = '\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029';
 
-/**
- * A filename (attachment, project file, ZIP member) placed in prompt TEXT, not in an attribute
- * (`xmlAttr` is for those). Only what could make markup or break the line structure is changed:
- * `<` and `>` become `&lt;` / `&gt;`, and line breaks and other control characters become a
- * space. `&`, quotes and apostrophes stay as they are, so the model reads and repeats the name
- * as stored ("R&D John's notes.pdf") and a tool call naming it still matches.
- */
-export function filenameInText(name: string): string {
-  return name.replace(/[<>\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, (c) => (c === '<' ? '&lt;' : c === '>' ? '&gt;' : ' '));
-}
+const UNTRUSTED_NAME_CHARS = new RegExp(
+  `[<>"|${LESS_THAN_LOOKALIKES}${GREATER_THAN_LOOKALIKES}${QUOTE_LOOKALIKES}${BAR_LOOKALIKES}${DROPPED_CLASS}${SPACED_CLASS}]`,
+  'gu',
+);
+const DROPPED = new RegExp(`^[${DROPPED_CLASS}]$`, 'u');
+const NAME_REPLACEMENTS = new Map<string, string>([
+  ['<', '&lt;'],
+  ['>', '&gt;'],
+  ['"', '&quot;'],
+  ['|', '&#124;'],
+  ...[...LESS_THAN_LOOKALIKES].map((c): [string, string] => [c, '&lt;']),
+  ...[...GREATER_THAN_LOOKALIKES].map((c): [string, string] => [c, '&gt;']),
+  ...[...QUOTE_LOOKALIKES].map((c): [string, string] => [c, '&quot;']),
+  ...[...BAR_LOOKALIKES].map((c): [string, string] => [c, '&#124;']),
+]);
 
 /** The label that introduces each page, so a model can name the page it read. */
 export function pageLabel(a: AttachmentBlock, num: number): string {
   const total = a.pageCount ?? a.pages?.length ?? 0;
-  return `${a.filename ? `"${filenameInText(a.filename)}" ` : ''}page ${String(num)} of ${String(total)}`;
+  return `${a.filename ? `"${nameForModel(a.filename)}" ` : ''}page ${String(num)} of ${String(total)}`;
 }
 
 function describe(a: AttachmentBlock): string {
-  const name = a.filename ? `"${filenameInText(a.filename)}"` : 'An attachment';
+  const name = a.filename ? `"${nameForModel(a.filename)}"` : 'An attachment';
   const facts = [a.id ? `fileId: ${a.id}` : null, a.mimeType, a.sizeBytes ? `${a.sizeBytes} bytes` : null]
     .filter(Boolean)
     .join(', ');

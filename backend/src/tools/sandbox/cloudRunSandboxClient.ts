@@ -25,7 +25,7 @@ import { Storage as GcsStorage } from '@google-cloud/storage';
 import { GoogleAuth } from 'google-auth-library';
 
 import { ProviderError } from '../../providers/types.js';
-import type { SandboxClient, SandboxExecutionOptions, SandboxExecutionResult } from './client.js';
+import { SandboxMisconfiguredError, type SandboxClient, type SandboxExecutionOptions, type SandboxExecutionResult } from './client.js';
 import { generateV4SignedUrl } from './signedUrl.js';
 
 export function validateOutputFilenames(names?: string[]): string[] {
@@ -186,6 +186,19 @@ function base64(s: string): string {
   return Buffer.from(s, 'utf-8').toString('base64');
 }
 
+/** Whether the workspace's input/ holds a file, i.e. whether this run stages an input. */
+async function hasInputFiles(workspaceDir: string | undefined): Promise<boolean> {
+  if (!workspaceDir) return false;
+  const inputDir = path.join(workspaceDir, 'input');
+  const names = await fs.readdir(inputDir).catch((): string[] => []);
+  for (const name of names) {
+    // `stat`, as the staging loop uses: a link to a file is staged too.
+    const st = await fs.stat(path.join(inputDir, name)).catch(() => null);
+    if (st?.isFile()) return true;
+  }
+  return false;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -244,6 +257,8 @@ export class CloudRunSandboxClient implements SandboxClient {
         { code: 'provider_error' },
       );
     }
+
+    await this.assertStagingCanSign(options);
 
     const runId = crypto.randomUUID();
     const useStaging = Boolean(this.deps.stagingBucket && this.deps.storageClient);
@@ -411,6 +426,29 @@ export class CloudRunSandboxClient implements SandboxClient {
         }
       }
     }
+  }
+
+  /**
+   * With a staging bucket, files cross by signed URL: runner.py uploads an output only to its
+   * signed PUT URL, and reads an input without one by reference with the Job's own token, which
+   * works only if that account may read the bucket. Nothing here can check that, and runner.py
+   * then drops the input with a stderr line. So without SANDBOX_SIGNING_SA a run that has an input
+   * file or expects an output fails here, before anything is staged, instead of losing a file
+   * quietly (Invariant 1; ADR-0070, build-3 decision #14). A chat's files are in input/ for every
+   * run, so in a chat with files no code runs until the owner sets it; the message and the copy
+   * say exactly that (review build-3-fix rounds 1-2). A run with no file still runs. The start-up
+   * log line (container.ts) stays.
+   */
+  private async assertStagingCanSign(options?: SandboxExecutionOptions): Promise<void> {
+    if (!this.deps.stagingBucket || this.deps.signingSaEmail) return;
+    const expectsOutputs = validateOutputFilenames(options?.expectedOutputs).length > 0;
+    if (!expectsOutputs && !(await hasInputFiles(options?.workspaceDir))) return;
+    throw new SandboxMisconfiguredError(
+      'The code sandbox cannot pass files in or out on this server: it has a staging bucket but no ' +
+        'signing service account (SANDBOX_SIGNING_SA). While this conversation has files, or when ' +
+        'the code must return a file, code cannot run here; tell the user so, and that the owner ' +
+        'must set it. Do not retry. Code runs in a conversation without files.',
+    );
   }
 
   private async runJob(

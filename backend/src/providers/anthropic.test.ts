@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildAnthropicMessages, toAnthropicTool, toAnthropicToolResultBlock } from './anthropic.js';
+import { buildAnthropicMessages, documentTitle, toAnthropicTool, toAnthropicToolResultBlock } from './anthropic.js';
 import type { GenerationRequest } from './types.js';
 
 function baseRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequest {
@@ -138,6 +138,52 @@ describe('buildAnthropicMessages', () => {
     const messages = buildAnthropicMessages(baseRequest());
     expect(messages).toHaveLength(1);
     expect(messages[0]!.content).toBe('What is this?');
+  });
+});
+
+describe('documentTitle: within the API bounds of 1 to 500 characters (build-3-fix r1)', () => {
+  it('a 255-character name of quotes and pipes, escaped, still fits, and no reference is cut', () => {
+    const hostile = '"|'.repeat(125) + '.pdf';
+    expect(hostile.length).toBeLessThanOrEqual(255);
+    const title = documentTitle(hostile)!;
+    expect(title.length).toBeLessThanOrEqual(500);
+    expect(title.endsWith('…')).toBe(true);
+    // Every `&` still starts a whole reference.
+    expect(title.replace(/&(?:quot|#124);/g, '')).not.toContain('&');
+    const messages = buildAnthropicMessages(
+      baseRequest({ attachments: [{ mimeType: 'application/pdf', base64: 'BBBB', filename: hostile }] }),
+    );
+    const block = (messages[0]!.content as Array<{ type: string; title?: string }>)[0]!;
+    expect(block.title!.length).toBeLessThanOrEqual(500);
+  });
+
+  it('a cut never splits a surrogate pair: the title stays well-formed (build-3-fix r2)', () => {
+    const name = '"'.repeat(83) + '\u{1F600}' + 'x.pdf';
+    const title = documentTitle(name)!;
+    expect(title.length).toBeLessThanOrEqual(500);
+    // No lone surrogate (String.prototype.isWellFormed, without the es2024 lib).
+    expect(title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    // Every cut offset across both reference kinds leaves no partial reference.
+    for (let pad = 0; pad < 8; pad++) {
+      for (const ch of ['"', '|', '<']) {
+        const t = documentTitle('x'.repeat(pad) + ch.repeat(250))!;
+        expect(t.length).toBeLessThanOrEqual(500);
+        expect(t.replace(/&(?:quot|#124|lt);/g, '')).not.toContain('&');
+      }
+    }
+  });
+
+  it('a name of nothing but dropped characters sends no title, never an empty one', () => {
+    const messages = buildAnthropicMessages(
+      baseRequest({ attachments: [{ mimeType: 'application/pdf', base64: 'BBBB', filename: '\u200B\u202E\uFEFF' }] }),
+    );
+    const block = (messages[0]!.content as Array<{ type: string; title?: string }>)[0]!;
+    expect(block.type).toBe('document');
+    expect(block).not.toHaveProperty('title');
+  });
+
+  it('an ordinary name is unchanged', () => {
+    expect(documentTitle('R&D John\'s notes.pdf')).toBe("R&D John's notes.pdf");
   });
 });
 

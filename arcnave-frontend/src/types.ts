@@ -133,6 +133,8 @@ export interface ToolCall {
   /** The short wire preview from the live SSE `tool_result` frame — present as soon as the
    *  call finishes, before any reload; superseded by `content` once one happens. */
   preview?: string;
+  /** From the live `tool_result` frame: a failure the server named by code (ADR-0070). */
+  errorCode?: string;
   at?: string | null;
 }
 

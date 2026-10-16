@@ -18,7 +18,7 @@ import { fileChunks, fileDerivatives, projectFiles } from '../db/schema.js';
 import type { ObjectStorage } from './storage.js';
 import type { FileWarning } from '../db/schema.js';
 import type { FileErrorCode } from './attachments/fileErrors.js';
-import { filenameInText } from '../providers/attachmentContent.js';
+import { nameForModel } from '../providers/attachmentContent.js';
 
 export const CHUNK_TARGET_CHARS = 1400;
 export const CHUNK_OVERLAP_CHARS = 180;
@@ -453,7 +453,7 @@ export function formatContext(chunks: RetrievedChunk[], maxChars: number): strin
   let used = 0;
   for (const chunk of chunks) {
     const location = chunk.page != null ? `p. ${chunk.page}` : `part ${chunk.ordinal + 1}`;
-    const block = `--- ${filenameInText(chunk.filename)} (${location}) ---\n${chunk.text}`;
+    const block = `--- ${nameForModel(chunk.filename)} (${location}) ---\n${chunk.text}`;
     if (used + block.length > maxChars) break;
     parts.push(block);
     used += block.length;
@@ -566,7 +566,7 @@ export function isWhole(file: { chunkCount: number; warnings: FileWarning[]; ind
 export function formatWholeFiles(files: ProjectFileText[]): string {
   return (
     "The complete text of this project's files. They are whole documents, not excerpts.\n\n" +
-    files.map((f) => `--- ${filenameInText(f.filename)} ---\n${f.text}`).join('\n\n')
+    files.map((f) => `--- ${nameForModel(f.filename)} ---\n${f.text}`).join('\n\n')
   );
 }
 

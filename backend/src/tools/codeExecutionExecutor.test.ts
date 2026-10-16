@@ -10,7 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { SandboxClient, SandboxExecutionResult } from './sandbox/client.js';
 import { ProcessSandboxClient } from './sandbox/processSandboxClient.js';
-import { ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
+import { AttachmentNotFoundError, ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
+import { HOSTILE_NAME, HOSTILE_NAME_SHOWN, expectHostileNameNeutralised } from '../test/untrustedNames.js';
 import { CodeExecutionToolExecutor, numberedView } from './codeExecutionExecutor.js';
 import { SkillService } from '../services/skills.js';
 import { presentedFiles } from '../services/generation.js';
@@ -42,6 +43,24 @@ describe('bash_tool output shaping', () => {
     const res = await failing.execute({ id: 'b', name: 'bash_tool', input: { command: 'ls', description: 'x' } }, signal());
     expect(res.ok).toBe(false);
     expect(text(res)).toContain('sandbox quota exceeded');
+  });
+
+  it('names a conversation file it could not place with the name neutralised (ADR-0069)', async () => {
+    for (const failure of [new AttachmentNotFoundError('f1'), new Error('storage down')]) {
+      const runtime = new ExecutionRuntime(fakeClient(async () => chunk({ msg_out: '' })));
+      runtime.materializeAttachment = () => Promise.reject(failure);
+      const executor = new CodeExecutionToolExecutor(runtime, 8000, {
+        workspace: { workspaceDir: '/nowhere', inputDir: '/nowhere/input', outputDir: '/nowhere/output' } as WorkspaceFiles,
+        userId: 'u',
+        db: {} as never,
+        storage: {} as never,
+        chatFiles: [{ id: 'f1', filename: HOSTILE_NAME }],
+      });
+      const res = await executor.execute({ id: 'e', name: 'bash_tool', input: { command: 'ls', description: 'x' } }, signal());
+      expect(res.ok).toBe(false);
+      expectHostileNameNeutralised(text(res));
+      expect(text(res)).toContain(`Conversation file "${HOSTILE_NAME_SHOWN}" (f1)`);
+    }
   });
 
   it('refuses to run when the signal is already aborted, without calling the client', async () => {

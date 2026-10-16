@@ -21,10 +21,13 @@
  *
  * Lanes: files up to FILE_FAST_LANE_MAX_BYTES are `fast`, and one worker slot is always kept
  * for them, so a small file never waits behind large ones (Stage 9 G30). Files above
- * FILE_LARGE_JOB_BYTES, and chat ZIP archives (their members are unpacked to disk), are large:
- * at most one runs per instance at a time, because a job's working copies (download, members,
- * pieces) count against the instance's memory when the working directory is in memory
- * (ADR-0066, review M1).
+ * FILE_LARGE_JOB_BYTES are large: at most one runs per instance at a time, because a job's
+ * working copies (download, members, pieces) count against the instance's memory when the
+ * working directory is in memory (ADR-0066, review M1). A chat ZIP is large only when what it
+ * unpacks to is (ADR-0070, superseding build-3 decision #10): it is claimed by its own size,
+ * and once its central directory is read, a ZIP whose members exceed FILE_LARGE_JOB_BYTES takes
+ * the large slot, or goes back to the queue in the `large` lane, its attempt not counted, until
+ * the slot is free.
  *
  * A job's first stage is the integrity check (ADR-0066, review N4): the object's generation must
  * be the one `complete` recorded, and the SHA-256 is computed here by streaming the job's own
@@ -65,13 +68,21 @@ import { failed, readAttachment, type FileStage, type Outcome } from './pipeline
 import { storageKeyInUse } from './references.js';
 import { noScanner, scannerFor, type Scanner } from './scanner.js';
 import { makeWorkDir, setFileTmpDir } from './workDir.js';
-import { expandZip, memberStream } from './zipExpand.js';
+import { expandZip, memberStream, plannedUnpackedBytes } from './zipExpand.js';
 
 type AttachmentRow = typeof attachments.$inferSelect;
 type ProjectFileRow = typeof projectFiles.$inferSelect;
 type JobRow = typeof fileJobs.$inferSelect;
-/** A claimed job, and whether its file is above FILE_LARGE_JOB_BYTES. */
-type ClaimedJob = JobRow & { large: boolean };
+/**
+ * A claimed job, and whether it holds this instance's large slot: its file is above
+ * FILE_LARGE_JOB_BYTES, or it is in the `large` lane, or it took the slot while running (a ZIP
+ * that unpacks past the limit). Whoever ends the job releases the slot when `large` is set.
+ */
+type ClaimedJob = JobRow & {
+  large: boolean;
+  /** Counted in `activeNormal` by `launch`: a normal-lane job, or a fast one that turned large. */
+  countedNormal?: boolean;
+};
 /** A transaction, for writes that must land together with the caller's (enqueue at `complete`). */
 export type FileTx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
@@ -394,12 +405,12 @@ export class FileService {
     const lease = `${String(this.leaseMs)} milliseconds`;
     const target = scope.any ? sql`true` : sql`fj.id in ${scope.ids && scope.ids.length ? sql`(${sql.join(scope.ids.map((i) => sql`${i}::uuid`), sql`, `)})` : sql`(null)`}`;
     const lane = scope.normalAllowed ? sql`true` : sql`fj.lane = 'fast'`;
-    // Large: the stored file is above FILE_LARGE_JOB_BYTES, or it is a chat ZIP archive, whose
-    // expansion writes up to N-10's 500 MB of members to the work dir whatever its own size
-    // (review R3#4; ours). Only an attachment named .zip is expanded (pipeline.ts).
+    // Large: the stored file is above FILE_LARGE_JOB_BYTES, or the job is in the `large` lane: a
+    // chat ZIP that found it unpacks past the limit and waits for the slot (ADR-0070). A ZIP's
+    // unpacked size is not known here; `expand` decides once it has read the directory.
     const isLarge = (job: SQL) =>
       sql`(coalesce((select a.size_bytes from attachments a where a.id = ${job}.attachment_id), (select p.size_bytes from project_files p where p.id = ${job}.project_file_id), 0) > ${this.largeJobBytes}
-        or exists (select 1 from attachments a where a.id = ${job}.attachment_id and lower(a.filename) like '%.zip'))`;
+        or ${job}.lane = 'large')`;
     const sizeFits = largeAllowed ? sql`true` : sql`not ${isLarge(sql.raw('fj'))}`;
     const rows = await this.deps.db.execute(sql`
       update file_jobs set
@@ -491,10 +502,11 @@ export class FileService {
 
   private launch(job: ClaimedJob): void {
     this.active += 1;
-    if (job.lane === 'normal') this.activeNormal += 1;
+    job.countedNormal = job.lane !== 'fast';
+    if (job.countedNormal) this.activeNormal += 1;
     const p = this.runJob(job).finally(() => {
       this.active -= 1;
-      if (job.lane === 'normal') this.activeNormal -= 1;
+      if (job.countedNormal) this.activeNormal -= 1;
       if (job.large) this.activeLarge -= 1;
       this.inFlight.delete(p);
       if (!this.dead) void this.pump();
@@ -515,7 +527,7 @@ export class FileService {
     return Boolean(row);
   }
 
-  private async runJob(job: JobRow): Promise<void> {
+  private async runJob(job: ClaimedJob): Promise<void> {
     const fence: Fence = { jobId: job.id, owner: this.owner };
     const beat =
       this.heartbeatMs > 0
@@ -530,11 +542,39 @@ export class FileService {
       else await this.runProjectJob(job, fence);
       this.deps.log.info({ jobId: job.id, kind: job.kind, attempt: job.attempts, ms: Date.now() - started }, 'file job finished');
     } catch (err) {
+      if (err instanceof WaitForLargeSlot) {
+        if (!this.dead) await this.deferForLargeSlot(job, fence);
+        return;
+      }
       this.logError(err, 'file job failed', { jobId: job.id, kind: job.kind, attempt: job.attempts });
       if (!this.dead) await this.release(job, fence);
     } finally {
       if (beat) clearInterval(beat);
     }
+  }
+
+  /**
+   * A ZIP that unpacks past FILE_LARGE_JOB_BYTES while this instance's large slot is taken (or,
+   * claimed in the fast lane, while every normal slot is): back
+   * to the queue in the `large` lane, the claim's attempt given back (waiting is not a failure),
+   * the file `queued` again. The claim query skips a `large` job while the slot is taken, so it
+   * is not picked up again until the large job ends and wakes the worker: no busy loop. It
+   * defers at most once, since the next claim gives it the slot.
+   */
+  private async deferForLargeSlot(job: ClaimedJob, fence: Fence): Promise<void> {
+    const { db } = this.deps;
+    const moved = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(fileJobs)
+        .set({ state: 'queued', lane: 'large', attempts: sql`greatest(${fileJobs.attempts} - 1, 0)`, leaseOwner: null, leaseExpiresAt: null, updatedAt: new Date() })
+        .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner), eq(fileJobs.state, 'running')))
+        .returning({ id: fileJobs.id });
+      if (row && job.attachmentId) await tx.update(attachments).set({ status: 'queued' }).where(eq(attachments.id, job.attachmentId));
+      return Boolean(row);
+    });
+    if (!moved) return;
+    this.deps.log.info({ jobId: job.id }, 'file job waits for the large slot');
+    this.poke(job.id);
   }
 
   /** An unexpected error: back to the queue, or failed once attempts are spent. */
@@ -571,7 +611,7 @@ export class FileService {
       .where(and(eq(fileJobs.id, fence.jobId), eq(fileJobs.leaseOwner, fence.owner)));
   }
 
-  private async runAttachmentJob(job: JobRow, fence: Fence): Promise<void> {
+  private async runAttachmentJob(job: ClaimedJob, fence: Fence): Promise<void> {
     const [row] = job.attachmentId ? await this.deps.db.select().from(attachments).where(eq(attachments.id, job.attachmentId)) : [];
     if (!row) {
       // Deleted while queued (G29): nothing to read, nothing to clean.
@@ -581,7 +621,7 @@ export class FileService {
     await this.process({ scope: 'attachment', row }, job, fence, null);
   }
 
-  private async runProjectJob(job: JobRow, fence: Fence): Promise<void> {
+  private async runProjectJob(job: ClaimedJob, fence: Fence): Promise<void> {
     const [row] = job.projectFileId ? await this.deps.db.select().from(projectFiles).where(eq(projectFiles.id, job.projectFileId)) : [];
     if (!row) {
       await this.finish(fence, 'done');
@@ -595,7 +635,7 @@ export class FileService {
    * holder's; without one (an attachment read inside its request), there is no job to lose.
    * `localPath` is the file already on disk; otherwise it is downloaded here.
    */
-  private async process(target: Target, job: JobRow | null, fence: Fence | null, localPath: string | null): Promise<void> {
+  private async process(target: Target, job: ClaimedJob | null, fence: Fence | null, localPath: string | null): Promise<void> {
     const { db, storage } = this.deps;
     const row = target.row;
     const dir = await makeWorkDir('arcnave-job-');
@@ -613,7 +653,7 @@ export class FileService {
       };
 
       const verified = await this.verifyBytes(target, local, fence);
-      let outcome = verified.failure ?? (await this.read(target, local, dir, setStage, fence, verified.checksum));
+      let outcome = verified.failure ?? (await this.read(target, local, dir, setStage, fence, verified.checksum, job));
       // Count and chunk the derivative (Stage 9 TOKENS / CHUNK).
       let counts = null;
       let plan: ChunkPlan | null = null;
@@ -703,6 +743,8 @@ export class FileService {
     setStage: (stage: FileStage) => Promise<void>,
     fence: Fence | null,
     checksum: string,
+    /** The claimed job, when this read runs as one: a ZIP may need its large slot. */
+    job: ClaimedJob | null,
   ): Promise<Outcome> {
     const { db, storage, cfg } = this.deps;
     const row = target.row;
@@ -757,7 +799,7 @@ export class FileService {
         if (target.scope === 'attachment') await db.update(attachments).set({ sizeBytes: bytes.length, objectGeneration: generation }).where(eq(attachments.id, row.id));
         else await db.update(projectFiles).set({ sizeBytes: bytes.length, objectGeneration: generation }).where(eq(projectFiles.id, row.id));
       },
-      ...(target.scope === 'attachment' ? { expandZip: (zipPath: string) => this.expand(target.row, zipPath, fence === null) } : {}),
+      ...(target.scope === 'attachment' ? { expandZip: (zipPath: string) => this.expand(target.row, zipPath, fence === null, job) } : {}),
     });
   }
 
@@ -805,8 +847,9 @@ export class FileService {
    * A ZIP's members become attachments of their own, each read by the same pipeline: queued as
    * jobs, or read here when the ZIP itself is being read inside a request.
    */
-  private async expand(parent: AttachmentRow, zipPath: string, inline: boolean): Promise<Outcome> {
+  private async expand(parent: AttachmentRow, zipPath: string, inline: boolean, job: ClaimedJob | null): Promise<Outcome> {
     const { db, storage } = this.deps;
+    if (job) await this.takeLargeSlotIfNeeded(job, zipPath);
     await this.removeMembers(parent.id);
     const created: AttachmentRow[] = [];
     const names = await expandZip(zipPath, this.deps.cfg, async (member) => {
@@ -834,6 +877,29 @@ export class FileService {
     if (!inline) for (const row of created) await this.enqueueAttachment(row);
     const detail = `Unpacked ${String(names.length)} file${names.length === 1 ? '' : 's'}: ${names.join(', ')}.`.slice(0, 2000);
     return { status: 'ready', error: detail, warnings: [warning('zip_members', detail)], extractedText: null, pageCount: null };
+  }
+
+  /**
+   * A ZIP's expansion is a large job when its members unpack past FILE_LARGE_JOB_BYTES (Stage 9
+   * G30, ADR-0070), decided from the central directory before anything is written: the inflate
+   * never writes more than a member declares, so the declared total bounds the disk it takes.
+   * Over the limit, the job takes the large slot if it is free (released when the job ends,
+   * `ClaimedJob.large`), or waits for it (`WaitForLargeSlot`, deferForLargeSlot).
+   */
+  private async takeLargeSlotIfNeeded(job: ClaimedJob, zipPath: string): Promise<void> {
+    if (job.large) return;
+    if ((await plannedUnpackedBytes(zipPath, this.deps.cfg)) <= this.largeJobBytes) return;
+    if (this.activeLarge > 0) throw new WaitForLargeSlot();
+    if (job.countedNormal === false) {
+      // Claimed in the fast lane by its stored size, it is now a large expansion: it leaves the
+      // slot kept for small files and counts as normal work, so the pump keeps that slot free
+      // (G30). With every normal slot taken it waits instead (review build-3-fix r1).
+      if (this.concurrency > 1 && this.activeNormal >= this.concurrency - 1) throw new WaitForLargeSlot();
+      this.activeNormal += 1;
+      job.countedNormal = true;
+    }
+    this.activeLarge += 1;
+    job.large = true;
   }
 
   /** Deletes a ZIP's members, rows and the bytes nothing else reads. */
@@ -871,6 +937,11 @@ export class FileService {
 
 class LeaseLost extends Error {
   override name = 'LeaseLost';
+}
+
+/** A ZIP job that needs the large slot while another large job holds it (ADR-0070). */
+class WaitForLargeSlot extends Error {
+  override name = 'WaitForLargeSlot';
 }
 
 export function outcomePatch(outcome: Outcome, extra: FileWarning[] = []): Partial<AttachmentRow> {

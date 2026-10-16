@@ -636,6 +636,7 @@ export class GenerationService {
               ok: event.result.ok,
               preview,
               ...(files?.length ? { files } : {}),
+              ...(event.result.errorCode ? { errorCode: event.result.errorCode } : {}),
             };
             await persistToolCall(
               this.svc,

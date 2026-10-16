@@ -232,18 +232,20 @@ describe.runIf(HAS_FFMPEG || ON_CI)('transcription retries only what can succeed
     return calls;
   }
 
-  it('a provider error whose code says a retry cannot help (quota unavailable) is asked once per piece', async () => {
-    expect(await callsFor(new ProviderError('no quota', { code: 'provider_quota_unavailable', retryable: false }))).toBe(1);
+  it('a failure the adapter did not classify retryable is asked once per piece (Stage 15 ER-2, ADR-0070 F15)', async () => {
+    expect(await callsFor(new ProviderError('no quota', { code: 'provider_quota_unavailable', retryable: false, statusCode: 429 }))).toBe(1);
     expect(await callsFor(new ProviderError('not enabled', { code: 'model_unavailable' }))).toBe(1);
+    // A 400 as classifyGeminiError returns it: never retried (round 2 retried it).
+    expect(await callsFor(new ProviderError('media reading failed', { statusCode: 400 }))).toBe(1);
+    // The account's spend limit: never retried (round 2 called it retryable).
+    expect(await callsFor(new ProviderError('limit', { code: 'provider_limit', retryable: false, statusCode: 429 }))).toBe(1);
+    // Not a provider error at all: a bug, which a second request repeats.
+    expect(await callsFor(new Error('socket hang up'))).toBe(1);
   });
 
-  it('a retryable or unclassified provider error, or any other failure, gets its one retry', async () => {
-    expect(await callsFor(new ProviderError('busy', { code: 'provider_limit', retryable: true }))).toBe(2);
-    // An unclassified failure: ProviderError's default code and `retryable: false`, which is
-    // what an unrecognised Gemini error carries (classifyGeminiError) — still retried once.
-    expect(await callsFor(new ProviderError('Gemini request failed: 400 bad gateway body'))).toBe(2);
-    expect(await callsFor(new ProviderError('timed out', { code: 'provider_timeout', retryable: false }))).toBe(2);
-    expect(await callsFor(new Error('socket hang up'))).toBe(2);
+  it('a failure the adapter classified retryable gets exactly one retry', async () => {
+    expect(await callsFor(new ProviderError('busy', { retryable: true, statusCode: 503 }))).toBe(2);
+    expect(await callsFor(new ProviderError('timed out', { code: 'provider_timeout', retryable: true }))).toBe(2);
   });
 });
 

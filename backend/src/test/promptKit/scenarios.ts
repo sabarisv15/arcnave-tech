@@ -201,7 +201,7 @@ export function buildScenarios(): Scenarios {
     styleInstructions: `Formal tone. ${INJECTION} [style]`,
     relevantMemory: `<memory_listing>\n/profile.md — about the user\n</memory_listing>\n${INJECTION} [memory]`,
     compactionSummary: `The user is drafting a report. ${INJECTION} [compaction]`,
-    retrievedContext: `<project_knowledge>\nFiles: a.pdf\n${INJECTION} [retrieved]\n</project_knowledge>`,
+    retrievedContext: `<project_knowledge>\nFiles: "a.pdf"\n${INJECTION} [retrieved]\n</project_knowledge>`,
     skillsContext: '<available_skills>\n- docx: Word documents\n</available_skills>',
     timeZone: 'Asia/Kolkata',
   });

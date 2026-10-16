@@ -23,7 +23,7 @@ import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
 import { attachments, conversationCompactions, messages, toolCalls, usageRecords } from '../../db/schema.js';
 import { EMPTY_USAGE, toolCallAsText, type Provider, type ProviderUsage, type ToolContent, type Turn } from '../../providers/types.js';
-import { filenameInText } from '../../providers/attachmentContent.js';
+import { nameForModel } from '../../providers/attachmentContent.js';
 
 /** The summarization prompt (ADR-0019). */
 export const SUMMARY_PROMPT =
@@ -168,7 +168,8 @@ export async function compact(
   const filesOf = new Map<string, string[]>();
   for (const f of files) {
     if (!f.messageId) continue;
-    filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ? filenameInText(f.filename) : f.id} (fileId ${f.id})`]);
+    // Quoted, with `"` neutralised inside: a name like `x (fileId evil), y` cannot add an entry (ADR-0069).
+    filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ? `"${nameForModel(f.filename)}"` : f.id} (fileId ${f.id})`]);
   }
 
   // What the older turns ran and found goes into the summary too, whole: the whole
@@ -217,7 +218,7 @@ export async function compact(
     if (ev.type === 'completed') usage = ev.usage;
   }
 
-  const summary = (/<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1] ?? '').trim();
+  const summary = summaryIn(text);
   if (!summary) return { result: null, usage };
 
   const through = older[older.length - 1]!;
@@ -235,6 +236,19 @@ export async function compact(
     // Two turns of one chat can reach here together; the first summary stands.
     .onConflictDoNothing();
   return { result: { throughSeq: through.seq, usage }, usage };
+}
+
+/**
+ * The text of the first `<summary>…</summary>` in the model's answer, trimmed; '' when there is
+ * none. By indexOf: the lazy regex this replaces rescanned to the end from every `<summary>` with
+ * no close, quadratic on an answer the conversation's content can steer (ADR-0069).
+ */
+export function summaryIn(text: string): string {
+  const open = text.indexOf('<summary>');
+  if (open === -1) return '';
+  // No close after the first opening means none after any later one either.
+  const close = text.indexOf('</summary>', open + '<summary>'.length);
+  return close === -1 ? '' : text.slice(open + '<summary>'.length, close).trim();
 }
 
 async function previousSummary(db: Database, chatId: string): Promise<string | null> {

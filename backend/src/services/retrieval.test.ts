@@ -14,10 +14,12 @@ import {
   ExtractionUnsupported,
   extractText,
   formatContext,
+  formatWholeFiles,
   joinChunks,
   rankBm25,
   tokenize,
 } from './retrieval.js';
+import { HOSTILE_NAME, HOSTILE_NAME_SHOWN, expectHostileNameNeutralised } from '../test/untrustedNames.js';
 
 describe('tokenize', () => {
   it('lowercases, drops stopwords, and drops single characters', () => {
@@ -124,6 +126,17 @@ describe('formatContext', () => {
     const out = formatContext([{ ...chunk, page: 4 }], 1000);
     expect(out).toContain('p. 4');
     expect(out).not.toContain('part 1');
+  });
+});
+
+describe('a hostile project file name in the excerpt and whole-file headers (ADR-0069)', () => {
+  it('formatContext and formatWholeFiles write it neutralised', () => {
+    const excerpt = formatContext([{ chunkId: 'a', fileId: 'f', filename: HOSTILE_NAME, ordinal: 0, text: 'body', score: 1, page: null }], 10_000);
+    expectHostileNameNeutralised(excerpt);
+    expect(excerpt).toContain(`--- ${HOSTILE_NAME_SHOWN} (part 1) ---\nbody`);
+    const whole = formatWholeFiles([{ filename: HOSTILE_NAME, text: 'body', whole: true }]);
+    expectHostileNameNeutralised(whole);
+    expect(whole).toContain(`--- ${HOSTILE_NAME_SHOWN} ---\nbody`);
   });
 });
 

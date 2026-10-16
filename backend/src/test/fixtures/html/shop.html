@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title data-rh="true">Steel Water Bottle, 750 ml | Example Outdoor</title>
+<script>window.__INITIAL_STATE__={"product":{"sku":"WB-750","price":24.99,"html":"<b>New<\/b>"}};</script>
+<style>
+:root{--brand:#0a6}
+.price{font-weight:700}
+</style>
+</head>
+<body>
+<template id="cart-row"><tr><td class="name"></td><td class="qty"></td></tr></template>
+<main id="product">
+<h1>Steel Water Bottle, 750&nbsp;ml</h1>
+<p class="price">&pound;24.99 <s>&pound;29.99</s></p>
+<p>Double-walled stainless steel keeps drinks cold for 24 hours &amp; hot for 12.</p>
+<button onclick="addToCart('WB-750', 1)">Add to basket</button>
+<h2>Specifications</h2>
+<dl>
+<dt>Capacity</dt><dd>750 ml</dd>
+<dt>Weight</dt><dd>340 g</dd>
+<dt>Lid</dt><dd>Leak-proof, BPA-free</dd>
+</dl>
+<h2>Reviews</h2>
+<div class="review"><p>&#9733;&#9733;&#9733;&#9733;&#9734; &mdash; Fits a bike cage; the lid squeaks.</p></div>
+<div class="review"><p>Size check: 5 < 6 bottles fit my rack, and none > 7.5 cm wide.</p></div>
+</main>
+<script type="text/javascript">
+function addToCart(sku, qty) {
+  fetch('/api/cart', { method: 'POST', body: JSON.stringify({ sku: sku, qty: qty }) });
+}
+</script>
+</body>
+</html>

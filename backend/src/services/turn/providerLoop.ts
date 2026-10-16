@@ -5,7 +5,7 @@
  */
 import type { Config } from '../../config.js';
 import { ApiError } from '../../errors.js';
-import { type GenerationRequest, type ProviderEvent, type Turn, isAbort, ModelNotFoundError, ProviderError } from '../../providers/types.js';
+import { type GenerationRequest, type ProviderEvent, type Turn, isAbort, isRetryableProviderError, ModelNotFoundError, ProviderError } from '../../providers/types.js';
 import type { TurnServices } from './services.js';
 import { logger } from '../../logger.js';
 
@@ -121,7 +121,7 @@ export async function* streamWithRetry(
         );
       }
 
-      const retryable = err instanceof ProviderError && err.retryable;
+      const retryable = isRetryableProviderError(err);
       // A failure a retry would have answered, after a tool ran: the tool is not run twice; the
       // turn ends with what it has, marked partial (ER-2b, ADR-0064).
       if (retryable && toolRan) throw new FailedAfterToolRun(err as ProviderError);

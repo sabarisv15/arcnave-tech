@@ -17,6 +17,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import { errorCopy } from "./api";
 import { DRAWN_TOOLS, type ToolCall } from "./types";
 
 interface Verb {
@@ -164,8 +165,18 @@ function stepDetail(call: ToolCall): { input: string; output: string } {
   return { input, output };
 }
 
+/**
+ * The copy for a tool failure the server named by a stable code (Invariant 5): looked up by the
+ * code, never read from the tool's text. Null for a success, or a failure with no known code.
+ */
+export function toolFailureNotice(call: ToolCall): { title: string; detail: string } | null {
+  if (call.ok !== false || !call.errorCode) return null;
+  return Object.hasOwn(errorCopy, call.errorCode) ? errorCopy[call.errorCode]! : null;
+}
+
 function Step({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false);
+  const notice = toolFailureNotice(call);
   const running = call.ok === undefined;
   const Icon = call.ok === false ? X : verbFor(verbName(call)).icon;
   const { input, output } = stepDetail(call);
@@ -186,6 +197,11 @@ function Step({ call }: { call: ToolCall }) {
           <span className={running ? "shimmer-text" : ""}>{toolStepLabel(call)}</span>
           {expandable && <ChevronRight size={12} className={open ? "activity-chevron open" : "activity-chevron"} />}
         </button>
+        {notice && (
+          <p className="activity-step-notice" role="note">
+            <strong>{notice.title}.</strong> {notice.detail}
+          </p>
+        )}
         {open && (
           <div className="activity-step-detail">
             {input && <pre>{input}</pre>}

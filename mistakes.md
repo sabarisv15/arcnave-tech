@@ -483,24 +483,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `npx vitest run src/providers/*.adapter-loop.test.ts` ("bills every round"), and
   `src/routes/longChat.integration.test.ts` ("reads the size of the last request").
 
-### 2026-09-25 — A generated migration was stamped before the hand-written one, and would have been skipped
-
-- **Symptom:** `drizzle-kit generate` wrote 0011 with `when: 1790354536272`. 0010 had been
-  stamped by hand at `1790400000000`, which is later. Nothing failed locally, because a fresh
-  test database applies every file.
-- **Cause:** Drizzle's migrator applies a migration only when `created_at < folderMillis` for
-  the last applied one. Production already had 0010, so 0011 would have been silently skipped.
-  The same generate also added `CREATE TABLE analysis_*` for four `schema.ts` tables that no
-  migration ever created. Nothing reachable used them, so they were removed with their dead
-  service code.
-- **Rule:** **After `drizzle-kit generate`, read the SQL and the journal.** Keep only the
-  change you meant, and stamp `when` after the previous entry.
-  Never regenerate a migration that has already run anywhere under the same stamp. The
-  migrator records it as applied and skips the new SQL. That happened to 0012 in the local test
-  database; `drop database arcnave_test` recovered it.
-- **Verify:** `npx vitest run src/db/journal.test.ts` (stamp order, and every `schema.ts`
-  table in the latest snapshot); `npx drizzle-kit generate` says "No schema changes".
-
 ### 2026-09-25 — Follow-up turns redid the work, because the history kept only each turn's text
 
 - **Symptom:** Live: after a turn that counted a statement's rows, "federal bank la evalo
@@ -828,6 +810,29 @@ failure mode of this pattern, not a sign it is working.
   before trusting its first commit.**
 - **Verify:** `for w in .claude/worktrees/*; do git -C $w log --oneline -1; done` shows the
   phase commit for every worker.
+
+### 2026-10-16 — A fix for a security finding made the next finding
+
+- **Symptom:** build-3's round-2 fixes, written under time pressure and never reviewed, created
+  three of the six open MAJORs (web_fetch dropped page text after `</style >`, an EPUB with an
+  ordinary SVG was refused, audio retried a 400). In tech-build.3-fix the same thing happened
+  inside the review loop: round 1 narrowed the sandbox signing check to outputs only, to stop it
+  refusing every run in a chat with files, and that reopened the silent loss of an input that
+  `runner.py` drops when the Job's account cannot read the bucket; the new Claude title cut split
+  an emoji's surrogate pair. Each was caught only by the next fresh review.
+- **Cause:** a fix is new code on an attacker-reachable path, written with less context than the
+  original and judged against the one finding it answers. Regex rewrites were "proved" on inputs
+  that are not adversarial for them, and a narrowed fail-closed check was trusted on an unchecked
+  claim (an IAM grant).
+- **Rule:** **A fix for a security finding needs (a) a test that fails on the pre-fix code, run
+  and recorded; (b) for any scan over untrusted input, an adversarial linear-time test sized to
+  the real limit (5–8 MB, asserted under a fixed bound) on inputs that are quadratic for the old
+  code; and (c) its own fresh review before the push, repeated on each fix round. Never narrow a
+  fail-closed check on a claim nothing in the code verifies.**
+- **Verify:** `docs/ops/build-3-fix-review.md` lists three rounds; `npx vitest run
+  src/services/webFetch.cleaner.test.ts src/services/attachments/preflightPass.test.ts
+  src/tools/sandbox/cloudRunSandboxClient.test.ts` ("linear on any page", "the DTD scan is linear",
+  "a run with an input file fails with sandbox_misconfigured").
 
 ## Convention and sources
 
@@ -1456,3 +1461,11 @@ practice, not canon.
   test that relies on a bug is the bug's last defender — read a newly failing old test for that
   before "fixing" the code. And `pkill -f <pattern>` in this shell killed the shell itself,
   because its own command line contained the pattern; kill by PID.
+- **2026-10-16 (tech-build.3-fix)** — Pruned "A generated migration was stamped before the
+  hand-written one" (2026-09-25): `src/db/journal.test.ts` ("stamps every migration later than the
+  one before it") makes it fail the suite (criterion 1). The oldest entry was not pruned: no test
+  carries its rule (`loadTranscript`'s `settled` has none). Added "A fix for a security finding made the next finding". Not a new heading:
+  the worktree entry above repeated itself — both writers got `882e8de` (an old `main` merge); W1
+  branched from `fce4a22` on its own, W2 was told to `git reset --hard fce4a22` after main checked
+  `git worktree list`. The brief had not named the reset although the rule says it must; main's
+  check caught it before any work was built on the wrong base. **40 entries.**

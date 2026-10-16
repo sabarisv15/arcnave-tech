@@ -174,7 +174,12 @@ export interface ToolResult {
   toolCallId: string;
   ok: boolean;
   content: ToolContent[];
+  /** A failure the client must recognise by code, not by the text (Invariant 5). */
+  errorCode?: ToolErrorCode;
 }
+
+/** Stable codes a failed tool call carries to the client (`tool_result.errorCode`). */
+export type ToolErrorCode = 'sandbox_misconfigured';
 
 /**
  * The seam between a provider adapter's loop and ArcNave's actual tool implementations.
@@ -365,6 +370,15 @@ export class ProviderError extends Error {
     this.statusCode = options.statusCode;
     this.retryAfterMs = options.retryAfterMs;
   }
+}
+
+/**
+ * Whether a failed provider call may be retried (Stage 15 ER-2): only a `ProviderError` the
+ * adapter classified retryable. An unclassified error, or anything that is not a ProviderError,
+ * is not retried. One rule for the turn loop (providerLoop.ts) and media readings (audio.ts).
+ */
+export function isRetryableProviderError(err: unknown): boolean {
+  return err instanceof ProviderError && err.retryable;
 }
 
 /**

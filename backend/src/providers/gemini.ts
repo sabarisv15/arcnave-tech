@@ -27,7 +27,7 @@ import type {
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
 import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
-import { attachmentText, pageLabel, unavailableAttachmentNote, xmlAttr } from './attachmentContent.js';
+import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -73,7 +73,8 @@ function attachmentPart(a: NonNullable<GenerationRequest['attachments']>[number]
   // 2. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
   const text = attachmentText(a);
   if (text !== null) {
-    const nameAttr = a.filename ? ` filename="${xmlAttr(a.filename)}"` : '';
+    const shownName = a.filename ? nameForModel(a.filename) : '';
+    const nameAttr = shownName.trim() ? ` filename="${shownName}"` : '';
     return { text: `<document${nameAttr}>\n${text}\n</document>` };
   }
 

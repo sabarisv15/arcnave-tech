@@ -16,20 +16,14 @@
 import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { ProviderError, type MediaPart, type Provider, type ProviderErrorCode } from '../../providers/types.js';
+import { isRetryableProviderError, type MediaPart, type Provider } from '../../providers/types.js';
 import type { ModelInputStore } from './modelInputStore.js';
 import { FileFailure } from './fileErrors.js';
 import { mediaArgs, runTool } from './untrustedTools.js';
 import { makeWorkDir } from './workDir.js';
 
-/**
- * Provider error codes a second identical request cannot fix (providers/types.ts): no quota for
- * the model (`provider_quota_unavailable`, Gemini 429 with limit 0), the model not enabled or the
- * credentials refused (`model_unavailable`: 404 publisher model, 401/403), and a request too
- * large for the model (`context_overflow`). `provider_error`, `provider_timeout` and
- * `provider_limit` may pass on a retry.
- */
-const NO_RETRY_CODES: ReadonlySet<ProviderErrorCode> = new Set(['provider_quota_unavailable', 'model_unavailable', 'context_overflow']);
+/** Requests per piece: the first, and at most one retry (M10). */
+const PIECE_ATTEMPTS = 2;
 
 export interface AudioOptions {
   maxSeconds: number;
@@ -91,6 +85,37 @@ export async function cutPiece(input: string, out: string, startS: number, lengt
   );
 }
 
+/**
+ * One piece's transcription: a request with its own deadline, and at most one retry (M10).
+ *
+ * A failed request is retried only when the failure can pass on a second try (Stage 15 ER-2):
+ * what the provider adapter classified retryable (`ProviderError.retryable`: 408, 409, a 429 with
+ * quota, 5xx, a lost connection), or this piece's deadline, which is a timeout. An SDK timeout
+ * that fires first is retried only when the adapter classified it retryable. Never a 400, 413 or other 4xx, a 429 with zero quota (`provider_quota_unavailable`),
+ * an account limit (`provider_limit`), a model or credentials problem (`model_unavailable`), nor
+ * an error that is not a provider error at all (a bug repeats). The turn loop uses the same
+ * classification (providerLoop.ts). A reading that ended without a natural stop, or empty, is
+ * read once more.
+ */
+export async function readPiece(
+  provider: Required<Pick<Provider, 'readMedia'>>,
+  part: MediaPart,
+  opts: Pick<AudioOptions, 'deadlineMs' | 'signal'>,
+): Promise<Pick<Segment, 'text' | 'ok' | 'model'>> {
+  for (let attempt = 0; attempt < PIECE_ATTEMPTS; attempt++) {
+    if (opts.signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    const deadline = AbortSignal.timeout(opts.deadlineMs);
+    try {
+      const r = await provider.readMedia([part], PROMPT, opts.signal ? AbortSignal.any([opts.signal, deadline]) : deadline);
+      if (r.finishReason === 'STOP' && r.text.trim() !== '') return { text: r.text.trim(), ok: true, model: r.model };
+    } catch (err) {
+      if (opts.signal?.aborted) throw err;
+      if (!deadline.aborted && !isRetryableProviderError(err)) break;
+    }
+  }
+  return { text: '', ok: false, model: '' };
+}
+
 /** Transcribes the audio (or a video's sound) at `filePath` into timed segments. */
 export async function transcribe(
   filePath: string,
@@ -120,22 +145,8 @@ export async function transcribe(
         const part: MediaPart = opts.modelInputs
           ? { mimeType: 'audio/mpeg', fileUri: await opts.modelInputs.uriFor(data, 'audio/mpeg') }
           : { mimeType: 'audio/mpeg', base64: data.toString('base64') };
-        let seg: Segment = { index: i, startMs: Math.round(startS * 1000), endMs: Math.round(endS * 1000), text: '', ok: false, model: '' };
-        for (let attempt = 0; attempt < 2 && !seg.ok; attempt++) {
-          if (opts.signal?.aborted) throw new DOMException('aborted', 'AbortError');
-          const deadline = AbortSignal.timeout(opts.deadlineMs);
-          try {
-            const r = await provider.readMedia([part], PROMPT, opts.signal ? AbortSignal.any([opts.signal, deadline]) : deadline);
-            if (r.finishReason === 'STOP' && r.text.trim() !== '') seg = { ...seg, text: r.text.trim(), ok: true, model: r.model };
-          } catch (err) {
-            if (opts.signal?.aborted) throw err;
-            // Only an error whose code says a retry cannot help ends the piece's attempts
-            // (review R1#10, r2 #3). `retryable: false` alone does not: it is ProviderError's
-            // default and what an unclassified provider failure carries.
-            if (err instanceof ProviderError && NO_RETRY_CODES.has(err.code)) break;
-          }
-        }
-        segments[i] = seg;
+        const read = await readPiece(provider, part, opts);
+        segments[i] = { index: i, startMs: Math.round(startS * 1000), endMs: Math.round(endS * 1000), ...read };
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.concurrency, count)) }, worker));

@@ -80,6 +80,21 @@ export function inspectEntries(entries: ZipEntry[], cfg: Config): Array<ZipEntry
 }
 
 /**
+ * The bytes the ZIP at `zipPath` unpacks to on disk, from its central directory alone: what its
+ * members declare. `expandZip` never writes more (a member that inflates past its declared size
+ * is refused), so this bounds the expansion's disk use before any of it happens (fileJobs.ts,
+ * ADR-0070). A ZIP `expandZip` would refuse is refused here the same way.
+ */
+export async function plannedUnpackedBytes(zipPath: string, cfg: Config): Promise<number> {
+  const src = await fileSource(zipPath);
+  try {
+    return inspectEntries(await readCentralDirectory(src), cfg).reduce((n, e) => n + e.uncompressedSize, 0);
+  } finally {
+    await src.close();
+  }
+}
+
+/**
  * Unpacks the ZIP at `zipPath` to local files and hands each to `onMember` (which stores it);
  * every refusal happens before the first `onMember` call.
  */

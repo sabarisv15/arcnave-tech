@@ -4,6 +4,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { messages, toolCalls } from '../../db/schema.js';
+import { nameForModel } from '../../providers/attachmentContent.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { SKILLS_ROOT } from '../../tools/codeExecutionExecutor.js';
 import { buildDynamicRuntimeContext, currentDateLine, mobileClientLine } from '../systemPrompt.js';
@@ -171,7 +172,10 @@ export async function buildSystemInstruction(
       `<project_knowledge>\nThis project's ${String(wholeFiles.length)} file${wholeFiles.length === 1 ? ' is' : 's are'} ` +
       'too large to include here. Search them with search_project_files and read the parts you need with ' +
       'read_project_file before answering from them.\nFiles: ' +
-      wholeFiles.map((f) => f.filename).join(', ') +
+      // Each name is the uploader's text going into the system instruction: one helper writes
+      // every name the model sees, so none can open a tag or start a line here (ADR-0069), and
+      // each is quoted, so a name holding ", " cannot read as a second file.
+      wholeFiles.map((f) => `"${nameForModel(f.filename)}"`).join(', ') +
       '\n</project_knowledge>';
     events.push({
       type: 'research',

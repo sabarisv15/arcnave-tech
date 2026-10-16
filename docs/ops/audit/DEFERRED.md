@@ -295,3 +295,91 @@ are in [build-3-result.md](../build-3-result.md) and the ADR named.
   the Claude adapter.
 - `mapProviderError`: an unused `const api = new ApiError('provider_payload_limit')`.
 - D3 `streamAndCollect` / `settleTurn` extraction from `runTurn`: not a mechanical move; P07/P08.
+
+---
+
+# tech-build.3-fix — not fixed in this task (2026-10-16)
+
+Source: the three review rounds in [../build-3-fix-review.md](../build-3-fix-review.md) and the
+workers' notes folded into [../build-3-fix-result.md](../build-3-fix-result.md). Every line is
+MINOR or NIT (no BLOCKER/MAJOR is open); the reason it waits is given.
+
+**Pre-existing, rated MINOR by main (reviewer said MAJOR)**
+
+- F16 / R-B r1: the ZIP pre-flight judges central-directory names and sizes, the parser (fflate
+  streaming `Unzip` in officeparser) reads local headers, so a renamed, hidden or data-descriptor
+  entry skips the DTD scan and the real-byte count. Not exploitable today: xmldom 0.9.12 expands
+  only its fixed entity map (`sax.js` `entityReplacer`, `dom-parser.js:228`), SheetJS and ExcelJS
+  (saxes) expand no declared entity, the parse runs in a limited child. Fix: run fflate `Unzip`
+  over the same bytes in the pre-flight and refuse unless its (name, size) list equals the central
+  directory's. P19.
+
+**Sandbox (decision #14 follow-ups)**
+
+- With `SANDBOX_SIGNING_SA` set, a signing failure is still swallowed (`catch {}` around
+  `generateV4SignedUrl` for inputs and outputs), and the input-staging loop's catch drops the rest
+  of the inputs on a GCS `save` / `stat` error: the same silent-loss class. Suggested fix (review
+  r3): after staging, fail typed if any staged input has no URL or any expected output has no PUT
+  URL. Needs its own retry/typing decision for transient IAM errors.
+- A reloaded transcript does not keep a tool call's `errorCode` (no `tool_calls` column); needs a
+  migration and the history DTO.
+- Skill-script runs (`executionRuntime.ts runSkillScriptJson`, no production caller) drop the code
+  and get the chat-oriented message.
+- `materializeChatFiles` downloads every chat file before a refusal that is certain; decide the
+  refusal once at the toolset level, and stop the manifest saying the files are on the computer.
+- The guard checks `stagingBucket` alone; a client built with a bucket but no `storageClient`
+  (tests only; `withAdc` always builds one) would send inputs inline and is refused anyway.
+- `validateOutputFilenames` and the semaphore's capacity error come before the misconfig error
+  (one extra round for the model).
+- The user copy is hand-copied in `errors.ts` and `arcnave-frontend/src/api.ts`; no test checks
+  they match.
+
+**File jobs**
+
+- A ZIP can defer once for nothing when `claim()` holds `activeLarge` during its query; costs one
+  re-download and re-scan; bounded (at most one deferral).
+- A ZIP that defers is downloaded, hashed and scanned twice; read its directory by range, or decide
+  "large" at `complete`.
+- `countedNormal` could be derived (`lane !== 'fast' || large`); kept explicit (NIT).
+
+**Names (ADR-0069 follow-ups)**
+
+- Sheet names: the `## Sheet: …` line inside chunk text and the `[label]` prefix of the whole-file
+  markdown (`derive.ts:87,91`, `pipeline.ts:422`), and `retrieval.ts:208` `--- sheet ---` in
+  project files, are raw. They sit inside file content (explain F12): fence file content first
+  (P07), then neutralise structural lines.
+- Tool results stored before this change replay raw names once (ADR-0069 Consequences).
+- `documentTitle` trims; other sites keep a leading/trailing space; a name of only dropped
+  characters shows `""` in page labels and the manifest (NIT).
+- The lookalike set is ours; check against Unicode `confusables.txt` (not reachable from the
+  container). Known misses: U+FFE8, U+05C0, U+2016 (bar); U+301D–301F, U+3003, U+05F4, U+275D/275E
+  (quote).
+- `retrieval.ts extractHtmlTable` regexes are quadratic, but run only in the isolated extractor
+  child (wall-clock limited).
+- `gemini.ts:136` compiles a model-supplied tool name into a RegExp unescaped.
+- `cloudRunSandboxClient.ts:53,59,65` repeat a sandbox-made output name raw in errors the model sees.
+- `zipExpand.ts:75` puts a member name raw into a user-facing failure detail (not model-visible).
+
+**web_fetch**
+
+- Only four entities decoded, `&amp;lt;` double-decodes to `<` (old behaviour, kept for the
+  goldens); the title's entities are not decoded.
+- `content.slice(0, maxChars)` can split a surrogate pair.
+- `pageTitle` scans raw HTML, so a `<title>` inside a comment wins; `--!>` does not end a comment;
+  `<style title="</style>">` leaks `">css` (NITs).
+- The 13 × 5 MB adversarial inputs are built at module load (~100 MB held by the test file); the
+  bound stays 2 s as the brief set it.
+
+**Audio**
+
+- The one retry is immediate and `readMedia` drops `retryAfterMs`; Stage 15 ER-2 / N-42 asks for
+  backoff with jitter and honouring Retry-After (pre-existing). P11.
+
+**Brand guard (F17)**
+
+- `brandNeutral.test.ts` checks wording that describes the product as another assistant, not
+  provider names in comments of non-provider launch files (24 files name a provider today, many
+  legitimately). Needs a per-file allowlist decision.
+
+**Untouched findings from explain.3** — F7 (safeFetch timer tests), F19 (old ODT `manifest.xml`
+PUBLIC DOCTYPE refused): not in this task's items.

@@ -452,6 +452,11 @@ describe('CloudRunSandboxClient — orchestration timeout', () => {
 
 describe('CloudRunSandboxClient — storage-based staging bridge', () => {
   it('stages input files, passes references, downloads outputs via storage, and cleans up', async () => {
+    // Signing goes to IAM's signBlob through the global fetch: answered here, never the network.
+    const signBlob = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (!String(url).includes(':signBlob')) throw new Error(`unexpected global fetch: ${String(url)}`);
+      return jsonResponse({ signedBlob: Buffer.from('sig').toString('base64') });
+    });
     const savedFiles: Record<string, Buffer> = {};
     const deletedPrefixes: string[] = [];
 
@@ -538,6 +543,7 @@ describe('CloudRunSandboxClient — storage-based staging bridge', () => {
         maxStderrBytes: 65_536,
         stagingBucket: 'test-staging-bucket',
         storageClient: fakeStorage as any,
+        signingSaEmail: 'signer@example.test',
       },
       fetchMock as unknown as typeof fetch,
     );
@@ -569,8 +575,9 @@ describe('CloudRunSandboxClient — storage-based staging bridge', () => {
       const inputsEnv = envVars.find((e: any) => e.name === 'RUN_PYTHON_INPUTS_JSON');
       expect(inputsEnv).toBeDefined();
       expect(JSON.parse(inputsEnv.value)).toEqual([
-        { name: 'data.csv', stagingRef: stagedInputKey },
+        { name: 'data.csv', stagingRef: stagedInputKey, url: expect.stringContaining('X-Goog-Signature=') },
       ]);
+      expect(signBlob).toHaveBeenCalled();
       // Verify legacy binary env var is NOT present
       expect(envVars.find((e: any) => e.name === 'RUN_PYTHON_INPUT_FILES_JSON')).toBeUndefined();
 
@@ -582,6 +589,7 @@ describe('CloudRunSandboxClient — storage-based staging bridge', () => {
       expect(deletedPrefixes.length).toBeGreaterThan(0);
       expect(deletedPrefixes[0]).toMatch(/^runs\/.*\/$/);
     } finally {
+      signBlob.mockRestore();
       await fs.rm(wsDir, { recursive: true, force: true });
     }
   });
@@ -631,3 +639,98 @@ describe('CloudRunSandboxClient — storage-based staging bridge', () => {
   });
 });
 
+
+/**
+ * Build-3 decision #14 (ADR-0070): a staging bucket without SANDBOX_SIGNING_SA used to stage
+ * inputs with no signed URL and give outputs none, silently. A run that moves a file now fails
+ * with `sandbox_misconfigured` before anything is staged or launched; a run with no file runs.
+ */
+describe('CloudRunSandboxClient — staging bucket without a signing account (ADR-0070, decision #14)', () => {
+  async function setup(withInput: boolean) {
+    const saved: string[] = [];
+    const storage = {
+      bucket: () => ({
+        file: (name: string) => ({
+          save: async () => {
+            saved.push(name);
+          },
+          download: async () => [Buffer.from('')],
+        }),
+        deleteFiles: async () => undefined,
+      }),
+    };
+    const fetchMock = runningFullFlowFetch(() => [{ textPayload: resultLine() }]);
+    const client = new CloudRunSandboxClient(
+      {
+        project: 'p',
+        location: 'us-central1',
+        jobName: 'arcnave-python-sandbox',
+        getAccessToken: async () => 'fake-token',
+        maxCodeBytes: 20 * 1024,
+        codeTimeoutMs: 10_000,
+        orchestrationTimeoutMs: 45_000,
+        maxStdoutBytes: 65_536,
+        maxStderrBytes: 65_536,
+        stagingBucket: 'test-staging-bucket',
+        storageClient: storage as never,
+        // signingSaEmail deliberately unset
+      },
+      fetchMock as unknown as typeof fetch,
+    );
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const fs = await import('node:fs/promises');
+    const wsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'test-ws-'));
+    await fs.mkdir(path.join(wsDir, 'input'), { recursive: true });
+    if (withInput) await fs.writeFile(path.join(wsDir, 'input', 'data.csv'), 'a,b\n1,2');
+    return { client, saved, fetchMock, wsDir, done: () => fs.rm(wsDir, { recursive: true, force: true }) };
+  }
+
+  it('a run with an input file fails with sandbox_misconfigured; nothing is staged and no job runs', async () => {
+    // runner.py would read a URL-less input with the Job's own token and drop it with a stderr
+    // line when that account cannot read the bucket: a file lost quietly (review build-3-fix r2).
+    const { SandboxMisconfiguredError } = await import('./client.js');
+    const t = await setup(true);
+    try {
+      const err = await t.client.runPython('print(1)', new AbortController().signal, { workspaceDir: t.wsDir }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SandboxMisconfiguredError);
+      expect(err).toMatchObject({ code: 'sandbox_misconfigured' });
+      // The model is told the truth: files in the conversation block code, and not to retry.
+      expect((err as Error).message).toContain('While this conversation has files');
+      expect((err as Error).message).toContain('Do not retry');
+      expect(t.saved).toEqual([]);
+      expect(t.fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await t.done();
+    }
+  });
+
+  it('a run that expects outputs fails with sandbox_misconfigured; nothing is staged and no job runs', async () => {
+    const { SandboxMisconfiguredError } = await import('./client.js');
+    // No input file: the outputs check alone must refuse (present_files in a chat with no files).
+    const t = await setup(false);
+    try {
+      await expect(
+        t.client.runPython('print(1)', new AbortController().signal, { workspaceDir: t.wsDir, expectedOutputs: ['chart.png'] }),
+      ).rejects.toBeInstanceOf(SandboxMisconfiguredError);
+      await expect(
+        t.client.runPython('print(1)', new AbortController().signal, { workspaceDir: t.wsDir, expectedOutputs: ['chart.png'] }),
+      ).rejects.toMatchObject({ code: 'sandbox_misconfigured' });
+      expect(t.saved).toEqual([]);
+      expect(t.fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await t.done();
+    }
+  });
+
+  it('control: a run that moves no file still runs', async () => {
+    const t = await setup(false);
+    try {
+      const res = await t.client.runPython('print(1)', new AbortController().signal, { workspaceDir: t.wsDir });
+      expect(res.outputs[0]?.text).toContain('hello');
+      expect(t.saved).toEqual([]);
+    } finally {
+      await t.done();
+    }
+  });
+});

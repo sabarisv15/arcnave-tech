@@ -5113,6 +5113,12 @@ select:focus-visible {
   color: var(--muted);
 }
 .activity-step-detail pre:only-child { border-top: none; }
+.activity-step-notice {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .working-spark.is-active,

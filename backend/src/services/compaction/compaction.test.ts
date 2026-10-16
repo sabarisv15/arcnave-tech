@@ -88,6 +88,25 @@ describe('Phase 5.3 Conversation Compaction', () => {
   });
 });
 
+describe('summaryIn: the summary out of the model answer (ADR-0069)', () => {
+  it('takes the first complete <summary> block, trimmed, and nothing when there is none', async () => {
+    const { summaryIn } = await import('./autoCompact.js');
+    expect(summaryIn('thinking…\n<summary>\n Facts: 4200.\n</summary> trailing')).toBe('Facts: 4200.');
+    expect(summaryIn('<summary>first</summary><summary>second</summary>')).toBe('first');
+    expect(summaryIn('<summary>a <summary>b</summary>')).toBe('a <summary>b');
+    expect(summaryIn('<summary>never closed')).toBe('');
+    expect(summaryIn('no tags')).toBe('');
+  });
+
+  it('is linear: 1 MB of unclosed <summary> takes well under a second', async () => {
+    const { summaryIn } = await import('./autoCompact.js');
+    const text = '<summary>'.repeat(Math.ceil((1024 * 1024) / 9));
+    const started = performance.now();
+    expect(summaryIn(text)).toBe('');
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
 describe('compactionTrigger (ADR-0027)', () => {
   it('compacts as the window fills, at 967,000 on a 1M window as Claude Code does', async () => {
     const { compactionTrigger } = await import('./autoCompact.js');

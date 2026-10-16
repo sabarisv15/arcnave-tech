@@ -272,6 +272,15 @@ export const ERROR_CATALOG = {
     title: 'Request blocked',
     detail: 'This request came from a site that is not allowed to change your account. Open ArcNave directly and try again.',
   },
+  /**
+   * A code run that moves a file, on a sandbox whose staging bucket has no signing account
+   * (SANDBOX_SIGNING_SA): carried on the failed tool result (`tool_result.errorCode`), ADR-0070.
+   */
+  sandbox_misconfigured: {
+    status: 503,
+    title: 'Running code with files is not set up',
+    detail: 'This server cannot pass files to or from the code sandbox yet, so code cannot run in a chat that has files, or make a file. Code still runs in a chat without files. Ask the owner to finish the sandbox setup.',
+  },
 } as const satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

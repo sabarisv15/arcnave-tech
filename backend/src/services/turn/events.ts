@@ -3,7 +3,7 @@
  * `services/generation.ts` unchanged, which still exports every name (ADR-0067).
  */
 import type { Config } from '../../config.js';
-import { type ProviderSource, type ProviderUsage, type ReasoningEffort, type ToolResult, totalTokens } from '../../providers/types.js';
+import { type ProviderSource, type ProviderUsage, type ReasoningEffort, type ToolErrorCode, type ToolResult, totalTokens } from '../../providers/types.js';
 import type { UIBlock } from '../ui/types.js';
 import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
 
@@ -24,8 +24,11 @@ export type StreamEvent =
   | { type: 'sources'; sources: SourceDto[]; searchEntryPoint?: string }
   | { type: 'code'; code?: string; language?: string; output?: string }
   | { type: 'tool_use'; toolCallId: string; name: string; input: unknown }
-  /** `files`: what present_files gave the user, so the client shows (and opens) them at once. */
-  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string; files?: PresentedFileDto[] }
+  /**
+   * `files`: what present_files gave the user, so the client shows (and opens) them at once.
+   * `errorCode`: a failure the client recognises by code (Invariant 5), e.g. `sandbox_misconfigured`.
+   */
+  | { type: 'tool_result'; toolCallId: string; name: string; ok: boolean; preview: string; files?: PresentedFileDto[]; errorCode?: ToolErrorCode }
   | { type: 'artifact_created'; artifactId: string; title: string; kind: string; version: number }
   | { type: 'ui_block'; block: UIBlock }
   /**

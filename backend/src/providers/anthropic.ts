@@ -20,7 +20,7 @@ import type {
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
-import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
+import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -255,6 +255,24 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
   });
 }
 
+/** The Messages API's bounds on a document block's `title` (DocumentBlockParam: minLength 1, maxLength 500). */
+const DOCUMENT_TITLE_MAX_CHARS = 500;
+
+/**
+ * A document's title: the name as the model sees it everywhere (ADR-0069), within the API's
+ * bounds. Escaping can make a 255-character name several times longer, and a name of nothing but
+ * dropped characters becomes empty; either would make the API refuse every later turn that
+ * replays the file (review build-3-fix r1). A cut never ends inside a character reference, nor
+ * between the two halves of a surrogate pair: a lone surrogate is not valid in the request (r2).
+ */
+export function documentTitle(filename: string | undefined): string | undefined {
+  if (!filename) return undefined;
+  const name = nameForModel(filename).trim();
+  if (name === '') return undefined;
+  if (name.length <= DOCUMENT_TITLE_MAX_CHARS) return name;
+  return `${name.slice(0, DOCUMENT_TITLE_MAX_CHARS - 1).replace(/(?:&(?:#\d{0,3}|[a-z]{0,4})|[\uD800-\uDBFF])$/, '')}…`;
+}
+
 function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number]): CacheableBlock {
   // 1. Native PDF (base64)
   if (a.mimeType === 'application/pdf' && a.base64) {
@@ -266,7 +284,8 @@ function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number
         data: a.base64,
       },
     };
-    if (a.filename) block.title = a.filename;
+    const title = documentTitle(a.filename);
+    if (title) block.title = title;
     return block;
   }
 
@@ -289,7 +308,8 @@ function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number
       type: 'document',
       source: { type: 'text', media_type: 'text/plain', data: text },
     };
-    if (a.filename) block.title = a.filename;
+    const title = documentTitle(a.filename);
+    if (title) block.title = title;
     return block;
   }
   // 4. Nothing sendable: say so, never an empty document or decoded binary (G15, G17).
