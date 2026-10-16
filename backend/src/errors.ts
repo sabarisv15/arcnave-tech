@@ -95,6 +95,21 @@ export const ERROR_CATALOG = {
     title: 'The upload did not finish',
     detail: 'Not all of the file arrived. Remove it and upload it again.',
   },
+  file_not_ready: {
+    status: 409,
+    title: 'A file is not ready',
+    detail: 'Wait for every file to finish reading, or remove the ones that failed, then send.',
+  },
+  file_already_attached: {
+    status: 409,
+    title: 'This file is already in a sent message',
+    detail: 'Attach the file again to use it in a new message.',
+  },
+  upload_quota_exceeded: {
+    status: 429,
+    title: 'Daily upload limit reached',
+    detail: 'You have reached today’s upload limit. Try again tomorrow.',
+  },
   rate_limit: { status: 429, title: 'Too many requests', detail: 'Wait a moment, then try again.' },
   idempotency_conflict: {
     status: 409,

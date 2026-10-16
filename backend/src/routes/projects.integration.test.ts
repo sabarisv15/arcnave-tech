@@ -13,7 +13,8 @@ import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, multipart, signUp } from '../test/harness.js';
+import { createTestApp, multipart, signUp, postProjectFile } from '../test/harness.js';
+import { png as pngFixture } from '../test/fixtures/files.js';
 
 /**
  * pptxgenjs is CommonJS; under this project's NodeNext + verbatimModuleSyntax config its
@@ -58,14 +59,8 @@ async function upload(
   content: string | Buffer,
   contentType = 'text/plain',
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const { payload, headers } = multipart(filename, content, contentType);
-  const response = await ctx.app.inject({
-    method: 'POST',
-    url: `/v1/projects/${projectId}/files`,
-    headers: { ...headers, ...auth() },
-    payload,
-  });
-  return { statusCode: response.statusCode, body: response.json() as Record<string, unknown> };
+  const response = await postProjectFile(ctx, auth(), projectId, multipart(filename, content, contentType));
+  return { statusCode: response.statusCode, body: response.json() };
 }
 
 /* -------------------------------------------------------------------------- CRUD */
@@ -213,11 +208,11 @@ describe('file upload and indexing', () => {
     'Observation: the western side of the route has shade in the morning.\n\n' +
     'Next step: repeat the observation in the afternoon and compare the shade.';
 
-  it('indexes a text file inside the request, so the response carries the final status', async () => {
+  it('indexes a text file in a job: 202 queued, then the file reads ready', async () => {
     const projectId = await createProject('indexing');
     const { statusCode, body } = await upload(projectId, 'notes.txt', NOTES);
 
-    expect(statusCode).toBe(201);
+    expect(statusCode).toBe(202);
     expect(body).toMatchObject({ status: 'ready', filename: 'notes.txt', error: '' });
     expect(body['chunkCount']).toBeGreaterThan(0);
     expect(body['indexedAt']).not.toBeNull();
@@ -256,8 +251,11 @@ describe('file upload and indexing', () => {
       headers: auth(),
     });
 
-    expect(again.statusCode).toBe(200);
-    expect(again.json()).toMatchObject({ status: 'ready', chunkCount: originalChunks });
+    expect(again.statusCode).toBe(202);
+    expect(again.json()).toMatchObject({ status: 'queued' });
+    await ctx.app.services.files.idle();
+    const done = await ctx.app.inject({ url: `/v1/projects/${projectId}/files/${fileId}`, headers: auth() });
+    expect(done.json()).toMatchObject({ status: 'ready', chunkCount: originalChunks });
 
     const read = await ctx.app.inject({ url: `/v1/projects/${projectId}`, headers: auth() });
     expect((read.json() as { counts: { indexedChunks: number } }).counts.indexedChunks).toBe(
@@ -298,7 +296,7 @@ describe('file upload and indexing', () => {
       buffer,
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    expect(statusCode).toBe(201);
+    expect(statusCode).toBe(202);
     expect(body).toMatchObject({ status: 'ready' });
     expect(body['chunkCount']).toBeGreaterThan(0);
 
@@ -324,7 +322,7 @@ describe('file upload and indexing', () => {
       buffer,
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     );
-    expect(statusCode).toBe(201);
+    expect(statusCode).toBe(202);
     expect(body).toMatchObject({ status: 'ready' });
 
     const hit = await ctx.app.inject({
@@ -370,7 +368,7 @@ describe('file upload and indexing', () => {
       buffer,
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     );
-    expect(statusCode).toBe(201);
+    expect(statusCode).toBe(202);
     expect(body).toMatchObject({ status: 'ready' });
 
     const hit = await ctx.app.inject({
@@ -393,7 +391,7 @@ describe('file upload and indexing', () => {
 
     const projectId = await createProject('pdf-pages');
     const { statusCode, body } = await upload(projectId, 'plan.pdf', buffer, 'application/pdf');
-    expect(statusCode).toBe(201);
+    expect(statusCode).toBe(202);
     expect(body).toMatchObject({ status: 'ready' });
 
     const hit = await ctx.app.inject({
@@ -423,19 +421,10 @@ describe('file upload and indexing', () => {
 
   it('stores a file it cannot extract as unsupported, with the reason, rather than rejecting it', async () => {
     const projectId = await createProject('image');
-    const png = Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      Buffer.alloc(64, 7),
-    ]);
-    const { payload, headers } = multipart('pic.png', png, 'image/png');
-    const response = await ctx.app.inject({
-      method: 'POST',
-      url: `/v1/projects/${projectId}/files`,
-      headers: { ...headers, ...auth() },
-      payload,
-    });
+    // A real image: stored and readable, but an image has no text to index.
+    const response = await postProjectFile(ctx, auth(), projectId, multipart('pic.png', pngFixture(8, 8), 'image/png'));
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode).toBe(202);
     expect(response.json()).toMatchObject({ status: 'unsupported', chunkCount: 0 });
     expect(String((response.json() as { error: string }).error)).not.toBe('');
   });

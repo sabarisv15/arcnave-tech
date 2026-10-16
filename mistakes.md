@@ -226,27 +226,6 @@ failure mode of this pattern, not a sign it is working.
   the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
   `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
 
-### 2026-09-17 — The SSE generate endpoint had no CORS headers, only visible once cross-origin
-
-- **Symptom:** In a real browser, sending a chat message hung on "Thinking…" forever. Every
-  other endpoint (login, chats list, models) worked fine from the same page. Curl-based testing
-  all session had not caught this — curl does not enforce CORS, only browsers do.
-- **Cause:** `/chats/:id/generate` writes its response with `reply.raw.writeHead(...)` to
-  stream SSE frames, bypassing Fastify's reply pipeline entirely — which is exactly where
-  `@fastify/cors` (registered in `app.ts`) injects `Access-Control-Allow-Origin` and
-  `-Credentials`. Every other route uses `reply.send()`/Fastify's normal response path and got
-  CORS headers for free; this one silently never had them. Invisible for the entire time the
-  frontend and API were same-origin (via `vite.config.ts`'s proxy, or the Worker proxy tried
-  and reverted earlier tonight) — a hard, silent failure the moment they were not.
-- **Rule:** **Any handler that reaches for `reply.raw` to bypass Fastify's response pipeline
-  must be checked against every `onSend`-hook-based plugin the app registers — CORS, but also
-  anything else added later that assumes it runs through `reply.send()`.** Test it with an
-  actual cross-origin `Origin` header via `app.inject()`, not just same-origin curl calls;
-  curl and `fetch` with no `Origin` set will never reproduce a CORS failure.
-- **Verify:** `chats.integration.test.ts` — "sends CORS headers on the SSE response for an
-  allowed origin" and its negative counterpart for a non-allow-listed origin. Both fail if the
-  header logic in `chats.ts`'s generate handler regresses.
-
 ### 2026-09-17 — `docker start arcnave-pg` fails in this Claude Code web/cloud sandbox
 
 - **Symptom:** `global-setup.ts`'s own error message ("Is Postgres running? `docker start
@@ -379,23 +358,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** Not yet fixed. Moving the migration to a separate deploy step (a Cloud Build
   step, or a Cloud Run Job run once before traffic shifts) is the real fix; tracked as a known
   issue in the checkpoint rather than patched under time pressure.
-
-### 2026-09-18 — `@google-cloud/storage` was never a declared dependency, and production had `STORAGE_BACKEND=gcs`
-
-- **Symptom:** None observed yet — found by reading `storage.ts`'s own comment
-  ("Requires `@google-cloud/storage`, which is not a declared dependency") while preparing to
-  deploy, then checking the live Cloud Run service's env vars and finding
-  `STORAGE_BACKEND=gcs` / `STORAGE_GCS_BUCKET=arcnave-attachments` already set.
-- **Cause:** `GcsObjectStorage.getBucket()` dynamically imports `@google-cloud/storage`, which
-  was never added to `package.json`. `npm ci --omit=dev` in the Dockerfile would not have
-  installed it, so the first real upload/download on the deployed revision would throw at the
-  dynamic `import()` — silent until that exact code path ran.
-- **Rule:** **A backend value in production config (`STORAGE_BACKEND=gcs`) is a claim that the
-  code path it selects actually works. Trace every env-driven branch to what it imports before
-  trusting that a deploy exercises it.**
-- **Verify:** `npm install @google-cloud/storage`; `docker build` the backend image, then
-  `docker run --rm <image> node -e "import('@google-cloud/storage').then(...)"` resolves
-  inside the real runtime image, not just locally where dev dependencies are also present.
 
 ### 2026-09-18 — A backend-only push re-deployed the frontend anyway, from a stale `main`
 
@@ -835,6 +797,38 @@ failure mode of this pattern, not a sign it is working.
   user's Conversation font (system, dyslexic) for Tamil only. Rule: a language rule needs the same
   `[data-font]` carve-outs as the base rule. Verify: `chat-states.css` has the two `:lang(ta)` overrides.
 
+### 2026-10-15 — A background worker started by `createApp` made the database-free OpenAPI build hang
+
+- **Symptom:** `npm run openapi` (documented as "a database-free smoke test") never exited after
+  the file-job worker was added. No error; the process just stayed open.
+- **Cause:** the worker was started from an `onReady` hook inside `createApp`. Its first pump ran
+  a query, which opened the `postgres.js` pool; `app.close()` stopped the worker but nothing
+  closed the pool, so the event loop stayed alive. Every caller of `createApp` (OpenAPI, tests,
+  scripts) got a database worker it never asked for.
+- **Rule:** **Never start a loop that touches the database from `createApp`.** Building the app
+  must not reach the database; the process entry (`index.ts`) starts background work, and the
+  test harness starts it explicitly. Also, when tests share one database, a background worker
+  must not claim work another test app queued: with polling off it runs only the jobs it was
+  handed (`FILE_WORKER_POLL_MS=0` in `harness.ts`).
+- **Verify:** `cd backend && timeout 150 npx tsx src/openapi.ts` exits 0;
+  `grep -n "files.start" src/app.ts` is empty, and `src/index.ts` / `src/test/harness.ts` each
+  have one.
+
+### 2026-10-15 — A UTF-16 CSV was read as MPEG audio by the content sniff
+
+- **Symptom:** A UTF-16 LE CSV with a byte-order mark was refused at upload with "The content of
+  this file does not match its name (.csv)". Found only when a test uploaded a real UTF-16 file.
+- **Cause:** `detectKind` checked the MPEG frame sync (`0xFF` then three set bits) before the
+  UTF-16 BOM check. `FF FE` is both, so the BOM never got its turn and the file was `media`.
+- **Rule:** **In a magic-byte table, test exact multi-byte signatures (BOMs, `%PDF`, `PK`) before
+  loose bit patterns, and run every text encoding a type promises through the sniff in a test.**
+  Same class, same task: pdf-lib's saved fixture hid `/OpenAction` inside object streams, and the
+  first strip removed references but left the script objects in the saved file; check the saved
+  bytes, not the object graph.
+- **Verify:** `npx vitest run src/services/attachments/ingestUnits.test.ts` (sniff: UTF-16 with
+  and without a BOM) and `src/routes/fileSafety.integration.test.ts` (no `/JavaScript`, `/Launch`
+  or `app.alert` left in the stored bytes).
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -859,6 +853,24 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-10-15 (tech-build.2, files ingest)** — Added the sniff-order entry. Retired
+  "`@google-cloud/storage` was never a declared dependency": it is declared and imported in the
+  image, and the broader rule lives in "A devDependency the production image asks for" (pruning
+  criterion 3). Not new headings: (1) a chunk-overlap test asserted `<` where the first chunk's
+  last line is also the next chunk's first: the 2026-09-17 rule (derive, do not hand-compute)
+  again. (2) officeparser's Markdown opens with YAML front matter carrying the document author's
+  name; it went into extracted text until the DOCX derivative dropped it. Rule: read a parser's
+  whole output on a real file before storing it as "text". (3) Tests that hit per-chat or
+  per-message limits (N-10: 10 per message, 20 per chat) failed for the limit, not the feature;
+  read the limits before sizing a fixture. **40 entries.**
+
+- **2026-10-15** — No new heading (at the cap). tech-audit.A: I briefed eight auditors that
+  `06-eval-cases-v1.json` holds "87 cases" after counting `"id"` keys with grep; it is an array of
+  68 cases, and 19 of the ids belong to nested documents. Two auditors caught it. Rule: count
+  records by parsing the structure, never by grepping a key name. Verify:
+  `node -e "console.log(require('./06-eval-cases-v1.json').length)"` (prints 68). Also repeated
+  the 2026-09-27 lesson in a scratch script: a `$` inside a `String.replace` replacement mangled
+  the file — use a replacement callback or a written script, never inline `$` text.
 - **2026-09-29** — No new heading (at the cap). Writing the line-by-line Fable comparison, I keyed
   the first rows from a head-of-file print without line numbers and was two lines off for the
   whole product-information section; a script validator later also caught one ArcNave line cited
@@ -1423,3 +1435,12 @@ practice, not canon.
   that only forbids narrating the tool). Rule: a sentence in the static base that names a tool is
   built from `buildStaticBasePrompt(allowed.has('read_me'))`, not written once. Verify: PK-HON-05
   with no `it.fails` left in `src/test/promptKit`.
+- **2026-10-15 (tech-build.1, files fix)** — Pruned "The SSE generate endpoint had no CORS
+  headers": `chats.integration.test.ts` ("sends CORS headers on the SSE response…") now carries it
+  (pruning criterion 1). Added the `createApp` worker entry. Not new headings: `drizzle-kit
+  generate` stamped 0028 (`1792079597911`) before 0027 (`1792100000000`) again; re-stamped by tag,
+  `journal.test.ts` passes (the 2026-09-25 rule). An existing test (`modelLimits.integration`)
+  sent the same file in two chats, which only worked because of the claim bug D1 #18 fixed; a
+  test that relies on a bug is the bug's last defender — read a newly failing old test for that
+  before "fixing" the code. And `pkill -f <pattern>` in this shell killed the shell itself,
+  because its own command line contained the pattern; kill by PID.

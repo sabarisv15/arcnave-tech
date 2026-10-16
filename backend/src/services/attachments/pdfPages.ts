@@ -20,7 +20,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import type { AttachmentPage } from '../../providers/types.js';
-import { FILE_LIMITS } from './processUpload.js';
+import { FILE_LIMITS } from './pipeline.js';
 
 const run = promisify(execFile);
 
@@ -106,11 +106,19 @@ async function render(data: Buffer): Promise<PdfForModel> {
       return { kind: 'unreadable', reason: firstLine(err) };
     }
 
-    const { stdout: rawText } = await run('pdftotext', ['-enc', 'UTF-8', pdf, '-'], {
-      timeout: 120_000,
-      maxBuffer: 256 * 1024 * 1024,
-    });
-    const texts = rawText.split('\f').slice(0, pageCount);
+    // A PDF whose page count reads but whose text does not is damaged, not missing: it must
+    // reach the model as `unreadable` with the reason, never as "could not be loaded from
+    // storage" (D1 #34).
+    let texts: string[];
+    try {
+      const { stdout: rawText } = await run('pdftotext', ['-enc', 'UTF-8', pdf, '-'], {
+        timeout: 120_000,
+        maxBuffer: 256 * 1024 * 1024,
+      });
+      texts = rawText.split('\f').slice(0, pageCount);
+    } catch (err) {
+      return { kind: 'unreadable', reason: firstLine(err) };
+    }
 
     if (pageCount > FILE_LIMITS.pdfVisualMaxPages) {
       const text = texts
@@ -121,19 +129,23 @@ async function render(data: Buffer): Promise<PdfForModel> {
       return { kind: 'text', pageCount, text };
     }
 
-    await run(
-      'pdftoppm',
-      [
-        '-jpeg',
-        '-jpegopt',
-        `quality=${String(PAGE_IMAGE_JPEG_QUALITY)}`,
-        '-scale-to',
-        String(PAGE_IMAGE_LONG_EDGE_PX),
-        pdf,
-        path.join(dir, 'p'),
-      ],
-      { timeout: 300_000, maxBuffer: 1024 * 1024 },
-    );
+    try {
+      await run(
+        'pdftoppm',
+        [
+          '-jpeg',
+          '-jpegopt',
+          `quality=${String(PAGE_IMAGE_JPEG_QUALITY)}`,
+          '-scale-to',
+          String(PAGE_IMAGE_LONG_EDGE_PX),
+          pdf,
+          path.join(dir, 'p'),
+        ],
+        { timeout: 300_000, maxBuffer: 1024 * 1024 },
+      );
+    } catch (err) {
+      return { kind: 'unreadable', reason: firstLine(err) };
+    }
     // pdftoppm zero-pads the page number to the width of the page count: p-1.jpg or p-001.jpg.
     const files = (await readdir(dir)).filter((f) => /^p-\d+\.jpg$/.test(f));
     const byNum = new Map(files.map((f) => [Number(/\d+/.exec(f)![0]), f]));

@@ -45,7 +45,7 @@ export function attachmentText(a: AttachmentBlock): string | null {
 
 /** The label that introduces each page, so a model can name the page it read. */
 export function pageLabel(a: AttachmentBlock, num: number): string {
-  const total = a.pages?.length ?? 0;
+  const total = a.pageCount ?? a.pages?.length ?? 0;
   return `${a.filename ? `"${a.filename}" ` : ''}page ${String(num)} of ${String(total)}`;
 }
 
@@ -73,8 +73,12 @@ export function readsWithCode(a: AttachmentBlock): boolean {
 /** The attachment as sent when the turn can run code: identity and a pointer, no inline text. */
 export function asReadWithCode(a: AttachmentBlock): AttachmentBlock {
   if (a.omittedReason || !readsWithCode(a)) return a;
-  const { base64: _bytes, extractedText: _text, ...rest } = a;
-  return { ...rest, extractedText: null, omittedReason: 'read_with_code' };
+  // Stage 9 CF4 / D9-8 (ADR-0063, superseding ADR-0045 §1): a file whose token count fits the
+  // whole-file limit goes inline as its normalised text, even when code could read it.
+  if (a.wholeWithinBudget) return a;
+  const { base64: _bytes, extractedText: text, ...rest } = a;
+  // Above the limit: the pointer, plus the excerpts retrieved for this question.
+  return { ...rest, extractedText: a.excerpted ? (text ?? null) : null, omittedReason: 'read_with_code' };
 }
 
 /** The note sent in place of an attachment whose content is not in this request. */

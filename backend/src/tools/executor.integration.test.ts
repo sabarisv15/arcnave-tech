@@ -6,7 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { LexicalRetriever, indexFile } from '../services/retrieval.js';
+import { chunkText, LexicalRetriever } from '../services/retrieval.js';
 import { createTestApp, signUp } from '../test/harness.js';
 import type { TestContext } from '../test/harness.js';
 import type { ToolContent } from '../providers/types.js';
@@ -56,10 +56,9 @@ beforeAll(async () => {
     { length: 20 },
     (_, i) => `Paragraph ${String(i)} about the quarterly cooling budget review.`,
   ).join('\n\n');
-  await indexFile(
-    ctx.db,
-    { id: fileId, projectId, mimeType: 'text/plain', filename: 'notes.txt' },
-    Buffer.from(paragraphs),
+  // Chunks as the project ingest writes them (fileJobs.ts); this test is about the tool, not ingest.
+  await ctx.db.insert(schema.fileChunks).values(
+    chunkText(paragraphs).map((text, ordinal) => ({ projectFileId: fileId, projectId, ordinal, text, charCount: text.length, page: null })),
   );
 });
 

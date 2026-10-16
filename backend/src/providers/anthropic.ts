@@ -235,7 +235,8 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
   return attachments.flatMap((a): CacheableBlock[] => {
     // 0. A PDF as its pages: each page's image, then its text (ADR-0013). Never the PDF itself.
     if (a.pages) {
-      return a.pages.flatMap((page): CacheableBlock[] => [
+      const note: CacheableBlock[] = a.pagesNote ? [{ type: 'text', text: a.pagesNote }] : [];
+      return note.concat(a.pages.flatMap((page): CacheableBlock[] => [
         { type: 'text', text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
         ...(page.image?.base64
           ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: page.image.mimeType, data: page.image.base64 } }]
@@ -248,7 +249,7 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
           type: 'text',
           text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.`,
         },
-      ]);
+      ]));
     }
     return [attachmentBlock(a)];
   });
@@ -660,6 +661,22 @@ export class AnthropicProvider implements Provider {
     }
 
     yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
+  }
+
+  /**
+   * The Claude API's `count_tokens` on the Sonnet model (Stage 9 TOKENS, ADR-0063). Free and
+   * rate-limited separately from messages; no generation.
+   */
+  async countTokens(text: string, signal: AbortSignal): Promise<{ tokens: number; model: string }> {
+    const model = this.cfg.MODEL_SONNET;
+    if (!model) throw new ProviderError('MODEL_SONNET is not configured', { code: 'model_unavailable' });
+    try {
+      const res = await this.getClient().messages.countTokens({ model, messages: [{ role: 'user', content: text }] }, { signal });
+      return { tokens: res.input_tokens, model };
+    } catch (err) {
+      if (isAbort(err) || signal.aborted) throw err;
+      throw classifyAnthropicError(err, model);
+    }
   }
 
   async probe(providerModelId: string, signal: AbortSignal): Promise<void> {

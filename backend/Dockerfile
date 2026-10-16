@@ -31,8 +31,9 @@ FROM node:22-bookworm-slim AS runtime
 # src/index.ts actually run — PID 1 in Node ignores SIGTERM's default disposition.
 # poppler-utils and python3 run trusted work in-process (ADR-0008): page renders for table
 # extraction and the packaged skill scripts, which use the standard library only.
+# ffmpeg (ffprobe + ffmpeg) cuts recordings into timed pieces for transcription (ADR-0063).
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y dumb-init poppler-utils python3 \
+    && apt-get install --no-install-recommends -y dumb-init poppler-utils python3 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \

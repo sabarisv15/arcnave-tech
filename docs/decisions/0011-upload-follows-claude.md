@@ -8,6 +8,10 @@
   paste into an attachment. Anthropic does not publish its threshold, so 4,000 is ArcNave's own.
   2026-09-27: amended by [ADR-0045](0045-office-files-read-with-code.md): with run_python on the
   turn, Office files are read from the file with code instead of sent as extracted text.
+  2026-10-15: superseded in part by [ADR-0062](0062-file-pipeline-jobs-isolation-zip.md):
+  Decision 4's "deleted along with its row" (a broken limit is now a `failed` file with an ER-9
+  code), the memory-per-byte gate and one-at-a-time extraction (now isolated child processes),
+  and the 10 MB image limit (now 20 MB, N-10).
 - Date: 2026-09-25
 - See also: [ADR-0004](0004-file-handling-parity.md) (which extractors read which format)
 

@@ -37,6 +37,7 @@ import { WorkspaceStateStore } from './tools/sandbox/workspaceState.js';
 import { GcsModelInputStore, type ModelInputStore } from './services/attachments/modelInputStore.js';
 import { Storage as GcsClient } from '@google-cloud/storage';
 import { logger } from './logger.js';
+import { FileService, type WorkerOptions } from './services/attachments/fileJobs.js';
 
 const log = logger.child({ module: 'container' });
 
@@ -74,6 +75,8 @@ export interface Services {
   runHub: RunHub;
   /** The warm sandbox, when it is the engine: `index.ts` checkpoints its idle workspaces. */
   warmSandbox: WarmSandboxClient | null;
+  /** The file pipeline: job queue, worker and in-request reading (ADR-0062). */
+  files: FileService;
 }
 
 export interface BuildOptions {
@@ -93,6 +96,8 @@ export interface BuildOptions {
    *  trusted work goes to the injected sandbox, as it did before ADR-0008. */
   trustedClient?: SandboxClient;
   executionRuntime?: ExecutionRuntime;
+  /** Test seam: the file worker's lease, polling and stage hook. */
+  fileWorker?: WorkerOptions;
 }
 
 export function buildServices(cfg: Config, options: BuildOptions = {}): Services {
@@ -220,6 +225,8 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const skills = options.skills ?? new SkillService(process.cwd(), cfg.SKILLS_DIR, capabilities);
   void skills.load();
 
+  const modelInputs =
+    options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined);
   const generation = new GenerationService(
     db,
     cfg,
@@ -231,7 +238,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     skills,
     capabilities,
     executionRuntime,
-    options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined),
+    modelInputs,
   );
 
   return {
@@ -251,6 +258,19 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     activeRuns: new Map(),
     runHub: new RunHub(),
     warmSandbox: rawSandboxClient instanceof WarmSandboxClient ? rawSandboxClient : null,
+    files: new FileService(
+      {
+        db,
+        storage,
+        cfg,
+        visionProvider: providers.google!,
+        // Stage 9 TOKENS: each family's own count API (Gemini countTokens, Claude count_tokens).
+        tokenCounters: { gemini: providers.google!, claude: providers.anthropic! },
+        ...(modelInputs ? { modelInputs } : {}),
+        log: logger.child({ module: 'files' }),
+      },
+      options.fileWorker,
+    ),
   };
 }
 

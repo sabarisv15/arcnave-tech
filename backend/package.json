@@ -39,6 +39,7 @@
     "fastify-type-provider-zod": "^7.0.0",
     "fflate": "^0.8.3",
     "google-auth-library": "^11.1.0",
+    "heic-decode": "^2.1.0",
     "image-size": "^1.2.1",
     "officeparser": "^8.0.0",
     "pdf-lib": "^1.17.1",
@@ -46,6 +47,7 @@
     "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "pptxgenjs": "^4.0.1",
+    "sharp": "^0.35.5",
     "xlsx": "^0.18.5",
     "zod": "^4.6.5"
   },
@@ -56,6 +58,7 @@
     "jszip": "^3.10.2",
     "pino-pretty": "^13.1.2",
     "puppeteer-core": "^25.11.0",
+    "regenerator-runtime": "^0.13.11",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.2",

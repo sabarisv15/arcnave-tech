@@ -34,7 +34,8 @@ import type { AttachmentRef } from '../providers/types.js';
 import type { DbLike } from '../db/client.js';
 import { versionsAt, type MessageVersions } from '../services/chatVersions.js';
 import { toAttachmentRef } from '../services/attachments/attachmentRef.js';
-import { FILE_LIMITS } from '../services/attachments/processUpload.js';
+import { FILE_LIMITS } from '../services/attachments/pipeline.js';
+import { NUMBERS } from '../config/numbers.js';
 import type { Run } from '../services/runHub.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -543,7 +544,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
           prompt: z.string().min(1).max(100_000),
           mode: modeSchema.default('chat'),
           model: z.string().max(64).default(AUTO_ALIAS),
-          attachmentIds: z.array(z.string().uuid()).max(10).default([]),
+          attachmentIds: z.array(z.string().uuid()).max(NUMBERS.FILES_PER_MESSAGE.value /* N-10 */).default([]),
           /** Re-run an existing assistant message instead of appending a new pair. */
           retryMessageId: z.string().uuid().optional(),
           /** Gemini's code-execution sandbox. See ADR-0004; unavailable on other providers. */
@@ -1093,6 +1094,7 @@ async function appendTurn(
   const { db } = request.services;
 
   return db.transaction(async (tx) => {
+    let claimable = 0;
     if (attachmentIds.length > 0) {
       // Serialises turns on this chat, so two sends cannot both fit under the file limit.
       await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, chatId)).for('update');
@@ -1100,12 +1102,26 @@ async function appendTurn(
         .select({ id: attachmentsTable.id, status: attachmentsTable.status, messageId: attachmentsTable.messageId })
         .from(attachmentsTable)
         .where(and(inArray(attachmentsTable.id, attachmentIds), eq(attachmentsTable.userId, userId)));
-      if (incoming.some((a) => a.status === 'uploading')) {
-        throw new ApiError('upload_incomplete', {
-          detail: 'A file is still uploading. Wait for it to finish, then send.',
+      // A file already in a sent message stays there: claiming it again would move it out of
+      // that message, and the transcript would claim context it no longer has (D1 #18).
+      const claimed = incoming.filter((a) => a.messageId !== null);
+      if (claimed.length > 0) {
+        throw new ApiError('file_already_attached', { meta: { fileIds: claimed.map((a) => a.id) } });
+      }
+      // Only a ready file is sent (AS-D6 + owner default for OQ-12): one still being read
+      // blocks Send, and so does one that failed until it is retried or removed.
+      const notReady = incoming.filter((a) => a.status !== 'ready');
+      if (notReady.length > 0) {
+        const failed = notReady.some((a) => a.status === 'failed' || a.status === 'unsupported');
+        throw new ApiError('file_not_ready', {
+          detail: failed
+            ? 'A file could not be read. Retry it or remove it, then send.'
+            : 'A file is still being read. Wait for it to finish, then send.',
+          meta: { files: notReady.map((a) => ({ id: a.id, status: a.status })) },
         });
       }
-      const fresh = incoming.filter((a) => a.messageId === null).length;
+      const fresh = incoming.length;
+      claimable = incoming.length;
       const [held] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(attachmentsTable)
@@ -1156,12 +1172,21 @@ async function appendTurn(
       .returning({ id: messages.id });
 
     if (attachmentIds.length > 0) {
-      await tx
+      // `message_id IS NULL` makes the claim itself the guard: the row lock above serialises
+      // sends on this chat, not two chats claiming one file. A row claimed meanwhile is not
+      // moved, and the send fails instead of silently dropping the file.
+      const moved = await tx
         .update(attachmentsTable)
         .set({ messageId: userMessage!.id })
         .where(
-          and(inArray(attachmentsTable.id, attachmentIds), eq(attachmentsTable.userId, userId)),
-        );
+          and(
+            inArray(attachmentsTable.id, attachmentIds),
+            eq(attachmentsTable.userId, userId),
+            isNull(attachmentsTable.messageId),
+          ),
+        )
+        .returning({ id: attachmentsTable.id });
+      if (moved.length !== claimable) throw new ApiError('file_already_attached');
     }
 
     // First real message names the chat, so the sidebar stops saying "New conversation".

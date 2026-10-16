@@ -7,15 +7,16 @@
  *
  * Two deliberate choices worth knowing before editing:
  *
- * - **Indexing is synchronous.** A file is extracted and chunked inside the upload request, so
- *   the response already says `ready` or `unsupported` and the UI never has to poll a status
- *   that may never change. Uploads are capped at `MAX_UPLOAD_BYTES`, which keeps the request
- *   bounded. A queue is the right answer at a larger size limit, not at this one.
+ * - **One ingest path (D1 #20, ADR-0063).** A project file is read by the same file job as a
+ *   chat attachment: upload, replace and re-index answer 202 with the file queued, and the
+ *   page polls `GET /projects/:id/files/:fileId` until it is `ready`, `unsupported` or
+ *   `failed`. The job stores the same derivative a chat file gets, and its chunks here.
  * - **Extraction failure is not upload failure.** A stored file that cannot be read for text
  *   lands as `unsupported` with the reason attached, because the bytes really are stored. We
  *   do not delete the user's file to make a status column tidy.
  */
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import type { FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
@@ -28,7 +29,13 @@ import {
 } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
-import { indexFile } from '../services/retrieval.js';
+import { storageKeyInUse } from '../services/attachments/references.js';
+import { deleteObjects, derivedKeys } from '../services/attachments/derivatives.js';
+import { IN_PROGRESS } from '../services/attachments/pipeline.js';
+import { pollWithHold } from '../services/attachments/pollHold.js';
+import { sniffBuffer } from '../services/attachments/sniff.js';
+import { FileFailure, fileErrorText } from '../services/attachments/fileErrors.js';
+import { reserveUpload } from '../services/attachments/quota.js';
 import { checkUpload, generateStorageKey, safeDownloadName, sha256 } from '../services/storage.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -67,9 +74,13 @@ const fileSchema = z.object({
   filename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number(),
-  /** pending | indexing | ready | failed | unsupported */
+  /** queued | scanning | extracting | ocr | transcribing (being read: poll the file) | ready | failed | unsupported */
   status: z.string(),
   error: z.string(),
+  /** Stage 15 ER-9 code when `failed` / `unsupported`; '' otherwise. */
+  errorCode: z.string(),
+  /** Notes on a ready file, e.g. `chunk_cap` when only part of it is searchable. */
+  warnings: z.array(z.object({ code: z.string(), detail: z.string() })),
   chunkCount: z.number(),
   checksumSha256: z.string(),
   indexedAt: z.string().nullable(),
@@ -378,49 +389,80 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
         tags: ['projects'],
         summary: 'Upload a file into a project and index it',
         description:
-          'multipart/form-data with a single `file` part. The response already carries the ' +
-          'final indexing status; there is nothing to poll.',
+          'multipart/form-data with a single `file` part. Answers 202 with the file queued; ' +
+          'poll `GET /projects/:id/files/:fileId` until it is `ready`, `unsupported` or `failed`.',
         consumes: ['multipart/form-data'],
         params: uuidParam,
-        response: { 201: fileSchema },
+        response: { 202: fileSchema },
       },
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, cfg, storage } = request.services;
       const project = await loadProject(request, request.params.id);
-
-      const part = await request.file();
-      if (!part) {
-        throw new ApiError('validation_error', { detail: 'Attach a file in a `file` field.' });
-      }
-      // Reading to a buffer throws a 413 past `limits.fileSize`, which the error handler maps
-      // to payload_too_large. Everything downstream needs the whole file anyway: a checksum, a
-      // storage write, and text extraction all want the complete bytes.
-      const data = await part.toBuffer();
-
-      const check = checkUpload(part.filename, part.mimetype, data.length, cfg);
-      if (!check.ok) throw new ApiError(check.code!, { detail: check.detail! });
-
-      const storageKey = generateStorageKey(user.id);
-      await storage.put(storageKey, data, check.mimeType);
-
-      const [created] = await db
+      const stored = await receiveProjectUpload(request, user.id);
+      const [created] = await request.services.db
         .insert(projectFiles)
-        .values({
-          projectId: project.id,
-          userId: user.id,
-          filename: part.filename.slice(0, 255),
-          mimeType: check.mimeType,
-          sizeBytes: data.length,
-          storageKey,
-          checksumSha256: sha256(data),
-          status: 'indexing',
-        })
+        .values({ projectId: project.id, userId: user.id, ...stored, status: 'queued' })
         .returning();
+      await request.services.files.enqueueProjectFile(created!);
+      return reply.status(202).send(toFileDto((await loadProjectFile(request, project.id, created!.id))));
+    },
+  );
 
-      const indexed = await runIndex(request, created!, data);
-      return reply.status(201).send(toFileDto(indexed));
+  /* ---------------------------------------------------------------- files: read one */
+
+  typed.get(
+    '/projects/:id/files/:fileId',
+    {
+      schema: {
+        tags: ['projects'],
+        summary: 'One project file, for polling while it is read',
+        description: 'While the file is being read this wakes the worker and holds up to FILE_POLL_HOLD_MS for its status to move.',
+        params: z.object({ id: z.string().uuid(), fileId: z.string().uuid() }),
+        response: { 200: fileSchema },
+      },
+    },
+    async (request) => {
+      const project = await loadProject(request, request.params.id);
+      const { files, cfg } = request.services;
+      const fileId = request.params.fileId;
+      const row = await pollWithHold(() => loadProjectFile(request, project.id, fileId), () => files.wake({ projectFileId: fileId }), cfg.FILE_POLL_HOLD_MS);
+      return toFileDto(row);
+    },
+  );
+
+  /* ---------------------------------------------------------------- files: replace */
+
+  typed.put(
+    '/projects/:id/files/:fileId',
+    {
+      schema: {
+        tags: ['projects'],
+        summary: 'Replace a project file with a new version',
+        description:
+          'multipart/form-data with a single `file` part (Stage 9 G42, D1 #38). The file keeps its id; its ' +
+          'old bytes, chunks and derivative are replaced once the new version is read. Answers 202, as upload.',
+        consumes: ['multipart/form-data'],
+        params: z.object({ id: z.string().uuid(), fileId: z.string().uuid() }),
+        response: { 202: fileSchema },
+      },
+    },
+    async (request, reply) => {
+      const user = currentUser(request);
+      const { db, storage, files } = request.services;
+      const project = await loadProject(request, request.params.id);
+      const file = await loadProjectFile(request, project.id, request.params.fileId);
+      const stored = await receiveProjectUpload(request, user.id);
+      const [updated] = await db
+        .update(projectFiles)
+        .set({ ...stored, status: 'queued', error: '', errorCode: '', warnings: [] })
+        .where(eq(projectFiles.id, file.id))
+        .returning();
+      // The old bytes go unless a picked chat attachment still reads them (D1 #17); its chunks
+      // and derivative are replaced by the job when the new version is read.
+      if (!(await storageKeyInUse(db, file.storageKey))) await storage.delete(file.storageKey).catch(() => undefined);
+      await files.enqueueProjectFile(updated!);
+      return reply.status(202).send(toFileDto((await loadProjectFile(request, project.id, file.id))));
     },
   );
 
@@ -487,23 +529,20 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
       schema: {
         tags: ['projects'],
         summary: 'Re-extract and re-chunk a file',
-        description: 'Useful after a failed extraction. Existing chunks are replaced, not added to.',
+        description:
+          'Useful after a failed extraction. Queues the file to be read again (202, poll the file); existing ' +
+          'chunks are replaced, not added to.',
         params: z.object({ id: z.string().uuid(), fileId: z.string().uuid() }),
-        response: { 200: fileSchema },
+        response: { 202: fileSchema },
       },
     },
-    async (request) => {
-      const { db, storage } = request.services;
+    async (request, reply) => {
+      const { files } = request.services;
       const project = await loadProject(request, request.params.id);
       const file = await loadProjectFile(request, project.id, request.params.fileId);
-
-      await db
-        .update(projectFiles)
-        .set({ status: 'indexing', error: '' })
-        .where(eq(projectFiles.id, file.id));
-
-      const data = await storage.get(file.storageKey);
-      return toFileDto(await runIndex(request, file, data));
+      if (IN_PROGRESS.has(file.status)) throw new ApiError('conflict', { detail: 'This file is still being read.' });
+      await files.enqueueProjectFile(file);
+      return reply.status(202).send(toFileDto(await loadProjectFile(request, project.id, file.id)));
     },
   );
 
@@ -527,11 +566,17 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
       // Row first, object second. If the object delete fails we have an orphaned blob, which
       // costs storage; the other order leaves a row pointing at bytes that are gone, which the
       // user sees as a file that will not open.
+      const derived = await derivedKeys(db, { projectFileIds: [file.id] });
       await db.delete(projectFiles).where(eq(projectFiles.id, file.id));
+      // Its derived objects go with it (D1 #37); the job queued for it is deleted by cascade.
+      await deleteObjects(storage, derived);
+      // A chat attachment picked from this file reads these same bytes (its key is a copy of
+      // ours). They stay until the last such attachment goes; retention removes them then.
+      if (await storageKeyInUse(db, file.storageKey)) return reply.status(204).send(null);
       try {
         await storage.delete(file.storageKey);
       } catch (err) {
-        request.log.warn({ err, storageKey: file.storageKey }, 'orphaned object after delete');
+        request.log.warn({ errName: err instanceof Error ? err.name : 'unknown', storageKey: file.storageKey }, 'orphaned object after delete');
       }
 
       return reply.status(204).send(null);
@@ -772,44 +817,45 @@ async function countsFor(
 }
 
 /**
- * Extract, chunk, and store the result, then write the outcome back onto the file row.
- *
- * An extraction that cannot proceed (scanned PDF, image) is `unsupported` with the reason
- * shown; an unexpected throw is `failed`. The two are different to the user: one will never
- * work, the other is worth retrying.
+ * Receives a multipart project upload: checks the name and size, sniffs the content against the
+ * name (FT-12), counts it against the upload quota (N-11), and stores it under a fresh key.
  */
-async function runIndex(
-  request: { services: AppInstance['services']; log: AppInstance['log'] },
-  file: ProjectFileRow,
-  data: Buffer,
-): Promise<ProjectFileRow> {
-  const { db, visionProvider } = request.services;
-  let patch: Partial<ProjectFileRow>;
-
+async function receiveProjectUpload(
+  request: FastifyRequest,
+  userId: string,
+): Promise<Pick<ProjectFileRow, 'filename' | 'mimeType' | 'sizeBytes' | 'storageKey' | 'checksumSha256' | 'objectGeneration'>> {
+  const { db, cfg, storage } = request.services;
+  const part = await request.file();
+  if (!part) throw new ApiError('validation_error', { detail: 'Attach a file in a `file` field.' });
+  // Reading to a buffer throws a 413 past `limits.fileSize`, which the error handler maps to
+  // payload_too_large.
+  const data = await part.toBuffer();
+  const check = checkUpload(part.filename, part.mimetype, data.length, cfg);
+  if (!check.ok) throw new ApiError(check.code!, { detail: check.detail! });
+  // The content must be what the name says (FT-12): a macro or legacy file renamed, or an
+  // executable named .pdf, is refused before it is stored.
   try {
-    const result = await indexFile(db, file, data, visionProvider);
-    patch = {
-      status: result.status,
-      error: result.error,
-      chunkCount: result.chunkCount,
-      indexedAt: new Date(),
-    };
+    sniffBuffer(data, part.filename, check.mimeType);
   } catch (err) {
-    request.log.error({ err, fileId: file.id }, 'indexing failed');
-    patch = {
-      status: 'failed',
-      error: 'This file could not be indexed. You can retry it.',
-      chunkCount: 0,
-      indexedAt: null,
-    };
+    if (err instanceof FileFailure) {
+      throw new ApiError(err.code === 'too_large' ? 'payload_too_large' : 'unsupported_media_type', {
+        detail: fileErrorText(err.code, err.detail),
+        meta: { fileErrorCode: err.code },
+      });
+    }
+    throw err;
   }
-
-  const [updated] = await db
-    .update(projectFiles)
-    .set(patch)
-    .where(eq(projectFiles.id, file.id))
-    .returning();
-  return updated!;
+  await reserveUpload(db, userId, cfg.UPLOADS_PER_USER_PER_DAY); // N-11
+  const storageKey = generateStorageKey(userId);
+  await storage.put(storageKey, data, check.mimeType);
+  return {
+    filename: part.filename.slice(0, 255),
+    mimeType: check.mimeType,
+    sizeBytes: data.length,
+    storageKey,
+    checksumSha256: sha256(data),
+    objectGeneration: (await storage.generation(storageKey)) ?? '',
+  };
 }
 
 /* -------------------------------------------------------------------------- DTOs */
@@ -841,6 +887,8 @@ function toFileDto(row: ProjectFileRow): z.infer<typeof fileSchema> {
     sizeBytes: row.sizeBytes,
     status: row.status,
     error: row.error,
+    errorCode: row.errorCode,
+    warnings: row.warnings,
     chunkCount: row.chunkCount,
     checksumSha256: row.checksumSha256,
     indexedAt: iso(row.indexedAt),

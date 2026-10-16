@@ -89,9 +89,16 @@ export interface Attachment {
   name: string;
   size: number;
   type: string;
-  /** uploading | ready | failed | unsupported | pending | indexing */
+  /**
+   * uploading | queued | scanning | extracting | ocr | transcribing | indexing | ready |
+   * failed (| unsupported, rows from before the file pipeline; pending for project files)
+   */
   status: string;
   error?: string;
+  /** Stage 15 ER-9 code of a failed file. */
+  errorCode?: string;
+  /** Members of a ZIP, each its own attachment. */
+  memberIds?: string[];
   /** Absent while the upload is still in flight and the server has no id for it yet. */
   downloadUrl?: string;
   /** Whether this file contributes text to the prompt. Undefined means not yet known. */
@@ -368,6 +375,8 @@ export function toAttachment(dto: AttachmentDto): Attachment {
     type: dto.mimeType,
     status: dto.status,
     ...(dto.error ? { error: dto.error } : {}),
+    ...(dto.errorCode ? { errorCode: dto.errorCode } : {}),
+    ...(dto.memberIds?.length ? { memberIds: dto.memberIds } : {}),
     hasText: dto.hasText,
     ...(dto.pageCount != null ? { pageCount: dto.pageCount } : {}),
     ...(dto.reading ? { reading: dto.reading } : {}),
@@ -382,7 +391,13 @@ export function toProjectFile(dto: ProjectFileDto): Attachment {
     size: dto.sizeBytes,
     type: dto.mimeType,
     status: dto.status,
-    ...(dto.error ? { error: dto.error } : {}),
+    // A ready file's warnings (E4 `chunk_cap`) are shown where an error would be: never silent.
+    ...(dto.error
+      ? { error: dto.error }
+      : dto.warnings?.length
+        ? { error: dto.warnings.map((w) => w.detail).join(" ") }
+        : {}),
+    ...(dto.errorCode ? { errorCode: dto.errorCode } : {}),
     chunkCount: dto.chunkCount,
     hasText: dto.status === "ready" && dto.chunkCount > 0,
     downloadUrl: api.projects.fileDownloadUrl(dto.projectId, dto.id),

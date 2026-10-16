@@ -14,15 +14,23 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
-import { and, eq, isNull, lt } from 'drizzle-orm';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
-import { attachments, projectFiles } from '../db/schema.js';
+import { attachments, fileDerivatives, projectFiles } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
-import { processUpload, readingFor, UploadRejected } from '../services/attachments/processUpload.js';
-import { checkUpload, generateStorageKey, safeDownloadName, UploadTooLarge } from '../services/storage.js';
+import { IN_PROGRESS, readingFor } from '../services/attachments/pipeline.js';
+import { reserveUpload } from '../services/attachments/quota.js';
+import { storageKeyInUse } from '../services/attachments/references.js';
+import { isWhole, projectFileTexts } from '../services/retrieval.js';
+import { checkUpload, generateStorageKey, safeDownloadName, sha256, UploadTooLarge } from '../services/storage.js';
+import { derivedKeys, deleteObjects, storedChecksum } from '../services/attachments/derivatives.js';
+import { pollWithHold } from '../services/attachments/pollHold.js';
 import type { AppInstance } from '../types.js';
 import { iso, uuidParam } from './helpers.js';
 import {
@@ -44,9 +52,21 @@ const attachmentSchema = z.object({
   filename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number(),
-  /** ready | unsupported — `unsupported` still stores the file, it just has no text. */
+  /**
+   * uploading | queued | scanning | extracting | ocr | transcribing | indexing (still being
+   * read: poll `GET /files/:id`) | ready | failed. Only `ready` can be sent.
+   */
   status: z.string(),
+  /** A failed file's reason, or a ready file's notes. Shown to the user. */
   error: z.string(),
+  /** Stage 15 ER-9 code of a failed file (switch on this, not on `error`); '' otherwise. */
+  errorCode: z.string(),
+  /** Notes on a ready file, each with a code. */
+  warnings: z.array(z.object({ code: z.string(), detail: z.string() })),
+  /** The ZIP this file was unpacked from. */
+  parentId: z.string().nullable(),
+  /** For a ZIP: the files it was unpacked into, each an attachment of its own. */
+  memberIds: z.array(z.string()),
   /** Whether this file will contribute text to the prompt. */
   hasText: z.boolean(),
   /** True for an image or PDF the model can read directly, regardless of whether text
@@ -94,7 +114,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, cfg, storage, visionProvider } = request.services;
+      const { db, cfg, storage, files } = request.services;
 
       const part = await request.file();
       if (!part) {
@@ -104,6 +124,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
 
       const check = checkUpload(part.filename, part.mimetype, data.length, cfg);
       if (!check.ok) throw new ApiError(check.code!, { detail: check.detail! });
+      await reserveUpload(db, user.id, cfg.UPLOADS_PER_USER_PER_DAY); // N-11
 
       const storageKey = generateStorageKey(user.id);
       await storage.put(storageKey, data, check.mimeType);
@@ -115,15 +136,18 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
           mimeType: check.mimeType,
           sizeBytes: data.length,
           storageKey,
-          status: 'uploading',
+          status: 'extracting',
+          checksumSha256: sha256(data),
+          objectGeneration: (await storage.generation(storageKey)) ?? '',
         })
         .returning();
 
-      const created = await withLocalCopy(async (localPath) => {
+      // At most MAX_UPLOAD_BYTES, so read here, in the request: the answer is final.
+      const read = await withLocalCopy(async (localPath) => {
         await writeFile(localPath, data);
-        return finishUpload(request, row!, localPath, visionProvider);
+        return files.readInline(row!, localPath);
       });
-      return reply.status(201).send(created);
+      return reply.status(201).send(await toDtoWithMembers(request, read));
     },
   );
 
@@ -159,6 +183,8 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
 
       const check = checkUpload(filename, mimeType, sizeBytes, cfg, cfg.ATTACHMENT_MAX_BYTES);
       if (!check.ok) throw new ApiError(check.code!, { detail: check.detail! });
+      // FT-15: counted before any storage URL is handed out (N-11).
+      await reserveUpload(db, user.id, cfg.UPLOADS_PER_USER_PER_DAY);
 
       const storageKey = generateStorageKey(user.id);
       const [row] = await db
@@ -237,16 +263,18 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         tags: ['projects'],
         summary: 'Finish an upload: check the bytes arrived, then read the file',
         description:
-          'Applies the per-type limits (PDF pages, image dimensions) and extracts text. A file ' +
-          'that breaks a limit is deleted and the call fails with the reason.',
+          'Checks every byte arrived, then queues the file to be read and answers 202 with ' +
+          'status `queued`; poll `GET /files/:id` until it is `ready` or `failed` (with an ' +
+          '`errorCode`). With FILE_PIPELINE=sync the file is read in this request and the answer ' +
+          '(200) is final.',
         params: uuidParam,
-        response: { 200: attachmentSchema },
+        response: { 200: attachmentSchema, 202: attachmentSchema },
       },
     },
-    async (request) => {
-      const { storage, visionProvider } = request.services;
+    async (request, reply) => {
+      const { storage, files, cfg } = request.services;
       const file = await loadAttachment(request, request.params.id);
-      if (file.status !== 'uploading') return toDto(file);
+      if (file.status !== 'uploading') return toDtoWithMembers(request, file);
 
       const stored = await storage.size(file.storageKey);
       if (stored !== file.sizeBytes) {
@@ -258,10 +286,53 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
               : `${String(stored)} of ${String(file.sizeBytes)} bytes arrived. Upload it again.`,
         });
       }
-      return withLocalCopy(async (localPath) => {
-        await storage.downloadTo(file.storageKey, localPath);
-        return finishUpload(request, file, localPath, visionProvider);
-      });
+      // D1 #35: the bytes the job reads must be these. Their checksum (also the key for reusing
+      // an earlier read of the same bytes, G3) and the object's generation are kept on the row.
+      const checksumSha256 = await storedChecksum(storage, file.storageKey);
+      const objectGeneration = (await storage.generation(file.storageKey)) ?? '';
+      // The status move is the lock: of two `complete` calls at once, one moves the row out of
+      // `uploading` and reads it; the other sees it moved and answers with the row as it is.
+      const moved = await claimFrom(request, file.id, ['uploading'], { checksumSha256, objectGeneration });
+      if (!moved) return toDtoWithMembers(request, await loadAttachment(request, file.id));
+      if (cfg.FILE_PIPELINE === 'sync') {
+        const read = await withLocalCopy(async (localPath) => {
+          await storage.downloadTo(moved.storageKey, localPath);
+          return files.readInline(moved, localPath);
+        });
+        return reply.status(200).send(await toDtoWithMembers(request, read));
+      }
+      await files.enqueueAttachment(moved);
+      return reply.status(202).send(toDto(await loadAttachment(request, file.id)));
+    },
+  );
+
+  typed.post(
+    '/files/:id/retry',
+    {
+      schema: {
+        tags: ['projects'],
+        summary: 'Read a failed file again',
+        description:
+          'For a `failed` file (Stage 9 RETRY): queues it to be read again (202, poll ' +
+          '`GET /files/:id`), or reads it in the request with FILE_PIPELINE=sync (200).',
+        params: uuidParam,
+        response: { 200: attachmentSchema, 202: attachmentSchema },
+      },
+    },
+    async (request, reply) => {
+      const { storage, files, cfg } = request.services;
+      const file = await loadAttachment(request, request.params.id);
+      const moved = await claimFrom(request, file.id, ['failed', 'unsupported']);
+      if (!moved) throw new ApiError('conflict', { detail: 'Only a file that failed can be retried.' });
+      if (cfg.FILE_PIPELINE === 'sync') {
+        const read = await withLocalCopy(async (localPath) => {
+          await storage.downloadTo(moved.storageKey, localPath);
+          return files.readInline(moved, localPath);
+        });
+        return reply.status(200).send(await toDtoWithMembers(request, read));
+      }
+      await files.enqueueAttachment(moved);
+      return reply.status(202).send(toDto(await loadAttachment(request, file.id)));
     },
   );
 
@@ -282,7 +353,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db } = request.services;
+      const { db, storage } = request.services;
 
       const [file] = await db
         .select()
@@ -290,6 +361,27 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         .where(and(eq(projectFiles.id, request.body.projectFileId), eq(projectFiles.userId, user.id)))
         .limit(1);
       if (!file) throw notFound('file');
+
+      // The attachment carries what the project already read from the file (D1 #19): its text,
+      // its page count, and whether it is ready at all. Without them a no-sandbox turn got "no
+      // readable text" for a DOCX the project had indexed.
+      const nativelyRead = isNativelyViewable(file.mimeType) || file.mimeType.startsWith('audio/') || file.mimeType.startsWith('video/');
+      if (file.status === 'pending' || file.status === 'indexing') {
+        throw new ApiError('file_not_ready', { detail: 'This project file is still being indexed. Attach it when it is ready.' });
+      }
+      if (file.status === 'failed' || (file.status === 'unsupported' && !nativelyRead)) {
+        throw new ApiError('file_not_ready', {
+          detail: `${file.error || 'This project file could not be read.'} Re-index it in the project, then attach it.`,
+          meta: { fileErrorCode: file.errorCode },
+        });
+      }
+      const [whole] = file.status === 'ready' ? await projectFileTexts(db, file.projectId, file.id, storage) : [];
+      const warnings: Array<{ code: string; detail: string }> = [];
+      if (file.status === 'unsupported') warnings.push({ code: 'not_extracted', detail: file.error });
+      if (file.status === 'ready' && !isWhole(file)) {
+        warnings.push({ code: 'text_partial', detail: 'Only the indexed part of this file’s text is attached; code can open the whole file.' });
+      }
+      const pageCount = file.mimeType === 'application/pdf' ? await pdfPageCount(storage, file.storageKey) : null;
 
       const [created] = await db
         .insert(attachments)
@@ -301,8 +393,10 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
           sizeBytes: file.sizeBytes,
           storageKey: file.storageKey,
           status: 'ready',
-          error: '',
-          extractedText: null,
+          error: warnings.map((w) => w.detail).join(' '),
+          warnings,
+          extractedText: whole?.text || null,
+          pageCount,
         })
         .returning();
 
@@ -322,7 +416,13 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         response: { 200: attachmentSchema },
       },
     },
-    async (request) => toDto(await loadAttachment(request, request.params.id)),
+    async (request) => {
+      const { files, cfg } = request.services;
+      const id = request.params.id;
+      // Wakes the worker for this file and holds briefly while it moves (ADR-0063).
+      const row = await pollWithHold(() => loadAttachment(request, id), () => files.wake({ attachmentId: id }), cfg.FILE_POLL_HOLD_MS);
+      return toDtoWithMembers(request, row);
+    },
   );
 
   typed.get(
@@ -399,7 +499,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { db, storage } = request.services;
+      const { db, storage, files } = request.services;
       const file = await loadAttachment(request, request.params.id);
       if (file.messageId) {
         throw new ApiError('conflict', {
@@ -408,12 +508,18 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         });
       }
 
+      // Removing a ZIP removes the members not yet sent; a queued job for any of them is
+      // deleted with its row (ON DELETE CASCADE), which is how in-flight work is cancelled.
+      await files.removeMembers(file.id);
+      // Its derived objects (Markdown, normalised image) go with it (D1 #37).
+      const derived = await derivedKeys(db, { attachmentIds: [file.id] });
       await db.delete(attachments).where(eq(attachments.id, file.id));
-      if (!file.projectFileId) {
+      await deleteObjects(storage, derived);
+      if (!(await storageKeyInUse(db, file.storageKey))) {
         try {
           await storage.delete(file.storageKey);
         } catch (err) {
-          request.log.warn({ err, storageKey: file.storageKey }, 'orphaned object after delete');
+          request.log.warn({ errName: err instanceof Error ? err.name : 'unknown', storageKey: file.storageKey }, 'orphaned object after delete');
         }
       }
       return reply.status(204).send(null);
@@ -439,6 +545,11 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       const user = currentUser(request);
       const { db, storage } = request.services;
       const cutoff = new Date(Date.now() - request.body.olderThanHours * 3600_000);
+      const doomed = await db
+        .select({ id: attachments.id })
+        .from(attachments)
+        .where(and(eq(attachments.userId, user.id), isNull(attachments.messageId), lt(attachments.createdAt, cutoff)));
+      const derived = await derivedKeys(db, { attachmentIds: doomed.map((d) => d.id) });
 
       const stale = await db
         .delete(attachments)
@@ -452,14 +563,15 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
         .returning({ storageKey: attachments.storageKey, projectFileId: attachments.projectFileId });
 
       for (const row of stale) {
-        // Picked from a project: the bytes are the project file's, not this attachment's.
-        if (row.projectFileId) continue;
+        // Bytes another row still reads (a project file's, a picked copy) stay.
+        if (row.projectFileId || (await storageKeyInUse(db, row.storageKey))) continue;
         try {
           await storage.delete(row.storageKey);
         } catch (err) {
-          request.log.warn({ err, storageKey: row.storageKey }, 'orphaned object after cleanup');
+          request.log.warn({ errName: err instanceof Error ? err.name : 'unknown', storageKey: row.storageKey }, 'orphaned object after cleanup');
         }
       }
+      await deleteObjects(storage, derived);
       return { deleted: stale.length };
     },
   );
@@ -484,6 +596,21 @@ async function loadAttachment(
 
 type ServicesRequest = { services: AppInstance['services']; user: { id: string } | null };
 
+/** Moves the row to `queued` only from one of `from`; null when another request moved it first. */
+async function claimFrom(
+  request: ServicesRequest,
+  id: string,
+  from: string[],
+  extra: Partial<Pick<AttachmentRow, 'checksumSha256' | 'objectGeneration'>> = {},
+): Promise<AttachmentRow | null> {
+  const [row] = await request.services.db
+    .update(attachments)
+    .set({ status: 'queued', error: '', errorCode: '', warnings: [], ...extra })
+    .where(and(eq(attachments.id, id), inArray(attachments.status, from)))
+    .returning();
+  return row ?? null;
+}
+
 /** Runs `fn` with a path in a fresh temp directory, and removes the directory afterwards. */
 async function withLocalCopy<T>(fn: (localPath: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-upload-'));
@@ -494,51 +621,10 @@ async function withLocalCopy<T>(fn: (localPath: string) => Promise<T>): Promise<
   }
 }
 
-/**
- * Step 1's reading of a stored upload (see processUpload.ts). A file that breaks one of the
- * limits is removed, row and bytes, and the reason is the error the client gets.
- */
-async function finishUpload(
-  request: ServicesRequest & { log: { error: (obj: object, msg: string) => void } },
-  row: AttachmentRow,
-  localPath: string,
-  visionProvider: AppInstance['services']['visionProvider'],
-): Promise<z.infer<typeof attachmentSchema>> {
-  const { db, cfg } = request.services;
-  let processed;
-  try {
-    processed = await processUpload({
-      path: localPath,
-      filename: row.filename,
-      mimeType: row.mimeType,
-      sizeBytes: row.sizeBytes,
-      visionProvider,
-      memoryBudgetBytes: cfg.EXTRACTION_MEMORY_BUDGET_BYTES,
-    });
-  } catch (err) {
-    if (err instanceof UploadRejected) {
-      await discard(request, row);
-      throw new ApiError(err.code, { detail: err.message });
-    }
-    // Reading failing is not the upload failing: the file is stored with the reason.
-    request.log.error({ err }, 'attachment extraction failed');
-    processed = {
-      status: 'unsupported' as const,
-      error: 'The text of this file could not be read. It is stored but will not be sent.',
-      extractedText: null,
-      pageCount: null,
-    };
-  }
-  const [updated] = await db
-    .update(attachments)
-    .set(processed)
-    .where(eq(attachments.id, row.id))
-    .returning();
-  return toDto(updated!);
-}
-
 async function discard(request: ServicesRequest, row: AttachmentRow): Promise<void> {
+  const derived = await derivedKeys(request.services.db, { attachmentIds: [row.id] });
   await request.services.db.delete(attachments).where(eq(attachments.id, row.id));
+  await deleteObjects(request.services.storage, derived);
   await request.services.storage.delete(row.storageKey).catch(() => undefined);
 }
 
@@ -553,8 +639,10 @@ function browserOrigin(origin: string | undefined): string | undefined {
   }
 }
 
-function toDto(row: AttachmentRow): z.infer<typeof attachmentSchema> {
-  const hasText = Boolean(row.extractedText?.trim());
+function toDto(row: AttachmentRow, memberIds: string[] = [], derivedChars = 0): z.infer<typeof attachmentSchema> {
+  // A text too long to keep in the row is still read, through its derivative (ADR-0063).
+  const hasText = Boolean(row.extractedText?.trim()) || derivedChars > 0;
+  const readable = !IN_PROGRESS.has(row.status) && row.status !== 'failed';
   return {
     id: row.id,
     messageId: row.messageId,
@@ -563,10 +651,44 @@ function toDto(row: AttachmentRow): z.infer<typeof attachmentSchema> {
     sizeBytes: row.sizeBytes,
     status: row.status,
     error: row.error,
+    errorCode: row.errorCode,
+    warnings: row.warnings,
+    parentId: row.parentAttachmentId,
+    memberIds,
     hasText,
     viewable: isNativelyViewable(row.mimeType),
     pageCount: row.pageCount,
-    reading: row.status === 'uploading' ? 'none' : readingFor({ mimeType: row.mimeType, pageCount: row.pageCount, hasText }),
+    reading: readable ? readingFor({ mimeType: row.mimeType, pageCount: row.pageCount, hasText }) : 'none',
     createdAt: iso(row.createdAt),
   };
+}
+
+/** `toDto` with a ZIP's members, oldest first. */
+async function toDtoWithMembers(request: ServicesRequest, row: AttachmentRow): Promise<z.infer<typeof attachmentSchema>> {
+  const members = await request.services.db
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.parentAttachmentId, row.id))
+    .orderBy(attachments.createdAt);
+  const [derived] =
+    row.status === 'ready' && !row.extractedText
+      ? await request.services.db.select({ chars: fileDerivatives.markdownChars }).from(fileDerivatives).where(eq(fileDerivatives.attachmentId, row.id))
+      : [];
+  return toDto(row, members.map((m) => m.id), derived?.chars ?? 0);
+}
+
+const run = promisify(execFile);
+
+/** A stored PDF's page count by poppler, or null when it cannot be read. */
+async function pdfPageCount(storage: AppInstance['services']['storage'], key: string): Promise<number | null> {
+  return withLocalCopy(async (localPath) => {
+    try {
+      await storage.downloadTo(key, localPath);
+      const { stdout } = await run('pdfinfo', [localPath], { timeout: 60_000, maxBuffer: 1024 * 1024 });
+      const match = /^Pages:\s+(\d+)/m.exec(stdout);
+      return match ? Number(match[1]) : null;
+    } catch {
+      return null;
+    }
+  });
 }

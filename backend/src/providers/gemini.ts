@@ -17,6 +17,8 @@ import type {
   AttachmentBlock,
   GenerationRequest,
   HistoryToolCall,
+  MediaPart,
+  MediaReading,
   Provider,
   ProviderEvent,
   ProviderUsage,
@@ -40,7 +42,8 @@ function attachmentParts(attachments: GenerationRequest['attachments']): Part[] 
   return attachments.flatMap((a): Part[] => {
     // 0. A PDF as its pages: each page's image, then its text (ADR-0013). Never the PDF itself.
     if (a.pages) {
-      return a.pages.flatMap((page): Part[] => [
+      const note: Part[] = a.pagesNote ? [{ text: a.pagesNote }] : [];
+      return note.concat(a.pages.flatMap((page): Part[] => [
         { text: `[${pageLabel(a, page.num)}${a.id ? `, fileId: ${a.id}` : ''}]` },
         ...(page.image?.fileUri
           ? [{ fileData: { mimeType: page.image.mimeType, fileUri: page.image.fileUri } }]
@@ -48,7 +51,7 @@ function attachmentParts(attachments: GenerationRequest['attachments']): Part[] 
             ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob }]
             : []),
         { text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.` },
-      ]);
+      ]));
     }
     return [attachmentPart(a)];
   });
@@ -337,6 +340,51 @@ export class GeminiProvider implements Provider {
         retryable: isRetryable(err),
       });
     }
+  }
+
+  async readMedia(parts: MediaPart[], prompt: string, signal: AbortSignal): Promise<MediaReading> {
+    const model = this.cfg.MODEL_GEMINI_FLASH;
+    if (!model) throw new ProviderError('MODEL_GEMINI_FLASH is not configured', { code: 'model_unavailable' });
+    try {
+      const response = await this.getClient().models.generateContent({
+        model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              ...parts.map((p) =>
+                p.fileUri ? { fileData: { mimeType: p.mimeType, fileUri: p.fileUri } } : { inlineData: { mimeType: p.mimeType, data: p.base64 ?? '' } },
+              ),
+              { text: prompt },
+            ],
+          },
+        ],
+        config: { abortSignal: signal, httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS } },
+      });
+      return {
+        text: response.text ?? '',
+        finishReason: String(response.candidates?.[0]?.finishReason ?? 'FINISH_REASON_UNSPECIFIED'),
+        model: response.modelVersion ?? model,
+      };
+    } catch (err) {
+      if (isAbort(err) || signal.aborted) throw err;
+      if (isNotFound(err)) throw new ModelNotFoundError(model, this.cfg.geminiLocation);
+      // The SDK's message can quote the request; only the kind of failure is kept.
+      throw new ProviderError('Gemini media reading failed', { retryable: isRetryable(err) });
+    }
+  }
+
+  /** Vertex `countTokens` on the Gemini model (Stage 9 TOKENS). Free; no generation. */
+  async countTokens(text: string, signal: AbortSignal): Promise<{ tokens: number; model: string }> {
+    const model = this.cfg.MODEL_GEMINI_FLASH;
+    if (!model) throw new ProviderError('MODEL_GEMINI_FLASH is not configured', { code: 'model_unavailable' });
+    const res = await this.getClient().models.countTokens({
+      model,
+      contents: [{ role: 'user', parts: [{ text }] }],
+      config: { abortSignal: signal },
+    });
+    if (typeof res.totalTokens !== 'number') throw new ProviderError('countTokens returned no total');
+    return { tokens: res.totalTokens, model };
   }
 
   /** Lazy: the app must boot without credentials so unconfigured aliases report cleanly. */

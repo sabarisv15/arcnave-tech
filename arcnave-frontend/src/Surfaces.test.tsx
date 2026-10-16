@@ -33,7 +33,7 @@ vi.mock("./Composer", () => ({
   AttachmentChip: () => null,
 }));
 import { ArtifactsPage, ProjectPage, ProjectsPage } from "./Pages";
-import ContextPanel from "./Panels";
+import ContextPanel, { drawnHere, PREVIEW_FETCH_MAX_BYTES } from "./Panels";
 import { PublicLink } from "./ShareLink";
 import { api } from "./api";
 
@@ -227,6 +227,38 @@ describe("project page (BS-Project)", () => {
     expect(files.querySelector('button[aria-label="Remove UT2_marks.xlsx from project"]')).not.toBeNull();
     expect(files.querySelector('input[type="file"][aria-label="Project file upload"]')).not.toBeNull();
     expect([...files.querySelectorAll("button")].map(text)).toContain("Add");
+  });
+
+  it("uploads a project file and follows it through its stages until it is ready (ADR-0063)", async () => {
+    const base = { projectId: "p1", filename: "scan.pdf", mimeType: "application/pdf", sizeBytes: 9, error: "", chunkCount: 0, checksumSha256: "", indexedAt: null, createdAt: now };
+    vi.spyOn(api.projects, "upload").mockResolvedValue({ ...base, id: "f9", status: "queued" });
+    const reads = [
+      { ...base, id: "f9", status: "ocr" },
+      { ...base, id: "f9", status: "ready", chunkCount: 3 },
+    ];
+    const readFile = vi.spyOn(api.projects, "readFile").mockImplementation(async () => reads.shift() ?? { ...base, id: "f9", status: "ready", chunkCount: 3 });
+    await show("/project/p1");
+    const input = host.querySelector<HTMLInputElement>('input[type="file"][aria-label="Project file upload"]')!;
+    const file = new File(["%PDF-1.4"], "scan.pdf", { type: "application/pdf" });
+    Object.defineProperty(input, "files", { value: [file] });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1500));
+    });
+    expect(readFile).toHaveBeenCalledWith("p1", "f9");
+    const row = [...host.querySelectorAll(".sf-frow")].find((r) => text(r).includes("scan.pdf"))!;
+    expect(text(row)).toContain("3 indexed chunks");
+  });
+
+  it("downloads a file for its preview only when it is drawn here and not too large (D1 #33)", () => {
+    const f = (name: string, type: string) => ({ id: "x", name, type, size: 1, status: "ready" });
+    expect(drawnHere(f("a.pdf", "application/pdf"), false, null)).toBe(true);
+    expect(drawnHere(f("a.png", "image/png"), false, null)).toBe(true);
+    expect(drawnHere(f("deck.pptx", ""), false, "pptx")).toBe(true);
+    expect(drawnHere(f("talk.mp3", "audio/mpeg"), false, null)).toBe(false);
+    expect(drawnHere(f("bundle.zip", "application/zip"), false, null)).toBe(false);
+    expect(drawnHere(f("sheet.xlsx", ""), false, "xlsx")).toBe(false);
+    expect(PREVIEW_FETCH_MAX_BYTES).toBe(50 * 1024 * 1024);
   });
 
   it("pins and unpins the project with the star, and leaves out what has no backend", async () => {

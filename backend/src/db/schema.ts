@@ -27,6 +27,12 @@ import {
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
+
+/** A note about a readable file (fileErrors.ts). */
+export interface FileWarning {
+  code: string;
+  detail: string;
+}
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
   timestamp('updated_at', { withTimezone: true })
@@ -167,7 +173,19 @@ export const projectFiles = pgTable(
     /** pending | indexing | ready | failed | unsupported */
     status: varchar('status', { length: 16 }).notNull().default('pending'),
     error: text('error').notNull().default(''),
+    /** Stage 15 ER-9 code for `failed` / `unsupported` (fileErrors.ts); '' when none. */
+    errorCode: varchar('error_code', { length: 32 }).notNull().default(''),
+    /** Things the user should know about a `ready` file, e.g. `chunk_cap` (fileErrors.ts). */
+    warnings: jsonb('warnings').$type<FileWarning[]>().notNull().default([]),
     chunkCount: integer('chunk_count').notNull().default(0),
+    /**
+     * Which indexer wrote this file's chunks. A file below `INDEX_VERSION` (retrieval.ts) is
+     * re-indexed by a `reindex` file job, so the Unicode tokenizer and the chunk cap reach
+     * files indexed before them.
+     */
+    indexVersion: integer('index_version').notNull().default(1),
+    /** The storage object's generation when it was stored or replaced (D1 #35). */
+    objectGeneration: varchar('object_generation', { length: 64 }).notNull().default(''),
     indexedAt: timestamp('indexed_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
@@ -419,19 +437,202 @@ export const attachments = pgTable(
     mimeType: varchar('mime_type', { length: 160 }).notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     storageKey: varchar('storage_key', { length: 300 }).notNull(),
-    /** uploading (bytes not yet confirmed) | ready | unsupported (stored, but no text). */
+    /**
+     * uploading (bytes not yet confirmed) | queued | scanning | extracting | ocr | transcribing |
+     * indexing (the file job's stage, Stage 9 PIPE) | ready | failed. Rows written before
+     * ADR-0062 can also be `unsupported`. Only `ready` may be sent (409 `file_not_ready`).
+     */
     status: varchar('status', { length: 16 }).notNull().default('ready'),
+    /** What the user is told about the file: the failure, or a `ready` file's notes. */
     error: text('error').notNull().default(''),
+    /** Stage 15 ER-9 code for a `failed` file (fileErrors.ts); '' otherwise. */
+    errorCode: varchar('error_code', { length: 32 }).notNull().default(''),
+    /** Notes about a `ready` file, each with a code (fileErrors.ts); shown on the chip. */
+    warnings: jsonb('warnings').$type<FileWarning[]>().notNull().default([]),
     extractedText: text('extracted_text'),
     /** Pages in a PDF, counted at upload; null for every other type and for unreadable PDFs. */
     pageCount: integer('page_count'),
+    /**
+     * A member of an uploaded ZIP points at the ZIP's own row (Stage 9 ZIP, P14). `set null`, not
+     * cascade: a member sent in a message must outlive its unsent ZIP being cleaned up.
+     */
+    parentAttachmentId: uuid('parent_attachment_id').references((): AnyPgColumn => attachments.id, {
+      onDelete: 'set null',
+    }),
+    /** SHA-256 of the stored bytes, taken at `complete` (D1 #35); '' before ADR-0063. */
+    checksumSha256: varchar('checksum_sha256', { length: 64 }).notNull().default(''),
+    /** The storage object's generation at `complete` (GCS generation; mtime locally), so a job
+     *  reads exactly the bytes that were checked (D1 #35). */
+    objectGeneration: varchar('object_generation', { length: 64 }).notNull().default(''),
     createdAt: createdAt(),
   },
   (t) => [
     index('ix_attachments_key').on(t.storageKey),
     index('ix_attachments_message').on(t.messageId),
     index('ix_attachments_user').on(t.userId),
+    index('ix_attachments_parent').on(t.parentAttachmentId),
   ],
+);
+
+/**
+ * One unit of file work: reading an uploaded attachment, or re-indexing a project file
+ * (ADR-0062). Workers claim a row with `FOR UPDATE SKIP LOCKED` and hold it by a lease, so a
+ * worker that dies mid-job leaves a row another worker takes over once the lease lapses.
+ * Idempotent per (file, kind, version): a retry is a new version, never a second copy.
+ * No `company_id`: single user until Phase 5 (owner default, OQ-25).
+ */
+export const fileJobs = pgTable(
+  'file_jobs',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    attachmentId: uuid('attachment_id').references(() => attachments.id, { onDelete: 'cascade' }),
+    projectFileId: uuid('project_file_id').references(() => projectFiles.id, { onDelete: 'cascade' }),
+    /** attachment | project | reindex */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    version: integer('version').notNull().default(1),
+    /** fast | normal: small files never wait behind large ones. */
+    lane: varchar('lane', { length: 8 }).notNull().default('normal'),
+    /** queued | running | done | failed */
+    state: varchar('state', { length: 16 }).notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(3),
+    leaseOwner: varchar('lease_owner', { length: 64 }),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    errorCode: varchar('error_code', { length: 32 }).notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('uq_file_jobs_attachment').on(t.attachmentId, t.kind, t.version),
+    uniqueIndex('uq_file_jobs_project_file').on(t.projectFileId, t.kind, t.version),
+    index('ix_file_jobs_claim').on(t.state, t.lane, t.createdAt),
+    check('ck_file_jobs_target', sql`${t.attachmentId} is not null or ${t.projectFileId} is not null`),
+  ],
+);
+
+/** A token count from a provider's count API, per model family (Stage 9 TOKENS, ADR-0063). */
+export interface TokenCount {
+  /** Null when no count could be had: the file then goes through retrieval, never whole. */
+  tokens: number | null;
+  /** True only for a number the provider's count API returned (Invariant 3). */
+  exact: boolean;
+  /** The model the count API was asked about. */
+  model: string;
+  /** Why `tokens` is null: `too_large`, `unavailable`, `no_text`. */
+  reason?: string;
+}
+
+/** Where one unit of a file sits, so an excerpt or a citation can name it (Stage 9 NORM). */
+export interface Locator {
+  /** page | slide | sheet | section | segment | form | comments */
+  kind: string;
+  /** 1-based position among its kind. */
+  index: number;
+  /** What a person would call it: "p. 3", "Slide 2", "Sheet Budget!A1:F40", "01:30–03:00". */
+  label: string;
+}
+
+/**
+ * What the pipeline made of one file (Stage 9 NORM / TOKENS, P12): normalised Markdown in object
+ * storage (TC1), a JSON sidecar of locators and facts, the file's warnings, the extractor's
+ * version, token counts per model family, and a normalised copy for images. One current row per
+ * file; a re-read replaces it inside the job's fenced transaction.
+ */
+export const fileDerivatives = pgTable(
+  'file_derivatives',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    attachmentId: uuid('attachment_id').references(() => attachments.id, { onDelete: 'cascade' }),
+    projectFileId: uuid('project_file_id').references(() => projectFiles.id, { onDelete: 'cascade' }),
+    /** The job version that wrote it. */
+    version: integer('version').notNull().default(1),
+    /** pdf | xlsx | pptx | docx | csv | text | image | audio | document | zip */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    extractorVersion: varchar('extractor_version', { length: 32 }).notNull(),
+    /** The normalised Markdown, stored under its own key (generateStorageKey); null when empty. */
+    markdownKey: varchar('markdown_key', { length: 300 }),
+    markdownChars: integer('markdown_chars').notNull().default(0),
+    sidecar: jsonb('sidecar').$type<Record<string, unknown>>().notNull().default({}),
+    warnings: jsonb('warnings').$type<FileWarning[]>().notNull().default([]),
+    /** { gemini: TokenCount, claude: TokenCount } */
+    tokenCounts: jsonb('token_counts').$type<Record<string, TokenCount>>().notNull().default({}),
+    /** Images: the EXIF-stripped, rotated, resized copy every model is sent (Stage 9 IMAGES). */
+    normalizedKey: varchar('normalized_key', { length: 300 }),
+    normalizedMimeType: varchar('normalized_mime_type', { length: 160 }),
+    /** The bytes it was made from; a later upload with the same checksum reuses it (G3). */
+    checksumSha256: varchar('checksum_sha256', { length: 64 }).notNull().default(''),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('uq_file_derivatives_attachment').on(t.attachmentId),
+    uniqueIndex('uq_file_derivatives_project_file').on(t.projectFileId),
+    index('ix_file_derivatives_checksum').on(t.userId, t.checksumSha256),
+    check('ck_file_derivatives_target', sql`${t.attachmentId} is not null or ${t.projectFileId} is not null`),
+  ],
+);
+
+/** One page, slide, sheet, section or audio segment of a derivative, with how it was read. */
+export const fileDerivativePages = pgTable(
+  'file_derivative_pages',
+  {
+    derivativeId: uuid('derivative_id')
+      .notNull()
+      .references(() => fileDerivatives.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    kind: varchar('kind', { length: 16 }).notNull(),
+    label: varchar('label', { length: 120 }).notNull().default(''),
+    text: text('text').notNull().default(''),
+    /** text | ocr | transcript | parsed | failed */
+    source: varchar('source', { length: 16 }).notNull(),
+    /** Stage 9 OCR-M11: each OCR'd page records the engine and its version. */
+    ocrEngine: varchar('ocr_engine', { length: 32 }),
+    ocrVersion: varchar('ocr_version', { length: 64 }),
+    tStartMs: integer('t_start_ms'),
+    tEndMs: integer('t_end_ms'),
+  },
+  (t) => [uniqueIndex('uq_file_derivative_pages').on(t.derivativeId, t.ordinal)],
+);
+
+/**
+ * Retrieval units of a derivative (Stage 9 CHUNK, N-14), for a chat file too large to send
+ * whole. Project files keep `file_chunks`, which project search reads.
+ */
+export const derivativeChunks = pgTable(
+  'derivative_chunks',
+  {
+    id: id(),
+    derivativeId: uuid('derivative_id')
+      .notNull()
+      .references(() => fileDerivatives.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    text: text('text').notNull(),
+    page: integer('page'),
+    locator: varchar('locator', { length: 120 }).notNull().default(''),
+  },
+  (t) => [uniqueIndex('uq_derivative_chunks').on(t.derivativeId, t.ordinal)],
+);
+
+/**
+ * Uploads started per user per day (N-11, Stage 1 FT-15). One row per user and UTC day,
+ * incremented with an upsert, so two uploads at once cannot both read the old count.
+ */
+export const uploadQuota = pgTable(
+  'upload_quota',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    day: varchar('day', { length: 10 }).notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [uniqueIndex('uq_upload_quota_user_day').on(t.userId, t.day)],
 );
 
 /**

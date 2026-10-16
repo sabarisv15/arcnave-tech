@@ -15,7 +15,7 @@ import { buildGeminiContents } from '../providers/gemini.js';
 import { ProviderError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { png, pdfWithPages } from '../test/fixtures/files.js';
-import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
+import { createTestApp, multipart, parseSse, signUp, postProjectFile } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -329,18 +329,10 @@ describe('picking a file from a project', () => {
     expect(projectRes.statusCode).toBe(201);
     const projectId = (projectRes.json() as { id: string }).id;
 
-    const png = Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      Buffer.alloc(32, 5),
-    ]);
-    const part = multipart('scan.png', png, 'image/png');
-    const fileRes = await ctx.app.inject({
-      method: 'POST',
-      url: `/v1/projects/${projectId}/files`,
-      headers: { ...part.headers, ...auth() },
-      payload: part.payload,
-    });
-    expect(fileRes.statusCode).toBe(201);
+    // A real image: images are stored, not indexed (`unsupported`), and stay pickable.
+    const part = multipart('scan.png', png(6, 6), 'image/png');
+    const fileRes = await postProjectFile(ctx, auth(), projectId, part);
+    expect(fileRes.statusCode).toBe(202);
     return { projectId, projectFileId: (fileRes.json() as { id: string }).id };
   }
 
@@ -430,11 +422,19 @@ describe('direct upload (the path the browser uses, for files up to 500 MB)', ()
   const complete = (id: string, headers = auth()) =>
     ctx.app.inject({ method: 'POST', url: `/v1/files/${id}/complete`, headers });
 
+  /** Complete answers 202; the file job reads the file; this waits for it and reads the row. */
+  async function settled(id: string, headers = auth()) {
+    await ctx.app.services.files.idle();
+    return ctx.app.inject({ url: `/v1/files/${id}`, headers });
+  }
+
   async function uploadDirect(filename: string, mimeType: string, bytes: Buffer, headers = auth()) {
     const started = await begin(filename, mimeType, bytes.length, headers);
     expect(started.statusCode).toBe(201);
     expect((await put(started.body.upload.url, bytes, headers)).statusCode).toBe(204);
-    return complete(started.body.file.id, headers);
+    const queued = await complete(started.body.file.id, headers);
+    expect(queued.statusCode).toBe(202);
+    return settled(started.body.file.id, headers);
   }
 
   it('accepts a file above the one-request limit and reads it on complete', async () => {
@@ -446,8 +446,10 @@ describe('direct upload (the path the browser uses, for files up to 500 MB)', ()
     expect(started.body.upload).toMatchObject({ method: 'PUT', withCredentials: true });
 
     expect((await put(started.body.upload.url, text)).statusCode).toBe(204);
-    const done = await complete(started.body.file.id);
-    expect(done.statusCode).toBe(200);
+    const queued = await complete(started.body.file.id);
+    expect(queued.statusCode).toBe(202);
+    expect(queued.json()).toMatchObject({ status: 'queued', reading: 'none' });
+    const done = await settled(started.body.file.id);
     expect(done.json()).toMatchObject({ status: 'ready', hasText: true, reading: 'text', sizeBytes: text.length });
   });
 
@@ -472,17 +474,16 @@ describe('direct upload (the path the browser uses, for files up to 500 MB)', ()
     }
   });
 
-  it('removes a PDF over 1,000 pages and says why', async () => {
+  it('fails a PDF over 1,000 pages with `too_many_pages` and says why (ER-9)', async () => {
     const done = await uploadDirect('huge.pdf', 'application/pdf', await pdfWithPages(1001));
-    expect(done.statusCode).toBe(413);
-    expect(done.json()).toMatchObject({ error: { code: 'payload_too_large' } });
-    expect((done.json() as { error: { detail: string } }).error.detail).toContain('1,001 pages');
+    expect(done.json()).toMatchObject({ status: 'failed', errorCode: 'too_many_pages' });
+    expect((done.json() as { error: string }).error).toContain('1,001 pages');
   });
 
-  it('removes an image over 8000 pixels and says why', async () => {
+  it('fails an image over 8000 pixels with `too_large` and says why', async () => {
     const done = await uploadDirect('wide.png', 'image/png', png(8001, 1));
-    expect(done.statusCode).toBe(413);
-    expect((done.json() as { error: { detail: string } }).error.detail).toContain('8001×1');
+    expect(done.json()).toMatchObject({ status: 'failed', errorCode: 'too_large' });
+    expect((done.json() as { error: string }).error).toContain('8001×1');
   });
 
   it('refuses to finish an upload whose bytes did not all arrive', async () => {
@@ -509,7 +510,7 @@ describe('direct upload (the path the browser uses, for files up to 500 MB)', ()
       payload: { prompt: 'read it', attachmentIds: [started.body.file.id] },
     });
     expect(res.statusCode).toBe(409);
-    expect(res.json()).toMatchObject({ error: { code: 'upload_incomplete' } });
+    expect(res.json()).toMatchObject({ error: { code: 'file_not_ready' } });
   });
 
   it("does not let another user send bytes into someone else's upload", async () => {

@@ -9,7 +9,6 @@ import { Workbook } from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 
-import type { AttachmentBlock, Provider } from '../providers/types.js';
 import {
   chunkText,
   ExtractionUnsupported,
@@ -19,76 +18,6 @@ import {
   rankBm25,
   tokenize,
 } from './retrieval.js';
-
-/** Enough of `Provider` for `describeMedia` callers; nothing here reaches an SDK or Vertex. */
-class StubVisionProvider implements Pick<Provider, 'describeMedia'> {
-  seen: Array<{ parts: AttachmentBlock[]; prompt: string }> = [];
-  response = 'transcribed content';
-
-  async describeMedia(parts: AttachmentBlock[], prompt: string): Promise<string> {
-    this.seen.push({ parts, prompt });
-    return this.response;
-  }
-}
-
-/**
- * A single blank page, deliberately with no `/Contents` — pdf.js still opens it (it tolerates
- * a missing/broken xref by rescanning) and `getText()` correctly finds nothing, which is what
- * triggers the OCR branch under test.
- */
-const BLANK_PAGE_PDF = Buffer.from(
-  '%PDF-1.4\n' +
-    '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
-    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n' +
-    'trailer<</Size 4/Root 1 0 R>>\n' +
-    '%%EOF',
-  'utf8',
-);
-
-describe('extractText: scanned PDF falls back to OCR via Gemini vision', () => {
-  it('transcribes via the vision provider when no selectable text is found', async () => {
-    const vision = new StubVisionProvider();
-    const text = await extractText(
-      BLANK_PAGE_PDF,
-      'application/pdf',
-      'scan.pdf',
-      vision as unknown as Provider,
-    );
-
-    expect(text).toBe('transcribed content');
-    expect(vision.seen).toHaveLength(1);
-    expect(vision.seen[0]!.parts[0]).toMatchObject({ mimeType: 'image/png' });
-  });
-
-  it('fails with a typed reason rather than silently skipping OCR when no provider is configured', async () => {
-    await expect(extractText(BLANK_PAGE_PDF, 'application/pdf', 'scan.pdf')).rejects.toThrow(
-      /OCR needs a configured Gemini provider/,
-    );
-  });
-});
-
-describe('extractText: audio/video transcription', () => {
-  it('transcribes via the vision provider', async () => {
-    const vision = new StubVisionProvider();
-    vision.response = 'the meeting covered Q3 budget';
-    const text = await extractText(
-      Buffer.from('not real audio bytes, Gemini reads the real thing server-side'),
-      'audio/mpeg',
-      'standup.mp3',
-      vision as unknown as Provider,
-    );
-
-    expect(text).toBe('the meeting covered Q3 budget');
-    expect(vision.seen[0]!.parts[0]).toMatchObject({ mimeType: 'audio/mpeg' });
-  });
-
-  it('fails with a typed reason rather than silently skipping transcription when no provider is configured', async () => {
-    await expect(
-      extractText(Buffer.from('x'), 'video/mp4', 'clip.mp4'),
-    ).rejects.toThrow(/Transcribing audio\/video needs a configured Gemini provider/);
-  });
-});
 
 describe('tokenize', () => {
   it('lowercases, drops stopwords, and drops single characters', () => {

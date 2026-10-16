@@ -1,6 +1,8 @@
 # ADR-0045: Office files are read with code when the turn has a sandbox
 
 - Status: accepted. Tested locally (typecheck, full suite); not deployed.
+  2026-10-15: §1 superseded by [ADR-0063](0063-files-ingest-and-automated-gates.md) Decision 6: a file within the
+  whole-file limit (N-05) goes inline as normalised text even when the turn can run code.
 - Date: 2026-09-27
 - Amends: [ADR-0011](0011-upload-follows-claude.md) ("every other document is read as its
   extracted text"), for turns where run_python is available.

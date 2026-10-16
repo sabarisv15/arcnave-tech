@@ -815,6 +815,21 @@ export function ArtifactPanel({ id }: { id: string }) {
   );
 }
 
+/** Largest file whose bytes the preview downloads into the tab (ours, D1 #33). */
+export const PREVIEW_FETCH_MAX_BYTES = 50 * 1024 * 1024;
+
+/** Whether the preview draws this file from its own bytes. */
+export function drawnHere(file: Attachment, drawn: boolean, office: string | null): boolean {
+  return (
+    drawn ||
+    file.type.startsWith("image/") ||
+    office === "docx" ||
+    office === "pptx" ||
+    file.type === "application/pdf" ||
+    canPreviewText(file)
+  );
+}
+
 /**
  * File preview.
  *
@@ -823,7 +838,7 @@ export function ArtifactPanel({ id }: { id: string }) {
  */
 function FilePanel({ file }: { file: Attachment }) {
   const [state, setState] = useState<{
-    status: "loading" | "ready" | "error";
+    status: "loading" | "ready" | "error" | "skipped";
     blob?: Blob;
     text?: string;
     url?: string;
@@ -843,6 +858,12 @@ function FilePanel({ file }: { file: Attachment }) {
     setState({ status: "loading" });
     if (!file.downloadUrl) {
       setState({ status: "error" });
+      return;
+    }
+    // D1 #33: only formats drawn here are downloaded for a preview, and only up to a size a
+    // browser tab can hold; everything else offers its download (a spreadsheet is read by the server).
+    if (!drawnHere(file, drawn, office) || file.size > PREVIEW_FETCH_MAX_BYTES) {
+      setState({ status: "skipped" });
       return;
     }
     fetch(file.downloadUrl, { credentials: "include" })
@@ -887,6 +908,31 @@ function FilePanel({ file }: { file: Attachment }) {
           </button>
         }
       />
+    );
+  if (state.status === "skipped")
+    return (
+      <>
+        <div className="file-meta">
+          <span>{sizeLabel(file.size)}</span>
+          {file.downloadUrl && (
+            <a className="button" href={file.downloadUrl} download={file.name}>
+              <ArrowDownToLine size={14} />
+              Download
+            </a>
+          )}
+        </div>
+        <div className="panel-scroll file-content">
+          {office === "xlsx" ? (
+            <SheetPreview fileId={file.id} />
+          ) : (
+            <EmptyState
+              icon={<FileText size={28} />}
+              title={drawnHere(file, drawn, office) ? "Too large to preview here" : "No preview for this format"}
+              description="Download it to open in its native application."
+            />
+          )}
+        </div>
+      </>
     );
   return (
     <>

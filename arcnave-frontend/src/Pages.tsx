@@ -30,6 +30,7 @@ import { ArtifactThumbnail } from "./ArtifactThumbnail";
 import Composer from "./Composer";
 import { Icon } from "./brand";
 import { sizeLabel, validateFile } from "./storage";
+import { isSettled, pollFile, stageLabel } from "./fileStates";
 import {
   ARTIFACT_KINDS,
   ArtifactTile,
@@ -363,10 +364,11 @@ function ProjectFileRow({
 }) {
   const { setPanel } = useWorkspace();
   const broken = file.status === "failed" || file.status === "unsupported";
-  const busy = file.status === "uploading" || file.status === "indexing";
+  // Every pipeline stage is "busy": the file is read in a job, stage by stage (ADR-0063).
+  const busy = !isSettled(file.status);
   const openable = file.status === "ready" && !!file.downloadUrl;
   const note = busy
-    ? "Indexing…"
+    ? (stageLabel(file) ?? "Reading…")
     : file.error
       ? file.error
       : file.status === "unsupported"
@@ -469,11 +471,19 @@ export function ProjectPage() {
     arts = artifacts.filter((a) => a.projectId === id);
 
   /**
-   * Upload straight into the project.
-   *
-   * Indexing happens inside the upload request, so the row that comes back already carries
-   * its final status and chunk count — there is nothing to poll.
+   * Upload straight into the project. The server reads the file in a job (ADR-0063): the
+   * upload answers with the file queued, and the row follows its stages by polling until it
+   * is ready, unsupported or failed.
    */
+  /** Polls one project file until it settles, updating its row at each stage. */
+  async function follow(fileId: string, status: string) {
+    if (!id || isSettled(status)) return;
+    const projectId = id;
+    await pollFile(fileId, (fid) => api.projects.readFile(projectId, fid), (dto) =>
+      setFiles((all) => all.map((x) => (x.id === dto.id ? toProjectFile(dto) : x))),
+    );
+  }
+
   async function upload(list: FileList | null) {
     if (!list || !id) return;
     for (const f of Array.from(list)) {
@@ -486,7 +496,7 @@ export function ProjectPage() {
           name: f.name,
           size: f.size,
           type: f.type,
-          status: problem ? "unsupported" : "indexing",
+          status: problem ? "unsupported" : "uploading",
           ...(problem ? { error: problem } : {}),
         },
       ]);
@@ -496,6 +506,7 @@ export function ProjectPage() {
         setFiles((all) =>
           all.map((x) => (x.id === localId ? toProjectFile(uploaded) : x)),
         );
+        await follow(uploaded.id, uploaded.status);
         void refreshProjects();
       } catch (error) {
         setFiles((all) =>
@@ -675,18 +686,19 @@ export function ProjectPage() {
                       if (!id) return;
                       setFiles((all) =>
                         all.map((x) =>
-                          x.id === f.id ? { ...x, status: "indexing" } : x,
+                          x.id === f.id ? { ...x, status: "queued" } : x,
                         ),
                       );
                       void api.projects
                         .reindex(id, f.id)
-                        .then((updated) =>
+                        .then(async (updated) => {
                           setFiles((all) =>
                             all.map((x) =>
                               x.id === f.id ? toProjectFile(updated) : x,
                             ),
-                          ),
-                        )
+                          );
+                          await follow(updated.id, updated.status);
+                        })
                         .catch(() => {
                           toast("That file could not be re-indexed.");
                           void load();

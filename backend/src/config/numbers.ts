@@ -57,6 +57,45 @@ export const NUMBERS = {
   MAX_UPLOAD_BYTES: n(30 * 1024 * 1024, 'N-10', 'repo value (project files, 30 MB); register lists docs 100 MB / XLSX 50 MB / images 20 MB / audio 500 MB / ZIP 100 MB'),
   /** Per-file ceiling for a chat attachment uploaded straight to storage. */
   ATTACHMENT_MAX_BYTES: n(500 * 1024 * 1024, 'N-10', 'repo value (largest per-type limit, audio 500 MB); register lists docs 100 MB / XLSX 50 MB / images 20 MB / ZIP 100 MB'),
+  /**
+   * Per-type upload limits (Stage 9 LIMITS, Stage 1 FT-7). Applied by `checkUpload` before any
+   * byte is sent and again by the browser's `validateFile`. "Docs" covers PDF, Word, PowerPoint,
+   * CSV / TXT / MD and the extra text and document types kept from before (EXTRA_TYPES).
+   */
+  UPLOAD_DOC_MAX_BYTES: n(100 * 1024 * 1024, 'N-10', 'register: docs 100 MB'),
+  UPLOAD_XLSX_MAX_BYTES: n(50 * 1024 * 1024, 'N-10', 'register: XLSX 50 MB'),
+  /** Was 10 MB in the repo (ADR-0011); the register says 20 MB. */
+  UPLOAD_IMAGE_MAX_BYTES: n(20 * 1024 * 1024, 'N-10', 'register: images 20 MB'),
+  /** Audio, and the video kept from before (EXTRA_TYPES), share the media limit. */
+  UPLOAD_AUDIO_MAX_BYTES: n(500 * 1024 * 1024, 'N-10', 'register: audio 500 MB / 3 h (duration not checked yet)'),
+  UPLOAD_ZIP_MAX_BYTES: n(100 * 1024 * 1024, 'N-10', 'register: ZIP 100 MB'),
+  /** Checked with ffprobe before transcription (P09). */
+  AUDIO_MAX_SECONDS: n(3 * 3600, 'N-10', 'register: audio ≤3 h'),
+  ZIP_MAX_MEMBERS: n(20, 'N-10', 'register: ZIP ≤20 files'),
+  ZIP_MAX_UNPACKED_BYTES: n(500 * 1024 * 1024, 'N-10', 'register: ZIP ≤500 MB unpacked'),
+  PDF_MAX_PAGES: n(1_000, 'N-10', 'register: docs ≤1,000 pages'),
+  FILES_PER_MESSAGE: n(10, 'N-10', 'register: ≤10 files per message'),
+  FILES_PER_CHAT: n(20, 'N-10', 'register: ≤20 files per chat'),
+  /** FT-15: counted when an upload starts, before any byte is accepted. */
+  UPLOADS_PER_USER_PER_DAY: n(50, 'N-11', 'Stage 18 final: uploads 50/user/day'),
+  /** File jobs: attempts before a job is failed (Stage 15 ER-7 file-blocking queue). */
+  FILE_JOB_MAX_ATTEMPTS: n(3, 'N-44', 'Stage 15 ER-7: file-blocking 3 attempts (Cloud Tasks deferred; in-process worker)'),
+  // --- File ingest: Stage 9 TOKENS / CHUNK / PDF->MODEL, Stage 6 CXD-4 (P12) ------------------
+  /**
+   * A file whose provider token count (per model family) is at most this goes to the model
+   * whole; above it, or with no count, it goes through retrieval.
+   */
+  WHOLE_FILE_MAX_TOKENS: n(30_000, 'N-05', 'register: whole-file limit 30k (Deep 100k test arm, Stage 21)'),
+  /**
+   * Page images sent for a PDF too large to send whole: images of the retrieved (or first)
+   * pages only. Normal profile; Fast 3 / Deep 20 arrive with the profiles (P10).
+   */
+  PDF_PAGE_IMAGES_PER_TURN: n(8, 'N-13', 'register: page images to model Fast 3 / Normal 8 / Deep 20 (Normal)'),
+  /** A PDF within the token budget is sent whole, every page's image, up to this many pages. */
+  PDF_WHOLE_MAX_PAGES: n(20, 'N-13', 'register: page images Deep 20, the most any profile sends'),
+  CHUNK_TARGET_TOKENS: n(800, 'N-14', 'register: chunk ~800 tokens'),
+  CHUNK_OVERLAP_PERCENT: n(15, 'N-14', 'register: overlap ~15 %'),
+
   /** A deleted chat's rows and files are purged this long after deletion. */
   CHAT_PURGE_AFTER_DAYS: n(30, 'N-33', 'repo value; register says soft delete 7 d, deletion SLA <= 30 d total'),
 

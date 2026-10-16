@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { normalizeWorkbookRow, type StructuredWorkbook } from './structuredWorkbook.js';
 import type { SpreadsheetSpec } from './types.js';
-import { renderSpreadsheet, renderStructuredSpreadsheet } from './xlsxRenderer.js';
+import { neutraliseFormulaText, renderSpreadsheet, renderStructuredSpreadsheet } from './xlsxRenderer.js';
 
 describe('Format-Native XLSX Renderer', () => {
   it('renders structured workbook with native numbers, dates, booleans, and formulas', async () => {
@@ -160,5 +160,25 @@ describe('Format-Native XLSX Renderer', () => {
     expect(ws.getCell('A2').value).toBe('Alice');
     expect(ws.getCell('B2').value).toBe(95);
     expect(ws.getCell('C2').value).toBe(0.95);
+  });
+});
+
+describe('formula injection (Stage 9 G13)', () => {
+  it('writes text that would run as a formula with a leading apostrophe; numbers and real formulas stay', async () => {
+    expect(neutraliseFormulaText('=HYPERLINK("http://x","click")')).toBe('\'=HYPERLINK("http://x","click")');
+    expect(neutraliseFormulaText('+91 cmd|calc')).toBe("'+91 cmd|calc");
+    expect(neutraliseFormulaText('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(neutraliseFormulaText('-2,500.50')).toBe('-2,500.50');
+    expect(neutraliseFormulaText('Plain text')).toBe('Plain text');
+    const buf = await renderSpreadsheet({
+      sheets: [{ name: 'S', header: ['Note', 'Amount'], rows: [['=1+1', '42'], ['@cmd', '-7']] }],
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as any);
+    const ws = wb.getWorksheet('S')!;
+    // This renderer's rows write a leading `=` as a formula the model asked for: kept as one.
+    expect(ws.getCell('A2').value).toEqual({ formula: '1+1' });
+    expect(ws.getCell('A3').value).toBe("'@cmd");
+    expect(ws.getCell('B3').value).toBe(-7);
   });
 });

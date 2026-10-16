@@ -1,6 +1,8 @@
 # ADR-0020: Project files go into the prompt whole while they fit, as Claude keeps project knowledge in context
 
 - Status: accepted. Excerpt branch amended by [ADR-0029](0029-project-knowledge-searched-past-the-limit.md): past the limit the model searches with a tool.
+  2026-10-15: §4 "no token counting" superseded for files by [ADR-0063](0063-files-ingest-and-automated-gates.md)
+  Decision 5 (provider count APIs at ingest; a missing count is null, never a guess).
 - Date: 2026-09-25
 - See also: [ADR-0019](0019-long-chats-follow-claude.md) (compaction),
   CLAUDE.md invariant 4 (retrieval is lexical)

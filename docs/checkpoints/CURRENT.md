@@ -1,5 +1,32 @@
 # ArcNave — current checkpoint
 
+> **2026-10-15: tech-build.2 — files ingest (P09 + P12 + P19 part + the P06 gaps). Branch `build/files-ingest` (from `build/files-fix` @ `5cafbac`); one commit, not merged, not deployed.**
+> - Record: [ADR-0063](../decisions/0063-files-ingest-and-automated-gates.md); evidence per exit test: [`docs/ops/build-2-result.md`](../ops/build-2-result.md); the owner's live test: [`docs/ops/build-2-live-checklist.md`](../ops/build-2-live-checklist.md) (+ `build-2-fixtures/`).
+> - Owner decision: automated gates are the pre-deploy gate, manual local runs optional, deploy = owner's merge; `CLAUDE.md` bullet edited.
+> - P06 gaps: polls and `complete` wake the worker and a poll holds up to 5 s (request-based CPU); lease 15 min, renewed per stage; project files go through file jobs (202 + poll) and the same ingest as chat files; old sync indexer and single-call OCR removed after a parity run.
+> - P09: per-page OCR (`OcrEngine`, Gemini; ≤ 15-page batches, deadline, 1 retry, finish reason, `ocr_engine`/`ocr_version`); audio in 90-s timed segments (ffprobe 3 h check, ffmpeg in the image); images as a normalised copy (EXIF/GPS stripped, rotated, ≤ 2,576 px, ≤ 5 MB base64, HEIC), > 20 images → 2,000 px.
+> - P12: `file_derivatives` (+ pages, chunks; Markdown in object storage), XLSX/PPTX/DOCX/PDF builders with locators, provider token counts per family at ingest, whole ≤ 30k tokens else BM25 excerpts, PDF page images by N-13, encodings + NUL check, G13 escaping, reuse by checksum, generation + checksum at `complete`, derived objects deleted with the file, replace a project file (`PUT`), ~800-token chunks.
+> - P19 part: `Scanner` + clamd INSTREAM client (`malware` / `scan_incomplete`, `FILE_SCANNER=none` default, no clamd deployed); PDF JavaScript / OpenAction / Launch strip.
+> - Migration 0029 (additive). Tests: backend 119 files / 1,179 passed / 19 skipped (was 114 / 1,129 / 19); frontend 42 files / 403 (was 400). Models: Opus 5.5 main; Sonnet 5.5 read-only lookup; Haiku 5.5 test run.
+> - Deferred: LibreOffice page images (sandbox phase), resumable upload (D1 #36), Document AI, clamd deploy, image OCR, page-image token counts, `file_versions`, replace button in the UI.
+
+> **2026-10-15: tech-build.1 — files fix (P01 + P06 + P14 of `docs/ops/audit/NEW-PLAN.md`). Branch `build/files-fix` (from `audit/stage-1-21`); one commit, not merged, not deployed.**
+> - Record: [ADR-0062](../decisions/0062-file-pipeline-jobs-isolation-zip.md) (supersedes parts of ADR-0011); result and evidence per exit test: [`docs/ops/build-1-result.md`](../ops/build-1-result.md).
+> - P01: claim guard (`message_id IS NULL`, 409 `file_already_attached`); shared bytes reference-checked before any delete; a picked project file carries text / pages / status; Unicode tokenizer (`\p{L}\p{M}\p{N}`, NFC) + `reindex` backfill (`index_version` 2); chunk cap 2,000 with a visible `chunk_cap` warning; `pdftotext`/`pdftoppm` failures → `unreadable`; only `ready` files send (409 `file_not_ready`), chip Retry + Remove, disclaimer gone; ER-9 `error_code` on files.
+> - P06: `file_jobs` + in-process worker (`FOR UPDATE SKIP LOCKED`, renewed lease, fenced writes, 3 attempts N-44); `complete` → 202, chip polls; states queued / scanning / extracting / (ocr) / transcribing / (indexing) / ready / failed; fast lane ≤ 2 MB; `FILE_PIPELINE=sync` kept behind a flag with a parity test. Parsers in a child process (heap + time limit, no secrets); pre-flight (central-directory ratio, DTD/ENTITY, macros); content sniff; encrypted detection; N-10 per-type limits; 50 uploads/user/day (N-11). Memory-per-byte table and `oneAtATime` removed after the old-vs-new parity check.
+> - P14: ZIP uploads — central directory first, then streamed inflate with running counters; nested / zip-slip / symlink / ratio / > 20 / > 500 MB / encrypted / disallowed type each refused with its code; members become attachments (`parent_attachment_id`) and their own jobs; chips replace the ZIP with its members.
+> - Migration 0028 (additive): `file_jobs`, `upload_quota`, `attachments.error_code / warnings / parent_attachment_id`, `project_files.error_code / warnings / index_version`.
+> - Tests: backend 114 files / 1,129 passed / 19 skipped (was 110 / 1,076 / 19); frontend 42 files / 400 (was 41 / 390). Model: Claude Opus 5.5 only.
+> - Open: OCR at upload (P09), ClamAV (P19), token counts (P12), HEIC, audio 3 h, SheetJS/ExcelJS replacement (VS-16, now isolated), owner may change the OQ-12/15/25 defaults listed in the result file.
+
+> **2026-10-15: tech-audit.A — conformance audit of Stages 1–21 and a proposed plan. Branch `audit/stage-1-21` (from `main` @ `baca408`); docs only, no code changed; not merged.**
+> - Owner rule 2026-10-15 recorded as [ADR-0061](../decisions/0061-locked-decisions-win-outside-stack-and-infra.md): every locked outcome must be met except tech stack and infra; ADR-0053 #2 "repo wins" superseded (ADR-0053 itself not edited).
+> - [`docs/ops/audit/`](../ops/audit/SUMMARY.md): 21 stage audits, deep-dives D1 files / D2 AI output / D3 architecture, numbers sweep, evidence pack, deferred list, a 1,484-row master register (`FINDINGS.md`, every source section count-checked) and a start-to-end `AUDIT-LOG.md`.
+> - Result: 669 decision rows — KEEP 132, REWRITE 195, NEW-BUILD 167, DIFF-STACK 24, DIFF-INFRA 24, DEFERRED 71, n/a 52; 37 superseded lines not to build. Confirmed in code: ASCII-only project search (Tamil/Hindi invisible), no OCR at upload, retry re-runs tool rounds, run state in memory, SSRF regex, Gemini tool-result clearing against ADR-0023, `migrate || true`, unauthenticated `/models`.
+> - `NEW-PLAN.md`: a proposal of 29 phases (files → AI output → architecture, with security quick fixes early); every work row mapped to a phase. 32 owner questions (OQ-01…OQ-32) block parts of it; the owner decides.
+> - Models: main session Claude Opus 5.5; eight auditors Claude Sonnet 5.5. No provider calls. `.env.example` unread (permission rule).
+> - Next: owner answers OQ-01, 05, 08, 10, 12, 15; P01–P04 need no answer.
+
 > **2026-10-15: tech-p1 fix round (owner review), same branch, PR #40.**
 > - F-1: the app error handler logs `errorType` / `errorCode` / `rootType` / `rootCode` (SQLSTATE) /
 >   `messageLength` / route / method only (`src/errorLog.ts`); a failed sign-up insert no longer writes

@@ -116,6 +116,18 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "The upload did not finish",
     detail: "Not all of the file arrived. Remove it and upload it again.",
   },
+  file_not_ready: {
+    title: "A file is not ready",
+    detail: "Wait for every file to finish reading, or remove the ones that failed, then send.",
+  },
+  file_already_attached: {
+    title: "This file is already in a sent message",
+    detail: "Attach the file again to use it in a new message.",
+  },
+  upload_quota_exceeded: {
+    title: "Daily upload limit reached",
+    detail: "You have reached today’s upload limit. Try again tomorrow.",
+  },
   rate_limit: {
     title: "Too many requests",
     detail: "Wait a moment, then try again.",
@@ -238,6 +250,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
   sample_too_long: {
     title: "Writing sample too long",
     detail: "Each writing sample cannot exceed 10000 characters.",
+  },
+  scan_incomplete: {
+    title: "The file could not be checked",
+    detail: "It could not be checked for harmful content, so it was not opened. Retry, or remove it.",
   },
   internal_error: {
     title: "Something went wrong",
@@ -569,9 +585,13 @@ export interface ProjectFileDto {
   filename: string;
   mimeType: string;
   sizeBytes: number;
-  /** pending | indexing | ready | failed | unsupported */
+  /** queued | scanning | extracting | ocr | transcribing (being read: poll it) | ready | failed | unsupported */
   status: string;
   error: string;
+  /** Stage 15 ER-9 code when failed / unsupported. */
+  errorCode?: string;
+  /** Notes on a ready file, e.g. `chunk_cap`: only part of it is searchable. */
+  warnings?: Array<{ code: string; detail: string }>;
   chunkCount: number;
   checksumSha256: string;
   indexedAt: string | null;
@@ -626,9 +646,20 @@ export interface AttachmentDto {
   filename: string;
   mimeType: string;
   sizeBytes: number;
-  /** ready | unsupported — `unsupported` still stores the file, it just has no text. */
+  /**
+   * uploading | queued | scanning | extracting | ocr | transcribing | indexing (still being
+   * read) | ready | failed. Only `ready` can be sent.
+   */
   status: string;
   error: string;
+  /** Stage 15 ER-9 code of a failed file; switch on this, never on `error`. */
+  errorCode?: string;
+  /** Notes on a ready file. */
+  warnings?: Array<{ code: string; detail: string }>;
+  /** The ZIP this file came from. */
+  parentId?: string | null;
+  /** A ZIP's members, each an attachment of its own. */
+  memberIds?: string[];
   hasText: boolean;
   /** Pages in a PDF; null for every other type. */
   pageCount?: number | null;
@@ -963,6 +994,10 @@ export const api = {
       form.append("file", file);
       return request<ProjectFileDto>("POST", `/projects/${id}/files`, { form });
     },
+    /** One file; while it is being read the server holds the poll briefly (ADR-0063). */
+    readFile: (id: string, fileId: string) =>
+      get<ProjectFileDto>(`/projects/${id}/files/${fileId}`),
+    /** 202: the file is queued; poll `readFile` until it settles. */
     reindex: (id: string, fileId: string) =>
       post<ProjectFileDto>(`/projects/${id}/files/${fileId}/reindex`),
     removeFile: (id: string, fileId: string) =>
@@ -1050,13 +1085,16 @@ export const api = {
       });
       try {
         await sendBytes(started.upload, file, onProgress);
-        return await post<AttachmentDto>(`/files/${started.file.id}/complete`);
       } catch (error) {
         void del(`/files/${started.file.id}`).catch(() => {});
         throw error;
       }
+      // 202 with status `queued`: the file is read by a job; poll `read` until it settles.
+      return await post<AttachmentDto>(`/files/${started.file.id}/complete`);
     },
     read: (id: string) => get<AttachmentDto>(`/files/${id}`),
+    /** Read a failed file again (Stage 9 RETRY); answers with the queued file. */
+    retry: (id: string) => post<AttachmentDto>(`/files/${id}/retry`),
     remove: (id: string) => del(`/files/${id}`),
     downloadUrl: (id: string) => url(`/files/${id}/download`),
     /** A spreadsheet's sheets as typed cells (WP-11). */

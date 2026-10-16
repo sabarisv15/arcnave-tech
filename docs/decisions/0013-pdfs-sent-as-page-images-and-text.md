@@ -2,6 +2,8 @@
 
 - Status: accepted. Gemini's page images go by `gs://` URI when a bucket is configured:
   [ADR-0016](0016-gemini-reads-page-images-by-uri.md).
+  2026-10-15: which pages get images is now the N-13 budget of [ADR-0063](0063-files-ingest-and-automated-gates.md)
+  Decision 6 (whole ≤ 20 pages within N-05, else 8 chosen pages).
 - Date: 2026-09-25
 - Builds on: [ADR-0011](0011-upload-follows-claude.md) (the upload-time `reading` value)
 

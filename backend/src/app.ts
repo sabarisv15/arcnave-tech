@@ -217,6 +217,13 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     { prefix: cfg.API_PREFIX },
   );
 
+  // The file worker is started by the process (index.ts), not here: building the app (OpenAPI,
+  // tests) must not reach the database. Closing waits for its in-flight jobs; a job cut short
+  // by a crash is taken over by another worker when its lease lapses.
+  app.addHook('onClose', async () => {
+    await services.files.stop();
+  });
+
   return app as AppInstance;
 }
 
