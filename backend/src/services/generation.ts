@@ -44,10 +44,10 @@ import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
-import { usdToInr, type UsageService } from './usage.js';
-import { routeTurn, type RuntimeDebugTrace } from './routing/turnRouter.js';
+import type { UsageService } from './usage.js';
+import { routeTurn } from './routing/turnRouter.js';
 import type { TurnServices } from './turn/services.js';
-import { type StreamEvent, presentedFiles, type ModelInfo, toUsageDto, toSourceDto, computeCostFor } from './turn/events.js';
+import { type StreamEvent, presentedFiles, type ModelInfo, toUsageDto, toSourceDto } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
 import { loadPreferences, loadProject, loadHistory, compactIfNeeded, previousContextTokens as previousContextTokensOf } from './turn/context.js';
 import { readOfficeFilesWithCode, chatFilesOf, hydrateAttachmentBytes, limitToModel, hydrateHistoryAttachments } from './turn/contextAttachments.js';
@@ -56,7 +56,8 @@ import { resolveModel } from './turn/modelRouting.js';
 import { buildToolExecutors } from './turn/toolset.js';
 import { streamWithRetry, FailedAfterToolRun, refusalError, isTurnDeadline, mapProviderError, visualDrafts } from './turn/providerLoop.js';
 import { persistEvent, persistToolCall, finalise } from './turn/persistence.js';
-import { createTurnState } from './turn/turnState.js';
+import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
+import { settleTurn } from './turn/settle.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -153,7 +154,7 @@ export class GenerationService {
       ...(input.clientPlatform ? { clientPlatform: input.clientPlatform } : {}),
     });
     turnLog.stage('workspace', { runId });
-    const logOutcome: { status: string; finishReason?: string | null; errorCode?: string | null; usage?: object } = {
+    const logOutcome: TurnLogOutcome = {
       status: 'unfinished',
     };
 
@@ -810,67 +811,17 @@ export class GenerationService {
       }
     }
 
-    const questions: string[] = [];
-
-    await finalise(this.svc, input, {
-      text,
-      thinking: state.collectedThinking.join(''),
-      segments: state.segments,
-      sources: state.collectedSources,
-      searchEntryPoint: state.searchEntryPoint,
-      status: state.status === 'cancelled' ? 'stopped' : state.status === 'error' ? 'error' : 'complete',
-      errorCode: state.errorCode,
-      finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
+    yield* settleTurn(this.svc, input, state, {
       entry,
-      mode: input.mode,
-      questions,
-      effort: reasoningEffort,
-    });
-
-    turnLog.stage('saved', { status: state.status, textCharacters: text.length, segments: state.segments.length });
-    Object.assign(logOutcome, {
-      status: state.status === 'cancelled' ? 'stopped' : state.status,
-      finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
-      errorCode: state.errorCode,
-      usage: state.usage,
-    });
-    await this.usage.record({
-      userId: input.userId,
       prefs,
-      requestId: input.requestId,
-      chatId: input.chatId,
-      messageId: input.messageId,
-      projectId: input.projectId,
-      modelAlias: entry.alias,
-      provider: entry.provider,
-      providerModelId: entry.providerModelId!,
-      usage: state.usage,
+      text,
+      reasoningEffort,
+      turnLog,
+      logOutcome,
       startedAt,
-      status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
-      finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
+      allowedTools: routingDecision.allowedTools,
+      loadedSkills,
     });
-
-    // A cancelled run has no terminal `done`: the client already knows it stopped, and
-    // emitting "done" would claim a completion that did not happen.
-    if (state.status === 'complete') {
-      const debugTrace: RuntimeDebugTrace = {
-        loadedSkills: loadedSkills.map((s) => s.name),
-        allowedTools: routingDecision.allowedTools,
-        toolsCalled: state.toolsCalled,
-      };
-      log.info({ debugTrace }, 'Runtime debug trace');
-      yield { type: 'debug', trace: debugTrace };
-
-      const costUsd = computeCostFor(this.cfg, entry.providerModelId!, state.usage);
-      yield {
-        type: 'done',
-        questions,
-        usage: toUsageDto(state.usage, costUsd, usdToInr(this.cfg, costUsd)),
-        finishReason: state.finishReason,
-        ...(reasoningEffort ? { effort: reasoningEffort } : {}),
-        ...(state.endedPartial ? { partial: true as const, errorCode: 'partial_after_tool_run' as const } : {}),
-      };
-    }
     } catch (err) {
       // A failure outside the provider stream (model resolution, a limit, the budget, saving):
       // the log says which stage it came after, then the error goes on as before.

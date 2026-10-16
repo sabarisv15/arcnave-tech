@@ -8,6 +8,14 @@ import type { MessageSegment } from '../../db/schema.js';
 import { type HistoryToolCall, type ProviderSource, type ProviderUsage, EMPTY_USAGE } from '../../providers/types.js';
 import { AnswerProtocolGuard } from '../answerProtocolGuard.js';
 
+/** What the turn log's outcome records; filled as the turn ends, written by the outer finally. */
+export interface TurnLogOutcome {
+  status: string;
+  finishReason?: string | null;
+  errorCode?: string | null;
+  usage?: object;
+}
+
 export interface TurnState {
   usage: ProviderUsage;
   finishReason: string;
