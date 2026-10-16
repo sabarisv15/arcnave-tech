@@ -74,7 +74,8 @@ docker start arcnave-pg
   Asked why ArcNave does something, answer: what Claude does, what ArcNave does now, the gap,
   and the fix. Our own ideas are labelled as ours. Details:
   [`.claude/rules/claude-reference.md`](.claude/rules/claude-reference.md). The invariants
-  above still win, and launch files stay brand-neutral (Invariant 7).
+  above still win, and launch files stay brand-neutral (Invariant 7). Where a locked stage
+  decision disagrees, the stage decision wins ([ADR-0071](docs/decisions/0071-stage-decisions-win-over-claude-reference.md)).
 - **Verify before claiming.** Run the command and read the output. A green typecheck is not a
   passing test, a passing test is not a running server, and a Dockerfile that builds is not a
   program that starts — `mistakes.md` has an entry for each of those.

@@ -225,3 +225,8 @@ none contains anything private.
    repeat: the step shows "Running code with files is not set up" and the model says the owner
    must finish the setup; a chat with no file still runs `print(1)`. Failure: code runs but the
    file is "not found", or the chart never arrives with no notice.
+10. **A file name with `&` and `"` reads as typed (ADR-0069 spelling).** On macOS / Linux (Windows
+    refuses `"`), name any small PDF `R&D "draft".pdf`, attach it, and ask "what is this file
+    called?". Expected: the model gives the name readable, `R&D "draft".pdf`. Failure sign: the
+    answer shows `&quot;` or `&#124;` (the escaped form the model is sent). If it fails, record it
+    in `docs/ops/audit/DEFERRED.md` as a name-rendering item; it is not a merge blocker.

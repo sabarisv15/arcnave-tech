@@ -64,26 +64,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-17 — Reconciling with the server raced the server's own write
-
-- **Symptom:** Pressing stop mid-answer left the response spinning "Thinking…" forever, even
-  though `GET /v1/chats/:id` showed the row as `stopped` a second later.
-- **Cause:** After a stream ends the client re-reads the chat so ids and status come from the
-  database rather than from what it guessed. Aborting closes the socket, so the client resumes
-  *immediately* — while the server is still in its own `finally` writing the final row. The
-  read won the race, returned `generating`, and that overwrote the `stopped` the client had
-  correctly just set.
-- **Rule:** **A read issued because you closed a connection can arrive before the other side
-  has finished reacting to the close.** When reconciling, never let a non-terminal server
-  status overwrite a terminal status you observed locally; keep yours and re-read on a short
-  bounded delay. Generally: **reconciliation must be a merge, not an assignment.**
-- **Verify:** Stop a long answer; the message reads "Response stopped" with its partial text,
-  and `GET /v1/chats/:id` agrees. (`loadTranscript`'s `settled` argument in
-  [`arcnave-frontend/src/workspace.tsx`](arcnave-frontend/src/workspace.tsx).)
-- **Wider point:** this is the third appearance of the stuck-`generating` failure in this
-  project, and the first on the client. The backend fix from 2026-09-16 was correct and did not
-  help, because the bug had moved.
-
 ### 2026-09-17 — A deliberate sign-out announced itself as an expired session
 
 - **Symptom:** Clicking "Sign out" showed "Your session ended. Sign in to pick up where you
@@ -834,6 +814,18 @@ failure mode of this pattern, not a sign it is working.
   src/tools/sandbox/cloudRunSandboxClient.test.ts` ("linear on any page", "the DTD scan is linear",
   "a run with an input file fails with sandbox_misconfigured").
 
+### 2026-10-16 — Worktree isolation created from a stale `main` commit (`882e8de`), twice
+
+- **Symptom:** in tech-build.3-fix both writer worktrees (`isolation: "worktree"`) were created at
+  `882e8de`, an old `main` merge, not at the branch tip `fce4a22` — the second time in one day
+  (the entry above: `baca408`).
+- **Cause:** the agent worktree is cut from a `main` commit, not from the session's `HEAD`, and the
+  brief did not name the base, although the entry above says it must.
+- **Rule:** **The brief must say: base = branch tip (`<sha>`), verify with `git merge-base <sha>
+  HEAD` (it must print `<sha>`) and `git log -1` before any work; reset to it if not.**
+- **Verify:** `git -C .claude/worktrees/<agent> merge-base <sha> HEAD` prints `<sha>` for every
+  worker before main trusts its first commit.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1469,3 +1461,5 @@ practice, not canon.
   branched from `fce4a22` on its own, W2 was told to `git reset --hard fce4a22` after main checked
   `git worktree list`. The brief had not named the reset although the rule says it must; main's
   check caught it before any work was built on the wrong base. **40 entries.**
+- **2026-10-16 (tech-build.3-docs)** — Pruned the oldest entry, "Reconciling with the server raced
+  the server's own write" (2026-09-17), at the cap; added the stale-worktree entry. **40 entries.**
