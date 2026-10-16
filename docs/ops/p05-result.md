@@ -6,7 +6,7 @@ only; every oddity found goes to `DEFERRED.md`.
 
 ## Step 0 — the missing scenarios, on the unsplit code
 
-Commit: STEP0 (sha in the table at the end).
+Commits: `b9f41b4` (the 16 paths), then `b448929` after review gate 0 = **STEP0**.
 
 - New file `backend/src/test/turnCharacterizationPaths.integration.test.ts` with its own snapshot
   `backend/src/test/__snapshots__/turnCharacterizationPaths.integration.test.ts.snap`: the same
@@ -124,3 +124,164 @@ New scenarios' proofs (same script; controls 4 of 4 passed, breaks 4 of 4 failed
 | P | the partial end is not marked | exit 1, 1 failed / 22 skipped (23) | `-     "partial": true,` |
 | R | the error branch does not release before recording (the finally releases later) | exit 1, 1 failed / 22 skipped (23) | `-     "usage.release",` |
 | L | limitToModel does not release the reservation it was handed | exit 1, 1 failed / 22 skipped (23) | `AssertionError: expected [ 'run.start', …(5) ] to include 'usage.release'` |
+
+## Steps 1-6 — gates after every step
+
+Run by `docs/ops/p05-gates.sh`, one commit at a time, sequentially, in a scratch worktree with its
+own database (`arcnave_test_step0`). Each row is the script's output for that commit. STEP0 =
+`b448929` (step 0 plus review gate 0); the snapshot diff is `git diff b448929 <sha> -- '*.snap'`.
+
+| Step | Commit | `.snap` diff vs STEP0 | `tsc --noEmit` | `generation.ts` lines | `runTurn` (lines of `generation.ts`) | `vitest run` |
+|---|---|---|---|---|---|---|
+| 0 | `b448929` | 0 bytes (empty: yes) | exit 0 | 916 | 142-915 = 774 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+| 1 | `d2ed7fc` | 0 bytes (empty: yes) | exit 0 | 895 | 142-894 = 753 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+| 2 | `afd0895` | 0 bytes (empty: yes) | exit 0 | 846 | 143-845 = 703 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+| 3 | `fbbb051` | 0 bytes (empty: yes) | exit 0 | 783 | 144-782 = 639 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+| 4 | `3ea1e73` | 0 bytes (empty: yes) | exit 0 | 575 | 143-574 = 432 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+| 5 | `25c26ba` | 0 bytes (empty: yes) | exit 0 | 362 | 131-361 = 231 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+| 6 | `8524b64` | 0 bytes (empty: yes) | exit 0 | 249 | 129-248 = 120 lines | 139 passed (139); 1522 passed, 19 skipped (1541) |
+
+- (a) snapshot diff empty after every step; (b) `tsc` clean and the pass count equal to STEP0's
+  (1,522 passed, 19 skipped, nothing newly skipped) after every step; (c) `runTurn` 774 → 120 lines,
+  `generation.ts` 916 → 249; (d) no new `catch` that swallows (the only catches are the moved ones),
+  no `finally` moved out of the outer `try`: the stream's `finally` (release) moved with its `try`
+  into `streamAndCollect`, the outer `finally` stays in `runTurn`.
+- Earlier, a step-0 and a step-1 suite run side by side both failed one test on its 20 s timeout
+  (`filePipeline.integration.test.ts` parity); the file passed alone on both, and the sequential
+  runs above are the gate (mistakes.md, 2026-10-16).
+- Each step was also checked before its commit with both characterization files (37 tests) and
+  `tsc`.
+
+### Raw gate output
+
+```
+## step 0 b448929
+$ git log -1 --oneline
+b448929 test(turn): review gate 0 — limitToModel release, partial, refusal and forced-answer stop paths
+$ git diff b448929 b448929 -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+916 src/services/generation.ts
+$ runTurn lines
+142-915 = 774 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  534.76s (tests 69%, import 30%, transform 1%)
+exit 0
+```
+```
+## step 1 d2ed7fc
+$ git log -1 --oneline
+d2ed7fc refactor(turn): one TurnState object for the turn's stream and settle state (P05 step 1)
+$ git diff b448929 d2ed7fc -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+895 src/services/generation.ts
+$ runTurn lines
+142-894 = 753 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  534.92s (tests 69%, import 30%, transform 1%)
+exit 0
+```
+```
+## step 2 afd0895
+$ git log -1 --oneline
+afd0895 refactor(turn): settleTurn — the settle step out of runTurn (P05 step 2)
+$ git diff b448929 afd0895 -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+846 src/services/generation.ts
+$ runTurn lines
+143-845 = 703 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  531.66s (tests 69%, import 30%, transform 1%)
+exit 0
+```
+```
+## step 3 fbbb051
+$ git log -1 --oneline
+fbbb051 refactor(turn): forcedAnswer — the forced answer out of runTurn (P05 step 3)
+$ git diff b448929 fbbb051 -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+783 src/services/generation.ts
+$ runTurn lines
+144-782 = 639 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  532.00s (tests 68%, import 31%, transform 1%)
+exit 0
+```
+```
+## step 4 3ea1e73
+$ git log -1 --oneline
+3ea1e73 refactor(turn): streamAndCollect — the provider stream out of runTurn (P05 step 4)
+$ git diff b448929 3ea1e73 -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+575 src/services/generation.ts
+$ runTurn lines
+143-574 = 432 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  538.82s (tests 69%, import 30%, transform 1%)
+exit 0
+```
+```
+## step 5 25c26ba
+$ git log -1 --oneline
+25c26ba refactor(turn): buildTurnContext — tools to request out of runTurn (P05 step 5)
+$ git diff b448929 25c26ba -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+362 src/services/generation.ts
+$ runTurn lines
+131-361 = 231 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  535.15s (tests 69%, import 30%, transform 1%)
+exit 0
+```
+```
+## step 6 8524b64
+$ git log -1 --oneline
+8524b64 refactor(turn): prepareTurn and compactStage — the turn's start out of runTurn (P05 step 6)
+$ git diff b448929 8524b64 -- '*.snap' | wc -c
+0
+$ npx tsc --noEmit
+exit 0
+$ wc -l src/services/generation.ts
+249 src/services/generation.ts
+$ runTurn lines
+129-248 = 120 lines
+$ npx vitest run
+ Test Files  139 passed (139)
+      Tests  1522 passed | 19 skipped (1541)
+   Duration  536.18s (tests 68%, import 31%, transform 1%)
+exit 0
+```
+
+## After review
+
+`npm run openapi` leaves no diff (`git diff -- docs/openapi.json`: 0 bytes); `git diff --stat
+origin/main -- arcnave-frontend` is empty. Review: `docs/ops/p05-review.md`.
