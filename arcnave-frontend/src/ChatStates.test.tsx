@@ -139,7 +139,7 @@ describe("a cut-short answer offers Continue", () => {
     }
   });
 
-  it("says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0064)", () => {
+  it("says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0072)", () => {
     const onContinue = vi.fn();
     render(<CutShortNote finishReason="partial" onContinue={onContinue} />);
     const note = host.querySelector(".cs-cut")!;

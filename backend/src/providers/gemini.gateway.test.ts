@@ -1,5 +1,5 @@
 /**
- * The Gemini adapter's gateway behaviour (tech-build.3 Part A, ADR-0064): nothing cleared from
+ * The Gemini adapter's gateway behaviour (tech-build.3 Part A, ADR-0072): nothing cleared from
  * history, errors classified by HTTP status (Stage 15 ER-2e/ER-2g), the SDK's own retries off
  * (ER-1b, VS-29b), the duplicate failed-call guard (D2 X-10), media readings that say when they
  * were cut (X-7), and filenames that cannot write markup (X-9).
@@ -92,7 +92,7 @@ function streamError(status: number, statusText: string, error: Record<string, u
   return new ApiError({ message: `got status: ${statusText}. ${JSON.stringify(chunk)}`, status });
 }
 
-describe('Gemini history is never cleared (ADR-0023 reinstated by ADR-0064, D2 X-1)', () => {
+describe('Gemini history is never cleared (ADR-0023 reinstated by ADR-0072, D2 X-1)', () => {
   it('a request with previousContextTokens 120000 carries every function response unchanged', async () => {
     // 12 results, so the removed policy would have cleared some: it triggered at a previous
     // request of ≥ 100,000 tokens (120,000 here), kept the newest 3 and cleared the rest in
@@ -305,7 +305,7 @@ describe('media readings say when they were cut (D2 X-7)', () => {
   });
 });
 
-// ADR-0069 (superseding ADR-0064 §9 in part): the attribute carries the name as every other place
+// ADR-0069 (superseding ADR-0072 §9 in part): the attribute carries the name as every other place
 // shows it, so `&` and `'` stay and a line break is a space; `"`, `<` and `>` still cannot escape.
 describe('<document filename> is escaped (D2 X-9, ADR-0069)', () => {
   const textOf = (filename: string): string => {

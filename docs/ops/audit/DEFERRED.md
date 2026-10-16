@@ -205,16 +205,16 @@ something built now? Evidence is for the repo as it is; "no" assumes the picks i
 Added by the build task, not by the audit. Each line names the part that deferred it; the reasons
 are in [build-3-result.md](../build-3-result.md) and the ADR named.
 
-**Part A — gateway (ADR-0064)**
+**Part A — gateway (ADR-0072)**
 
 - D2 X-4 option B (replay non-native tool history as a structured user-side note instead of
   assistant prose) — not built by owner decision (tech-build.3); option A guard stays.
 - Stage 15 ER-2b continuation — resume a turn from the failed tool round instead of ending it
-  partial; needs per-round checkpoint state (Phase 5 executor, ER-3e). ADR-0064 §4.
+  partial; needs per-round checkpoint state (Phase 5 executor, ER-3e). ADR-0072 §4.
 - D2 CC4 / MR10 across turns — persist Claude thinking / redacted_thinking blocks with signatures
   (needs a `messages` column; additive migration) so prior turns replay them; in-loop replay done.
 - Compaction transcript (`services/compaction/autoCompact.ts`) still carries failed exchanges and
-  the `[Response stopped]` placeholder; align with ADR-0064 §3.
+  the `[Response stopped]` placeholder; align with ADR-0072 §3.
 
 **Part B — security and platform (ADR-0065)**
 

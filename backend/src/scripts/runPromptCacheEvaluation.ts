@@ -22,15 +22,12 @@ import { normalizeCacheMetrics } from '../services/promptCache/telemetry.js';
 
 async function main() {
   const cfg = config();
-  const projectId = cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974';
-  const region = (cfg as any).anthropicLocation || (cfg as any).ANTHROPIC_LOCATION || cfg.VERTEX_LOCATION || 'global';
   const model = cfg.MODEL_SONNET || 'claude-sonnet-5';
 
   console.log('===============================================================');
   console.log('ArcNave Phase 5.1 — Live Prompt Caching Evaluation');
   console.log('===============================================================');
-  console.log(`GCP Project: ${projectId}`);
-  console.log(`Anthropic Location: ${region}`);
+  console.log(`Endpoint:           Claude API (first party)`);
   console.log(`Model: ${model}`);
 
   const client = createAnthropicClient(config());

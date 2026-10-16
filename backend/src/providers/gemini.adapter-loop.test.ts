@@ -543,7 +543,7 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     expect(events.filter((e) => e.type === 'progress')).toEqual([]);
   });
 
-  it('keeps every tool result whole however large the requests grow (ADR-0023, ADR-0064)', async () => {
+  it('keeps every tool result whole however large the requests grow (ADR-0023, ADR-0072)', async () => {
     const client = new FakeGeminiClient();
     // 150,000-token rounds: past the 100,000 trigger the removed clearing used.
     const big = { usageMetadata: { promptTokenCount: 150_000, candidatesTokenCount: 5 } };

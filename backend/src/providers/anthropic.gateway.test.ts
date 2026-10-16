@@ -1,5 +1,5 @@
 /**
- * The Claude adapter's gateway guarantees (tech-build.3 Part A, ADR-0064):
+ * The Claude adapter's gateway guarantees (tech-build.3 Part A, ADR-0072):
  *
  * - thinking and redacted_thinking blocks go back inside the tool loop complete, unmodified and
  *   in order, signatures included (Claude docs, Thinking: "Pass every `thinking` block back to

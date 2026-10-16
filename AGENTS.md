@@ -13,7 +13,7 @@ repeats the parts an agent must never miss, because some tools read only `AGENTS
 ## Stack
 
 React 19 + Vite frontend (`arcnave-frontend/`), Node 22 + Fastify 5 backend (`backend/`),
-PostgreSQL 16 with Drizzle, Vertex AI models. Tests use Vitest.
+PostgreSQL 16 with Drizzle, Claude on Claude Platform, Gemini on Vertex AI. Tests use Vitest.
 
 ## Invariants (never break these)
 

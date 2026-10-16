@@ -6,11 +6,11 @@
 - Date: 2026-10-16
 - Task: tech-build.3-fix — round-3 review findings F1, F2, F3, F8, F9, F10, F11 (and the round-2
   fixes CR2-6, CR2-7 they reopen). Evidence per item: `docs/ops/wip/fix-w1.md`.
-- Supersedes in part: [ADR-0064](0064-gateway-history-and-retry-defects.md) §9 — "`filenameInText`
+- Supersedes in part: [ADR-0072](0072-gateway-history-and-retry-defects.md) §9 — "`filenameInText`
   … `&`, quotes and apostrophes stay" (quotes are now neutralised) and "`xmlAttr` stays for real
   attributes only (`<document filename="…">`)" plus "the Claude adapter sends a document's name as
   the `title` field … so there is nothing to escape there" (the attribute and the title now carry
-  the same spelling as every other place; Decision 1). ADR-0064 is not edited.
+  the same spelling as every other place; Decision 1). ADR-0072 is not edited.
 
 ## Claude
 

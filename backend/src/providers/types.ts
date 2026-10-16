@@ -320,7 +320,7 @@ export interface GenerationRequest {
   /**
    * Exact prompt tokens of this chat's previous request, when known. Recorded in the turn log;
    * no adapter shortens the request on it: tool results are never cleared before compaction
-   * (ADR-0023, ADR-0064).
+   * (ADR-0023, ADR-0072).
    */
   previousContextTokens?: number;
   /** Absent when the model has no effort control; the adapter then sends nothing. */

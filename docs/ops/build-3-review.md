@@ -56,8 +56,8 @@ filter step had nothing to filter.
 | R1#5 | stale comment about `contextEditing.ts` in `generation.ts` | MINOR | **Fixed** (worker A). |
 | R1#6 | partial turn's usage is `EMPTY_USAGE` (exact false) though tool rounds were billed | MINOR | **Deferred** (needs the adapter to surface per-round usage before it throws; Stage 15 ledger work). |
 | R1#7 | errored exchange dropped with its tool calls | MINOR | **Fixed** with CR3. |
-| R1#8 | text/thinking shown → `error` event, only a tool run → `partial` | MINOR | **Rejected**: matches the brief ("Once a tool ran … end the turn with the partial answer"); text or thinking already shown is kept on the error row and not retried (ADR-0064 §4); the wording in the reviewer prompt was main's summary. |
-| R1#9 | quota-0 detection on Vertex unverified | MINOR | **Deferred** to the live check (checklist Part A step 5); already recorded in ADR-0064. |
+| R1#8 | text/thinking shown → `error` event, only a tool run → `partial` | MINOR | **Rejected**: matches the brief ("Once a tool ran … end the turn with the partial answer"); text or thinking already shown is kept on the error row and not retried (ADR-0072 §4); the wording in the reviewer prompt was main's summary. |
+| R1#9 | quota-0 detection on Vertex unverified | MINOR | **Deferred** to the live check (checklist Part A step 5); already recorded in ADR-0072. |
 | R1#10 | `audio.ts:115` `readMedia` retried on non-retryable codes | MINOR | **Fixed** (worker D). |
 | R1#11 | `batch6OverflowStreamingSafety.test.ts` tests a hand copy | MINOR (pre-existing) | **Deferred**. |
 
@@ -107,7 +107,7 @@ finding as a failing test first, except the dead-code removal and the comment).
 |---|---|---|
 | CR1 / R2#2 | `3313034` (main) | `plugins/security.test.ts` › "allows a same-origin request whose origin is not listed (app and API behind one proxy)" |
 | CR3 / R1#7 | `ea0c51c` (A) | `services/history/failedExchanges.test.ts` › "keeps an errored answer that made tool calls, with its question: the calls ran", "keeps the question of a failed exchange when it carried files, and drops only the answer"; `routes/gatewayTurn.integration.test.ts` › "keeps the question with its file when the answer failed, and an errored answer that ran a tool" |
-| R1#1 | `ea0c51c` (A) | `arcnave-frontend/src/types.test.ts` › "cutOffReason"; `ChatStates.test.tsx` › "says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0064)" |
+| R1#1 | `ea0c51c` (A) | `arcnave-frontend/src/types.test.ts` › "cutOffReason"; `ChatStates.test.tsx` › "says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0072)" |
 | R1#3 | `ea0c51c` (A) | `providers/gemini.gateway.test.ts` › "a request with previousContextTokens 120000 carries every function response unchanged" (12 results; the old policy would have cleared 5) |
 | R1#4 | `ea0c51c` (A) | `providers/attachmentContent.test.ts` › "a filename in page labels and attachment notes cannot add markup" (superseded in round 2, below) |
 | R1#5 | `ea0c51c` (A) | comment only |
@@ -152,7 +152,7 @@ branch was green before the round (see build-3-result.md).
 | # | Finding | Severity | Outcome |
 |---|---|---|---|
 | R4#1 | `.ncx` / `.opf` DOCTYPE refused | MAJOR | **Fixed** with CR2-1. |
-| R4#2 | raw filenames still in `manifest.ts:72` (`<available_attachments>`) and `fileBudget.ts:96` | MAJOR | **Fixed** (A) with CR2-6, every interpolation site listed in ADR-0064. |
+| R4#2 | raw filenames still in `manifest.ts:72` (`<available_attachments>`) and `fileBudget.ts:96` | MAJOR | **Fixed** (A) with CR2-6, every interpolation site listed in ADR-0072. |
 | R4#3 | an errored answer with tool calls is replayed as an ordinary assistant turn, unmarked | MINOR | **Deferred** (a replay note is ours and changes the provider payload; needs the P03 eval first). |
 | R4#4 | no test reaches the per-address connect timeout or the deadline across the address loop | MINOR | **Fixed** (B): two tests. |
 | R4#5 | stale docblock | MINOR | **Fixed** with CR2-10. |

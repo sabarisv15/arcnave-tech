@@ -1,8 +1,11 @@
-# ADR-0064: Gateway defects: tool results kept, history by the resolved model, retries that never re-run a tool
+# ADR-0072: Gateway defects: tool results kept, history by the resolved model, retries that never re-run a tool
 
 - Status: accepted (task tech-build.3 Part A, 2026-10-16). Tested by typecheck and the test files
   named below; not deployed. The live checks are in `docs/ops/build-3-live-checklist.md` (Part A) and `docs/ops/build-3-result.md`.
 - Date: 2026-10-16
+- Renumbered from 0064 on merge with main (tech-ops.3b): ADR-0064 on main is
+  [Claude via Claude Platform, Gemini via Vertex](0064-claude-platform-gemini-vertex.md) (PR #42).
+  Nothing else in this ADR changed.
 - Task: tech-build.3 Part A = P02 of [`docs/ops/audit/NEW-PLAN.md`](../ops/audit/NEW-PLAN.md)
   (D2 X-1, X-2, X-3, X-7, X-9, X-10, CC4; Stage 15 ER-1b, ER-2b, ER-2e, ER-2g; Stage 20 VS-29b;
   FINDINGS S-02, S-03, S-09, S-10). Owner decision OQ-09: ADR-0023 is reinstated for Gemini.

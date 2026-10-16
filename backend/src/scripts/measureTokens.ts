@@ -61,12 +61,12 @@ async function main() {
     console.error(`Gemini countTokens failed:`, err?.message || err);
   }
 
-  // Provider exact measurement 2: Anthropic Vertex AI
+  // Provider exact measurement 2: Claude API (first party)
   try {
     const anthropic = createAnthropicClient(cfg);
 
     const sonnetModel = cfg.MODEL_SONNET || 'claude-sonnet-5';
-    console.log(`Querying Anthropic Vertex API (${sonnetModel}) countTokens...`);
+    console.log(`Querying Claude API (${sonnetModel}) countTokens...`);
     if (typeof (anthropic.messages as any).countTokens === 'function') {
       const anthropicCount = await (anthropic.messages as any).countTokens({
         model: sonnetModel,
@@ -75,7 +75,7 @@ async function main() {
       });
       console.log(`[Anthropic Exact Tokens]: ${anthropicCount.input_tokens}`);
     } else {
-      console.log(`AnthropicVertex SDK does not expose countTokens directly on this version.`);
+      console.log(`Anthropic SDK does not expose countTokens directly on this version.`);
     }
   } catch (err: any) {
     console.error(`Anthropic countTokens failed:`, err?.message || err);

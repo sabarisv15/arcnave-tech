@@ -1,6 +1,6 @@
 # ADR-0031: The model's full capability is set up by ArcNave, for any model
 
-- Status: accepted. Tested locally; not live. §5 superseded by [ADR-0064](0064-gateway-history-and-retry-defects.md).
+- Status: accepted. Tested locally; not live. §5 superseded by [ADR-0072](0072-gateway-history-and-retry-defects.md).
 - Date: 2026-09-26
 - Amends: ADR-0002 (Auto keeps one model per chat), ADR-0027 (old tool results are cleared
   before compaction is needed).

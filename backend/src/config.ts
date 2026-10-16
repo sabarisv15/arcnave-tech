@@ -607,6 +607,27 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
   };
 }
 
+/**
+ * Which providers this deployment actually uses and whether each has credentials. A provider is
+ * "in use" when at least one of its aliases has a model id. The Claude ids default to
+ * the first-party ids, so Claude counts as in use unless MODEL_SONNET and MODEL_OPUS are both
+ * set empty; without a key the aliases are listed and unavailable, which is "degraded". (The
+ * production boot check is looser on purpose: it fails only for an id named explicitly.)
+ */
+export function providerReadiness(cfg: Config): {
+  google: { inUse: boolean; configured: boolean };
+  anthropic: { inUse: boolean; configured: boolean };
+  ready: boolean;
+} {
+  const google = { inUse: Boolean(cfg.MODEL_GEMINI_FLASH), configured: cfg.vertexConfigured };
+  const anthropic = {
+    inUse: Boolean(cfg.MODEL_SONNET || cfg.MODEL_OPUS),
+    configured: cfg.anthropicConfigured,
+  };
+  const used = [google, anthropic].filter((p) => p.inUse);
+  return { google, anthropic, ready: used.length > 0 && used.every((p) => p.configured) };
+}
+
 let cached: Config | undefined;
 
 export function config(): Config {

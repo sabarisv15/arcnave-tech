@@ -6,7 +6,7 @@ into `main` when this task started). One squashed commit, one push; no PR, no de
 live with [build-3-live-checklist.md](build-3-live-checklist.md)). Code review:
 [build-3-review.md](build-3-review.md).
 
-ADRs: [0064](../decisions/0064-gateway-history-and-retry-defects.md) (Part A, supersedes ADR-0031
+ADRs: [0072](../decisions/0072-gateway-history-and-retry-defects.md) (Part A, supersedes ADR-0031
 §5 only) · [0065](../decisions/0065-edge-security-and-platform-quick-fixes.md) (Part B) ·
 [0066](../decisions/0066-file-pipeline-review-fixes.md) (Part D) ·
 [0067](../decisions/0067-turn-code-split-by-stage.md) (Part C) ·
@@ -67,14 +67,14 @@ platform-gated cases). `npm run openapi` regenerated `docs/openapi.json` after W
 | `FILE_LARGE_JOB_BYTES` | 100 MB | ours |
 | `FILE_ORPHAN_GRACE_MS` | 60000 | ours |
 | `ZIP_PREFLIGHT_TIMEOUT_MS` | 120000 | ours |
-| `CONTEXT_EDIT_TRIGGER_TOKENS`, `CONTEXT_EDIT_KEEP_TOOL_RESULTS`, `CONTEXT_EDIT_CLEAR_BATCH` | removed | ADR-0064 |
+| `CONTEXT_EDIT_TRIGGER_TOKENS`, `CONTEXT_EDIT_KEEP_TOOL_RESULTS`, `CONTEXT_EDIT_CLEAR_BATCH` | removed | ADR-0072 |
 
 New `ApiError` codes (backend catalog and frontend `errorCopy`): `provider_quota_unavailable` (503),
 `partial_after_tool_run` (502), `origin_not_allowed` (403). No migration.
 
 ## Decisions (the owner may change them)
 
-From the brief: OQ-09 ADR-0023 reinstated for Gemini (ADR-0064); D2 X-4 option B not built
+From the brief: OQ-09 ADR-0023 reinstated for Gemini (ADR-0072); D2 X-4 option B not built
 (DEFERRED); cookie stays `SameSite=None` (OQ-19), protected by the Origin check; numbers from
 `config/numbers.ts` with N-ids, the rest in config labelled ours.
 
@@ -139,7 +139,7 @@ The sections below are the four workers' notes, folded in unchanged except for h
 
 ## build-3 Part A (Worker A) — P02 gateway defects
 
-Base 583d449. Model: Opus 5.5. ADR: [ADR-0064](../decisions/0064-gateway-history-and-retry-defects.md)
+Base 583d449. Model: Opus 5.5. ADR: [ADR-0072](../decisions/0072-gateway-history-and-retry-defects.md)
 (supersedes ADR-0031 §5 only; ADR-0031's status line points at it).
 
 Checks run: `npx tsc --noEmit` (backend) clean; `npx tsc -b` (frontend) clean; test files below, plus
@@ -153,7 +153,7 @@ the existing files they could break (`toolHistory`, `providerTimeout`, `runResum
 
 | # | Item | Proof (file › test) |
 |---|---|---|
-| 1 | Gemini tool-result clearing removed (X-1) | `providers/gemini.gateway.test.ts` › "a request with previousContextTokens 120000 carries every function response unchanged"; `providers/gemini.adapter-loop.test.ts` › "keeps every tool result whole however large the requests grow (ADR-0023, ADR-0064)" (replaces the old clearing test); `contextEditing.ts` + its test deleted |
+| 1 | Gemini tool-result clearing removed (X-1) | `providers/gemini.gateway.test.ts` › "a request with previousContextTokens 120000 carries every function response unchanged"; `providers/gemini.adapter-loop.test.ts` › "keeps every tool result whole however large the requests grow (ADR-0023, ADR-0072)" (replaces the old clearing test); `contextEditing.ts` + its test deleted |
 | 2 | loadHistory by resolved model (X-2) | `routes/gatewayTurn.integration.test.ts` › "Auto with 600k characters of tool results keeps the earliest turn" (fails on the old `generation.ts`, checked) |
 | 3 | Failed / refused / empty exchanges omitted, both sides (X-3, R-3) | `services/history/failedExchanges.test.ts` (6); `routes/gatewayTurn.integration.test.ts` › "omits both sides of a refused, a failed and an empty exchange, and keeps a stopped one that has text" (fails on old code) |
 | 4 | Retry gate counts tool + thinking; tool never re-run; partial end (ER-2b) | `routes/gatewayTurn.integration.test.ts` › "a failure after a tool-only round does not call the tool again; the turn ends partial with a typed code" (spy on `AskUserInputExecutor.prototype.execute`: 1 call, 1 provider attempt, `done` has `partial: true`, `errorCode: partial_after_tool_run`), › "a transient failure before any step is still retried", › "a failure after thinking was shown is not retried" (first and third fail on old code) |
@@ -220,11 +220,11 @@ Tests added: `gemini.gateway.test.ts` 32, `anthropic.gateway.test.ts` 3,
 - D2 X-4 option B (replay non-native tool history as a structured user-side note instead of
   assistant prose) — not built by owner decision (tech-build.3); option A guard stays.
 - Stage 15 ER-2b continuation — resume a turn from the failed tool round instead of ending it
-  partial; needs per-round checkpoint state (Phase 5 executor, ER-3e). ADR-0064 §4.
+  partial; needs per-round checkpoint state (Phase 5 executor, ER-3e). ADR-0072 §4.
 - D2 CC4 / MR10 across turns — persist Claude thinking / redacted_thinking blocks with signatures
   (needs a `messages` column; additive migration) so prior turns replay them; in-loop replay done.
 - Compaction transcript (`autoCompact.ts`) still carries failed exchanges and the
-  `[Response stopped]` placeholder; align with ADR-0064 §3.
+  `[Response stopped]` placeholder; align with ADR-0072 §3.
 
 ### mistakes.md lines (entry format)
 
@@ -290,7 +290,7 @@ npm dependency.
 | Fix | Proof (file › test) |
 |---|---|
 | 1 Errored answer with tool calls kept; question with files kept | `services/history/failedExchanges.test.ts` › "keeps an errored answer that made tool calls, with its question: the calls ran", › "keeps the question of a failed exchange when it carried files, and drops only the answer"; `routes/gatewayTurn.integration.test.ts` › "keeps the question with its file when the answer failed, and an errored answer that ran a tool" |
-| 2 Partial end visible in the UI | `arcnave-frontend/src/types.test.ts` › "cutOffReason" (`partial`); `src/ChatStates.test.tsx` › "says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0064)" |
+| 2 Partial end visible in the UI | `arcnave-frontend/src/types.test.ts` › "cutOffReason" (`partial`); `src/ChatStates.test.tsx` › "says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0072)" |
 | 3 120000 test can fail against the old policy | `providers/gemini.gateway.test.ts` › "a request with previousContextTokens 120000 carries every function response unchanged" (12 results; old policy would clear 5) |
 | 4 Filename escaped in page labels and attachment notes | `providers/attachmentContent.test.ts` › "a filename in page labels and attachment notes cannot add markup" (3) |
 | 5 Stale comment | `services/generation.ts` (previousContextTokens comment) |

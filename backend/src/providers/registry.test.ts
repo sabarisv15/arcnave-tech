@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { loadConfig } from '../config.js';
+import { loadConfig, providerReadiness } from '../config.js';
 import { buildEntries, ModelRegistry } from './registry.js';
 import type { Provider } from './types.js';
 
@@ -94,5 +94,35 @@ describe('loadConfig for Claude (ADR-0054)', () => {
 
   it('refuses a production boot that names a Claude model but has no key', () => {
     expect(() => loadConfig({ ...prod, MODEL_OPUS: 'claude-opus-5-5' })).toThrow(/ANTHROPIC_API_KEY/);
+  });
+});
+
+describe('providerReadiness (drives /readyz and the startup warning)', () => {
+  it('is ready for Gemini alone when only Vertex is set', () => {
+    const cfg = loadConfig({ GOOGLE_CLOUD_PROJECT: 'p', MODEL_GEMINI_FLASH: 'gemini-3.8-flash', MODEL_SONNET: '', MODEL_OPUS: '' });
+    expect(providerReadiness(cfg).ready).toBe(true);
+  });
+
+  it('is degraded when Claude ids are active but the key is missing', () => {
+    const cfg = loadConfig({ GOOGLE_CLOUD_PROJECT: 'p', MODEL_GEMINI_FLASH: 'gemini-3.8-flash' });
+    const r = providerReadiness(cfg);
+    expect(r.anthropic).toEqual({ inUse: true, configured: false });
+    expect(r.ready).toBe(false);
+  });
+
+  it('is ready for Claude alone when only the key is set', () => {
+    const cfg = loadConfig({ ANTHROPIC_API_KEY: 'k' });
+    expect(providerReadiness(cfg).ready).toBe(true);
+  });
+
+  it('does not count Gemini as in use without a model id, even with a project set', () => {
+    const cfg = loadConfig({ GOOGLE_CLOUD_PROJECT: 'p', ANTHROPIC_API_KEY: 'k' });
+    expect(providerReadiness(cfg).google).toEqual({ inUse: false, configured: true });
+    expect(providerReadiness(cfg).ready).toBe(true);
+  });
+
+  it('is degraded when nothing is in use', () => {
+    const cfg = loadConfig({ MODEL_SONNET: '', MODEL_OPUS: '' });
+    expect(providerReadiness(cfg).ready).toBe(false);
   });
 });

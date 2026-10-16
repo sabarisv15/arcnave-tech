@@ -44,7 +44,7 @@ export type StreamEvent =
       usage: UsageDto;
       finishReason: string;
       effort?: ReasoningEffort;
-      /** ER-2b: the model failed after a tool ran; the turn ended with what it had (ADR-0064). */
+      /** ER-2b: the model failed after a tool ran; the turn ended with what it had (ADR-0072). */
       partial?: true;
       errorCode?: 'partial_after_tool_run';
     }

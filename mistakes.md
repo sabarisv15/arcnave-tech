@@ -64,21 +64,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-17 — A deliberate sign-out announced itself as an expired session
-
-- **Symptom:** Clicking "Sign out" showed "Your session ended. Sign in to pick up where you
-  left off." — telling the user something alarming about something they had just chosen.
-- **Cause:** A single global `onUnauthorized` handler turns any 401 into "expired". Signing out
-  clears the cookie, so requests already in flight 401 a moment later and tripped it.
-- **Rule:** **A global error handler cannot distinguish a failure from a consequence of an
-  intent it does not know about.** Give it the intent — a flag set before the action — rather
-  than trying to infer it from the error.
-- **Verify:** Sign out; the sign-in screen appears with no "session ended" notice.
-- **2026-09-20 addendum:** An expired session is useful context, not a form-level error. Keep
-  that notice as quiet supporting text, and never put `overflow-y: auto` on the desktop auth
-  column merely to compensate for oversized composition—the page must fit the viewport without
-  introducing a scrollbar between its two panels.
-
 ### 2026-09-17 — A Cloud Run service attached to a VPC with no NAT reached nothing
 
 - **Symptom:** The deployed backend passed its health check and served `/healthz`, but every
@@ -826,6 +811,19 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `git -C .claude/worktrees/<agent> merge-base <sha> HEAD` prints `<sha>` for every
   worker before main trusts its first commit.
 
+### 2026-10-16 — Two branches took the same ADR number, and the next free number moved
+
+- **Symptom:** `git merge origin/main` was clean for `docs/decisions/`, yet main's
+  `0064-claude-platform-gemini-vertex.md` and the branch's `0064-gateway-history-and-retry-defects.md`
+  both existed: two decisions with one number, and 25 files citing "ADR-0064" for different things.
+- **Cause:** Both tasks read "last ADR is 0063" at start and each wrote 0064 on its own branch.
+  Different file names, so git saw no conflict. The same applies to a migration number.
+- **Rule:** **A merge with no conflict is not a merge with no collision.** After any merge, list
+  `docs/decisions/` and `backend/drizzle/` for a repeated number prefix. The file already on `main`
+  keeps its number; the branch's is renumbered and every reference moves with it.
+- **Verify:** `ls docs/decisions | cut -d- -f1 | sort | uniq -d` prints nothing; same for
+  `ls backend/drizzle/*.sql | sed 's#.*/##' | cut -d_ -f1 | sort | uniq -d`.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -1463,3 +1461,9 @@ practice, not canon.
   check caught it before any work was built on the wrong base. **40 entries.**
 - **2026-10-16 (tech-build.3-docs)** — Pruned the oldest entry, "Reconciling with the server raced
   the server's own write" (2026-09-17), at the cap; added the stale-worktree entry. **40 entries.**
+- **2026-10-16 (Claude Platform task, existing 40-entry cap)** — A task brief described work
+  (swap `AnthropicVertex` for the first-party client, per-provider readiness) that ADR-0054 had
+  already done two days earlier; the brief was written from an older picture of the repo. Rule:
+  grep the code and `docs/decisions/` for what a brief asks to build before planning, and do only
+  the delta. Verify: `grep -rn "vertex-sdk\|AnthropicVertex" backend/src` is empty.
+- **2026-10-16 (tech-ops.3b, merge with main)** — Added the ADR-number-collision entry. Retired the oldest, "A deliberate sign-out announced itself as an expired session" (2026-09-17), by the owner's rule for this task (cap 40, prune oldest); no test carries its rule, so the rule stays in this changelog: give a global 401 handler the intent (a flag set before sign-out) instead of inferring it. Main's own changelog line (Claude Platform task) moved here from the top of the file, text unchanged. **40 entries.**

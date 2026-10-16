@@ -228,7 +228,7 @@ export interface Message {
 /**
  * Why a completed answer stopped early, or null when it ended normally. A cut-off answer is
  * shown as such, never as a finished one (Invariant 1). `partial`: the model failed after a tool
- * had already run, and the tool was not run again (ADR-0064).
+ * had already run, and the tool was not run again (ADR-0072).
  */
 export function cutOffReason(finishReason: string | undefined): "output_limit" | "tool_limit" | "partial" | null {
   if (!finishReason) return null;

@@ -102,7 +102,7 @@ export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclar
  * content block goes straight into `response.output`/`response.error`; a `text` block is passed
  * through as a string in the same slot — Gemini does not require the response value to be an
  * object shape beyond `Record<string, unknown>`'s outer wrapper. Every result goes back whole,
- * however large the conversation: nothing is cleared before compaction (ADR-0023, ADR-0064).
+ * however large the conversation: nothing is cleared before compaction (ADR-0023, ADR-0072).
  */
 export function toGeminiFunctionResponsePart(name: string, id: string, result: ToolResult): Part {
   const block = primaryToolContent(result);
@@ -542,7 +542,7 @@ export class GeminiProvider implements Provider {
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
     // Every earlier tool result goes in whole, whatever the size of the previous request: only
-    // compaction shortens a conversation (ADR-0023, reinstated for Gemini by ADR-0064).
+    // compaction shortens a conversation (ADR-0023, reinstated for Gemini by ADR-0072).
     let contents = buildGeminiContents(request);
     // A call that failed with this exact input is not run again this turn (D2 X-10).
     const failedToolCalls = new Set<string>();

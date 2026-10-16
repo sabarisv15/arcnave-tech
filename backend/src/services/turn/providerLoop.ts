@@ -18,7 +18,7 @@ const log = logger.child({ module: 'generation' });
  * Only retries before the attempt's first visible or side-effecting step (text, code,
  * thinking, a visual being drawn, a tool call: ER-2b). After one, a restart would duplicate
  * text or run a tool twice, so the failure propagates instead; after a tool ran, a failure a
- * retry would have answered ends the turn partial (`FailedAfterToolRun`, ADR-0064).
+ * retry would have answered ends the turn partial (`FailedAfterToolRun`, ADR-0072).
  *
  * At most PROVIDER_MAX_RETRIES retries; attempt k waits a full-jitter random part of
  * PROVIDER_RETRY_BASE_MS·2^(k-1), capped at PROVIDER_RETRY_MAX_BACKOFF_MS. A provider
@@ -123,7 +123,7 @@ export async function* streamWithRetry(
 
       const retryable = isRetryableProviderError(err);
       // A failure a retry would have answered, after a tool ran: the tool is not run twice; the
-      // turn ends with what it has, marked partial (ER-2b, ADR-0064).
+      // turn ends with what it has, marked partial (ER-2b, ADR-0072).
       if (retryable && toolRan) throw new FailedAfterToolRun(err as ProviderError);
       if (userVisibleOutputEmitted || !retryable || attempt >= svc.cfg.PROVIDER_MAX_RETRIES) throw err;
       const delay = retryDelayMs(attempt + 1, (err as ProviderError).retryAfterMs, svc.cfg);

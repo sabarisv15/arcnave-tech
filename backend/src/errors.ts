@@ -250,7 +250,7 @@ export const ERROR_CATALOG = {
     title: 'Something went wrong',
     detail: 'An unexpected error occurred. The request ID helps trace it.',
   },
-  /** Stage 15 ER-2g: a quota-0 429 is configuration, not load; never retried (ADR-0064). */
+  /** Stage 15 ER-2g: a quota-0 429 is configuration, not load; never retried (ADR-0072). */
   provider_quota_unavailable: {
     status: 503,
     title: 'This model has no quota here',
@@ -259,7 +259,7 @@ export const ERROR_CATALOG = {
   },
   /**
    * Stage 15 ER-2b: the model failed after a tool had already run in the turn. The tool is not run
-   * twice, so the turn ends with what it has, marked partial in the done event (ADR-0064).
+   * twice, so the turn ends with what it has, marked partial in the done event (ADR-0072).
    */
   partial_after_tool_run: {
     status: 502,

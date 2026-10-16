@@ -480,7 +480,7 @@ export class GenerationService {
     const effectivePrompt = promptParts.join('\n\n');
 
     // The previous request's size, for the turn log only: no adapter shortens a request on it,
-    // tool results are never cleared before compaction (ADR-0023, ADR-0064). After a compaction
+    // tool results are never cleared before compaction (ADR-0023, ADR-0072). After a compaction
     // the earlier size no longer describes what is sent.
     const previousContextTokens = compactedNow ? null : await previousContextTokensOf(this.svc, input);
     const request: GenerationRequest = {
