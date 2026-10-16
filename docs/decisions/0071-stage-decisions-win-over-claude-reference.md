@@ -2,16 +2,18 @@
 
 - Status: accepted (owner decision, 2026-10-16)
 - Date: 2026-10-16
-- Task: tech-build.3-docs (docs only)
-- Supersedes in part: [ADR-0061](0061-locked-decisions-win-outside-stack-and-infra.md),
-  Consequences, the last bullet only ("The invariants in `CLAUDE.md`, the Tanglish rule and the
-  "Claude is the reference" rule are unchanged. Where the reference rule and a locked decision
-  disagree, stop and ask the owner (as ADR-0053 already says)."). The invariants and the Tanglish
-  rule stay unchanged (Decision 4 below); the reference rule now yields to a locked stage
-  decision. ADR-0061 is not edited; its Decision section and its other Consequences stand.
-- Relates to: [ADR-0053](0053-prototype-base-and-target-spec.md) (the 21 stage checkpoints are the
-  target spec; its last Consequences bullet states the same "stop and ask" rule ADR-0061 restated;
-  ADR-0053 is not edited); `CLAUDE.md` "Rules for changing this codebase";
+- Task: tech-build.3-docs (docs only); header completed by tech-build.3-docs2
+- Supersedes in part (neither file is edited):
+  - [ADR-0061](0061-locked-decisions-win-outside-stack-and-infra.md), Consequences, the last
+    bullet only ("The invariants in `CLAUDE.md`, the Tanglish rule and the "Claude is the
+    reference" rule are unchanged. Where the reference rule and a locked decision disagree, stop
+    and ask the owner (as ADR-0053 already says)."). The invariants and the Tanglish rule stay
+    unchanged (Decision 4 below); the reference rule now yields to a locked stage decision.
+    ADR-0061's Decision section and its other Consequences stand.
+  - [ADR-0053](0053-prototype-base-and-target-spec.md), Consequences, last bullet, its last
+    sentence only: "Where the two disagree, stop and ask the owner." The rest of that bullet and
+    every other ADR-0053 decision stand.
+- Relates to: `CLAUDE.md` "Rules for changing this codebase";
   [`.claude/rules/claude-reference.md`](../../.claude/rules/claude-reference.md) "Precedence".
 
 ## Context
@@ -51,5 +53,6 @@ owner has now given once, for the whole class.
   as ours).
 - A task brief no longer needs an owner answer to choose between Claude's behaviour and a stage
   decision; it cites the stage decision id and its ADR records the difference from Claude.
-- ADR-0053's last Consequences bullet carries the same "stop and ask the owner" sentence; the owner's
-  decision names ADR-0061's bullet, so ADR-0053 is left as it is and this ADR is the rule applied.
+- ADR-0053's last Consequences bullet carried the same "stop and ask the owner" sentence that
+  ADR-0061 restated; both are superseded here (header), so no ADR still sends this class of
+  conflict to the owner. ADR-0053 and ADR-0061 are left unedited as the record of what was decided.
