@@ -283,6 +283,19 @@
   padding: 6px 4px 0;
 }
 
+/* In a conversation the row also carries the reply's tools on the left. The reminder gives way
+   first: one line, cut with an ellipsis, gone when the row is narrow. */
+.composer-under-reply .composer-under-note {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1000px) {
+  .composer-under-reply .composer-under-note {
+    visibility: hidden;
+  }
+}
 /* In a conversation the row also carries the reply's tools on the left. */
 .composer-under-reply {
   padding-top: 4px;

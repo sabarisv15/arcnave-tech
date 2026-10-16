@@ -718,8 +718,11 @@
   padding: 9px 0;
 }
 
+/* Same 9 px top as the textarea text, so the ghost follow-up sits on the caret's line. */
 .composer-reply-row .composer-suggestion {
-  inset: 9px 0 auto;
+  inset: 0 0 auto;
+  padding-top: 9px;
+  line-height: 22px;
 }
 
 .composer-reply-row > .send-button {

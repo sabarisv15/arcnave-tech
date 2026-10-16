@@ -368,7 +368,7 @@ export default function Composer({
           inlineReply
             ? Math.min(480, Math.round(window.innerHeight * 0.42))
             : 240,
-          Math.max(inlineReply ? 34 : compact ? 46 : 70, textarea.current.scrollHeight),
+          Math.max(inlineReply ? 40 : compact ? 46 : 70, textarea.current.scrollHeight),
         ) + "px";
     }
   }, [text, compact, inlineReply]);
@@ -768,7 +768,8 @@ export default function Composer({
       )}
       <textarea
         ref={textarea}
-        // One row empty: the default two rows made an idle reply box 62 px of blank text.
+        // One row empty: the default two made an idle reply box 62 px of blank text. The other
+        // composers keep their height from their min-height and the floor in the effect above.
         rows={1}
         aria-label={
           showFollowUp && followUpSuggestion
@@ -914,7 +915,20 @@ export default function Composer({
       {/* Under the composer (docs/brand-extra/Fix-Composer.dc.html): the model and effort on the
           right. In a conversation the reply box holds only the text and send, so the tools sit
           here on the left and the reminder in the middle, and the thread keeps the height. */}
-      <div className={`composer-under${inlineReply ? " composer-under-reply" : ""}`}>
+      <div
+        className={`composer-under${inlineReply ? " composer-under-reply" : ""}`}
+        // The tools used to sit inside the box's drop zone; a file dropped on them still attaches
+        // instead of the browser opening it in the tab.
+        onDragOver={inlineReply ? (e) => e.preventDefault() : undefined}
+        onDrop={
+          inlineReply
+            ? (e) => {
+                e.preventDefault();
+                void addFiles(e.dataTransfer.files);
+              }
+            : undefined
+        }
+      >
         {inlineReply && (
           <div className="composer-toolbar composer-under-tools">
             {addMenu}
