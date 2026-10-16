@@ -42,7 +42,7 @@ These are not style preferences. Each one exists because the alternative ships a
 cd backend
 npm run dev            # :8080, Swagger UI at /docs
 npx tsc --noEmit       # must be clean before any commit
-npx vitest run         # ~1,350 tests (CURRENT.md 2026-10-16: 1,353); needs Postgres for the integration files
+npx vitest run         # ~1,500 tests (CURRENT.md 2026-10-16: 1,499); needs Postgres for the integration files
 npm run openapi        # regenerate docs/openapi.json — run after any schema change
 npm run db:migrate
 

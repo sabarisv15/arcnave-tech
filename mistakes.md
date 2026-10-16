@@ -815,7 +815,7 @@ failure mode of this pattern, not a sign it is working.
 
 - **Symptom:** `git merge origin/main` was clean for `docs/decisions/`, yet main's
   `0064-claude-platform-gemini-vertex.md` and the branch's `0064-gateway-history-and-retry-defects.md`
-  both existed: two decisions with one number, and 25 files citing "ADR-0064" for different things.
+  both existed: two decisions with one number, and 21 files citing "ADR-0064" for different things.
 - **Cause:** Both tasks read "last ADR is 0063" at start and each wrote 0064 on its own branch.
   Different file names, so git saw no conflict. The same applies to a migration number.
 - **Rule:** **A merge with no conflict is not a merge with no collision.** After any merge, list

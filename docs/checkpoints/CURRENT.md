@@ -23,7 +23,7 @@
 > - No migration. Tests: backend 134 files / 1,353 passed / 19 skipped (was 119 / 1,179 / 19); frontend 43 files / 408 (was 42 / 403). Models: Opus 5.5 main + 4 writers (3 parallel, then 1) + 4 reviewers; Haiku 5.5 test runners.
 > - Owner before / after merge: set `SANDBOX_SIGNING_SA` if the Cloud Run Job sandbox uses a staging bucket; `CORS_ORIGINS` must list the live frontend; Cloud Run memory check (checklist Part D step 5); set `VITE_API_BASE` in the Cloudflare build so the frontend fallback URL can go.
 
-> **2026-10-16: Claude Platform readiness + deploy wiring. Merged to `main` as PR #42 (`681a63a`); not deployed from this branch.**
+> **2026-10-16: Claude Platform readiness + deploy wiring. Merged to `main` as PR #42 (`681a63a`); whether main is deployed is not recorded here (check the Cloud Run revision).**
 > - The code move itself was ADR-0054 (2026-10-14). This task closed the rest: `/readyz` reports `anthropicConfigured` and is `ready` only when the providers in use are configured (`providerReadiness`), startup warnings per provider, stale Vertex wording removed from the dev scripts, `CLAUDE.md`/`AGENTS.md` lines updated.
 > - Record: [ADR-0064](../decisions/0064-claude-platform-gemini-vertex.md); owner steps (create the secret, mount it, live check): [`docs/ops/claude-platform-live-checklist.md`](../ops/claude-platform-live-checklist.md).
 
