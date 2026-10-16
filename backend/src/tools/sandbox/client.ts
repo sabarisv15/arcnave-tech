@@ -3,6 +3,7 @@
  * inject a fake and never touch a real GCP resource — same reasoning as the injectable
  * SDK-client seam on the provider adapters (gemini.ts/anthropic.ts).
  */
+import type { ToolErrorCode } from '../../providers/types.js';
 
 export interface SandboxExecutionResult {
   /** Raw chunks as returned by the sandbox, already base64-decoded to text. Left as separate
@@ -21,6 +22,20 @@ export interface SandboxExecutionOptions {
   sessionKey?: string;
   /** Whose chat the session is, so the engine can keep its workspace beyond one instance. */
   owner?: { userId: string; chatId: string };
+}
+
+/**
+ * The sandbox cannot move this run's files: a staging bucket is configured without a signing
+ * account (SANDBOX_SIGNING_SA), so an input might not reach the run and an output could not come
+ * back (ADR-0070, build-3 decision #14). A configuration error, never retried; the
+ * client gets `sandbox_misconfigured` on the tool result.
+ */
+export class SandboxMisconfiguredError extends Error {
+  readonly code: ToolErrorCode = 'sandbox_misconfigured';
+  constructor(message: string) {
+    super(message);
+    this.name = 'SandboxMisconfiguredError';
+  }
 }
 
 export interface SandboxClient {

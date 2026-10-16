@@ -11,6 +11,15 @@
  * 2. `groundingSupports[].segment` offsets are **byte** offsets into UTF-8, not JS string
  *    indices. Slicing the string directly corrupts any response containing non-ASCII text.
  */
+import { config } from '../config.js';
+import { safeFetch, type Resolver, type Transport } from '../services/safeFetch.js';
+
+/** Redirect cap and, for tests, the resolver and connector (ADR-0065). */
+export interface ResolveOptions {
+  maxRedirects?: number;
+  resolver?: Resolver;
+  transport?: Transport;
+}
 import type { ProviderSource } from './types.js';
 
 const VERTEX_REDIRECT_HOST = 'vertexaisearch.cloud.google.com';
@@ -71,17 +80,30 @@ export function sliceUtf8(text: string, start?: number, end?: number): string {
  * reject HEAD, so we fall back to GET and discard the body. A failure returns the original
  * URL with `resolved: false` — never a fabricated one.
  */
-async function resolveOne(url: string, timeoutMs: number): Promise<{ url: string; resolved: boolean }> {
+async function resolveOne(
+  url: string,
+  timeoutMs: number,
+  options: ResolveOptions = {},
+): Promise<{ url: string; resolved: boolean }> {
   if (!url.includes(VERTEX_REDIRECT_HOST)) return { url, resolved: true };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    let response = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: controller.signal });
+    // The redirect target is a third-party page: each hop goes through safeFetch (ADR-0065),
+    // with grounding's own longer redirect cap; every hop is still checked.
+    const fetchOptions = {
+      signal: controller.signal,
+      timeoutMs,
+      maxRedirects: options.maxRedirects ?? config().SAFE_FETCH_GROUNDING_MAX_REDIRECTS,
+      ...(options.resolver ? { resolver: options.resolver } : {}),
+      ...(options.transport ? { transport: options.transport } : {}),
+    };
+    let response = await safeFetch(url, { method: 'HEAD', ...fetchOptions });
     if (!response.ok) {
-      response = await fetch(url, { method: 'GET', redirect: 'follow', signal: controller.signal });
-      // Release the body so the socket can be reused rather than held open.
-      await response.body?.cancel();
+      response = await safeFetch(url, { method: 'GET', ...fetchOptions });
+      // Release the body so the socket is not held open.
+      response.cancel();
     }
     const final = response.url;
     if (!final || final.includes(VERTEX_REDIRECT_HOST)) return { url, resolved: false };
@@ -96,9 +118,10 @@ async function resolveOne(url: string, timeoutMs: number): Promise<{ url: string
 export async function resolveUrls(
   urls: string[],
   timeoutMs: number,
+  options: ResolveOptions = {},
 ): Promise<Array<{ url: string; resolved: boolean }>> {
   if (urls.length === 0) return [];
-  return Promise.all(urls.map((u) => resolveOne(u, timeoutMs)));
+  return Promise.all(urls.map((u) => resolveOne(u, timeoutMs, options)));
 }
 
 /* -------------------------------------------------------------------------- Gemini */

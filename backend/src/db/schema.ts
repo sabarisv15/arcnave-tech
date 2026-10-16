@@ -493,7 +493,7 @@ export const fileJobs = pgTable(
     /** attachment | project | reindex */
     kind: varchar('kind', { length: 16 }).notNull(),
     version: integer('version').notNull().default(1),
-    /** fast | normal: small files never wait behind large ones. */
+    /** fast | normal | large: small files never wait behind large ones; `large` is a ZIP waiting for the large slot (ADR-0070). */
     lane: varchar('lane', { length: 8 }).notNull().default('normal'),
     /** queued | running | done | failed */
     state: varchar('state', { length: 16 }).notNull().default('queued'),

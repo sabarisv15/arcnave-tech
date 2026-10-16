@@ -347,14 +347,7 @@ export async function draftFromStored(db: Database, storage: ObjectStorage, row:
 
 /* ------------------------------------------------------------------ checksum */
 
-/** SHA-256 of a stored object, streamed (D1 #35). */
-export async function storedChecksum(storage: ObjectStorage, key: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of storage.openRead(key)) hash.update(chunk as Buffer);
-  return hash.digest('hex');
-}
-
-/** SHA-256 of a local file. */
+/** SHA-256 of a local file: the job's own copy, streamed (D1 #35, ADR-0066 Decision 4). */
 export async function fileChecksum(path: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);

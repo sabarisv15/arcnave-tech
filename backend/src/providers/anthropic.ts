@@ -19,8 +19,8 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
-import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
-import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
+import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -255,6 +255,24 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
   });
 }
 
+/** The Messages API's bounds on a document block's `title` (DocumentBlockParam: minLength 1, maxLength 500). */
+const DOCUMENT_TITLE_MAX_CHARS = 500;
+
+/**
+ * A document's title: the name as the model sees it everywhere (ADR-0069), within the API's
+ * bounds. Escaping can make a 255-character name several times longer, and a name of nothing but
+ * dropped characters becomes empty; either would make the API refuse every later turn that
+ * replays the file (review build-3-fix r1). A cut never ends inside a character reference, nor
+ * between the two halves of a surrogate pair: a lone surrogate is not valid in the request (r2).
+ */
+export function documentTitle(filename: string | undefined): string | undefined {
+  if (!filename) return undefined;
+  const name = nameForModel(filename).trim();
+  if (name === '') return undefined;
+  if (name.length <= DOCUMENT_TITLE_MAX_CHARS) return name;
+  return `${name.slice(0, DOCUMENT_TITLE_MAX_CHARS - 1).replace(/(?:&(?:#\d{0,3}|[a-z]{0,4})|[\uD800-\uDBFF])$/, '')}…`;
+}
+
 function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number]): CacheableBlock {
   // 1. Native PDF (base64)
   if (a.mimeType === 'application/pdf' && a.base64) {
@@ -266,7 +284,8 @@ function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number
         data: a.base64,
       },
     };
-    if (a.filename) block.title = a.filename;
+    const title = documentTitle(a.filename);
+    if (title) block.title = title;
     return block;
   }
 
@@ -289,7 +308,8 @@ function attachmentBlock(a: NonNullable<GenerationRequest['attachments']>[number
       type: 'document',
       source: { type: 'text', media_type: 'text/plain', data: text },
     };
-    if (a.filename) block.title = a.filename;
+    const title = documentTitle(a.filename);
+    if (title) block.title = title;
     return block;
   }
   // 4. Nothing sendable: say so, never an empty document or decoded binary (G15, G17).
@@ -591,20 +611,11 @@ export class AnthropicProvider implements Provider {
           // An abort stops the remaining calls; the next round's signal check ends the turn.
           if (request.signal.aborted) break;
           const call = { id: primary.id, name: primary.name, input: primary.input };
-          const callFingerprint = `${call.name}:${JSON.stringify(call.input)}`;
-          
-          if (failedToolCalls.has(callFingerprint)) {
+          const fingerprint = callFingerprint(call.name, call.input);
+
+          if (failedToolCalls.has(fingerprint)) {
             // Duplicate failed call detected: do not repeat execution, return guard instruction
-            const guardResult: ToolResult = {
-              toolCallId: call.id,
-              ok: false,
-              content: [
-                {
-                  type: 'text',
-                  text: `This tool (${call.name}) previously failed with these exact inputs. Do not retry it. Deliver your synthesized answer directly in text to the user.`,
-                },
-              ],
-            };
+            const guardResult = duplicateFailedCallResult(call.id, call.name);
             yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
             yield { type: 'tool_result', toolCallId: call.id, name: call.name, result: guardResult };
             resultBlocks.push(toAnthropicToolResultBlock(call.id, guardResult));
@@ -612,7 +623,7 @@ export class AnthropicProvider implements Provider {
             yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
             const result = await request.toolExecutor!.execute(call, request.signal);
             if (!result.ok) {
-              failedToolCalls.add(callFingerprint);
+              failedToolCalls.add(fingerprint);
             }
             yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
             resultBlocks.push(toAnthropicToolResultBlock(call.id, result));

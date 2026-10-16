@@ -174,7 +174,12 @@ export interface ToolResult {
   toolCallId: string;
   ok: boolean;
   content: ToolContent[];
+  /** A failure the client must recognise by code, not by the text (Invariant 5). */
+  errorCode?: ToolErrorCode;
 }
+
+/** Stable codes a failed tool call carries to the client (`tool_result.errorCode`). */
+export type ToolErrorCode = 'sandbox_misconfigured';
 
 /**
  * The seam between a provider adapter's loop and ArcNave's actual tool implementations.
@@ -313,8 +318,9 @@ export interface GenerationRequest {
   mode: Mode;
   maxOutputTokens: number;
   /**
-   * Exact prompt tokens of this chat's previous request, when known. It decides whether old tool
-   * results are cleared from the first request of the turn (providers/contextEditing.ts).
+   * Exact prompt tokens of this chat's previous request, when known. Recorded in the turn log;
+   * no adapter shortens the request on it: tool results are never cleared before compaction
+   * (ADR-0023, ADR-0072).
    */
   previousContextTokens?: number;
   /** Absent when the model has no effort control; the adapter then sends nothing. */
@@ -339,7 +345,7 @@ export interface GenerationRequest {
  * `retryable` drives the backoff policy; `code` is mapped onto an API error code by the
  * service, so provider-specific vocabulary stops at this boundary.
  */
-export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit';
+export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit' | 'provider_quota_unavailable';
 
 export class ProviderError extends Error {
   readonly retryable: boolean;
@@ -364,6 +370,15 @@ export class ProviderError extends Error {
     this.statusCode = options.statusCode;
     this.retryAfterMs = options.retryAfterMs;
   }
+}
+
+/**
+ * Whether a failed provider call may be retried (Stage 15 ER-2): only a `ProviderError` the
+ * adapter classified retryable. An unclassified error, or anything that is not a ProviderError,
+ * is not retried. One rule for the turn loop (providerLoop.ts) and media readings (audio.ts).
+ */
+export function isRetryableProviderError(err: unknown): boolean {
+  return err instanceof ProviderError && err.retryable;
 }
 
 /**
@@ -430,6 +445,11 @@ export interface MediaReading {
   finishReason: string;
   /** The model version that answered, for `ocr_version`. */
   model: string;
+  /**
+   * True when the reading did not end in a natural stop (D2 X-7): the text may be cut short and
+   * is never to be taken as whole. Absent from an adapter that does not report it.
+   */
+  truncated?: boolean;
 }
 
 /** True when an error is an abort rather than a genuine failure. */

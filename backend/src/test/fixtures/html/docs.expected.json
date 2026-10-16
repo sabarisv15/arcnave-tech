@@ -1,0 +1,4 @@
+{
+  "title": "parseConfig() &mdash; API Reference",
+  "text": "parseConfig() &mdash; API Reference Docs / API / parseConfig parseConfig(text, options?) Reads a configuration file and returns a frozen object. Unknown keys are an error unless options.strict is false . Parameters Name Type Description text string The file's contents. options { strict?: boolean } Defaults to { strict: true } . Example const cfg = parseConfig(readFileSync('app.toml', 'utf8')); if (cfg.port < 1024 && !cfg.root) throw new Error('privileged port'); console.log(`listening on ${cfg.port}`); Errors ConfigSyntaxError &mdash; the text is not valid TOML. ConfigKeyError &mdash; an unknown key with strict on. Note: HTML in values is kept verbatim: <b>bold</b> stays as typed. Last updated 2026-09-30 &middot; Edit this page"
+}

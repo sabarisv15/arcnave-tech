@@ -68,7 +68,7 @@ describe('project knowledge (ADR-0020)', () => {
       expect(request.systemInstruction).not.toContain('They are whole documents');
       expect(request.systemInstruction).not.toContain('The budget figure is 4200.');
       expect(request.systemInstruction).toContain('Search them with search_project_files');
-      expect(request.systemInstruction).toContain('Files: big.txt');
+      expect(request.systemInstruction).toContain('Files: "big.txt"');
       expect((request.tools ?? []).map((t) => t.name)).toEqual(
         expect.arrayContaining(['search_project_files', 'read_project_file']),
       );

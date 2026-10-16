@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import type { Database } from '../db/client.js';
 import { logger } from '../logger.js';
-import type { ToolCall, ToolContent, ToolExecutor, ToolResult } from '../providers/types.js';
+import type { ToolCall, ToolContent, ToolErrorCode, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { ObjectStorage } from '../services/storage.js';
 import type { SkillService } from '../services/skills.js';
 import { verifyPdf } from '../services/documents/verify/pdfVerify.js';
@@ -22,8 +22,9 @@ import { verifyXlsx } from '../services/documents/verify/xlsxVerify.js';
 import { verifyDocx } from '../services/documents/verify/docxVerify.js';
 import { verifyPptx } from '../services/documents/verify/pptxVerify.js';
 import { AttachmentNotFoundError, ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
-import type { SandboxClient } from './sandbox/client.js';
+import { SandboxMisconfiguredError, type SandboxClient } from './sandbox/client.js';
 import { sandboxInputNames, type ManifestFile } from '../services/attachments/manifest.js';
+import { nameForModel } from '../providers/attachmentContent.js';
 
 const log = logger.child({ module: 'codeExecutionExecutor' });
 
@@ -241,6 +242,11 @@ interface RunOutcome {
   exitCode: number | null;
 }
 
+/** A failed run as a tool result, keeping its stable code when it has one (Invariant 5, ADR-0070). */
+function runFailure(callId: string, run: { error: string; errorCode?: ToolErrorCode }): ToolResult {
+  return { ...textResult(callId, false, run.error), ...(run.errorCode ? { errorCode: run.errorCode } : {}) };
+}
+
 export class CodeExecutionToolExecutor implements ToolExecutor {
   private readonly client?: SandboxClient;
   private readonly runtime?: ExecutionRuntime;
@@ -308,7 +314,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     const viewDir = this.workspace ? path.join(this.workspace.workspaceDir, 'view') : undefined;
     const viewBefore = viewDir ? await snapshotDir(viewDir) : new Map<string, number>();
     const run = await this.run(program(parsed.data, BASH), signal);
-    if ('error' in run) return textResult(call.id, false, run.error);
+    if ('error' in run) return runFailure(call.id, run);
 
     // About 30,000 characters of a command's output are read back, and a failure's as a
     // head-and-tail excerpt of about 10,000: an error is usually at the end.
@@ -335,7 +341,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     const viewBefore = viewDir ? await snapshotDir(viewDir) : new Map<string, number>();
     const args = { path: p, view_range: parsed.data.view_range ?? null, max_chars: VIEW_MAX_CHARS, range_max_chars: VIEW_RANGE_MAX_CHARS };
     const run = await this.run(program(args, VIEW), signal);
-    if ('error' in run) return textResult(call.id, false, run.error);
+    if ('error' in run) return runFailure(call.id, run);
     if (run.exitCode) return textResult(call.id, false, run.stderr.trim() || 'view failed.');
     let shown: { kind: string; text?: string; name?: string };
     try {
@@ -382,7 +388,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
       return textResult(call.id, false, `${SKILLS_ROOT} is read-only: copy the file somewhere else to change it.`);
     }
     const run = await this.run(program(parsed.data, body), signal);
-    if ('error' in run) return textResult(call.id, false, run.error);
+    if ('error' in run) return runFailure(call.id, run);
     if (run.exitCode) return textResult(call.id, false, run.stderr.trim() || `${call.name} failed.`);
     return textResult(call.id, true, run.stdout.trim());
   }
@@ -392,7 +398,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     if (!parsed.success) return textResult(call.id, false, `Invalid input: ${parsed.error.message}`);
     const expected = parsed.data.filepaths.map((p) => path.posix.basename(p));
     const run = await this.run(program(parsed.data, PRESENT), signal, expected);
-    if ('error' in run) return textResult(call.id, false, run.error);
+    if ('error' in run) return runFailure(call.id, run);
     if (run.exitCode) return textResult(call.id, false, run.stderr.trim() || 'present_files failed.');
     if (!this.workspace || !this.runtime || !this.userId || !this.messageId || !this.db || !this.storage) {
       return textResult(call.id, false, 'Files cannot be given to the user here: there is no file storage.');
@@ -437,7 +443,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
   }
 
   /** Runs one program on the sandbox engine; the conversation's files are placed first. */
-  private async run(code: string, signal: AbortSignal, expectedOutputs?: string[]): Promise<RunOutcome | { error: string }> {
+  private async run(code: string, signal: AbortSignal, expectedOutputs?: string[]): Promise<RunOutcome | { error: string; errorCode?: ToolErrorCode }> {
     if (!this.chatFilesReady && this.chatFiles.length > 0) {
       const staged = await this.materializeChatFiles();
       if (!staged.ok) return { error: staged.error };
@@ -454,7 +460,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
         return { error: 'No sandbox is configured.' };
       }
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
+      // A typed sandbox failure keeps its code for the client (Invariant 5, ADR-0070).
+      return { error: err instanceof Error ? err.message : String(err), ...(err instanceof SandboxMisconfiguredError ? { errorCode: err.code } : {}) };
     }
     const chunk = execution.outputs.find((o) => o.mimeType === 'application/json');
     let parsed: { msg_out?: string; msg_err?: string; exit_code?: number | null } = {};
@@ -509,8 +516,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
           ok: false,
           error:
             err instanceof AttachmentNotFoundError
-              ? `Conversation file "${f.filename}" (${f.id}) was not found.`
-              : `Conversation file "${f.filename}" (${f.id}) could not be read from storage. Try again, or tell the user the file is unavailable.`,
+              ? `Conversation file "${nameForModel(f.filename)}" (${f.id}) was not found.`
+              : `Conversation file "${nameForModel(f.filename)}" (${f.id}) could not be read from storage. Try again, or tell the user the file is unavailable.`,
         };
       }
     }

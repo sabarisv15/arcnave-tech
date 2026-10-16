@@ -263,6 +263,26 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "The response contained an invalid tool record",
     detail: "ArcNave stopped before displaying that record. Retry the response.",
   },
+  provider_quota_unavailable: {
+    title: "This model has no quota here",
+    detail:
+      "The project behind this model has no quota for it in this region, so retrying will not help. Choose another model, or ask the owner to request quota.",
+  },
+  sandbox_misconfigured: {
+    title: "Running code with files is not set up",
+    detail:
+      "This server cannot pass files to or from the code sandbox yet, so code cannot run in a chat that has files, or make a file. Code still runs in a chat without files. Ask the owner to finish the sandbox setup.",
+  },
+  partial_after_tool_run: {
+    title: "The answer stopped early",
+    detail:
+      "The model failed after a tool had already run. The tool was not run again, so this answer may be incomplete. Ask to continue.",
+  },
+  origin_not_allowed: {
+    title: "Request blocked",
+    detail:
+      "This request came from a site that is not allowed to change your account. Open ArcNave directly and try again.",
+  },
 };
 
 /**

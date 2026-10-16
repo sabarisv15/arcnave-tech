@@ -250,6 +250,37 @@ export const ERROR_CATALOG = {
     title: 'Something went wrong',
     detail: 'An unexpected error occurred. The request ID helps trace it.',
   },
+  /** Stage 15 ER-2g: a quota-0 429 is configuration, not load; never retried (ADR-0072). */
+  provider_quota_unavailable: {
+    status: 503,
+    title: 'This model has no quota here',
+    detail:
+      'The project behind this model has no quota for it in this region, so retrying will not help. Choose another model, or ask the owner to request quota.',
+  },
+  /**
+   * Stage 15 ER-2b: the model failed after a tool had already run in the turn. The tool is not run
+   * twice, so the turn ends with what it has, marked partial in the done event (ADR-0072).
+   */
+  partial_after_tool_run: {
+    status: 502,
+    title: 'The answer stopped early',
+    detail:
+      'The model failed after a tool had already run. The tool was not run again, so this answer may be incomplete. Ask to continue.',
+  },
+  origin_not_allowed: {
+    status: 403,
+    title: 'Request blocked',
+    detail: 'This request came from a site that is not allowed to change your account. Open ArcNave directly and try again.',
+  },
+  /**
+   * A code run that moves a file, on a sandbox whose staging bucket has no signing account
+   * (SANDBOX_SIGNING_SA): carried on the failed tool result (`tool_result.errorCode`), ADR-0070.
+   */
+  sandbox_misconfigured: {
+    status: 503,
+    title: 'Running code with files is not set up',
+    detail: 'This server cannot pass files to or from the code sandbox yet, so code cannot run in a chat that has files, or make a file. Code still runs in a chat without files. Ask the owner to finish the sandbox setup.',
+  },
 } as const satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

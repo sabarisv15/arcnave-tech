@@ -13,8 +13,7 @@
  * not refused: every ZIP made on a Mac carries them (ours).
  */
 import { createReadStream } from 'node:fs';
-import { mkdtemp, open, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -24,6 +23,7 @@ import { checkUpload, extensionOf } from '../storage.js';
 import { FileFailure } from './fileErrors.js';
 import { ratioExceeded } from './preflight.js';
 import { detectKind, SNIFF_BYTES } from './sniff.js';
+import { makeWorkDir } from './workDir.js';
 import {
   fileSource,
   inflateEntry,
@@ -80,6 +80,21 @@ export function inspectEntries(entries: ZipEntry[], cfg: Config): Array<ZipEntry
 }
 
 /**
+ * The bytes the ZIP at `zipPath` unpacks to on disk, from its central directory alone: what its
+ * members declare. `expandZip` never writes more (a member that inflates past its declared size
+ * is refused), so this bounds the expansion's disk use before any of it happens (fileJobs.ts,
+ * ADR-0070). A ZIP `expandZip` would refuse is refused here the same way.
+ */
+export async function plannedUnpackedBytes(zipPath: string, cfg: Config): Promise<number> {
+  const src = await fileSource(zipPath);
+  try {
+    return inspectEntries(await readCentralDirectory(src), cfg).reduce((n, e) => n + e.uncompressedSize, 0);
+  } finally {
+    await src.close();
+  }
+}
+
+/**
  * Unpacks the ZIP at `zipPath` to local files and hands each to `onMember` (which stores it);
  * every refusal happens before the first `onMember` call.
  */
@@ -89,7 +104,7 @@ export async function expandZip(
   onMember: (member: ZipMember) => Promise<void>,
 ): Promise<string[]> {
   const src = await fileSource(zipPath);
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-zip-'));
+  const dir = await makeWorkDir('arcnave-zip-');
   try {
     const planned = inspectEntries(await readCentralDirectory(src), cfg);
     const members: ZipMember[] = [];

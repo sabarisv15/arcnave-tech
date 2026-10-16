@@ -178,7 +178,9 @@ export function CutShortNote({
         <b>
           {reason === "output_limit"
             ? "This answer was cut short. It hit the length limit."
-            : "This answer was cut short. It used every tool step this turn allows."}
+            : reason === "partial"
+              ? "This answer stopped early. The model failed after a tool had already run; the tool was not run again."
+              : "This answer was cut short. It used every tool step this turn allows."}
         </b>
       </span>
       <span className="cs-actions">

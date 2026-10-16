@@ -35,9 +35,14 @@ export const SNIFF_BYTES = 4096;
 const startsWith = (b: Buffer, sig: number[], at = 0): boolean => sig.every((v, i) => b[at + i] === v);
 const ascii = (b: Buffer, at: number, s: string): boolean => b.subarray(at, at + s.length).toString('latin1') === s;
 
-export function detectKind(head: Buffer): SniffKind {
-  // PDF readers accept the header anywhere in the first 1,024 bytes; so do we.
-  if (head.subarray(0, 1024).includes('%PDF-')) return 'pdf';
+/**
+ * `pdfAnywhere`: PDF readers accept the header anywhere in the first 1,024 bytes, and so does
+ * this, but only for a file declared a PDF (by name or type). For any other declaration the
+ * header counts only at offset 0, so a note or CSV that mentions `%PDF-` near its top is still
+ * text (review finding N5, ADR-0066).
+ */
+export function detectKind(head: Buffer, opts: { pdfAnywhere?: boolean } = {}): SniffKind {
+  if (opts.pdfAnywhere ? head.subarray(0, 1024).includes('%PDF-') : ascii(head, 0, '%PDF-')) return 'pdf';
   if (startsWith(head, [0x50, 0x4b]) && [0x0304, 0x0506, 0x0708].includes(head.readUInt16BE(2))) return 'zip';
   if (startsWith(head, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) return 'ole2';
   if (startsWith(head, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'png';
@@ -108,7 +113,8 @@ const ENCRYPTED_PACKAGE = Buffer.from('EncryptedPackage', 'utf16le');
  */
 export function sniffBuffer(head: Buffer, filename: string, mimeType: string, whole?: Buffer): SniffKind {
   const ext = extensionOf(filename);
-  const kind = detectKind(head);
+  const declaredPdf = ext === '.pdf' || mimeType === 'application/pdf';
+  const kind = detectKind(head, { pdfAnywhere: declaredPdf });
 
   if (kind === 'ole2') {
     if (ext in LEGACY_OF || ext === '.docm' || ext === '.xlsm' || ext === '.pptm') {
@@ -119,7 +125,7 @@ export function sniffBuffer(head: Buffer, filename: string, mimeType: string, wh
   }
 
   let ok: boolean;
-  if (ext === '.pdf' || mimeType === 'application/pdf') ok = kind === 'pdf';
+  if (declaredPdf) ok = kind === 'pdf';
   else if (ext === '.xls') ok = kind === 'text' || kind === 'zip'; // table exports, or an .xlsx misnamed
   else if (ZIP_CONTAINERS.has(ext)) ok = kind === 'zip';
   else if (ext === '.rtf') ok = kind === 'rtf';

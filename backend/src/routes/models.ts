@@ -10,6 +10,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
 import { chats, messages } from '../db/schema.js';
+import { requireAuth } from '../plugins/context.js';
 import { getModelCapability } from '../providers/capabilitiesTable.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
 import type { AppInstance } from '../types.js';
@@ -34,6 +35,9 @@ const modelSchema = z.object({
 });
 
 export async function modelRoutes(app: AppInstance): Promise<void> {
+  // Signed-in only (S2-3): a probe spends a provider call per alias, and the composer asks for
+  // the list only after sign-in (arcnave-frontend/src/session.tsx).
+  app.addHook('onRequest', requireAuth);
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
   typed.get(

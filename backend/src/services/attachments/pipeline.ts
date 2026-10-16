@@ -18,10 +18,8 @@
  * and chunks it. The same function reads chat attachments and project files (one ingest path,
  * D1 #20). A failure is the file's outcome, never a thrown request error (AS-D6).
  */
-import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { imageSize } from 'image-size';
 
@@ -41,10 +39,9 @@ import { PAGE_IMAGE_LONG_EDGE_PX } from './pdfPages.js';
 import { noScanner, type Scanner } from './scanner.js';
 import { sniffFile } from './sniff.js';
 import { decodeTextFile } from './textDecode.js';
+import { runTool } from './untrustedTools.js';
 
 export { noScanner, type Scanner } from './scanner.js';
-
-const run = promisify(execFile);
 
 /** Upload rules that are not sizes (ADR-0011, kept). Sizes and counts are N-10 (numbers.ts). */
 export const FILE_LIMITS = {
@@ -199,7 +196,7 @@ function draft(kind: string, markdown: string, units: Unit[], sidecar: Record<st
 
 async function pdfPageCountOf(file: string): Promise<number> {
   try {
-    const { stdout } = await run('pdfinfo', [file], { timeout: 60_000, maxBuffer: 1024 * 1024 });
+    const { stdout } = await runTool('pdfinfo', [file], { timeout: 60_000, maxBuffer: 1024 * 1024 });
     const match = /^Pages:\s+(\d+)/m.exec(stdout);
     if (!match) throw new Error('pdfinfo reported no page count');
     return Number(match[1]);
@@ -256,7 +253,7 @@ async function readPdf(input: PipelineInput): Promise<Outcome> {
   try {
     // One text block per page, split on the form feed pdftotext ends each page with, so a page
     // number in the text is the page the words are on.
-    const { stdout } = await run('pdftotext', ['-enc', 'UTF-8', pdfPath, '-'], { timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+    const { stdout } = await runTool('pdftotext', ['-enc', 'UTF-8', pdfPath, '-'], { timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
     texts = stdout.split('\f').slice(0, pageCount).map((t) => t.trim());
   } catch {
     warnings.push(warning('text_partial', 'The text layer of this PDF could not be read; its pages are still shown as images.'));
@@ -329,7 +326,7 @@ async function readPdf(input: PipelineInput): Promise<Outcome> {
 /** Pages that draw at least one image (poppler's `pdfimages -list`); null when it cannot tell. */
 async function pagesWithImages(pdfPath: string): Promise<Set<number> | null> {
   try {
-    const { stdout } = await run('pdfimages', ['-list', pdfPath], { timeout: 60_000, maxBuffer: 32 * 1024 * 1024 });
+    const { stdout } = await runTool('pdfimages', ['-list', pdfPath], { timeout: 60_000, maxBuffer: 32 * 1024 * 1024 });
     const pages = new Set<number>();
     for (const line of stdout.split('\n').slice(2)) {
       const page = Number(line.trim().split(/\s+/)[0]);

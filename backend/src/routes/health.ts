@@ -17,28 +17,33 @@ const startedAt = Date.now();
 export async function healthRoutes(app: AppInstance): Promise<void> {
   const typed = app.withTypeProvider<ZodTypeProvider>();
 
-  typed.get(
-    '/healthz',
-    {
-      schema: {
-        tags: ['ops'],
-        summary: 'Liveness. Does not touch dependencies.',
-        response: {
-          200: z.object({
-            status: z.literal('ok'),
-            uptimeSeconds: z.number(),
-            version: z.string(),
-          }),
+  // `/health` is the locked path (Stage 19 DS19-D). Google's front end answers `/healthz` itself
+  // on a public run.app URL, so a probe from outside never reached this process on that path;
+  // `/healthz` stays as an alias for the container's own HEALTHCHECK and compose (ADR-0065).
+  for (const path of ['/health', '/healthz'] as const) {
+    typed.get(
+      path,
+      {
+        schema: {
+          tags: ['ops'],
+          summary: 'Liveness. Does not touch dependencies.',
+          response: {
+            200: z.object({
+              status: z.literal('ok'),
+              uptimeSeconds: z.number(),
+              version: z.string(),
+            }),
+          },
         },
+        config: { rateLimit: false },
       },
-      config: { rateLimit: false },
-    },
-    async () => ({
-      status: 'ok' as const,
-      uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
-      version: process.env['npm_package_version'] ?? '1.0.0',
-    }),
-  );
+      async () => ({
+        status: 'ok' as const,
+        uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+        version: process.env['npm_package_version'] ?? '1.0.0',
+      }),
+    );
+  }
 
   typed.get(
     '/readyz',

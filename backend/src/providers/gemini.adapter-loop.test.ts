@@ -543,8 +543,9 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     expect(events.filter((e) => e.type === 'progress')).toEqual([]);
   });
 
-  it('clears the oldest tool results once a request passes the context-editing threshold', async () => {
+  it('keeps every tool result whole however large the requests grow (ADR-0023, ADR-0072)', async () => {
     const client = new FakeGeminiClient();
+    // 150,000-token rounds: past the 100,000 trigger the removed clearing used.
     const big = { usageMetadata: { promptTokenCount: 150_000, candidatesTokenCount: 5 } };
     client.responses = [
       ...Array.from({ length: 8 }, (_, i) =>
@@ -555,13 +556,11 @@ describe('GeminiProvider timeouts (ADR-0024)', () => {
     const executor = new ScriptedExecutor();
     executor.results.set('search_project_files', { toolCallId: 'x', ok: true, content: [{ type: 'text', text: 'hit' }] });
     const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', TOOL_MAX_ROUNDS: '16' }), client as never);
-    await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor })));
+    await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: executor, previousContextTokens: 120_000 })));
 
     const last = client.calls.at(-1) as { contents: { parts?: { functionResponse?: { response: { output: unknown } } }[] }[] };
     const outputs = last.contents.flatMap((c) => c.parts ?? []).filter((p) => p.functionResponse).map((p) => p.functionResponse!.response.output);
-    expect(outputs).toHaveLength(8);
-    expect(outputs.slice(0, 5).every((o) => typeof o === 'string' && o.includes('cleared'))).toBe(true);
-    expect(outputs.slice(5)).toEqual(['hit', 'hit', 'hit']);
+    expect(outputs).toEqual(Array.from({ length: 8 }, () => 'hit'));
   });
 });
 

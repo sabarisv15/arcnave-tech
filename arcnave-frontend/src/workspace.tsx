@@ -558,6 +558,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                       ...t,
                       ok: event.ok,
                       preview: event.preview,
+                      ...(event.errorCode ? { errorCode: event.errorCode } : {}),
                       // Presented files show as cards now, not after a reload.
                       ...(files?.length ? { content: [{ type: "json", data: { persistedFiles: files } }] } : {}),
                     }

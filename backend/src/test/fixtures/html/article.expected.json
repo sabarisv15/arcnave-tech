@@ -1,0 +1,5 @@
+{
+  "note": "Differs from the cleaner at fce4a22 in one place (ADR-0069): it showed the commented-out promo and a stray \"-->\" (\"12 March 2026 Spring sale: 20% off all guides --> A heat\"), because it stripped a comment only up to its first \">\". A comment is now dropped whole.",
+  "title": "Cooling Budgets &amp; Heat Pumps: A Field Guide",
+  "text": "Cooling Budgets & Heat Pumps: A Field Guide Home Guides About us Cooling Budgets & Heat Pumps Priya Raman &middot; 12 March 2026 A heat pump moves heat; it does not make it. That is why a unit rated at 3 kW of electrical input can deliver 9 kW of cooling &mdash; a coefficient of performance of 3. What the numbers mean COP < 2: replace it. COP between 2 and 4: typical. COP > 4: excellent, check the test conditions. Budget line: <cooling> = rated_kW &times; hours &times; tariff . For a 9 kW unit at 6 hours a day and &#8377;8 per kWh, that is about &#8377;1,440 a day. COP falls as the outdoor temperature rises. &ldquo;Size for the hottest week, not the average one.&rdquo; Questions? Write to guides@example.com . We answer within a week. &copy; 2026 Example Guides. All rights reserved."
+}

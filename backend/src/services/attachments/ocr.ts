@@ -10,16 +10,13 @@
  * The engine is an interface: Gemini now; the locked Document AI engine (ADR-0006, pinned RC)
  * plugs in behind it later and Gemini becomes its fallback.
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import type { MediaPart, Provider } from '../../providers/types.js';
 import { isAbort } from '../../providers/types.js';
-
-const run = promisify(execFile);
+import { runTool } from './untrustedTools.js';
+import { makeWorkDir } from './workDir.js';
 
 /* ------------------------------------------------------------------ detection */
 
@@ -140,7 +137,7 @@ export interface OcrdPage {
 /** Renders one page of the PDF at `pdfPath` to a JPEG, base64. */
 async function renderPage(pdfPath: string, num: number, dir: string, longEdgePx: number): Promise<string> {
   const base = path.join(dir, `p${String(num)}`);
-  await run(
+  await runTool(
     'pdftoppm',
     ['-jpeg', '-jpegopt', 'quality=85', '-scale-to', String(longEdgePx), '-f', String(num), '-l', String(num), '-singlefile', pdfPath, base],
     { timeout: 120_000, maxBuffer: 1024 * 1024 },
@@ -159,7 +156,7 @@ export async function ocrPdfPages(pdfPath: string, nums: number[], engine: OcrEn
   const batches: number[][] = [];
   for (let i = 0; i < nums.length; i += opts.batchPages) batches.push(nums.slice(i, i + opts.batchPages));
   const results = new Map<number, OcrdPage>();
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-ocr-'));
+  const dir = await makeWorkDir('arcnave-ocr-');
   try {
     let next = 0;
     const worker = async () => {

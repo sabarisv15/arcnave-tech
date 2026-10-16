@@ -197,3 +197,189 @@ something built now? Evidence is for the repo as it is; "no" assumes the picks i
 | NO_CONTENT enforce, OTel, Terraform | Phase 5 | Not forced by anything found. Note for the owner: 35 `{ err }` log calls (A-23) and `String(err)` logging of provider errors (A-07) are the enforce-time work. | Nothing now. |
 
 
+
+---
+
+## Deferred by tech-build.3 (2026-10-16)
+
+Added by the build task, not by the audit. Each line names the part that deferred it; the reasons
+are in [build-3-result.md](../build-3-result.md) and the ADR named.
+
+**Part A — gateway (ADR-0072)**
+
+- D2 X-4 option B (replay non-native tool history as a structured user-side note instead of
+  assistant prose) — not built by owner decision (tech-build.3); option A guard stays.
+- Stage 15 ER-2b continuation — resume a turn from the failed tool round instead of ending it
+  partial; needs per-round checkpoint state (Phase 5 executor, ER-3e). ADR-0072 §4.
+- D2 CC4 / MR10 across turns — persist Claude thinking / redacted_thinking blocks with signatures
+  (needs a `messages` column; additive migration) so prior turns replay them; in-loop replay done.
+- Compaction transcript (`services/compaction/autoCompact.ts`) still carries failed exchanges and
+  the `[Response stopped]` placeholder; align with ADR-0072 §3.
+
+**Part B — security and platform (ADR-0065)**
+
+- PH-4 / S21-11 (frontend): remove the project-numbered fallback API URL from
+  `arcnave-frontend/src/api.ts`; prerequisite: owner sets `VITE_API_BASE` in the Cloudflare Workers
+  Build variables (and CI's frontend build env). Then extend `identifierGuard.test.ts` to
+  `arcnave-frontend/src`.
+- SE10 COOP/CORP on the web host: try `Cross-Origin-Opener-Policy: same-origin-allow-popups` with a
+  live Google sign-in; CORP `same-site` on static assets.
+- PH-2 / INJ-2: enforce the CSP after the report-only run is clean; srcdoc visuals inherit the
+  parent CSP, so they need their own origin or explicit allowances first.
+- A-08 option B / TD-3: separate fetch service with a zero-permission service account (infra).
+- ID-13 shape: migrator as a Cloud Run Job / build step before traffic shifts; N-70 lock_timeout
+  5 s / statement_timeout 300 s in the migration transaction.
+- A-09 option B: shared rate-limit store (Redis) so the per-user limit holds across instances.
+- SD-1d: logout-all route (the Origin check covers it when it is added).
+
+**Part D — file pipeline review fixes (ADR-0066)**
+
+- D0c: the documents upload limit 500 → 100 MB (N-10 says documents 100 MB) awaits the owner's
+  explicit OK; unchanged.
+- D0c: `FILE_JOB_LEASE_MS` stays 15 min until the owner decides (ADR-0063 Decision 2).
+- D6: a lapsed lease consumes an attempt: when a heartbeat is starved (request-based CPU) and the
+  lease lapses, the next claim counts `attempts + 1`, so a healthy-but-starved job can burn its
+  N-44 attempts and end `timeout`. Fix candidates: do not count a takeover of a job whose stage
+  advanced recently, or `--no-cpu-throttling`.
+- D6: synchronous reads inside a request (multipart `POST /files`, `FILE_PIPELINE=sync`) are not
+  counted by the one-large-job-per-instance limit.
+- D3: `routes/projects.ts` project upload / replace still insert the row and enqueue its job in two
+  statements; the poll-time orphan reconcile covers a crash between them.
+- D1: consider ffmpeg/ffprobe `-format_whitelist` (demuxer allow-list per declared type) as further
+  hardening (ours; not built).
+
+**Code review of tech-build.3 (MINOR findings not fixed; [build-3-review.md](../build-3-review.md))**
+
+- CR2: `appendTurn` (`services/turn/turnStart.ts`) takes `max(seq)` without a lock; two concurrent
+  sends on one chat can hit `uq_message_seq` (500 instead of `run_in_progress`). Pre-existing,
+  moved verbatim; P08 A-03 (DB lease, one run per chat).
+- R1#6: a partial turn's ledger row has `EMPTY_USAGE` (exact false) though its tool rounds were
+  billed; needs per-round usage surfaced before an adapter throws.
+- R1#11: `batch6OverflowStreamingSafety.test.ts` tests a hand copy of the retry loop; point it at
+  `services/turn/providerLoop.ts` `streamWithRetry`.
+- R2#1: behind the planned global external ALB (Stage 19 ID-8) the API sees two appended
+  X-Forwarded-For entries; set `TRUST_PROXY_HOPS=2` when the ALB fronts the service.
+- R2#3: `backend/src/scripts` (compiled into `dist/`) still carries project identifiers; extend the
+  identifier guard to scripts once they read config, or stop compiling scripts into the image.
+- R2#4: 401/403 rejections from the Origin and auth hooks are not counted by the rate limiter.
+- R2#5: the hop trust also takes `X-Forwarded-Host` / `X-Forwarded-Proto` from the client; nothing
+  reads `request.host` / `hostname` / `protocol` today — keep it that way or override them.
+- R2#7: the `<script` strip regex in `webFetch.ts` is super-linear on unclosed tags; with the 5 MB
+  cap the worst case is ~25× the old one.
+- R2#9: nginx (compose) adds the web header set to proxied `/v1` responses that already carry the
+  API set (duplicate Referrer-Policy / Permissions-Policy / CSP-RO).
+- R2#11: `migrate.integration.test.ts` "exits non-zero" passes on any non-zero exit; assert the
+  `migration failed` log line too.
+- R3#6: `POST /files/from-project` downloads a project PDF to count pages outside the large-job slot.
+- R3#7: the ZIP pre-flight pass inflates on the API process event loop; move it into the parser
+  child (P19).
+- R3#10: `tools/execution/executionRuntime.ts` host fallback (non-production, `ALLOW_HOST_CLI=true`)
+  runs poppler with the inherited environment; route it through `runTool`.
+- CR2-5: "a chat ZIP archive job is large" is decided in SQL (`fileJobs.ts`) apart from the
+  pipeline's expand rule, and makes a small fast-lane ZIP wait behind a running large job; store a
+  `large` flag on the job at enqueue.
+- CR2-8: `loadHistory` runs two attachments queries per turn; load once and derive both.
+- CR2-9: `safeFetch.ts` `prefix()` duplicates `bytes()`; one reader with a refuse/truncate mode.
+- R4#3: an errored answer that ran tools goes back to the model as an ordinary turn; a replay note
+  ("this answer failed before it finished") is ours and changes the payload — decide with P03's eval.
+
+**Part C — turn split (ADR-0067); found in the characterization snapshots, not changed (moves only)**
+
+- `services/turn/turnStart.ts` `loadTurnAttachments`: no `ORDER BY`, so a message with several
+  files sends them in the database's row order, which can change between runs. Order by the
+  request's `attachmentIds` or `createdAt` (prompt cache, reproducibility). P07/P08.
+- `appendTurn`: an `attachmentId` the caller does not own is skipped without an error; the turn
+  runs as if the file was never sent. Decide 404 `not_found`. P08.
+- The Claude wire labels a 30-byte text file "Excerpts … The file is too large to send whole"
+  while the fake-provider request says `wholeWithinBudget: true`; check the label's condition in
+  the Claude adapter.
+- `mapProviderError`: an unused `const api = new ApiError('provider_payload_limit')`.
+- D3 `streamAndCollect` / `settleTurn` extraction from `runTurn`: not a mechanical move; P07/P08.
+
+---
+
+# tech-build.3-fix — not fixed in this task (2026-10-16)
+
+Source: the three review rounds in [../build-3-fix-review.md](../build-3-fix-review.md) and the
+workers' notes folded into [../build-3-fix-result.md](../build-3-fix-result.md). Every line is
+MINOR or NIT (no BLOCKER/MAJOR is open); the reason it waits is given.
+
+**Pre-existing, rated MINOR by main (reviewer said MAJOR)**
+
+- F16 / R-B r1: the ZIP pre-flight judges central-directory names and sizes, the parser (fflate
+  streaming `Unzip` in officeparser) reads local headers, so a renamed, hidden or data-descriptor
+  entry skips the DTD scan and the real-byte count. Not exploitable today: xmldom 0.9.12 expands
+  only its fixed entity map (`sax.js` `entityReplacer`, `dom-parser.js:228`), SheetJS and ExcelJS
+  (saxes) expand no declared entity, the parse runs in a limited child. Fix: run fflate `Unzip`
+  over the same bytes in the pre-flight and refuse unless its (name, size) list equals the central
+  directory's. P19.
+
+**Sandbox (decision #14 follow-ups)**
+
+- With `SANDBOX_SIGNING_SA` set, a signing failure is still swallowed (`catch {}` around
+  `generateV4SignedUrl` for inputs and outputs), and the input-staging loop's catch drops the rest
+  of the inputs on a GCS `save` / `stat` error: the same silent-loss class. Suggested fix (review
+  r3): after staging, fail typed if any staged input has no URL or any expected output has no PUT
+  URL. Needs its own retry/typing decision for transient IAM errors.
+- A reloaded transcript does not keep a tool call's `errorCode` (no `tool_calls` column); needs a
+  migration and the history DTO.
+- Skill-script runs (`executionRuntime.ts runSkillScriptJson`, no production caller) drop the code
+  and get the chat-oriented message.
+- `materializeChatFiles` downloads every chat file before a refusal that is certain; decide the
+  refusal once at the toolset level, and stop the manifest saying the files are on the computer.
+- The guard checks `stagingBucket` alone; a client built with a bucket but no `storageClient`
+  (tests only; `withAdc` always builds one) would send inputs inline and is refused anyway.
+- `validateOutputFilenames` and the semaphore's capacity error come before the misconfig error
+  (one extra round for the model).
+- The user copy is hand-copied in `errors.ts` and `arcnave-frontend/src/api.ts`; no test checks
+  they match.
+
+**File jobs**
+
+- A ZIP can defer once for nothing when `claim()` holds `activeLarge` during its query; costs one
+  re-download and re-scan; bounded (at most one deferral).
+- A ZIP that defers is downloaded, hashed and scanned twice; read its directory by range, or decide
+  "large" at `complete`.
+- `countedNormal` could be derived (`lane !== 'fast' || large`); kept explicit (NIT).
+
+**Names (ADR-0069 follow-ups)**
+
+- Sheet names: the `## Sheet: …` line inside chunk text and the `[label]` prefix of the whole-file
+  markdown (`derive.ts:87,91`, `pipeline.ts:422`), and `retrieval.ts:208` `--- sheet ---` in
+  project files, are raw. They sit inside file content (explain F12): fence file content first
+  (P07), then neutralise structural lines.
+- Tool results stored before this change replay raw names once (ADR-0069 Consequences).
+- `documentTitle` trims; other sites keep a leading/trailing space; a name of only dropped
+  characters shows `""` in page labels and the manifest (NIT).
+- The lookalike set is ours; check against Unicode `confusables.txt` (not reachable from the
+  container). Known misses: U+FFE8, U+05C0, U+2016 (bar); U+301D–301F, U+3003, U+05F4, U+275D/275E
+  (quote).
+- `retrieval.ts extractHtmlTable` regexes are quadratic, but run only in the isolated extractor
+  child (wall-clock limited).
+- `gemini.ts:136` compiles a model-supplied tool name into a RegExp unescaped.
+- `cloudRunSandboxClient.ts:53,59,65` repeat a sandbox-made output name raw in errors the model sees.
+- `zipExpand.ts:75` puts a member name raw into a user-facing failure detail (not model-visible).
+
+**web_fetch**
+
+- Only four entities decoded, `&amp;lt;` double-decodes to `<` (old behaviour, kept for the
+  goldens); the title's entities are not decoded.
+- `content.slice(0, maxChars)` can split a surrogate pair.
+- `pageTitle` scans raw HTML, so a `<title>` inside a comment wins; `--!>` does not end a comment;
+  `<style title="</style>">` leaks `">css` (NITs).
+- The 13 × 5 MB adversarial inputs are built at module load (~100 MB held by the test file); the
+  bound stays 2 s as the brief set it.
+
+**Audio**
+
+- The one retry is immediate and `readMedia` drops `retryAfterMs`; Stage 15 ER-2 / N-42 asks for
+  backoff with jitter and honouring Retry-After (pre-existing). P11.
+
+**Brand guard (F17)**
+
+- `brandNeutral.test.ts` checks wording that describes the product as another assistant, not
+  provider names in comments of non-provider launch files (24 files name a provider today, many
+  legitimately). Needs a per-file allowlist decision.
+
+**Untouched findings from explain.3** — F7 (safeFetch timer tests), F19 (old ODT `manifest.xml`
+PUBLIC DOCTYPE refused): not in this task's items.

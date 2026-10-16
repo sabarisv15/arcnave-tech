@@ -120,6 +120,10 @@ export const NUMBERS = {
    * planning rate, not an invoice rate; set PRICING_INR_PER_USD to override.
    */
   PRICING_INR_PER_USD: n(88, 'N-37', 'Stage 18 / FD log: planning FX INR 88 per USD'),
+
+  // --- Outbound fetch: Stage 15 ER-4 -----------------------------------------------------------
+  /** One user-URL fetch (safeFetch), redirects included. */
+  FETCH_URL_TIMEOUT_MS: n(10_000, 'N-43', 'register: tools fetch_url 10 s'),
 } as const satisfies Record<string, RegisteredNumber>;
 
 export type NumberKey = keyof typeof NUMBERS;

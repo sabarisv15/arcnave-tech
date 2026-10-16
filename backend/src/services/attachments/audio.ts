@@ -9,19 +9,21 @@
  * model by `gs://` when a model-input bucket is configured (D1 #32), inline otherwise; at
  * 90 s of 48 kbit/s MP3 a piece is about 0.5 MB either way.
  *
- * ffmpeg and ffprobe are system binaries in the backend image (Dockerfile).
+ * ffmpeg and ffprobe are system binaries in the backend image (Dockerfile). They parse the upload
+ * in native code, so they run through `runTool`: no secret in their environment, local files
+ * only (`-protocol_whitelist file`), no stdin (ADR-0066).
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
-import type { MediaPart, Provider } from '../../providers/types.js';
+import { isRetryableProviderError, type MediaPart, type Provider } from '../../providers/types.js';
 import type { ModelInputStore } from './modelInputStore.js';
 import { FileFailure } from './fileErrors.js';
+import { mediaArgs, runTool } from './untrustedTools.js';
+import { makeWorkDir } from './workDir.js';
 
-const run = promisify(execFile);
+/** Requests per piece: the first, and at most one retry (M10). */
+const PIECE_ATTEMPTS = 2;
 
 export interface AudioOptions {
   maxSeconds: number;
@@ -45,7 +47,7 @@ export interface Segment {
 /** Seconds of sound in the file, by ffprobe. A file ffprobe cannot read is `corrupt`. */
 export async function probeDuration(filePath: string): Promise<number> {
   try {
-    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath], {
+    const { stdout } = await runTool('ffprobe', mediaArgs('ffprobe', filePath, { global: ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0'] }), {
       timeout: 60_000,
       maxBuffer: 64 * 1024,
     });
@@ -71,12 +73,47 @@ const PROMPT =
   'Transcribe this recording verbatim, in the language it is spoken in. If it is not speech, describe what it ' +
   'contains instead. Output only the transcript or description, nothing else.';
 
-async function cutPiece(input: string, out: string, startS: number, lengthS: number): Promise<void> {
-  await run(
+export async function cutPiece(input: string, out: string, startS: number, lengthS: number): Promise<void> {
+  await runTool(
     'ffmpeg',
-    ['-v', 'error', '-y', '-ss', startS.toFixed(3), '-t', lengthS.toFixed(3), '-i', input, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', out],
+    mediaArgs('ffmpeg', input, {
+      global: ['-v', 'error', '-y'],
+      inputOptions: ['-ss', startS.toFixed(3), '-t', lengthS.toFixed(3)],
+      output: ['-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', out],
+    }),
     { timeout: 120_000, maxBuffer: 1024 * 1024 },
   );
+}
+
+/**
+ * One piece's transcription: a request with its own deadline, and at most one retry (M10).
+ *
+ * A failed request is retried only when the failure can pass on a second try (Stage 15 ER-2):
+ * what the provider adapter classified retryable (`ProviderError.retryable`: 408, 409, a 429 with
+ * quota, 5xx, a lost connection), or this piece's deadline, which is a timeout. An SDK timeout
+ * that fires first is retried only when the adapter classified it retryable. Never a 400, 413 or other 4xx, a 429 with zero quota (`provider_quota_unavailable`),
+ * an account limit (`provider_limit`), a model or credentials problem (`model_unavailable`), nor
+ * an error that is not a provider error at all (a bug repeats). The turn loop uses the same
+ * classification (providerLoop.ts). A reading that ended without a natural stop, or empty, is
+ * read once more.
+ */
+export async function readPiece(
+  provider: Required<Pick<Provider, 'readMedia'>>,
+  part: MediaPart,
+  opts: Pick<AudioOptions, 'deadlineMs' | 'signal'>,
+): Promise<Pick<Segment, 'text' | 'ok' | 'model'>> {
+  for (let attempt = 0; attempt < PIECE_ATTEMPTS; attempt++) {
+    if (opts.signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    const deadline = AbortSignal.timeout(opts.deadlineMs);
+    try {
+      const r = await provider.readMedia([part], PROMPT, opts.signal ? AbortSignal.any([opts.signal, deadline]) : deadline);
+      if (r.finishReason === 'STOP' && r.text.trim() !== '') return { text: r.text.trim(), ok: true, model: r.model };
+    } catch (err) {
+      if (opts.signal?.aborted) throw err;
+      if (!deadline.aborted && !isRetryableProviderError(err)) break;
+    }
+  }
+  return { text: '', ok: false, model: '' };
 }
 
 /** Transcribes the audio (or a video's sound) at `filePath` into timed segments. */
@@ -91,7 +128,7 @@ export async function transcribe(
     throw new FileFailure('too_large', `This recording is ${clock(durationS * 1000)} long. Recordings can be at most ${hours} hours.`);
   }
   const count = Math.max(1, Math.ceil(durationS / opts.segmentSeconds));
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-audio-'));
+  const dir = await makeWorkDir('arcnave-audio-');
   const segments: Segment[] = new Array<Segment>(count);
   try {
     let next = 0;
@@ -108,18 +145,8 @@ export async function transcribe(
         const part: MediaPart = opts.modelInputs
           ? { mimeType: 'audio/mpeg', fileUri: await opts.modelInputs.uriFor(data, 'audio/mpeg') }
           : { mimeType: 'audio/mpeg', base64: data.toString('base64') };
-        let seg: Segment = { index: i, startMs: Math.round(startS * 1000), endMs: Math.round(endS * 1000), text: '', ok: false, model: '' };
-        for (let attempt = 0; attempt < 2 && !seg.ok; attempt++) {
-          if (opts.signal?.aborted) throw new DOMException('aborted', 'AbortError');
-          const deadline = AbortSignal.timeout(opts.deadlineMs);
-          try {
-            const r = await provider.readMedia([part], PROMPT, opts.signal ? AbortSignal.any([opts.signal, deadline]) : deadline);
-            if (r.finishReason === 'STOP' && r.text.trim() !== '') seg = { ...seg, text: r.text.trim(), ok: true, model: r.model };
-          } catch (err) {
-            if (opts.signal?.aborted) throw err;
-          }
-        }
-        segments[i] = seg;
+        const read = await readPiece(provider, part, opts);
+        segments[i] = { index: i, startMs: Math.round(startS * 1000), endMs: Math.round(endS * 1000), ...read };
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.concurrency, count)) }, worker));

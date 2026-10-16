@@ -58,13 +58,16 @@ USER node
 
 EXPOSE 8080
 
-# /healthz deliberately checks nothing but the process — a readiness probe that fails when the
+# /health (alias /healthz) deliberately checks nothing but the process — a readiness probe that fails when the
 # database blips would restart a server that is merely waiting. Use /readyz for traffic
 # gating; this is liveness.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["dumb-init", "--"]
-# Cloud Run must bind to $PORT promptly. Database migrations are run separately so a migration
-# failure cannot prevent the HTTP process from starting and exposing useful health diagnostics.
-CMD ["sh", "-c", "node dist/db/migrate.js || true; exec node dist/index.js"]
+# The server starts only after the migration exits 0 (ADR-0065, Stage 19 ID-13). A failed
+# migration, or a database that cannot be reached, stops this container: the new Cloud Run
+# revision never becomes ready and traffic stays on the previous one, instead of a new revision
+# serving on the old schema. Concurrent instances queue on an advisory lock (db/migrate.ts).
+# src/db/migrate.integration.test.ts runs this exact line.
+CMD ["sh", "-c", "node dist/db/migrate.js && exec node dist/index.js"]

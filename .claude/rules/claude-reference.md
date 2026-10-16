@@ -33,4 +33,5 @@ Answer in this shape, in the user's language:
 
 The invariants in `CLAUDE.md` still win. Where matching Claude would break one (a silent
 model fallback, an estimated token count, a committed secret), keep the invariant and record
-the difference.
+the difference. Where a locked stage decision disagrees, the stage decision wins
+([ADR-0071](../../docs/decisions/0071-stage-decisions-win-over-claude-reference.md)).

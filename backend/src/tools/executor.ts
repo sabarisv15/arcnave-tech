@@ -25,6 +25,7 @@ import { z } from 'zod';
 
 import type { Database } from '../db/client.js';
 import { fileChunks, projectFiles } from '../db/schema.js';
+import { nameForModel } from '../providers/attachmentContent.js';
 import type { ToolCall, ToolContent, ToolExecutor, ToolResult } from '../providers/types.js';
 import type { Retriever } from '../services/retrieval.js';
 
@@ -87,7 +88,8 @@ export class ProjectToolExecutor implements ToolExecutor {
     return jsonResult(call.id, {
       results: chunks.map((c) => ({
         fileId: c.fileId,
-        filename: c.filename,
+        // The uploader's name, written as every other place shows it to the model (ADR-0069).
+        filename: nameForModel(c.filename),
         page: c.page,
         score: c.score,
         text: c.text,
@@ -125,7 +127,7 @@ export class ProjectToolExecutor implements ToolExecutor {
     const truncated = cursor + content.length < fullText.length;
 
     return jsonResult(call.id, {
-      filename: rows[0]!.filename,
+      filename: nameForModel(rows[0]!.filename),
       content,
       truncated,
       nextCursor: truncated ? cursor + content.length : null,

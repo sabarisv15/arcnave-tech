@@ -13,16 +13,13 @@
  * the Anthropic adapter accepts when a request carries more than 20 images. Measured on the 12-page scanned
  * KVB statement: 0.7 s to render, 5.8 MB in all, and the balance and count figures were legible.
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import type { AttachmentPage } from '../../providers/types.js';
 import { FILE_LIMITS } from './pipeline.js';
-
-const run = promisify(execFile);
+import { runTool } from './untrustedTools.js';
+import { makeWorkDir } from './workDir.js';
 
 export const PAGE_IMAGE_LONG_EDGE_PX = 2000;
 export const PAGE_IMAGE_JPEG_QUALITY = 90;
@@ -91,14 +88,14 @@ export async function pdfForModel(data: Buffer, cacheKey?: string): Promise<PdfF
 }
 
 async function render(data: Buffer): Promise<PdfForModel> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-pdf-'));
+  const dir = await makeWorkDir('arcnave-pdf-');
   try {
     const pdf = path.join(dir, 'in.pdf');
     await writeFile(pdf, data);
 
     let pageCount: number;
     try {
-      const { stdout } = await run('pdfinfo', [pdf], { timeout: 60_000, maxBuffer: 1024 * 1024 });
+      const { stdout } = await runTool('pdfinfo', [pdf], { timeout: 60_000, maxBuffer: 1024 * 1024 });
       const match = /^Pages:\s+(\d+)/m.exec(stdout);
       if (!match) throw new Error('pdfinfo reported no page count');
       pageCount = Number(match[1]);
@@ -111,7 +108,7 @@ async function render(data: Buffer): Promise<PdfForModel> {
     // storage" (D1 #34).
     let texts: string[];
     try {
-      const { stdout: rawText } = await run('pdftotext', ['-enc', 'UTF-8', pdf, '-'], {
+      const { stdout: rawText } = await runTool('pdftotext', ['-enc', 'UTF-8', pdf, '-'], {
         timeout: 120_000,
         maxBuffer: 256 * 1024 * 1024,
       });
@@ -130,7 +127,7 @@ async function render(data: Buffer): Promise<PdfForModel> {
     }
 
     try {
-      await run(
+      await runTool(
         'pdftoppm',
         [
           '-jpeg',
