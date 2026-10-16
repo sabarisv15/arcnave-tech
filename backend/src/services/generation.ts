@@ -18,46 +18,34 @@
  *   pressed stop cost those tokens; dropping the record would understate real spend.
  */
 import { asc } from 'drizzle-orm';
-import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
-import { turnLogs, type MessageSegment } from '../db/schema.js';
+import { turnLogs } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { type ModelRegistry, AUTO_ALIAS } from '../providers/registry.js';
-import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
-import { type AttachmentBlock, type GenerationRequest, type ReasoningEffort } from '../providers/types.js';
-import { buildAttachmentManifest, contextNote } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
-import { applyFileBudget, applyManyImagesRule, familyOf, useNormalisedImages } from './attachments/fileBudget.js';
-import { ProjectToolRegistry } from '../tools/registry.js';
 import { TurnLog } from './turnLog.js';
-import { buildWebSearchAdapter } from './webSearch.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
 import { TurnTiming } from './turnTiming.js';
 import { compactionService } from './compaction/compactionService.js';
-import { WEB_FETCH_WITH_BUILT_IN_SEARCH } from '../tools/definitions.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillService } from './skills.js';
 import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import type { UsageService } from './usage.js';
-import { routeTurn } from './routing/turnRouter.js';
 import type { TurnServices } from './turn/services.js';
 import type { StreamEvent, ModelInfo } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
-import { loadPreferences, loadProject, loadHistory, compactIfNeeded, previousContextTokens as previousContextTokensOf } from './turn/context.js';
-import { readOfficeFilesWithCode, chatFilesOf, hydrateAttachmentBytes, limitToModel, hydrateHistoryAttachments } from './turn/contextAttachments.js';
-import { buildSkillsContext, buildSystemInstruction } from './turn/contextPrompt.js';
+import { loadPreferences, loadProject, loadHistory, compactIfNeeded } from './turn/context.js';
 import { resolveModel } from './turn/modelRouting.js';
-import { buildToolExecutors } from './turn/toolset.js';
-import { persistEvent } from './turn/persistence.js';
 import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
 import { settleTurn } from './turn/settle.js';
 import { forcedAnswer } from './turn/forcedAnswer.js';
 import { streamAndCollect } from './turn/streamAndCollect.js';
+import { buildTurnContext } from './turn/turnContext.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -295,220 +283,19 @@ export class GenerationService {
       }
     }
 
-    // --- tools this turn may use (ADR-0006, ADR-0047) ---------------------
-    const codeEnabled = this.cfg.ENABLE_RUN_PYTHON && this.sandboxClient !== undefined;
-    const webEnabled = Boolean(this.cfg.ENABLE_WEB);
-    const webSearchAdapter = buildWebSearchAdapter(this.cfg);
-    // The deployment allows memory; each user turns memory and past-chat search on or off in
-    // Settings (ADR-0052). Off means no tool and no memory text is sent, not just a promise.
-    const memoryEnabled = Boolean(this.cfg.ENABLE_MEMORY) && prefs.memoryEnabled;
-    const chatSearchEnabled = Boolean(this.cfg.ENABLE_MEMORY) && prefs.chatSearchEnabled;
-    const generativeUiEnabled = Boolean(this.cfg.ENABLE_GENERATIVE_UI);
-    const routingDecision = routeTurn({
-      hasProject: project !== null,
-      codeEnabled,
-      generativeUiEnabled,
-      webEnabled,
-      searchProviderLive: webSearchAdapter.isLive,
-      builtInSearch: grounded,
-      memoryEnabled,
-      chatSearchEnabled,
-    });
-    const toolRegistry = new ProjectToolRegistry(this.cfg.ENABLE_TOOL_USE, {
-      codeEnabled,
-      persistentSandbox: usesWarmSandbox(this.cfg),
-      webEnabled,
-      memoryEnabled,
-      chatSearchEnabled,
-      generativeUiEnabled,
-    });
-    const allowCode = routingDecision.allowedTools.includes('bash_tool');
-    const availableTools = toolRegistry
-      .getAvailableTools({ userId: input.userId, projectId: project?.id ?? null, allowCode })
-      .filter((t) => routingDecision.allowedTools.includes(t.name))
-      .map((t) => (t.name === 'web_fetch' && grounded ? WEB_FETCH_WITH_BUILT_IN_SEARCH : t));
-    const activeToolNames = new Set<string>(availableTools.map((t) => t.name));
-    turnLog.stage('routing', {
-      code: codeEnabled,
-      web: webEnabled,
-      searchProviderLive: webSearchAdapter.isLive,
-      memory: memoryEnabled,
-      chatSearch: chatSearchEnabled,
-      generativeUi: generativeUiEnabled,
-      project: project !== null,
-      declared: availableTools.map((t) => t.name),
-    });
-
-    // --- skills: names and descriptions up front, each read with view when needed ---------
-    // Skills are listed only when view can read them (Invariant 1). After a compaction, the
-    // skills read in the summarised turns come back in full (ADR-0027): the summary alone would
-    // leave a skill the model believes it has read.
-    const { skillsContext, loadedSkills, skillsEnabled } = await buildSkillsContext(this.svc, input, activeToolNames, latestCompaction);
-
-    // --- assemble context -------------------------------------------------
-    timing.mark('skills_tools');
-    turnLog.stage('skills', {
-      enabled: skillsEnabled,
-      listed: skillsEnabled ? this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : [],
-      reinjectedAfterCompaction: loadedSkills.map((s) => s.name),
-    });
-    const { systemInstruction, contextEvents, promptAssembly } = await buildSystemInstruction(
-      this.svc,
-      input,
-      prefs,
-      project,
-      availableTools,
-      skillsContext,
-      // Every allowed tool is declared (ADR-0047); with tool use off, none is.
-      availableTools.map((t) => t.name),
-      grounded,
-    );
-    for (const event of contextEvents) {
-      yield event;
-      await persistEvent(this.svc, input.messageId, event);
-    }
-
-    timing.mark('system_prompt');
-    turnLog.stage('system prompt', {
-      characters: systemInstruction.length,
-      parts: Object.entries(promptAssembly.dynamicSuffix)
-        .filter(([, v]) => typeof v === 'string' && v.trim() !== '')
-        .map(([k, v]) => `${k} ${String((v as string).length)}`),
-    });
-    const modelSpec = getModelCapability(entry.alias);
-    const maxOutputTokens = Math.min(
-      prefs.maxOutputTokens || this.cfg.DEFAULT_MAX_OUTPUT_TOKENS,
-      this.cfg.MAX_OUTPUT_TOKENS_CEILING,
-      modelSpec.maxOutputTokens ?? Number.POSITIVE_INFINITY,
-    );
-    const requestedEffort =
-      input.effort ?? (prefs.effort as ReasoningEffort | undefined) ?? this.cfg.REASONING_EFFORT;
-    const reasoningEffort = effortFor(modelSpec, requestedEffort);
-    timing.note('effort', reasoningEffort ?? null);
-    if (input.effort) timing.note('requestedEffort', input.effort);
-
-    // --- reserve budget ---------------------------------------------------
-    // The reservation is the worst case for this request; it is released as soon as the real
-    // numbers land, so a large ceiling does not lock out the rest of the day.
-    await this.usage.reserve(input.userId, prefs, maxOutputTokens);
-    turnLog.stage('budget', { maxOutputTokens, effortRequested: requestedEffort ?? null, effortUsed: reasoningEffort ?? null });
-    let reservationHeld = true;
-    const releaseReservation = async (): Promise<void> => {
-      if (!reservationHeld) return;
-      reservationHeld = false;
-      await this.usage.release(input.userId, prefs, maxOutputTokens).catch((err: unknown) => {
-        log.error({ err, userId: input.userId }, 'failed to release budget reservation');
+    const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents } =
+      yield* buildTurnContext(this.svc, input, {
+        prefs,
+        project,
+        history,
+        entry,
+        grounded,
+        compactedNow,
+        latestCompaction,
+        workspace,
+        timing,
+        turnLog,
       });
-    };
-
-    // The answer in the order it happened: thinking, text and tool steps
-    // interleaved. Kept on the message so a reload shows the same timeline.
-    const segments: MessageSegment[] = [];
-    const { pendingUiEvents, toolMap, codeExecutor, toolExecutor } = buildToolExecutors(this.svc, {
-      input,
-      project,
-      availableTools,
-      history,
-      webEnabled,
-      webSearchAdapter,
-      memoryEnabled,
-      chatSearchEnabled,
-      generativeUiEnabled,
-      allowCode,
-      workspace,
-      segments,
-    });
-    timing.mark('tools_setup');
-    turnLog.stage('tool executors', { executors: [...new Set([...toolMap.values()].map((e) => e.constructor.name))] });
-
-    // Images go as their normalised copy (D1 #21); then each file whole or by excerpt, and a
-    // PDF's pages by the N-13 budget, for this model family (ADR-0063).
-    const normalised = await useNormalisedImages(this.db, input.attachments, history);
-    const budgeted = await applyFileBudget(
-      this.db,
-      familyOf(entry.provider),
-      input.prompt,
-      await hydrateAttachmentBytes(this.svc, normalised.current),
-      await hydrateHistoryAttachments(this.svc, normalised.history, input.prompt, entry.alias),
-    );
-    const sized = await applyManyImagesRule(this.cfg, budgeted.current, budgeted.history);
-    const { current: wireAttachments, history: wireHistory } = await limitToModel(this.svc, entry.alias, sized.current, sized.history, releaseReservation);
-    timing.mark('attachments');
-    {
-      const all = [...wireAttachments, ...wireHistory.flatMap((t) => t.attachments ?? [])];
-      turnLog.stage('attachments', {
-        current: wireAttachments.length,
-        fromHistory: all.length - wireAttachments.length,
-        pdfsAsPages: all.filter((a) => a.pages).length,
-        pageImages: all.reduce((n, a) => n + (a.pages?.filter((p) => p.image?.fileUri || p.image?.base64).length ?? 0), 0),
-        leftOut: all.filter((a) => a.omittedReason).map((a) => `${a.filename ?? a.id}: ${a.omittedReason!}`),
-      });
-    }
-
-    const allAttachmentsMap = new Map<string, AttachmentBlock>();
-    for (const h of wireHistory) {
-      if (h.attachments) {
-        for (const att of h.attachments) {
-          if (att.id) allAttachmentsMap.set(att.id, att);
-        }
-      }
-    }
-    for (const att of wireAttachments) {
-      if (att.id) allAttachmentsMap.set(att.id, att);
-    }
-
-    const chatFiles = await chatFilesOf(this.svc, input.chatId, allAttachmentsMap);
-    codeExecutor?.setChatFiles(chatFiles);
-    const wire = readOfficeFilesWithCode(
-      codeExecutor !== undefined && sandboxReadsOfficeFiles(this.cfg),
-      wireAttachments,
-      wireHistory,
-    );
-    // Each line says whether the model already sees the file, from what this request carries.
-    const sent = new Map<string, AttachmentBlock>();
-    for (const a of [...wire.history.flatMap((t) => t.attachments ?? []), ...wire.current]) if (a.id) sent.set(a.id, a);
-    const attachmentManifestBlock = buildAttachmentManifest(
-      chatFiles.map((f) => {
-        const block = sent.get(f.id);
-        return block ? { ...f, inContext: contextNote(block) } : f;
-      }),
-      { sandbox: codeExecutor !== undefined },
-    );
-
-    const promptParts: string[] = [];
-    if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
-    promptParts.push(input.prompt);
-    const effectivePrompt = promptParts.join('\n\n');
-
-    // The previous request's size, for the turn log only: no adapter shortens a request on it,
-    // tool results are never cleared before compaction (ADR-0023, ADR-0072). After a compaction
-    // the earlier size no longer describes what is sent.
-    const previousContextTokens = compactedNow ? null : await previousContextTokensOf(this.svc, input);
-    const request: GenerationRequest = {
-      prompt: effectivePrompt,
-      history: wire.history,
-      attachments: wire.current,
-      systemInstruction,
-      promptAssembly,
-      mode: input.mode,
-      maxOutputTokens,
-      ...(reasoningEffort ? { reasoningEffort } : {}),
-      ...(previousContextTokens !== null ? { previousContextTokens } : {}),
-      providerModelId: entry.providerModelId!,
-      grounded,
-      codeExecution: Boolean(input.codeExecution),
-      ...(availableTools.length > 0 ? { tools: availableTools } : {}),
-      ...(toolExecutor ? { toolExecutor } : {}),
-      signal: input.signal,
-    };
-
-    turnLog.stage('request built', {
-      readWithCode: [...wire.current, ...wire.history.flatMap((t) => t.attachments ?? [])]
-        .filter((a) => a.omittedReason === 'read_with_code')
-        .map((a) => a.filename ?? a.id),
-      previousContextTokens,
-    });
-    turnLog.sent(request, skillsEnabled ? this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : []);
 
     const state = createTurnState(segments, contextEvents.length);
     const addSegment = (type: 'thinking' | 'text', text: string) => {
