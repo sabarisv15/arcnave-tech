@@ -97,3 +97,30 @@ changed (a snapshot diff line, `-` expected / `+` received, or the scenario's ow
 | 15 | no adapter does not refuse | exit 1, 1 failed / 18 skipped (19) | `-     "code": "model_unavailable",` |
 | 16 | search without grounding is not refused | exit 1, 1 failed / 18 skipped (19) | `-     "code": "capability_unavailable",` |
 
+
+### Review gate 0 (one round)
+
+Reviewer: a fresh Opus 5.5 background agent (Read, Grep, Glob only), given the new test files and
+the 16-path list. Verdict: all 16 (8a/8b/8c) COVERED, each with terminal count, release and
+cleanup in its snapshot; **0 BLOCKER, 2 MAJOR, 6 MINOR**. Main re-opened every cited line.
+
+| Finding | Severity | Main's check | Outcome |
+|---|---|---|---|
+| The release inside `limitToModel` (`turn/contextAttachments.ts:181-183`, handed `releaseReservation` at `generation.ts:434`) is never exercised | MAJOR | confirmed: no scenario fails `limitToModel` | **fixed**: scenario (L), a model-input store that cannot store page images (the `modelInputs` seam), on a 2-page PDF to Gemini |
+| A throw between `usage.reserve` (`:392`) and the stream (`:539`) outside `limitToModel` keeps the reservation (the outer catch `:895` does not release) | MAJOR (part of the above) | confirmed by reading; no seam reaches such a throw without a code change | **deferred** (DEFERRED.md, behaviour oddity, and listed as unprotected in p05-review.md) |
+| The partial-after-tool-run path (`:697-712`) has no counters (only the first file covers it, without effects) | MAJOR | confirmed | **fixed**: scenario (P); and (R) for the refusal and the non-retried failure |
+| `releaseReservation` calls are not counted, `usage.release` is | MINOR | confirmed; the closure is idempotent, a second call has no effect; the header says so | kept as is |
+| Scenario (14)'s own assertion `toBeDefined()` passes on the default | MINOR | confirmed | **fixed**: `toBe('max')` |
+| The deadline (2) could land before the stream on a slow runner | MINOR | confirmed (fails, never passes falsely) | kept: a warm-up turn first; 5 runs green |
+| Scenarios share one app and user; a `-t` run alone differs for the long-texts entry | MINOR | confirmed; every proof ran one scenario with `-t` and its controls passed | kept |
+| Broad normalisation (`plain()` hides class instances; the timing number regex is file-wide in the turn log) | MINOR | `plain()` is the first file's, unchanged; the regex keys are timing keys only | kept |
+| No scenario for a stop during the forced answer, a stop during compaction, a throw in `finalise`/`usage.record` after yields, the success `recordOutcome(available: true)` | MINOR | confirmed | **fixed** for the stop during the forced answer: scenario (8d); the rest listed as unprotected in p05-review.md |
+
+New scenarios' proofs (same script; controls 4 of 4 passed, breaks 4 of 4 failed):
+
+| Proof | Broken | Result | First failure |
+|---|---|---|---|
+| 8d | a stop during the forced answer is not caught | exit 1, 1 failed / 22 skipped (23) | `-     "code": "empty_response",` |
+| P | the partial end is not marked | exit 1, 1 failed / 22 skipped (23) | `-     "partial": true,` |
+| R | the error branch does not release before recording (the finally releases later) | exit 1, 1 failed / 22 skipped (23) | `-     "usage.release",` |
+| L | limitToModel does not release the reservation it was handed | exit 1, 1 failed / 22 skipped (23) | `AssertionError: expected [ 'run.start', …(5) ] to include 'usage.release'` |

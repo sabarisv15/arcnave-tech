@@ -28,8 +28,9 @@ import type { GenerationRequest, ProviderEvent, ProviderSource } from '../provid
 import { ModelNotFoundError, ProviderError } from '../providers/types.js';
 import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCompact.js';
 import type { TestContext } from './harness.js';
+import { pdfWithPages } from './fixtures/files.js';
 import { createTestApp, multipart, postProjectFile, signUp } from './harness.js';
-import { answer, ASK, AttemptsProvider, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, usage } from './turnSnapshot.js';
+import { answer, ASK, AttemptsProvider, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, upload, usage } from './turnSnapshot.js';
 
 /* -------------------------------------------------------------------------- instruments */
 
@@ -150,9 +151,9 @@ interface PathSession extends Session {
   effects: string[];
 }
 
-async function openSession(env: Record<string, string>): Promise<PathSession> {
+async function openSession(env: Record<string, string>, seams: Parameters<typeof createTestApp>[2] = {}): Promise<PathSession> {
   const provider = new AttemptsProvider();
-  const ctx = await createTestApp(env, provider);
+  const ctx = await createTestApp(env, provider, seams);
   return { ctx, user: await signUp(ctx), provider, effects: instrument(ctx) };
 }
 
@@ -412,6 +413,60 @@ describe('turn characterization paths', () => {
     expect(snap).toMatchSnapshot();
   });
 
+  it('(8d) a stop during the forced answer: the request ends, empty_response', async () => {
+    const snap = await scenario(s, async () => {
+      const chatId = await newChat(s);
+      s.provider.attempts = [
+        loopWithoutText('call_8d'),
+        async function* (request) {
+          await s.ctx.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/stop`, headers: { cookie: s.user.cookie } });
+          if (request.signal.aborted) throw aborted();
+          yield* answer('Never sent.');
+        },
+      ];
+      const res = await generate(s, chatId, { prompt: 'Work it out.' });
+      expect(res.frames.at(-1)).toMatchObject({ event: 'error', data: { code: 'empty_response' } });
+      return { chatId, responses: [res] };
+    });
+    expect(snap).toMatchSnapshot();
+  });
+
+  it('(P) a failure after a tool ran ends the turn partial, with its counters', async () => {
+    const snap = await scenario(s, async () => {
+      const chatId = await newChat(s);
+      s.provider.attempts = [
+        async function* (request) {
+          const call = { id: 'call_p', name: 'ask_user_input_v0', input: ASK };
+          yield { type: 'delta', text: 'Partly done. ' };
+          yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
+          const result = await request.toolExecutor!.execute(call, request.signal);
+          yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
+          throw new ProviderError('Gemini request failed: 502', { retryable: true, statusCode: 502 });
+        },
+      ];
+      const res = await generate(s, chatId, { prompt: 'Pick for me.' });
+      expect(res.frames.at(-1)).toMatchObject({ event: 'done', data: { partial: true } });
+      return { chatId, responses: [res] };
+    });
+    expect(snap).toMatchSnapshot();
+  });
+
+  it('(R) a refusal and a provider failure that is not retried, with their counters', async () => {
+    const snap = await scenario(s, async () => {
+      const chatId = await newChat(s);
+      s.provider.script = [
+        { type: 'refusal', category: 'cyber', explanation: null },
+        { type: 'completed', usage: usage(), finishReason: 'refusal' },
+      ];
+      const refused = await generate(s, chatId, { prompt: 'Something refused.' });
+      s.provider.streamError = new ProviderError('bad request', { retryable: false, statusCode: 400 });
+      const failed = await generate(s, chatId, { prompt: 'This fails.' });
+      for (const res of [refused, failed]) expect(res.frames.at(-1)?.event).toBe('error');
+      return { chatId, responses: [refused, failed] };
+    });
+    expect(snap).toMatchSnapshot();
+  });
+
   it('(9) the provider says the model does not exist: model marked unavailable', async () => {
     const snap = await scenario(s, async () => {
       const { registry } = s.ctx.app.services;
@@ -542,8 +597,8 @@ describe('turn characterization paths', () => {
     const snap = await scenario(s, async () => {
       const chatId = await newChat(s);
       const res = await generate(s, chatId, { prompt: 'Think hard.', model: 'Sonnet 5.5', effort: 'max' });
-      const seen = s.provider.seen.at(-1)!;
-      expect(seen.reasoningEffort).toBeDefined();
+      // Sonnet 5.5 takes max; the default would be medium.
+      expect(s.provider.seen.at(-1)!.reasoningEffort).toBe('max');
       return { chatId, responses: [res] };
     });
     expect(snap).toMatchSnapshot();
@@ -569,6 +624,34 @@ describe('turn characterization paths', () => {
       const research = await generate(s, chatId, { prompt: 'Research it.', mode: 'research' });
       for (const res of [search, research]) expect(res.frames.at(-1)).toMatchObject({ event: 'error', data: { code: 'capability_unavailable' } });
       return { chatId, responses: [search, research] };
+    });
+    expect(snap).toMatchSnapshot();
+  });
+});
+
+/* -------------------------------------------------------------------------- model limits */
+
+describe('turn characterization paths: a limit check that fails after the reservation', () => {
+  let s: PathSession;
+
+  beforeAll(async () => {
+    // Gemini reads page images from a model-input store (ADR-0016); this one cannot store them, so
+    // the model-limit step (limitToModel) fails after the budget was reserved.
+    s = await openSession({ ENABLE_TOOL_USE: 'true' }, { modelInputs: { uriFor: () => Promise.reject(new Error('the model-input store is unavailable')) } });
+  });
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await s.ctx.close();
+  });
+
+  it('(L) limitToModel fails: the reservation it was handed is released, then the error goes on', async () => {
+    const snap = await scenario(s, async () => {
+      const file = await upload(s, 'two.pdf', await pdfWithPages(2, ['Page one', 'Page two']), 'application/pdf');
+      const chatId = await newChat(s);
+      const res = await generate(s, chatId, { prompt: 'Read it.', model: 'Gemini 3.8 Flash', attachmentIds: [file] });
+      expect(res.frames.at(-1)?.event).toBe('error');
+      expect(s.effects).toContain('usage.release');
+      return { chatId, responses: [res] };
     });
     expect(snap).toMatchSnapshot();
   });

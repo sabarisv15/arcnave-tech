@@ -41,6 +41,10 @@ PROOFS = [
     ('14', r'\(14\)', GEN, "    const requestedEffort =\n      input.effort ??", "    const requestedEffort =\n      undefined ??", "the turn's effort is ignored"),
     ('15', r'\(15\)', GEN, "    if (!provider) {\n      throw new ApiError('model_unavailable',", "    if (false) {\n      throw new ApiError('model_unavailable',", "no adapter does not refuse"),
     ('16', r'\(16\)', GEN, "    if (requiresGrounding && !grounded) {", "    if (false) {", "search without grounding is not refused"),
+    ('8d', r'\(8d\)', GEN, "      } catch (synthErr) {\n", "      } catch (synthErr) {\n        throw synthErr;\n", "a stop during the forced answer is not caught"),
+    ('P', r'\(P\)', GEN, "        endedPartial = true;", "        // endedPartial = true;", "the partial end is not marked"),
+    ('R', r'\(R\)', GEN, "        await releaseReservation();\n        await this.usage.record({", "        await this.usage.record({", "the error branch does not release before recording (the finally releases later)"),
+    ('L', r'\(L\)', 'src/services/turn/contextAttachments.ts', "    await releaseReservation();\n    throw err;", "    throw err;", "limitToModel does not release the reservation it was handed"),
 ]
 
 env = dict(os.environ, TEST_DATABASE_URL='postgres://arcnave:arcnave@localhost:5432/arcnave_test_proof')
