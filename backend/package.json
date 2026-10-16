@@ -18,7 +18,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "openapi": "tsx src/openapi.ts"
+    "openapi": "tsx src/openapi.ts",
+    "eval:prompt": "tsx --env-file-if-exists=.env scripts/evalPrompt.ts",
+    "conformance:live": "tsx --env-file-if-exists=.env scripts/conformanceLive.ts",
+    "kit:table": "tsx scripts/kitTable.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

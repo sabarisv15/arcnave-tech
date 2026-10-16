@@ -1,3 +1,4 @@
+// P03 (X-6) repaired: the Claude model comes from configuration only (no retired model name). Owner-run; spends quota; never run by tests or CI.
 /**
  * ArcNave Phase 5.3 — Claude Live Conversation Compaction E2E (Vertex AI).
  *
@@ -20,7 +21,7 @@ import { eq } from 'drizzle-orm';
 
 async function main() {
   const cfg = config();
-  const model = cfg.MODEL_SONNET || 'claude-sonnet-5';
+  const model = (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })());
 
   console.log('===============================================================');
   console.log('ArcNave Phase 5.3 — Claude Live Conversation Compaction E2E');

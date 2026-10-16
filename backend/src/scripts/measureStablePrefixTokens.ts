@@ -1,3 +1,4 @@
+// P03 (X-6) repaired: project and Claude model come from configuration only (no hard-coded project id or retired model name). Owner-run; spends quota; never run by tests or CI.
 /**
  * Measure exact token counts of the final canonical stable prefix across
  * models and tool bundles using live Vertex token-counting APIs.
@@ -65,7 +66,7 @@ async function main() {
 
   const googleClient = new GoogleGenAI({
     vertexai: true,
-    project: cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974',
+    project: cfg.GOOGLE_CLOUD_PROJECT ?? (() => { throw new Error('GOOGLE_CLOUD_PROJECT is not set'); })(),
     location: cfg.geminiLocation,
   });
 
@@ -101,16 +102,16 @@ async function main() {
     try {
       const anthropicTools = prefix.tools.map(toAnthropicTool);
       const res = await anthropicClient.messages.countTokens({
-        model: 'claude-sonnet-5',
+        model: (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })()),
         system: prefix.systemText,
         tools: anthropicTools,
         messages: [{ role: 'user', content: 'ping' }],
       });
       const tokens = res.input_tokens ?? 0;
-      console.log(`  claude-sonnet-5 tokens  : ${tokens}`);
+      console.log(`  ${cfg.MODEL_SONNET} tokens  : ${tokens}`);
       console.log(`    -> vs 1,024 cache breakpoint threshold: ${tokens >= 1024 ? '✅ QUALIFIES (cache_control placed)' : '❌ BELOW'}`);
     } catch (err: any) {
-      console.log(`  claude-sonnet-5 countTokens failed: ${err?.message || err}`);
+      console.log(`  ${cfg.MODEL_SONNET} countTokens failed: ${err?.message || err}`);
     }
 
     console.log('');

@@ -20,5 +20,5 @@
     "sourceMap": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "drizzle.config.ts", "vitest.config.ts"]
+  "include": ["src/**/*.ts", "evals/**/*.ts", "scripts/**/*.ts", "drizzle.config.ts", "vitest.config.ts"]
 }

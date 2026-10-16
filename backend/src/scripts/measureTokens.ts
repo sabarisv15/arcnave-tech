@@ -1,3 +1,4 @@
+// P03 (X-6) repaired: configuration comes from the environment only, and the word-count token estimate is removed (Invariant 3: provider counts only). Owner-run; spends quota; never run by tests or CI.
 /**
  * Exact Provider Token Count Measurement Script.
  *
@@ -16,10 +17,7 @@ async function main() {
   console.log('=== ArcNave Master System Prompt v1: Exact Token Measurement ===\n');
 
   const cfg = loadConfig({
-    GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974',
-    VERTEX_LOCATION: 'global',
-    MODEL_GEMINI_FLASH: 'gemini-3.8-flash',
-    MODEL_SONNET: 'claude-sonnet-5',
+    ...process.env,
     ENABLE_TOOL_USE: 'true',
     ENABLE_RUN_PYTHON: 'true',
     ENABLE_WEB: 'true',
@@ -37,11 +35,11 @@ async function main() {
   console.log(`- Characters : ${charCount.toLocaleString()}`);
   console.log(`- Words      : ${wordCount.toLocaleString()}`);
   console.log(`- Lines      : ${lineCount.toLocaleString()}`);
-  console.log(`- Naive rule (words * 1.33): ~${Math.round(wordCount * 1.33).toLocaleString()} tokens\n`);
+  console.log('');
 
   // Provider exact measurement 1: Gemini Vertex AI
-  const geminiModel = cfg.MODEL_GEMINI_FLASH || 'gemini-3.8-flash';
-  const gcpProject = cfg.GOOGLE_CLOUD_PROJECT || 'project-8bcf740a-a7bd-4aea-974';
+  const geminiModel = cfg.MODEL_GEMINI_FLASH ?? (() => { throw new Error('MODEL_GEMINI_FLASH is not set'); })();
+  const gcpProject = cfg.GOOGLE_CLOUD_PROJECT ?? (() => { throw new Error('GOOGLE_CLOUD_PROJECT is not set'); })();
 
   try {
     const ai = new GoogleGenAI({
@@ -65,7 +63,7 @@ async function main() {
   try {
     const anthropic = createAnthropicClient(cfg);
 
-    const sonnetModel = cfg.MODEL_SONNET || 'claude-sonnet-5';
+    const sonnetModel = (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })());
     console.log(`Querying Claude API (${sonnetModel}) countTokens...`);
     if (typeof (anthropic.messages as any).countTokens === 'function') {
       const anthropicCount = await (anthropic.messages as any).countTokens({

@@ -1,3 +1,4 @@
+// P03 (X-6) repaired: the Claude model comes from configuration only (no retired model name). Owner-run; spends quota; never run by tests or CI.
 /**
  * Live Prompt Caching Evaluation Script.
  *
@@ -22,7 +23,7 @@ import { normalizeCacheMetrics } from '../services/promptCache/telemetry.js';
 
 async function main() {
   const cfg = config();
-  const model = cfg.MODEL_SONNET || 'claude-sonnet-5';
+  const model = (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })());
 
   console.log('===============================================================');
   console.log('ArcNave Phase 5.1 — Live Prompt Caching Evaluation');
