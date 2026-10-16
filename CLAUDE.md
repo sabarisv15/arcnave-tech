@@ -42,7 +42,7 @@ These are not style preferences. Each one exists because the alternative ships a
 cd backend
 npm run dev            # :8080, Swagger UI at /docs
 npx tsc --noEmit       # must be clean before any commit
-npx vitest run         # ~900 tests (CURRENT.md 2026-09-28: 906); needs Postgres for the integration files
+npx vitest run         # ~1,350 tests (CURRENT.md 2026-10-16: 1,353); needs Postgres for the integration files
 npm run openapi        # regenerate docs/openapi.json — run after any schema change
 npm run db:migrate
 
@@ -134,4 +134,8 @@ edit in the owner's Architecture folder). The invariants above and the Tanglish 
    and how to verify. Prune if it is over 40 entries. This step is skipped exactly when
    context is tightest and the lesson is most valuable, so do it deliberately.
 4. Update `docs/checkpoints/CURRENT.md` if the state of the work moved.
-5. In your response to the user, explain what was done in simple Tanglish.
+5. **Code review after every big prompt** ([ADR-0068](docs/decisions/0068-code-review-after-every-big-prompt.md)).
+   After the work is green and committed locally, run the code-review slash command and an
+   independent reviewer in parallel, fix confirmed findings, and put the review report in
+   `docs/ops/` and in the final report to the owner.
+6. In your response to the user, explain what was done in simple Tanglish.

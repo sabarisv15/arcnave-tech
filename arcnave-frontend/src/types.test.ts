@@ -339,6 +339,7 @@ describe("cutOffReason", () => {
     expect(cutOffReason("MAX_TOKENS")).toBe("output_limit");
     expect(cutOffReason("max_tokens")).toBe("output_limit");
     expect(cutOffReason("tool_limit")).toBe("tool_limit");
+    expect(cutOffReason("partial")).toBe("partial");
     expect(cutOffReason("STOP")).toBeNull();
     expect(cutOffReason(undefined)).toBeNull();
   });

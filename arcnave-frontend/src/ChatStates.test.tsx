@@ -139,6 +139,19 @@ describe("a cut-short answer offers Continue", () => {
     }
   });
 
+  it("says a partial answer stopped early after a tool ran, and still offers Continue (ADR-0064)", () => {
+    const onContinue = vi.fn();
+    render(<CutShortNote finishReason="partial" onContinue={onContinue} />);
+    const note = host.querySelector(".cs-cut")!;
+    expect(note.getAttribute("data-reason")).toBe("partial");
+    expect(note.textContent).toContain(
+      "This answer stopped early. The model failed after a tool had already run; the tool was not run again.",
+    );
+    expect(buttons()).toEqual(["Continue"]);
+    act(() => host.querySelector("button")!.click());
+    expect(onContinue).toHaveBeenCalledOnce();
+  });
+
   it("disables Continue while another response runs", () => {
     render(<CutShortNote finishReason="tool_limit" onContinue={() => undefined} disabled />);
     expect(host.querySelector("button")!.disabled).toBe(true);

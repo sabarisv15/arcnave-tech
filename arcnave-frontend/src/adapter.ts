@@ -77,6 +77,9 @@ export type StreamEvent =
       usage: UsageDto;
       finishReason: string;
       effort?: ReasoningEffort | null;
+      /** The model failed after a tool ran; the turn ended with what it had (ADR-0064). */
+      partial?: boolean;
+      errorCode?: string;
     }
   | {
       type: "error";

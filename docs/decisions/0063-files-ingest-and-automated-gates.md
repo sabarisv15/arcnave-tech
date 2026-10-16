@@ -3,6 +3,8 @@
 - Status: accepted (task tech-build.2, 2026-10-15). Tested by automated gates (typecheck, full
   suites, builds); not deployed. The owner verifies live after merging
   ([`docs/ops/build-2-live-checklist.md`](../ops/build-2-live-checklist.md)).
+  2026-10-16: Decision 7 "Generation + checksum at `complete`" superseded: the checksum is the
+  job's first stage ([ADR-0066](0066-file-pipeline-review-fixes.md) Decision 4).
 - Date: 2026-10-15
 - Task: tech-build.2 — P09 + P12 + P19 (part) of [`docs/ops/audit/NEW-PLAN.md`](../ops/audit/NEW-PLAN.md),
   plus the two P06 gaps found in review.

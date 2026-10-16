@@ -26,6 +26,7 @@ import { buildServices } from './container.js';
 import { ApiError } from './errors.js';
 import { logger } from './logger.js';
 import contextPlugin from './plugins/context.js';
+import securityPlugin, { rateLimitKey, trustProxyHops } from './plugins/security.js';
 import { artifactRoutes } from './routes/artifacts.js';
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chats.js';
@@ -69,6 +70,9 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     // Uploads are additionally capped per-file by @fastify/multipart; this is the hard
     // transport ceiling, with headroom for multipart framing.
     bodyLimit: cfg.MAX_UPLOAD_BYTES + 1024 * 1024,
+    // request.ip is the client, not the platform's front end, and a client-written
+    // X-Forwarded-For entry cannot choose it (ADR-0065).
+    trustProxy: trustProxyHops(cfg.TRUST_PROXY_HOPS),
   }).withTypeProvider<ZodTypeProviderAlias>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -90,13 +94,20 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     maxAge: 600,
   });
 
+  // Security headers on every response, and the Origin check on state-changing requests, before
+  // the session is looked up: a refused request costs no database read.
+  await app.register(securityPlugin, { allowedOrigins: cfg.CORS_ORIGINS });
+
   await app.register(rateLimit, {
     global: true,
     max: cfg.RATE_LIMIT_WRITE_PER_MINUTE,
     timeWindow: '1 minute',
-    // Per user when signed in, per IP otherwise, so one noisy anonymous client cannot
-    // exhaust the shared budget for everyone behind the same NAT.
-    keyGenerator: (request) => request.user?.id ?? request.ip,
+    // The limiter attaches this hook to each route; route-level onRequest hooks run after the
+    // context plugin's instance-level one, so the session is already resolved when the key is
+    // computed. Per user when signed in, per client address otherwise
+    // (edgeSecurity.integration.test.ts fails if either stops holding).
+    hook: 'onRequest',
+    keyGenerator: rateLimitKey,
     enableDraftSpec: true,
   });
 
@@ -132,7 +143,8 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     transform: jsonSchemaTransform,
   });
 
-  await app.register(swaggerUi, { routePrefix: '/docs' });
+  // The OpenAPI document is still built (npm run openapi); only the UI is gated (ADR-0065).
+  if (cfg.docsEnabled) await app.register(swaggerUi, { routePrefix: '/docs' });
 
   // --- error handling ----------------------------------------------------
   app.setErrorHandler((error, request, reply) => {

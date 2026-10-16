@@ -225,13 +225,15 @@ export interface Message {
 
 /**
  * Why a completed answer stopped early, or null when it ended normally. A cut-off answer is
- * shown as such, never as a finished one (Invariant 1).
+ * shown as such, never as a finished one (Invariant 1). `partial`: the model failed after a tool
+ * had already run, and the tool was not run again (ADR-0064).
  */
-export function cutOffReason(finishReason: string | undefined): "output_limit" | "tool_limit" | null {
+export function cutOffReason(finishReason: string | undefined): "output_limit" | "tool_limit" | "partial" | null {
   if (!finishReason) return null;
   const r = finishReason.toLowerCase();
   if (r === "max_tokens" || r === "length") return "output_limit";
   if (r === "tool_limit") return "tool_limit";
+  if (r === "partial") return "partial";
   return null;
 }
 

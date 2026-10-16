@@ -9,13 +9,9 @@
  * is claimed by `POST /chats/:id/generate`. An unclaimed row is a user who changed their mind;
  * `DELETE /files/:id` and the cleanup below are what stop those accumulating.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
-
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 
 import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -29,8 +25,11 @@ import { reserveUpload } from '../services/attachments/quota.js';
 import { storageKeyInUse } from '../services/attachments/references.js';
 import { isWhole, projectFileTexts } from '../services/retrieval.js';
 import { checkUpload, generateStorageKey, safeDownloadName, sha256, UploadTooLarge } from '../services/storage.js';
-import { derivedKeys, deleteObjects, storedChecksum } from '../services/attachments/derivatives.js';
+import { derivedKeys, deleteObjects } from '../services/attachments/derivatives.js';
+import type { FileTx } from '../services/attachments/fileJobs.js';
 import { pollWithHold } from '../services/attachments/pollHold.js';
+import { runTool } from '../services/attachments/untrustedTools.js';
+import { makeWorkDir } from '../services/attachments/workDir.js';
 import type { AppInstance } from '../types.js';
 import { iso, uuidParam } from './helpers.js';
 import {
@@ -286,22 +285,30 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
               : `${String(stored)} of ${String(file.sizeBytes)} bytes arrived. Upload it again.`,
         });
       }
-      // D1 #35: the bytes the job reads must be these. Their checksum (also the key for reusing
-      // an earlier read of the same bytes, G3) and the object's generation are kept on the row.
-      const checksumSha256 = await storedChecksum(storage, file.storageKey);
+      // D1 #35: the bytes the job reads must be these. Only the object's generation and size are
+      // recorded here: the request never reads the object (review N4). The job checks the
+      // generation and computes the SHA-256 (the key for reusing an earlier read, G3) as its
+      // first stage, by streaming its own copy.
       const objectGeneration = (await storage.generation(file.storageKey)) ?? '';
-      // The status move is the lock: of two `complete` calls at once, one moves the row out of
-      // `uploading` and reads it; the other sees it moved and answers with the row as it is.
-      const moved = await claimFrom(request, file.id, ['uploading'], { checksumSha256, objectGeneration });
-      if (!moved) return toDtoWithMembers(request, await loadAttachment(request, file.id));
       if (cfg.FILE_PIPELINE === 'sync') {
+        const moved = await claimFrom(request, file.id, ['uploading'], { objectGeneration, sizeBytes: stored });
+        if (!moved) return toDtoWithMembers(request, await loadAttachment(request, file.id));
         const read = await withLocalCopy(async (localPath) => {
           await storage.downloadTo(moved.storageKey, localPath);
           return files.readInline(moved, localPath);
         });
         return reply.status(200).send(await toDtoWithMembers(request, read));
       }
-      await files.enqueueAttachment(moved);
+      // The status move and the job insert are one transaction (review N3): when either fails the
+      // file stays `uploading` and `complete` can simply be called again. The status move is also
+      // the lock: of two `complete` calls at once, one moves the row and queues it; the other
+      // sees it moved and answers with the row as it is.
+      const jobId = await request.services.db.transaction(async (tx) => {
+        const moved = await claimFrom(request, file.id, ['uploading'], { objectGeneration, sizeBytes: stored }, tx);
+        return moved ? files.enqueueAttachment(moved, tx) : null;
+      });
+      if (!jobId) return toDtoWithMembers(request, await loadAttachment(request, file.id));
+      files.poke(jobId);
       return reply.status(202).send(toDto(await loadAttachment(request, file.id)));
     },
   );
@@ -322,16 +329,22 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
     async (request, reply) => {
       const { storage, files, cfg } = request.services;
       const file = await loadAttachment(request, request.params.id);
-      const moved = await claimFrom(request, file.id, ['failed', 'unsupported']);
-      if (!moved) throw new ApiError('conflict', { detail: 'Only a file that failed can be retried.' });
       if (cfg.FILE_PIPELINE === 'sync') {
+        const moved = await claimFrom(request, file.id, ['failed', 'unsupported']);
+        if (!moved) throw new ApiError('conflict', { detail: 'Only a file that failed can be retried.' });
         const read = await withLocalCopy(async (localPath) => {
           await storage.downloadTo(moved.storageKey, localPath);
           return files.readInline(moved, localPath);
         });
         return reply.status(200).send(await toDtoWithMembers(request, read));
       }
-      await files.enqueueAttachment(moved);
+      // As at `complete`: the move and the job land together, or the file stays failed.
+      const jobId = await request.services.db.transaction(async (tx) => {
+        const moved = await claimFrom(request, file.id, ['failed', 'unsupported'], {}, tx);
+        return moved ? files.enqueueAttachment(moved, tx) : null;
+      });
+      if (!jobId) throw new ApiError('conflict', { detail: 'Only a file that failed can be retried.' });
+      files.poke(jobId);
       return reply.status(202).send(toDto(await loadAttachment(request, file.id)));
     },
   );
@@ -476,6 +489,17 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
       const file = await loadAttachment(request, request.params.id);
       if (file.status === 'uploading') throw notFound('file');
       if (!isWorkbook(file.mimeType, file.filename)) throw new ApiError('preview_unsupported');
+      // The preview parses the workbook in this process: only a file that passed the pipeline's
+      // pre-flight (a bomb, a DTD, a lying ZIP fail it) is opened here (review M3, ADR-0066).
+      if (file.status !== 'ready') {
+        throw new ApiError('file_not_ready', { detail: 'This workbook can be previewed once it has been read.', meta: { fileErrorCode: file.errorCode } });
+      }
+      // A workbook the isolated parser could not read within its heap (or found nothing in) is
+      // `ready` with a `not_extracted` note: the preview would parse it here, in the API process,
+      // with no such limit (review R3#3). Offer the download instead.
+      if (file.warnings.some((w) => w.code === 'not_extracted')) {
+        throw new ApiError('preview_unsupported', { detail: 'This workbook could not be read here. Download it to open it in its own application.' });
+      }
       if (file.sizeBytes > PREVIEW_MAX_BYTES) {
         throw new ApiError('preview_unsupported', { detail: 'This workbook is too large to preview. Download it instead.' });
       }
@@ -601,9 +625,10 @@ async function claimFrom(
   request: ServicesRequest,
   id: string,
   from: string[],
-  extra: Partial<Pick<AttachmentRow, 'checksumSha256' | 'objectGeneration'>> = {},
+  extra: Partial<Pick<AttachmentRow, 'objectGeneration' | 'sizeBytes'>> = {},
+  tx?: FileTx,
 ): Promise<AttachmentRow | null> {
-  const [row] = await request.services.db
+  const [row] = await (tx ?? request.services.db)
     .update(attachments)
     .set({ status: 'queued', error: '', errorCode: '', warnings: [], ...extra })
     .where(and(eq(attachments.id, id), inArray(attachments.status, from)))
@@ -613,7 +638,7 @@ async function claimFrom(
 
 /** Runs `fn` with a path in a fresh temp directory, and removes the directory afterwards. */
 async function withLocalCopy<T>(fn: (localPath: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-upload-'));
+  const dir = await makeWorkDir('arcnave-upload-');
   try {
     return await fn(path.join(dir, 'file'));
   } finally {
@@ -677,14 +702,12 @@ async function toDtoWithMembers(request: ServicesRequest, row: AttachmentRow): P
   return toDto(row, members.map((m) => m.id), derived?.chars ?? 0);
 }
 
-const run = promisify(execFile);
-
 /** A stored PDF's page count by poppler, or null when it cannot be read. */
 async function pdfPageCount(storage: AppInstance['services']['storage'], key: string): Promise<number | null> {
   return withLocalCopy(async (localPath) => {
     try {
       await storage.downloadTo(key, localPath);
-      const { stdout } = await run('pdfinfo', [localPath], { timeout: 60_000, maxBuffer: 1024 * 1024 });
+      const { stdout } = await runTool('pdfinfo', [localPath], { timeout: 60_000, maxBuffer: 1024 * 1024 });
       const match = /^Pages:\s+(\d+)/m.exec(stdout);
       return match ? Number(match[1]) : null;
     } catch {

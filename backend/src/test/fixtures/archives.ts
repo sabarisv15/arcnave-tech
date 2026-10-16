@@ -29,6 +29,11 @@ export interface RawEntry {
   flags?: number;
   /** A Unix mode (e.g. 0o120777 for a symlink); written with "made by Unix". */
   unixMode?: number;
+  /**
+   * The member's raw-deflate body, already compressed (method 8): for a member whose real size
+   * is too large to hold in a test (a bomb). `data` then only feeds the CRC.
+   */
+  compressed?: Uint8Array;
 }
 
 /** A ZIP whose central directory says exactly what each entry asks it to, true or not. */
@@ -37,8 +42,8 @@ export function lyingZip(entries: RawEntry[]): Buffer {
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const e of entries) {
-    const method = e.method ?? 0;
-    const body = method === 8 ? deflateRawSync(e.data) : Buffer.from(e.data);
+    const method = e.compressed ? 8 : (e.method ?? 0);
+    const body = e.compressed ? Buffer.from(e.compressed) : method === 8 ? deflateRawSync(e.data) : Buffer.from(e.data);
     const name = Buffer.from(e.name, 'utf8');
     const size = e.declaredSize ?? e.data.length;
     const crc = crc32(e.data);

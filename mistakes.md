@@ -64,72 +64,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-16 — A failure *before* the stream opened left a row spinning forever
-
-- **Symptom:** With no model configured, the assistant message stayed `generating` after a page
-  reload. A spinner with nothing behind it.
-- **Cause:** The assistant row is created before streaming so a reload has something to show.
-  `GenerationService` marks it `error` on failure — but a failure raised *before* the service is
-  entered (no model available, budget exhausted) never reaches that code.
-- **Rule:** **Every early-exit path out of a streaming handler must close out the row it
-  already created.** If a handler writes a row before doing work, the `catch` owns that row.
-- **Verify:** Unset every `MODEL_*`, generate, reload — the message reads `error`, not a spinner.
-
-### 2026-09-17 — Test expectations asserted from memory instead of computation
-
-- **Symptom:** Two brand-new tests failed on first run — a DST boundary expected
-  `2026-03-06T05:00Z` when the correct instant was `2026-03-07T05:00Z`, and a chunk-overlap
-  assertion compared the wrong slice width. Both times the *implementation was right*.
-- **Cause:** The expected values were reasoned out in my head rather than derived. Timezone
-  arithmetic and off-by-one slice maths are exactly where that fails.
-- **Rule:** **Never hand-compute an expected value for date arithmetic or string slicing.**
-  Derive it (`node -e`, or express the property in terms of the inputs), then assert.
-  Corollary: **a failing new test is a suspect assertion until the implementation is read.**
-- **Verify:** `npx vitest run` — 63 passing.
-
-### 2026-09-17 — Tested against the concrete class, not the interface callers hold
-
-- **Symptom:** `npx vitest run` was green while `npx tsc --noEmit` failed: `put()` called with
-  three arguments, "expected 2".
-- **Cause:** The test declared `let storage: LocalObjectStorage`. That class's `put` legitimately
-  omits the `contentType` parameter it has nowhere to store; the `ObjectStorage` interface every
-  caller actually holds declares it.
-- **Rule:** **Type a test at the interface under contract, not at the implementation.** A test
-  bound to the concrete type verifies the wrong thing and misses interface drift.
-- **Verify:** `npx tsc --noEmit` is clean — tests are typechecked, not only executed.
-
-### 2026-09-17 — Invented an enum instead of reading the code that consumes it
-
-- **Symptom:** `PATCH /usage/limits` accepted `routingPreference: "fast"`, stored it, and echoed
-  it back. The router reads `'economy' | 'balanced' | 'quality'` and silently treats everything
-  else as `balanced`, so the setting did nothing.
-- **Cause:** I wrote the Zod enum from what the word ought to be rather than from
-  `normalizeTier()` in the generation service. Nothing failed — the value round-tripped
-  perfectly through the API and was discarded one layer below it.
-- **Rule:** **Never write a validator for a value you have not traced to its consumer.** An enum
-  at an API boundary is a promise the system acts on that value; grep for the reader first.
-- **Verify:** `src/routes/usage.integration.test.ts` requires `fast`, `cheap` and `best` to be
-  rejected and all three real tiers to be accepted.
-- **Note:** This is the same failure the project's own ADR-0002 exists to prevent — a label that
-  does not name what actually happens.
-
-### 2026-09-17 — A devDependency the production image asks for but does not have
-
-- **Symptom:** The backend container crash-looped with
-  `unable to determine transport target for "pino-pretty"`, exiting before it could log why.
-- **Cause:** `logger.ts` attached the `pino-pretty` transport whenever `NODE_ENV !==
-  production`. The image is built with `npm ci --omit=dev`, so the package is absent — and
-  `NODE_ENV=development` is a *supported* way to run that image, because a Secure cookie is
-  dropped over plain HTTP and the local path in `.env.example` therefore sets it. My own
-  documented instructions crashed the container.
-- **Rule:** **Never branch on `NODE_ENV` to decide whether a module is present.** Ask whether
-  it resolves. Environment is intent; installation is fact, and only one of them can be wrong.
-- **Verify:** `docker compose up` with `NODE_ENV=development` reaches `healthy`; logs fall back
-  to JSON instead of dying.
-- **Wider point:** this could only be found by *running* the image. The Dockerfile built, the
-  types checked, and 167 tests passed — none of which execute `dist/logger.js` under
-  `--omit=dev`. A build that succeeds is not a program that starts.
-
 ### 2026-09-17 — Reconciling with the server raced the server's own write
 
 - **Symptom:** Pressing stop mid-answer left the response spinning "Thinking…" forever, even
@@ -829,6 +763,72 @@ failure mode of this pattern, not a sign it is working.
   and without a BOM) and `src/routes/fileSafety.integration.test.ts` (no `/JavaScript`, `/Launch`
   or `app.alert` left in the stored bytes).
 
+### 2026-10-16 — Fastify accepted `trustProxy: 1` and then trusted no forwarded header at all
+
+- **Symptom:** The brief and the audit both said "set `trustProxy` to the hop count". Fastify
+  5.12.5 accepts `trustProxy: 1` without an error, and `request.ip` stays the proxy's address —
+  every anonymous caller behind Cloud Run would have shared one rate-limit bucket while the
+  setting looked fixed.
+- **Cause:** a security hardening in the installed version makes a numeric `trustProxy` "fail
+  closed" (`lib/request.js`); the `.d.ts` does not even list `number`. The advice described an
+  older version.
+- **Rule:** **Before setting a security option, read the installed library's implementation, not
+  its docs, the audit or the brief, and pin the behaviour with a test.** Here: a hop function
+  `(addr, hop) => hop < N`, never a number.
+- **Verify:** `npx vitest run src/plugins/security.test.ts` ("a plain number would trust nothing
+  in this Fastify version").
+
+### 2026-10-16 — An SDK default was read from a type comment, not from the code that consumes it
+
+- **Symptom:** `@google/genai`'s `HttpRetryOptions.attempts` says "If not specified, default to 5",
+  so the audit read the client as retrying by default. In the 2.22 runtime there is no retry at
+  all unless `retryOptions` is given — the comment describes the option object, not the client.
+- **Cause:** a `.d.ts` comment documents a field's default once the field's parent exists; it
+  says nothing about the client when the parent is absent.
+- **Rule:** **Never state what an SDK does by default from its types. Read the `dist/` code path
+  that consumes the option, and pin it with a stubbed-`fetch` test that counts requests.** Same
+  task: deleting a feature's last reader leaves its settings dead (`configUsage.test.ts` fails) —
+  delete the settings in the same change.
+- **Verify:** `npx vitest run src/providers/gemini.gateway.test.ts src/providers/anthropic.gateway.test.ts`
+  (one fetch with ours; three with `attempts: 3`).
+
+### 2026-10-16 — nginx dropped the security headers on the two paths that serve the app
+
+- **Symptom:** `nginx.conf` set nosniff / X-Frame-Options / Referrer-Policy at server level, yet
+  `/assets/*` and `/index.html` answered without them.
+- **Cause:** nginx does not inherit server-level `add_header` into a `location` that has any
+  `add_header` of its own; both blocks set `Cache-Control`.
+- **Rule:** **Never `add_header` inside a `location` in `nginx.conf`; route per-path values
+  through a `map` and keep every `add_header` at server level.**
+- **Verify:** `cd arcnave-frontend && npx vitest run src/securityHeaders.test.ts`;
+  `grep -n "add_header" arcnave-frontend/nginx.conf` shows server-level lines only.
+
+### 2026-10-16 — A security flag's effect was asserted before running the tool without it
+
+- **Symptom:** the real-ffmpeg test had a "control" that ran a hostile playlist without
+  `-protocol_whitelist` and expected the fetch to happen; it failed — ffmpeg 6.1 already limits a
+  local playlist to `file,crypto,data`. Separately, a flag list shared by ffmpeg and ffprobe broke
+  ffprobe, which rejects `-nostdin` ("Option not found").
+- **Cause:** both flags were added from their documentation, not from running the binaries.
+- **Rule:** **Before asserting what a security flag changes, run the tool without it and read
+  what it does; record when the default already protects. Never share a flag list between two
+  binaries without running each.**
+- **Verify:** `npx vitest run src/services/attachments/untrustedTools.test.ts` ("argument order";
+  "the whitelist stops a playlist from fetching a URL").
+
+### 2026-10-16 — Worktree-isolated subagents started from `main`, not from the phase branch
+
+- **Symptom:** three writer subagents launched with `isolation: "worktree"` got checkouts at
+  `main` (`baca408`) although the session was on `build/gateway-security`; without a reset their
+  work would have been built on a base missing two whole tasks.
+- **Cause:** the agent worktree is cut from the repository's default branch, not from the
+  calling session's `HEAD`.
+- **Rule:** **Every worktree brief names the exact base commit and tells the worker to
+  `git reset --hard <sha>` when its `git log -1` differs; main checks every worktree's head
+  before trusting its first commit.**
+- **Verify:** `for w in .claude/worktrees/*; do git -C $w log --oneline -1; done` shows the
+  phase commit for every worker.
+
 ## Convention and sources
 
 The structure above follows the `lessons.md` / `learnings.md` pattern the agentic-coding
@@ -852,6 +852,18 @@ These are community conventions rather than vendor documentation — treat the s
 practice, not canon.
 
 ## Changelog
+
+- **2026-10-16 (tech-build.3)** — Added five entries (trustProxy number, SDK default from types,
+  nginx `add_header`, security flag effect, worktree base). Retired the five oldest, by the
+  owner's rule for this task ("cap 40, prune oldest"): "A failure *before* the stream opened left
+  a row spinning forever" (still covered by `chats.integration.test.ts`, which asserts no row
+  stays `generating`), "Test expectations asserted from memory", "Tested against the concrete
+  class", "Invented an enum" (now the `CLAUDE.md` rule "Never write a validator for a value you
+  have not traced to its consumer") and "A devDependency the production image asks for" (no CI
+  check carries it: the image is built only by Cloud Build — keep `--omit=dev` in mind when adding
+  a runtime import). Not new headings: the code review found a regenerate bug in code
+  that Part C had moved verbatim — a characterization snapshot pins the bugs it captures too, so
+  review moved code for its behaviour, not only for its diff. And the first characterization run passed once and failed on the second: a message with ten files is read with no `ORDER BY`. Run a new snapshot test at least twice before committing it; a value it cannot reproduce is a finding (DEFERRED), not something to normalise away. **40 entries.**
 
 - **2026-10-15 (tech-build.2, files ingest)** — Added the sniff-order entry. Retired
   "`@google-cloud/storage` was never a declared dependency": it is declared and imported in the

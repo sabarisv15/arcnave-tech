@@ -5,8 +5,8 @@
  * See docs/backend-research.md section 1.
  */
 import { StreamedCallAssembler } from './streamedCall.js';
-import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
-import type { Content, FunctionDeclaration, Part, Blob as GeminiBlob } from '@google/genai';
+import { ApiError as GeminiApiError, FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
+import type { Content, FunctionDeclaration, GoogleGenAIOptions, Part, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
@@ -26,9 +26,8 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
-import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
-import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
-import { CLEARED_TOOL_RESULT, isSkillRead, resultsToClear, type ContextEditingPolicy } from './contextEditing.js';
+import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { attachmentText, pageLabel, unavailableAttachmentNote, xmlAttr } from './attachmentContent.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -74,7 +73,7 @@ function attachmentPart(a: NonNullable<GenerationRequest['attachments']>[number]
   // 2. Genuine text: extracted Office/PDF text, or a textual file's own bytes.
   const text = attachmentText(a);
   if (text !== null) {
-    const nameAttr = a.filename ? ` filename="${a.filename}"` : '';
+    const nameAttr = a.filename ? ` filename="${xmlAttr(a.filename)}"` : '';
     return { text: `<document${nameAttr}>\n${text}\n</document>` };
   }
 
@@ -101,39 +100,9 @@ export function toGeminiFunctionDeclaration(def: ToolDefinition): FunctionDeclar
  * Flattens a provider-neutral `ToolResult` into Gemini's `functionResponse` shape. A `json`
  * content block goes straight into `response.output`/`response.error`; a `text` block is passed
  * through as a string in the same slot — Gemini does not require the response value to be an
- * object shape beyond `Record<string, unknown>`'s outer wrapper.
+ * object shape beyond `Record<string, unknown>`'s outer wrapper. Every result goes back whole,
+ * however large the conversation: nothing is cleared before compaction (ADR-0023, ADR-0064).
  */
-/**
- * `contents` with the oldest function results cleared (providers/contextEditing.ts). The call
- * parts and their thought signatures are untouched; only the result is replaced.
- */
-export function clearOldFunctionResponses(contents: Content[], policy: ContextEditingPolicy): Content[] {
-  // A result names its call only by id; the call's arguments say whether it read a skill.
-  const kept = new Set<string>();
-  for (const c of contents) {
-    for (const p of c.parts ?? []) {
-      const call = p.functionCall;
-      if (call?.id && policy.keepResultOf(call.name ?? '', (call.args ?? {}) as Record<string, unknown>)) kept.add(call.id);
-    }
-  }
-  const clearable = (p: Part) => Boolean(p.functionResponse) && !kept.has(p.functionResponse!.id ?? '');
-  const total = contents.reduce((n, c) => n + (c.parts ?? []).filter(clearable).length, 0);
-  let remaining = resultsToClear(total, policy);
-  if (remaining === 0) return contents;
-  return contents.map((c) => {
-    if (remaining === 0 || !(c.parts ?? []).some(clearable)) return c;
-    return {
-      ...c,
-      parts: (c.parts ?? []).map((p) => {
-        if (remaining === 0 || !clearable(p)) return p;
-        remaining -= 1;
-        const { id, name } = p.functionResponse!;
-        return { functionResponse: { ...(id ? { id } : {}), name, response: { output: CLEARED_TOOL_RESULT } } };
-      }),
-    };
-  });
-}
-
 export function toGeminiFunctionResponsePart(name: string, id: string, result: ToolResult): Part {
   const block = primaryToolContent(result);
   const value = block === undefined ? '' : block.type === 'json' ? block.data : block.text;
@@ -233,11 +202,147 @@ function isNotFound(err: unknown): boolean {
   return text.includes('not found') && (text.includes('publisher model') || text.includes('404'));
 }
 
-function isRetryable(err: unknown): boolean {
-  const text = String(err).toLowerCase();
-  return ['429', 'resource_exhausted', 'unavailable', '503', '500', 'deadline'].some((m) =>
-    text.includes(m),
+/**
+ * Stage 15 ER-2e: transient by HTTP status. 529 (in the matrix) is not a status Vertex sends,
+ * so it is not listed here. An ordinary 429 is transient; a quota-0 429 is not (below).
+ */
+const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
+
+/** The HTTP status `@google/genai`'s `ApiError` carries (`status`, from the response or a stream error chunk). */
+function statusOf(err: unknown): number | undefined {
+  if (err instanceof GeminiApiError) return err.status;
+  if (typeof err === 'object' && err !== null && typeof (err as { status?: unknown }).status === 'number') {
+    return (err as { status: number }).status;
+  }
+  return undefined;
+}
+
+interface GoogleRpcError {
+  code?: number;
+  message?: string;
+  status?: string;
+  details?: Array<Record<string, unknown>>;
+}
+
+/**
+ * The `google.rpc.Status` body inside the SDK's error message. A failed response's message is
+ * `JSON.stringify(body)`; an error inside a stream is `got status: X. ${JSON.stringify(chunk)}`
+ * (`@google/genai` 2.22 `throwErrorIfNotOK` and the SSE reader). Undefined when it is neither.
+ */
+function googleRpcError(err: unknown): GoogleRpcError | undefined {
+  const message = err instanceof Error ? err.message : '';
+  const start = message.indexOf('{');
+  if (start < 0) return undefined;
+  try {
+    const parsed = JSON.parse(message.slice(start)) as { error?: GoogleRpcError };
+    return typeof parsed.error === 'object' && parsed.error !== null ? parsed.error : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function detailsOfType(body: GoogleRpcError, type: string): Array<Record<string, unknown>> {
+  return (body.details ?? []).filter((d) => typeof d['@type'] === 'string' && (d['@type'] as string).endsWith(`/google.rpc.${type}`));
+}
+
+/**
+ * A 429 whose quota is zero: the project has no allowance for this model at all, so waiting
+ * cannot help (Stage 15 ER-2g: a configuration error, no retry loop). Google says so two ways:
+ * a `QuotaFailure` violation whose `quotaValue` is 0, and the message's "limit: 0". proto3 JSON
+ * leaves a zero `quota_value` out of the body (default values are not written), so the message
+ * is the signal that survives; both are read.
+ */
+export function isQuotaZero(body: GoogleRpcError | undefined): boolean {
+  if (!body) return false;
+  const zeroViolation = detailsOfType(body, 'QuotaFailure').some((d) =>
+    Array.isArray(d.violations) &&
+    (d.violations as Array<Record<string, unknown>>).some((v) => v.quotaValue === '0' || v.quotaValue === 0),
   );
+  return zeroViolation || /\blimit:\s*0(?!\d)/.test(body.message ?? '');
+}
+
+/** `RetryInfo.retryDelay` ("55s", "1.5s") in ms: Gemini's Retry-After (ER-2d honours ≤ N-42). */
+function retryDelayOf(body: GoogleRpcError | undefined): number | undefined {
+  if (!body) return undefined;
+  for (const d of detailsOfType(body, 'RetryInfo')) {
+    const match = typeof d.retryDelay === 'string' ? /^(\d+(?:\.\d+)?)s$/.exec(d.retryDelay) : null;
+    if (match) return Math.round(Number(match[1]) * 1000);
+  }
+  return undefined;
+}
+
+/** A failure before any HTTP status: the connection dropped or never opened (ER-2e "connection"). */
+function isConnectionError(err: unknown): boolean {
+  if (err instanceof TypeError && err.message === 'fetch failed') return true; // undici
+  const code = (err as { cause?: { code?: unknown }; code?: unknown } | null)?.cause?.code ?? (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|UND_ERR_)/.test(code);
+}
+
+/**
+ * The typed error a failed Gemini call becomes, classified by status per the Stage 15 matrix
+ * (ER-2e/f/g): 408/409/429/5xx and a lost connection are transient; a quota-0 429 is the
+ * configuration error `provider_quota_unavailable`; 401/403 are `model_unavailable`; any other
+ * status (400, 404 that is not the model, 413…) is not retried. The text stays in the message
+ * for the overflow and payload checks downstream.
+ */
+export function classifyGeminiError(err: unknown, modelId: string, location: string): ProviderError {
+  if (isNotFound(err)) return new ModelNotFoundError(modelId, location);
+  const status = statusOf(err);
+  const body = googleRpcError(err);
+  if (status === 429 && isQuotaZero(body)) {
+    return new ProviderError(`Gemini has no quota for this model (limit 0): ${String(err)}`, {
+      code: 'provider_quota_unavailable',
+      retryable: false,
+      statusCode: status,
+    });
+  }
+  if (status === 401 || status === 403) {
+    return new ProviderError(`Gemini rejected the credentials or permissions: ${String(err)}`, {
+      code: 'model_unavailable',
+      retryable: false,
+      statusCode: status,
+    });
+  }
+  const after = status === undefined ? undefined : retryDelayOf(body);
+  return new ProviderError(`Gemini request failed: ${String(err)}`, {
+    retryable: status !== undefined ? RETRYABLE_STATUS.has(status) : isConnectionError(err),
+    ...(status !== undefined ? { statusCode: status } : {}),
+    ...(after !== undefined ? { retryAfterMs: after } : {}),
+  });
+}
+
+/**
+ * The options every Gemini client is built with. The SDK retries only when `retryOptions` is
+ * given (2.22 `apiCall`: no options, one fetch), and a request's own `httpOptions` are merged
+ * over these, so `attempts: 1` here holds for every call; it is set rather than left to the
+ * default so a later SDK default cannot add hidden attempts (Stage 15 ER-1b, Stage 20 VS-29b).
+ */
+export const GEMINI_HTTP_OPTIONS = { retryOptions: { attempts: 1 } } as const;
+
+/** The one place the Vertex Gemini client is built: SDK retries off; the app gateway retries (ER-1b). */
+export function createGeminiClient(cfg: Config): GoogleGenAI {
+  if (!cfg.GOOGLE_CLOUD_PROJECT) {
+    throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });
+  }
+  const options: GoogleGenAIOptions = {
+    vertexai: true,
+    project: cfg.GOOGLE_CLOUD_PROJECT,
+    location: cfg.geminiLocation,
+    httpOptions: { retryOptions: { ...GEMINI_HTTP_OPTIONS.retryOptions } },
+  };
+  return new GoogleGenAI(options);
+}
+
+/**
+ * A media reading that did not end in a natural stop (MAX_TOKENS, SAFETY, …) may be cut short
+ * (D2 X-7, Stage 9 OCR-M11 finish-reason check). Such a text is marked, never passed off as whole.
+ */
+export function mediaReadingComplete(finishReason: string): boolean {
+  return finishReason === 'STOP';
+}
+
+function incompleteMediaNote(finishReason: string): string {
+  return `\n\n[Incomplete: the reading stopped early (finish reason ${finishReason}), so the text above may be cut off.]`;
 }
 
 interface GeminiUsageMetadata {
@@ -326,18 +431,24 @@ export class GeminiProvider implements Provider {
           },
         ],
         config: {
+          // An explicit cap (D2 X-7), so a cut reading ends with MAX_TOKENS and is marked below.
+          maxOutputTokens: this.cfg.MEDIA_MAX_OUTPUT_TOKENS,
           abortSignal: signal,
           httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS },
         },
       });
-      return response.text ?? '';
+      const text = response.text ?? '';
+      const finishReason = String(response.candidates?.[0]?.finishReason ?? 'FINISH_REASON_UNSPECIFIED');
+      return mediaReadingComplete(finishReason) ? text : `${text}${incompleteMediaNote(finishReason)}`;
     } catch (err) {
       if (isAbort(err) || signal.aborted) throw err;
-      if (isNotFound(err)) {
-        throw new ModelNotFoundError(this.cfg.MODEL_GEMINI_FLASH, this.cfg.geminiLocation);
-      }
-      throw new ProviderError(`Gemini media description failed: ${String(err)}`, {
-        retryable: isRetryable(err),
+      const classified = classifyGeminiError(err, this.cfg.MODEL_GEMINI_FLASH, this.cfg.geminiLocation);
+      if (classified instanceof ModelNotFoundError) throw classified;
+      // The SDK's message can quote the request; only the kind of failure is kept.
+      throw new ProviderError('Gemini media description failed', {
+        retryable: classified.retryable,
+        code: classified.code,
+        ...(classified.statusCode !== undefined ? { statusCode: classified.statusCode } : {}),
       });
     }
   }
@@ -359,18 +470,30 @@ export class GeminiProvider implements Provider {
             ],
           },
         ],
-        config: { abortSignal: signal, httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS } },
+        config: {
+          // An explicit cap (D2 X-7), so a cut reading ends with MAX_TOKENS and says so.
+          maxOutputTokens: this.cfg.MEDIA_MAX_OUTPUT_TOKENS,
+          abortSignal: signal,
+          httpOptions: { timeout: this.cfg.PROVIDER_TIMEOUT_MS },
+        },
       });
+      const finishReason = String(response.candidates?.[0]?.finishReason ?? 'FINISH_REASON_UNSPECIFIED');
       return {
         text: response.text ?? '',
-        finishReason: String(response.candidates?.[0]?.finishReason ?? 'FINISH_REASON_UNSPECIFIED'),
+        finishReason,
         model: response.modelVersion ?? model,
+        truncated: !mediaReadingComplete(finishReason),
       };
     } catch (err) {
       if (isAbort(err) || signal.aborted) throw err;
-      if (isNotFound(err)) throw new ModelNotFoundError(model, this.cfg.geminiLocation);
+      const classified = classifyGeminiError(err, model, this.cfg.geminiLocation);
+      if (classified instanceof ModelNotFoundError) throw classified;
       // The SDK's message can quote the request; only the kind of failure is kept.
-      throw new ProviderError('Gemini media reading failed', { retryable: isRetryable(err) });
+      throw new ProviderError('Gemini media reading failed', {
+        retryable: classified.retryable,
+        code: classified.code,
+        ...(classified.statusCode !== undefined ? { statusCode: classified.statusCode } : {}),
+      });
     }
   }
 
@@ -390,16 +513,7 @@ export class GeminiProvider implements Provider {
   /** Lazy: the app must boot without credentials so unconfigured aliases report cleanly. */
   private getClient(): Pick<GoogleGenAI, 'models'> {
     if (this.injectedClient) return this.injectedClient;
-    if (!this.client) {
-      if (!this.cfg.GOOGLE_CLOUD_PROJECT) {
-        throw new ProviderError('GOOGLE_CLOUD_PROJECT is not set', { code: 'model_unavailable' });
-      }
-      this.client = new GoogleGenAI({
-        vertexai: true,
-        project: this.cfg.GOOGLE_CLOUD_PROJECT,
-        location: this.cfg.geminiLocation,
-      });
-    }
+    this.client ??= createGeminiClient(this.cfg);
     return this.client;
   }
 
@@ -426,15 +540,11 @@ export class GeminiProvider implements Provider {
     let finishReason = 'stop';
     let lastMetadata: GeminiGroundingMetadata | undefined;
     const accumulated: string[] = [];
+    // Every earlier tool result goes in whole, whatever the size of the previous request: only
+    // compaction shortens a conversation (ADR-0023, reinstated for Gemini by ADR-0064).
     let contents = buildGeminiContents(request);
-    const editing: ContextEditingPolicy = {
-      triggerTokens: this.cfg.CONTEXT_EDIT_TRIGGER_TOKENS,
-      keep: this.cfg.CONTEXT_EDIT_KEEP_TOOL_RESULTS,
-      batch: this.cfg.CONTEXT_EDIT_CLEAR_BATCH,
-      keepResultOf: isSkillRead,
-    };
-    // The exact prompt size of the latest request, which decides whether the next is edited.
-    let lastPromptTokens = request.previousContextTokens ?? 0;
+    // A call that failed with this exact input is not run again this turn (D2 X-10).
+    const failedToolCalls = new Set<string>();
     const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
 
     try {
@@ -453,7 +563,6 @@ export class GeminiProvider implements Provider {
         const systemInstruction = finalToolRound
           ? `${request.systemInstruction ? `${request.systemInstruction}\n\n` : ''}${FINAL_ROUND_NOTE}`
           : request.systemInstruction;
-        if (lastPromptTokens >= editing.triggerTokens) contents = clearOldFunctionResponses(contents, editing);
         // Arguments stream while written only when a call can show them (a show_widget visual)
         // and the model takes the option; everything else is unchanged (ADR-0037).
         const streamArgs =
@@ -569,7 +678,6 @@ export class GeminiProvider implements Provider {
           }
         }
         usage = addRequestUsage(usage, roundUsage);
-        if (roundUsage.lastRequest) lastPromptTokens = roundUsage.lastRequest.inputTokens;
         assembler.close();
         const roundCalls = assembler.calls;
 
@@ -607,7 +715,12 @@ export class GeminiProvider implements Provider {
             input: call.input,
             ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}),
           };
-          const result = await request.toolExecutor!.execute(call, request.signal);
+          const fingerprint = callFingerprint(call.name, call.input);
+          const repeatOfFailure = failedToolCalls.has(fingerprint);
+          const result = repeatOfFailure
+            ? duplicateFailedCallResult(call.id, call.name)
+            : await request.toolExecutor!.execute(call, request.signal);
+          if (!result.ok) failedToolCalls.add(fingerprint);
           yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
           responseParts.push(toGeminiFunctionResponsePart(call.name, call.id, result));
         }
@@ -629,12 +742,7 @@ export class GeminiProvider implements Provider {
           code: 'provider_timeout',
         });
       }
-      if (isNotFound(err)) {
-        throw new ModelNotFoundError(request.providerModelId, this.cfg.geminiLocation);
-      }
-      throw new ProviderError(`Gemini request failed: ${String(err)}`, {
-        retryable: isRetryable(err),
-      });
+      throw classifyGeminiError(err, request.providerModelId, this.cfg.geminiLocation);
     }
 
     if (grounded && !request.signal.aborted) {
@@ -693,9 +801,8 @@ export class GeminiProvider implements Provider {
         },
       });
     } catch (err) {
-      log.debug({ err, providerModelId }, 'gemini probe failed');
-      if (isNotFound(err)) throw new ModelNotFoundError(providerModelId, this.cfg.geminiLocation);
-      throw new ProviderError(String(err), { retryable: isRetryable(err) });
+      log.debug({ status: statusOf(err), providerModelId }, 'gemini probe failed');
+      throw classifyGeminiError(err, providerModelId, this.cfg.geminiLocation);
     }
   }
 }

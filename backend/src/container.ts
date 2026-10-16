@@ -171,6 +171,11 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
       if (!cfg.GOOGLE_CLOUD_PROJECT) {
         log.warn('Cloud Run sandbox requested but GOOGLE_CLOUD_PROJECT is unset; failing closed (run_python disabled).');
       } else {
+        // The signing account used to be a code default (PH-4, ADR-0065); without it staged files
+        // get no signed URLs, so say so at start-up rather than let outputs vanish quietly.
+        if (cfg.SANDBOX_STAGE_BUCKET && !cfg.SANDBOX_SIGNING_SA) {
+          log.error('SANDBOX_STAGE_BUCKET is set but SANDBOX_SIGNING_SA is unset; staged sandbox files get no signed URLs.');
+        }
         rawSandboxClient = CloudRunSandboxClient.withAdc(
           cfg.GOOGLE_CLOUD_PROJECT,
           cfg.SANDBOX_LOCATION,
@@ -182,6 +187,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
             maxStdoutBytes: cfg.MAX_STDOUT_BYTES,
             maxStderrBytes: cfg.MAX_STDERR_BYTES,
             stagingBucket: cfg.SANDBOX_STAGE_BUCKET,
+            signingSaEmail: cfg.SANDBOX_SIGNING_SA,
           },
         );
       }

@@ -19,7 +19,7 @@ import type {
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
-import { hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
+import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
@@ -591,20 +591,11 @@ export class AnthropicProvider implements Provider {
           // An abort stops the remaining calls; the next round's signal check ends the turn.
           if (request.signal.aborted) break;
           const call = { id: primary.id, name: primary.name, input: primary.input };
-          const callFingerprint = `${call.name}:${JSON.stringify(call.input)}`;
-          
-          if (failedToolCalls.has(callFingerprint)) {
+          const fingerprint = callFingerprint(call.name, call.input);
+
+          if (failedToolCalls.has(fingerprint)) {
             // Duplicate failed call detected: do not repeat execution, return guard instruction
-            const guardResult: ToolResult = {
-              toolCallId: call.id,
-              ok: false,
-              content: [
-                {
-                  type: 'text',
-                  text: `This tool (${call.name}) previously failed with these exact inputs. Do not retry it. Deliver your synthesized answer directly in text to the user.`,
-                },
-              ],
-            };
+            const guardResult = duplicateFailedCallResult(call.id, call.name);
             yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
             yield { type: 'tool_result', toolCallId: call.id, name: call.name, result: guardResult };
             resultBlocks.push(toAnthropicToolResultBlock(call.id, guardResult));
@@ -612,7 +603,7 @@ export class AnthropicProvider implements Provider {
             yield { type: 'tool_use', toolCallId: call.id, name: call.name, input: call.input };
             const result = await request.toolExecutor!.execute(call, request.signal);
             if (!result.ok) {
-              failedToolCalls.add(callFingerprint);
+              failedToolCalls.add(fingerprint);
             }
             yield { type: 'tool_result', toolCallId: call.id, name: call.name, result };
             resultBlocks.push(toAnthropicToolResultBlock(call.id, result));

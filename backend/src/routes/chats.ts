@@ -30,13 +30,11 @@ import {
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { AUTO_ALIAS } from '../providers/registry.js';
-import type { AttachmentRef } from '../providers/types.js';
 import type { DbLike } from '../db/client.js';
 import { versionsAt, type MessageVersions } from '../services/chatVersions.js';
-import { toAttachmentRef } from '../services/attachments/attachmentRef.js';
-import { FILE_LIMITS } from '../services/attachments/pipeline.js';
 import { NUMBERS } from '../config/numbers.js';
 import type { Run } from '../services/runHub.js';
+import { loadChat, loadTurnAttachments, markTurnFailed, startTurn } from '../services/turn/turnStart.js';
 import type { AppInstance } from '../types.js';
 import {
   assertVersion,
@@ -566,15 +564,11 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       const { db, generation, activeRuns, runHub } = request.services;
       const chat = await loadChat(request, request.params.id);
 
-      if (activeRuns.has(chat.id)) throw new ApiError('run_in_progress');
-
       const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution, effort, styleId } =
         request.body;
 
-      // --- create or reuse the assistant row ----------------------------
-      const assistantMessageId = retryMessageId
-        ? await resetForRetry(request, chat.id, retryMessageId)
-        : await appendTurn(request, chat.id, user.id, prompt, mode, attachmentIds);
+      // --- one run per chat; create or reuse the assistant row (turn service, ADR-0067) ---
+      const assistantMessageId = await startTurn(request, chat.id, user.id, { prompt, mode, attachmentIds, retryMessageId });
 
       // --- the run lives on its own; this connection is only its first subscriber ------
       // Closing the socket does not stop the run (a sleeping tab or a dropped mobile network
@@ -585,29 +579,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
 
       void (async () => {
         try {
-          // --- gather attachments: metadata + storage references for native and text paths ---
-          let turnAttachments: AttachmentRef[] = [];
-          if (attachmentIds.length > 0) {
-            const rows = await db
-              .select({
-                id: attachmentsTable.id,
-                filename: attachmentsTable.filename,
-                mimeType: attachmentsTable.mimeType,
-                sizeBytes: attachmentsTable.sizeBytes,
-                storageKey: attachmentsTable.storageKey,
-                extractedText: attachmentsTable.extractedText,
-              })
-              .from(attachmentsTable)
-              .where(
-                and(
-                  inArray(attachmentsTable.id, attachmentIds),
-                  eq(attachmentsTable.userId, user.id),
-                ),
-              );
-
-            // Pass metadata + storage references; bytes are fetched on-demand by the provider adapter
-            turnAttachments = rows.map(toAttachmentRef);
-          }
+          const turnAttachments = await loadTurnAttachments(db, user.id, attachmentIds);
           for await (const event of generation.run({
             userId: user.id,
             requestId: request.id,
@@ -638,19 +610,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             request.log.error({ err }, 'generation failed');
           }
 
-          // Failures raised before the stream opens (no model available, budget exhausted)
-          // never reach the generation service's own persistence, so the assistant row would
-          // stay 'generating' forever and show as a spinner after a reload.
-          await db
-            .update(messages)
-            .set({
-              status: 'error',
-              errorCode: body.code,
-              researchStage: mode === 'chat' ? null : 'error',
-              completedAt: new Date(),
-            })
-            .where(and(eq(messages.id, assistantMessageId), eq(messages.status, 'generating')))
-            .catch((dbErr: unknown) => request.log.error({ err: dbErr }, 'failed to mark run as errored'));
+          await markTurnFailed(db, assistantMessageId, mode, body.code, request.log);
 
           run.publish({ type: 'error', ...body });
         } finally {
@@ -867,21 +827,6 @@ function toChatDto(row: ChatRow): {
   };
 }
 
-async function loadChat(
-  request: { services: AppInstance['services']; user: { id: string } | null },
-  id: string,
-): Promise<ChatRow> {
-  const user = request.user;
-  if (!user) throw new ApiError('unauthorized');
-  const [row] = await request.services.db
-    .select()
-    .from(chats)
-    .where(and(eq(chats.id, id), eq(chats.userId, user.id), isNull(chats.deletedAt)))
-    .limit(1);
-  if (!row) throw notFound('conversation');
-  return row;
-}
-
 async function assertProject(
   request: { services: AppInstance['services']; user: { id: string } | null },
   projectId: string,
@@ -1080,161 +1025,4 @@ async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, user
   if (events.length) await tx.insert(researchEvents).values(events.map(fresh));
   if (calls.length) await tx.insert(toolCallsTable).values(calls.map(fresh));
   if (files.length) await tx.insert(attachmentsTable).values(files.map(fresh));
-}
-
-/** Append the user turn plus an empty assistant row, returning the assistant message id. */
-async function appendTurn(
-  request: { services: AppInstance['services'] },
-  chatId: string,
-  userId: string,
-  prompt: string,
-  mode: string,
-  attachmentIds: string[],
-): Promise<string> {
-  const { db } = request.services;
-
-  return db.transaction(async (tx) => {
-    let claimable = 0;
-    if (attachmentIds.length > 0) {
-      // Serialises turns on this chat, so two sends cannot both fit under the file limit.
-      await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, chatId)).for('update');
-      const incoming = await tx
-        .select({ id: attachmentsTable.id, status: attachmentsTable.status, messageId: attachmentsTable.messageId })
-        .from(attachmentsTable)
-        .where(and(inArray(attachmentsTable.id, attachmentIds), eq(attachmentsTable.userId, userId)));
-      // A file already in a sent message stays there: claiming it again would move it out of
-      // that message, and the transcript would claim context it no longer has (D1 #18).
-      const claimed = incoming.filter((a) => a.messageId !== null);
-      if (claimed.length > 0) {
-        throw new ApiError('file_already_attached', { meta: { fileIds: claimed.map((a) => a.id) } });
-      }
-      // Only a ready file is sent (AS-D6 + owner default for OQ-12): one still being read
-      // blocks Send, and so does one that failed until it is retried or removed.
-      const notReady = incoming.filter((a) => a.status !== 'ready');
-      if (notReady.length > 0) {
-        const failed = notReady.some((a) => a.status === 'failed' || a.status === 'unsupported');
-        throw new ApiError('file_not_ready', {
-          detail: failed
-            ? 'A file could not be read. Retry it or remove it, then send.'
-            : 'A file is still being read. Wait for it to finish, then send.',
-          meta: { files: notReady.map((a) => ({ id: a.id, status: a.status })) },
-        });
-      }
-      const fresh = incoming.length;
-      claimable = incoming.length;
-      const [held] = await tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(attachmentsTable)
-        .innerJoin(messages, eq(messages.id, attachmentsTable.messageId))
-        .where(eq(messages.chatId, chatId));
-      if ((held?.n ?? 0) + fresh > FILE_LIMITS.maxFilesPerChat) {
-        throw new ApiError('too_many_files', {
-          detail:
-            `This chat already has ${String(held?.n ?? 0)} files, and a chat can hold at most ` +
-            `${String(FILE_LIMITS.maxFilesPerChat)}. Start a new chat to add more.`,
-        });
-      }
-    }
-
-    // An aggregate without GROUP BY always yields exactly one row, but the driver types it
-    // as possibly-empty, so the fallback keeps the sequence correct rather than asserting.
-    const seqRows = await tx
-      .select({ next: sql<number>`coalesce(max(${messages.seq}), -1) + 1` })
-      .from(messages)
-      .where(eq(messages.chatId, chatId));
-    const next = seqRows[0]?.next ?? 0;
-
-    const [userMessage] = await tx
-      .insert(messages)
-      .values({
-        chatId,
-        userId,
-        seq: next,
-        role: 'user',
-        text: prompt,
-        mode,
-        status: 'complete',
-        completedAt: new Date(),
-      })
-      .returning({ id: messages.id });
-
-    const [assistant] = await tx
-      .insert(messages)
-      .values({
-        chatId,
-        userId,
-        seq: next + 1,
-        role: 'assistant',
-        text: '',
-        mode,
-        status: 'generating',
-      })
-      .returning({ id: messages.id });
-
-    if (attachmentIds.length > 0) {
-      // `message_id IS NULL` makes the claim itself the guard: the row lock above serialises
-      // sends on this chat, not two chats claiming one file. A row claimed meanwhile is not
-      // moved, and the send fails instead of silently dropping the file.
-      const moved = await tx
-        .update(attachmentsTable)
-        .set({ messageId: userMessage!.id })
-        .where(
-          and(
-            inArray(attachmentsTable.id, attachmentIds),
-            eq(attachmentsTable.userId, userId),
-            isNull(attachmentsTable.messageId),
-          ),
-        )
-        .returning({ id: attachmentsTable.id });
-      if (moved.length !== claimable) throw new ApiError('file_already_attached');
-    }
-
-    // First real message names the chat, so the sidebar stops saying "New conversation".
-    if (next === 0) {
-      await tx
-        .update(chats)
-        .set({ title: prompt.slice(0, 80), updatedAt: new Date() })
-        .where(eq(chats.id, chatId));
-    }
-
-    return assistant!.id;
-  });
-}
-
-/** Clear a previous attempt so a retry does not append duplicate sources or events. */
-async function resetForRetry(
-  request: { services: AppInstance['services'] },
-  chatId: string,
-  messageId: string,
-): Promise<string> {
-  const { db } = request.services;
-  const [existing] = await db
-    .select({ id: messages.id, role: messages.role })
-    .from(messages)
-    .where(and(eq(messages.id, messageId), eq(messages.chatId, chatId)))
-    .limit(1);
-  if (!existing) throw notFound('message');
-  if (existing.role !== 'assistant') {
-    throw new ApiError('validation_error', { detail: 'Only an assistant message can be retried.' });
-  }
-
-  await db.delete(messageSources).where(eq(messageSources.messageId, messageId));
-  await db.delete(researchEvents).where(eq(researchEvents.messageId, messageId));
-  await db
-    .update(messages)
-    .set({
-      text: '',
-      status: 'generating',
-      errorCode: null,
-      researchStage: null,
-      questions: [],
-      finishReason: null,
-      searchEntryPoint: null,
-      thinking: null,
-      segments: null,
-      completedAt: null,
-    })
-    .where(eq(messages.id, messageId));
-
-  return messageId;
 }

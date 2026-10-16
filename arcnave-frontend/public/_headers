@@ -1,3 +1,19 @@
-# Shared snapshots must not be indexed (ADR-0039). Cloudflare applies these to static-asset responses.
+# Response headers for the static site. Cloudflare applies these to static-asset responses; the
+# same set is in nginx.conf for the docker compose stack (src/securityHeaders.test.ts keeps the
+# two equal). Stage 16 SE10, PH-2, ADR-0065.
+#
+# The CSP is Content-Security-Policy-Report-Only: the browser reports what it would block (in the
+# DevTools console, as "[Report Only]") and blocks nothing. It becomes an enforced policy only
+# after the live checklist shows no unexpected report. The sha256 is the inline script that
+# scripts/prerender.mjs adds to the pre-rendered public pages.
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), geolocation=(), payment=(), usb=(), microphone=(self)
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'sha256-ywfA1xrSSFueav2Lu0GF0mgfijAZm+LUWb2wex4spZo=' https://accounts.google.com/gsi/client https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.run.app https://storage.googleapis.com https://accounts.google.com/gsi/; frame-src 'self' blob: https://accounts.google.com/gsi/; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+# Shared snapshots must not be indexed (ADR-0039).
 /s/*
   X-Robots-Tag: noindex, nofollow

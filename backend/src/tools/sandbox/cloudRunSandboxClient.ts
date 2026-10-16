@@ -209,10 +209,8 @@ export class CloudRunSandboxClient implements SandboxClient {
     const auth = new GoogleAuth({ scopes: [SCOPE] });
     const storageClient =
       opts.storageClient ?? (opts.stagingBucket ? new GcsStorage({ projectId: project }) : undefined);
-    const signingSaEmail =
-      opts.signingSaEmail ??
-      process.env.SANDBOX_SIGNING_SA ??
-      'sandbox-invoker@project-8bcf740a-a7bd-4aea-974.iam.gserviceaccount.com';
+    // No identifier default in code (PH-4, ADR-0065): unset, staged files get no signed URLs.
+    const signingSaEmail = opts.signingSaEmail ?? process.env.SANDBOX_SIGNING_SA;
     return new CloudRunSandboxClient({
       project,
       location,

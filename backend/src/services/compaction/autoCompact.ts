@@ -23,6 +23,7 @@ import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
 import { attachments, conversationCompactions, messages, toolCalls, usageRecords } from '../../db/schema.js';
 import { EMPTY_USAGE, toolCallAsText, type Provider, type ProviderUsage, type ToolContent, type Turn } from '../../providers/types.js';
+import { filenameInText } from '../../providers/attachmentContent.js';
 
 /** The summarization prompt (ADR-0019). */
 export const SUMMARY_PROMPT =
@@ -167,7 +168,7 @@ export async function compact(
   const filesOf = new Map<string, string[]>();
   for (const f of files) {
     if (!f.messageId) continue;
-    filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ?? f.id} (fileId ${f.id})`]);
+    filesOf.set(f.messageId, [...(filesOf.get(f.messageId) ?? []), `${f.filename ? filenameInText(f.filename) : f.id} (fileId ${f.id})`]);
   }
 
   // What the older turns ran and found goes into the summary too, whole: the whole

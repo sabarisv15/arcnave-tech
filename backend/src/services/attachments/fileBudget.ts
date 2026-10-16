@@ -21,6 +21,7 @@ import { derivativeChunks, fileDerivativePages, fileDerivatives } from '../../db
 import type { AttachmentBlock, Turn } from '../../providers/types.js';
 import { rankBm25, tokenize } from '../retrieval.js';
 import { fitsWhole, type ModelFamily } from './derivatives.js';
+import { filenameInText } from '../../providers/attachmentContent.js';
 
 type DerivativeRow = typeof fileDerivatives.$inferSelect;
 
@@ -93,7 +94,7 @@ async function excerptsFor(db: Database, d: DerivativeRow, filename: string, pro
   const picked = (ranked.length ? ranked.map((r) => chunks.find((c) => c.id === r.chunkId)!) : chunks.slice(0, EXCERPTS)).sort((a, b) => a.ordinal - b.ordinal);
   const body = picked.map((c) => `--- ${c.locator || `part ${String(c.ordinal + 1)}`} ---\n${c.text}`).join('\n\n');
   return (
-    `[Excerpts of "${filename}" selected for this question: ${String(picked.length)} of ${String(chunks.length)} parts. ` +
+    `[Excerpts of "${filenameInText(filename)}" selected for this question: ${String(picked.length)} of ${String(chunks.length)} parts. ` +
     'The file is too large to send whole; code can open the whole file.]\n\n' +
     body
   );

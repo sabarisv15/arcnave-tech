@@ -16,8 +16,7 @@
  * holds a whole archive in Buffers is bounded by the file's N-10 size instead.
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { open, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,8 +26,9 @@ import { ExtractionUnsupported } from '../retrieval.js';
 import type { DerivedBody, NormalisedImage, PdfInspection } from './derive.js';
 import type { ChildRequest, ChildResult } from './extractChild.js';
 import { FileFailure, fileErrorText, type FileErrorCode } from './fileErrors.js';
-import { preflightContainer } from './preflight.js';
+import { preflightContainer, type PreflightOptions } from './preflight.js';
 import { fileSource } from './zipReader.js';
+import { fileTmpDir, makeWorkDir } from './workDir.js';
 
 /** The limits one child runs under, from config. */
 export interface IsolationLimits {
@@ -36,6 +36,8 @@ export interface IsolationLimits {
   timeoutMs: number;
   concurrency: number;
   maxRatio: number;
+  /** Wall clock of the ZIP pre-flight's streaming pass (ZIP_PREFLIGHT_TIMEOUT_MS, ours). */
+  preflightMs?: number;
 }
 
 export function isolationLimits(cfg: Config): IsolationLimits {
@@ -45,6 +47,7 @@ export function isolationLimits(cfg: Config): IsolationLimits {
     timeoutMs: cfg.EXTRACTION_TIMEOUT_MS,
     concurrency,
     maxRatio: cfg.ZIP_MAX_RATIO,
+    preflightMs: cfg.ZIP_PREFLIGHT_TIMEOUT_MS,
   };
 }
 
@@ -90,7 +93,7 @@ export async function runChild(
   limits: IsolationLimits,
 ): Promise<ChildResult> {
   return slot(limits.concurrency, async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-extract-'));
+    const dir = await makeWorkDir('arcnave-extract-');
     try {
       const reqPath = path.join(dir, 'request.json');
       const out = path.join(dir, 'result.json');
@@ -99,8 +102,9 @@ export async function runChild(
       const outcome = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr: string; timedOut: boolean }>(
         (resolve, reject) => {
           const child = spawn(process.execPath, [...args, `--max-old-space-size=${String(limits.heapMb)}`, file, reqPath], {
-            // No secret reaches a parser: only what node and the temp directory need.
-            env: { PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV ?? 'production', TMPDIR: os.tmpdir() },
+            // No secret reaches a parser: only what node and the temp directory need. NODE_ENV is
+            // not a secret, and the child's module graph is the API's (ADR-0066).
+            env: { PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV ?? 'production', TMPDIR: fileTmpDir() },
             stdio: ['ignore', 'ignore', 'pipe'],
           });
           let stderr = '';
@@ -138,6 +142,10 @@ export async function runChild(
 
 /* ------------------------------------------------------------------ which files */
 
+function preflightOptions(limits: IsolationLimits): PreflightOptions {
+  return { maxRatio: limits.maxRatio, ...(limits.preflightMs !== undefined ? { deadlineMs: limits.preflightMs } : {}) };
+}
+
 const ZIP_DOCUMENTS = new Set(['.docx', '.xlsx', '.pptx', '.odt', '.epub']);
 
 /** Formats read by a JavaScript parser, so by the child. */
@@ -162,6 +170,33 @@ export function isZipDocument(filename: string, mimeType: string): boolean {
   return mimeType.includes('openxmlformats') || mimeType === 'application/vnd.oasis.opendocument.text' || mimeType === 'application/epub+zip';
 }
 
+/** Whether the file's own bytes open with a ZIP local-file or empty-archive signature. */
+async function hasZipMagic(filePath: string): Promise<boolean> {
+  const handle = await open(filePath, 'r');
+  try {
+    const head = Buffer.alloc(4);
+    const { bytesRead } = await handle.read(head, 0, 4, 0);
+    return bytesRead === 4 && head[0] === 0x50 && head[1] === 0x4b && [0x0304, 0x0506, 0x0708].includes(head.readUInt16BE(2));
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The pre-flight, for every file a parser will open as a ZIP: by name or type, and by its bytes,
+ * because the sniff lets a ZIP through under other names (an `.xlsx` saved as `.xls`), and the
+ * parser opens what the bytes are, not what the name says (review R3#1, ADR-0066).
+ */
+async function preflightIfZip(filePath: string, filename: string, mimeType: string, limits: IsolationLimits): Promise<void> {
+  if (!isZipDocument(filename, mimeType) && !(await hasZipMagic(filePath))) return;
+  const src = await fileSource(filePath);
+  try {
+    await preflightContainer(src, filename, preflightOptions(limits));
+  } finally {
+    await src.close();
+  }
+}
+
 /**
  * The text of a parsed document at `filePath`: pre-flight first when it is a ZIP container,
  * then the child. Throws `FileFailure` (refusals, corrupt, timeout), `ExtractionUnsupported`
@@ -173,14 +208,7 @@ export async function isolatedText(
   mimeType: string,
   limits: IsolationLimits,
 ): Promise<string> {
-  if (isZipDocument(filename, mimeType)) {
-    const src = await fileSource(filePath);
-    try {
-      await preflightContainer(src, filename, { maxRatio: limits.maxRatio });
-    } finally {
-      await src.close();
-    }
-  }
+  await preflightIfZip(filePath, filename, mimeType, limits);
   const result = await runChild({ op: 'text', input: filePath, filename, mimeType }, limits);
   if (!result.ok) throw childFailure(result);
   if (!('text' in result)) throw new FileFailure('corrupt');
@@ -189,14 +217,7 @@ export async function isolatedText(
 
 /** A parsed document's normalised derivative (derive.ts), built in the child after pre-flight. */
 export async function isolatedDerive(filePath: string, filename: string, mimeType: string, limits: IsolationLimits): Promise<DerivedBody> {
-  if (isZipDocument(filename, mimeType)) {
-    const src = await fileSource(filePath);
-    try {
-      await preflightContainer(src, filename, { maxRatio: limits.maxRatio });
-    } finally {
-      await src.close();
-    }
-  }
+  await preflightIfZip(filePath, filename, mimeType, limits);
   const result = await runChild({ op: 'derive', input: filePath, filename, mimeType }, limits);
   if (!result.ok) throw childFailure(result);
   if (!('derived' in result)) throw new FileFailure('corrupt');

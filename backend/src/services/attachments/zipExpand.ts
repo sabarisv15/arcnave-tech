@@ -13,8 +13,7 @@
  * not refused: every ZIP made on a Mac carries them (ours).
  */
 import { createReadStream } from 'node:fs';
-import { mkdtemp, open, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -24,6 +23,7 @@ import { checkUpload, extensionOf } from '../storage.js';
 import { FileFailure } from './fileErrors.js';
 import { ratioExceeded } from './preflight.js';
 import { detectKind, SNIFF_BYTES } from './sniff.js';
+import { makeWorkDir } from './workDir.js';
 import {
   fileSource,
   inflateEntry,
@@ -89,7 +89,7 @@ export async function expandZip(
   onMember: (member: ZipMember) => Promise<void>,
 ): Promise<string[]> {
   const src = await fileSource(zipPath);
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-zip-'));
+  const dir = await makeWorkDir('arcnave-zip-');
   try {
     const planned = inspectEntries(await readCentralDirectory(src), cfg);
     const members: ZipMember[] = [];

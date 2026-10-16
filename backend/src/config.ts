@@ -155,10 +155,6 @@ const envSchema = z.object({
   /** N-74 (repo value; register has per-profile limits). */
   DEFAULT_MAX_OUTPUT_TOKENS: int(NUMBERS.DEFAULT_MAX_OUTPUT_TOKENS.value),
   MAX_OUTPUT_TOKENS_CEILING: int(128_000),
-  /** Clearing old tool results (providers/contextEditing.ts), with the provider defaults. */
-  CONTEXT_EDIT_TRIGGER_TOKENS: int(100_000),
-  CONTEXT_EDIT_KEEP_TOOL_RESULTS: int(3),
-  CONTEXT_EDIT_CLEAR_BATCH: int(5),
   /** How hard models think (ReasoningEffort). Clamped per model to the levels it supports.
    *  Medium is the default of Gemini 3.8 Flash (thinkingLevel MEDIUM).
    *  High made every round of every turn think at the maximum, including a plain summary
@@ -490,6 +486,70 @@ const envSchema = z.object({
         return z.NEVER;
       }
     }),
+  /**
+   * Output cap for one media reading (OCR, transcription; `describeMedia` / `readMedia`), D2 X-7.
+   * Ours, no N-id: Gemini 3.8 Flash's own maximum (capabilitiesTable), so only the model, never
+   * a smaller limit of ours, can cut a reading, and a cut one ends MAX_TOKENS and is marked.
+   */
+  MEDIA_MAX_OUTPUT_TOKENS: int(65_536),
+
+  // --- Platform and security quick fixes (P04, ADR-0065) -----------------------------------
+  /**
+   * Proxies in front of this process that append to X-Forwarded-For (ours, no N-id). The client
+   * address is the entry that many hops from the right; anything further left was written by the
+   * client and is never read. 1 is Cloud Run's front end. 0 trusts no header (the socket peer).
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+  /**
+   * Swagger UI at /docs. Unset: on, except when NODE_ENV=production (off). Set: exactly what it
+   * says, in any environment (ADR-0065).
+   */
+  DOCS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v === undefined || v.trim() === '' ? undefined : ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase()),
+    ),
+  /** safeFetch: response body ceiling, streamed (Stage 8 08d web_fetch "up to 5 MB"; no N-id). */
+  SAFE_FETCH_MAX_BYTES: int(5 * 1024 * 1024),
+  /** safeFetch: redirects followed, each re-checked (ours; Stage 8 C2 asks for a per-hop check). */
+  SAFE_FETCH_MAX_REDIRECTS: int(3),
+  /** N-43: tools fetch_url 10 s, the whole fetch including redirects. */
+  SAFE_FETCH_TIMEOUT_MS: int(NUMBERS.FETCH_URL_TIMEOUT_MS.value),
+  /**
+   * Service account that signs the Cloud Run Job sandbox's staging URLs. Unset, inputs and outputs
+   * are not given signed URLs (an identifier is never a code default, PH-4).
+   */
+  SANDBOX_SIGNING_SA: optionalStr,
+
+  // --- File pipeline: review fixes (tech-build.3 Part D, ADR-0066) ---------
+  /**
+   * Where the file pipeline writes its working copies (ours). Empty = `os.tmpdir()`, which on
+   * Cloud Run is in memory and counts against the instance's memory limit (review M1).
+   */
+  FILE_TMP_DIR: z.string().default(''),
+  /**
+   * Files above this size are "large" (ours): at most one large file job runs per instance at
+   * a time, so working copies of two large files never sit in one instance at once (review M1).
+   */
+  FILE_LARGE_JOB_BYTES: int(100 * 1024 * 1024),
+  /**
+   * A file left `queued` with no live job for longer than this (ours) gets a job on its next
+   * status poll (review N3: a crash between a status move and the job insert).
+   */
+  FILE_ORPHAN_GRACE_MS: int(60_000),
+  /** Wall clock of the ZIP pre-flight's streaming pass over every member (ours, review M3). */
+  ZIP_PREFLIGHT_TIMEOUT_MS: int(120_000),
+
+  // --- safeFetch: review fixes (tech-build.3 Part B, ADR-0065) -------------
+  /**
+   * Redirects followed when resolving a grounding citation (ours). Its chains (Vertex redirect,
+   * then http → https → www → a language path) are longer than a fetched page's; every hop is
+   * still checked.
+   */
+  SAFE_FETCH_GROUNDING_MAX_REDIRECTS: int(8),
+  /** One TCP connect attempt before safeFetch tries the host's next checked address (ours). */
+  SAFE_FETCH_CONNECT_TIMEOUT_MS: int(3_000),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -501,6 +561,8 @@ export interface Config extends Env {
   readonly anthropicConfigured: boolean;
   readonly geminiLocation: string;
   readonly sessionTtlMs: number;
+  /** DOCS_ENABLED resolved against NODE_ENV (ADR-0065). */
+  readonly docsEnabled: boolean;
 }
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
@@ -541,6 +603,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     anthropicConfigured: Boolean(env.ANTHROPIC_API_KEY),
     geminiLocation: env.GEMINI_LOCATION ?? env.VERTEX_LOCATION,
     sessionTtlMs: env.SESSION_TTL_HOURS * 60 * 60 * 1000,
+    docsEnabled: env.DOCS_ENABLED ?? env.NODE_ENV !== 'production',
   };
 }
 

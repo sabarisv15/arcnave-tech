@@ -9,19 +9,27 @@
  * model by `gs://` when a model-input bucket is configured (D1 #32), inline otherwise; at
  * 90 s of 48 kbit/s MP3 a piece is about 0.5 MB either way.
  *
- * ffmpeg and ffprobe are system binaries in the backend image (Dockerfile).
+ * ffmpeg and ffprobe are system binaries in the backend image (Dockerfile). They parse the upload
+ * in native code, so they run through `runTool`: no secret in their environment, local files
+ * only (`-protocol_whitelist file`), no stdin (ADR-0066).
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
-import type { MediaPart, Provider } from '../../providers/types.js';
+import { ProviderError, type MediaPart, type Provider, type ProviderErrorCode } from '../../providers/types.js';
 import type { ModelInputStore } from './modelInputStore.js';
 import { FileFailure } from './fileErrors.js';
+import { mediaArgs, runTool } from './untrustedTools.js';
+import { makeWorkDir } from './workDir.js';
 
-const run = promisify(execFile);
+/**
+ * Provider error codes a second identical request cannot fix (providers/types.ts): no quota for
+ * the model (`provider_quota_unavailable`, Gemini 429 with limit 0), the model not enabled or the
+ * credentials refused (`model_unavailable`: 404 publisher model, 401/403), and a request too
+ * large for the model (`context_overflow`). `provider_error`, `provider_timeout` and
+ * `provider_limit` may pass on a retry.
+ */
+const NO_RETRY_CODES: ReadonlySet<ProviderErrorCode> = new Set(['provider_quota_unavailable', 'model_unavailable', 'context_overflow']);
 
 export interface AudioOptions {
   maxSeconds: number;
@@ -45,7 +53,7 @@ export interface Segment {
 /** Seconds of sound in the file, by ffprobe. A file ffprobe cannot read is `corrupt`. */
 export async function probeDuration(filePath: string): Promise<number> {
   try {
-    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath], {
+    const { stdout } = await runTool('ffprobe', mediaArgs('ffprobe', filePath, { global: ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0'] }), {
       timeout: 60_000,
       maxBuffer: 64 * 1024,
     });
@@ -71,10 +79,14 @@ const PROMPT =
   'Transcribe this recording verbatim, in the language it is spoken in. If it is not speech, describe what it ' +
   'contains instead. Output only the transcript or description, nothing else.';
 
-async function cutPiece(input: string, out: string, startS: number, lengthS: number): Promise<void> {
-  await run(
+export async function cutPiece(input: string, out: string, startS: number, lengthS: number): Promise<void> {
+  await runTool(
     'ffmpeg',
-    ['-v', 'error', '-y', '-ss', startS.toFixed(3), '-t', lengthS.toFixed(3), '-i', input, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', out],
+    mediaArgs('ffmpeg', input, {
+      global: ['-v', 'error', '-y'],
+      inputOptions: ['-ss', startS.toFixed(3), '-t', lengthS.toFixed(3)],
+      output: ['-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', out],
+    }),
     { timeout: 120_000, maxBuffer: 1024 * 1024 },
   );
 }
@@ -91,7 +103,7 @@ export async function transcribe(
     throw new FileFailure('too_large', `This recording is ${clock(durationS * 1000)} long. Recordings can be at most ${hours} hours.`);
   }
   const count = Math.max(1, Math.ceil(durationS / opts.segmentSeconds));
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-audio-'));
+  const dir = await makeWorkDir('arcnave-audio-');
   const segments: Segment[] = new Array<Segment>(count);
   try {
     let next = 0;
@@ -117,6 +129,10 @@ export async function transcribe(
             if (r.finishReason === 'STOP' && r.text.trim() !== '') seg = { ...seg, text: r.text.trim(), ok: true, model: r.model };
           } catch (err) {
             if (opts.signal?.aborted) throw err;
+            // Only an error whose code says a retry cannot help ends the piece's attempts
+            // (review R1#10, r2 #3). `retryable: false` alone does not: it is ProviderError's
+            // default and what an unclassified provider failure carries.
+            if (err instanceof ProviderError && NO_RETRY_CODES.has(err.code)) break;
           }
         }
         segments[i] = seg;

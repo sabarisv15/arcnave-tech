@@ -4,6 +4,8 @@
   frontend build); not deployed.
   2026-10-15: project uploads now go through file jobs, and the lease is 15 min renewed per stage:
   [ADR-0063](0063-files-ingest-and-automated-gates.md) Decisions 2–3.
+  2026-10-16: Part B §6 (pre-flight from the directory, 4 KB DTD check) superseded by a streaming
+  pass over every member: [ADR-0066](0066-file-pipeline-review-fixes.md) Decision 2.
 - Date: 2026-10-15
 - Task: tech-build.1 — P01 + P06 + P14 of [`docs/ops/audit/NEW-PLAN.md`](../ops/audit/NEW-PLAN.md)
 - Yardstick: [ADR-0061](0061-locked-decisions-win-outside-stack-and-infra.md) — the locked Stage 1,

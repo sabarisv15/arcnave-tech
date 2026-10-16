@@ -20,14 +20,22 @@
  * in the row they finish and in where their chunks go.
  *
  * Lanes: files up to FILE_FAST_LANE_MAX_BYTES are `fast`, and one worker slot is always kept
- * for them, so a small file never waits behind large ones (Stage 9 G30).
+ * for them, so a small file never waits behind large ones (Stage 9 G30). Files above
+ * FILE_LARGE_JOB_BYTES, and chat ZIP archives (their members are unpacked to disk), are large:
+ * at most one runs per instance at a time, because a job's working copies (download, members,
+ * pieces) count against the instance's memory when the working directory is in memory
+ * (ADR-0066, review M1).
+ *
+ * A job's first stage is the integrity check (ADR-0066, review N4): the object's generation must
+ * be the one `complete` recorded, and the SHA-256 is computed here by streaming the job's own
+ * copy, never in the upload request. Both come before the scan and before any reuse lookup.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
@@ -40,6 +48,7 @@ import {
   deleteObjects,
   derivedKeys,
   draftFromStored,
+  fileChecksum,
   findReusable,
   planChunks,
   putDerivativeObjects,
@@ -55,11 +64,16 @@ import { ocrEngineFor, type OcrEngine } from './ocr.js';
 import { failed, readAttachment, type FileStage, type Outcome } from './pipeline.js';
 import { storageKeyInUse } from './references.js';
 import { noScanner, scannerFor, type Scanner } from './scanner.js';
+import { makeWorkDir, setFileTmpDir } from './workDir.js';
 import { expandZip, memberStream } from './zipExpand.js';
 
 type AttachmentRow = typeof attachments.$inferSelect;
 type ProjectFileRow = typeof projectFiles.$inferSelect;
 type JobRow = typeof fileJobs.$inferSelect;
+/** A claimed job, and whether its file is above FILE_LARGE_JOB_BYTES. */
+type ClaimedJob = JobRow & { large: boolean };
+/** A transaction, for writes that must land together with the caller's (enqueue at `complete`). */
+export type FileTx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export interface FileLogger {
   info(obj: object, msg: string): void;
@@ -92,6 +106,8 @@ export interface WorkerOptions {
   heartbeatMs?: number;
   /** Test seam: called after each stage is recorded, inside the job. */
   afterStage?: (fileId: string, stage: FileStage) => Promise<void>;
+  /** FILE_LARGE_JOB_BYTES unless given. */
+  largeJobBytes?: number;
 }
 
 /** A write that only lands while `owner` still holds job `jobId`. */
@@ -115,6 +131,9 @@ export class FileService {
   private readonly ocr: OcrEngine | null;
   private active = 0;
   private activeNormal = 0;
+  /** Large jobs running here, plus a claim in flight that may take one: never above 1. */
+  private activeLarge = 0;
+  private readonly largeJobBytes: number;
   private readonly wanted = new Set<string>();
   private readonly inFlight = new Set<Promise<void>>();
   private timer: NodeJS.Timeout | undefined;
@@ -134,6 +153,9 @@ export class FileService {
     this.heartbeatMs = opts.heartbeatMs ?? Math.max(50, Math.floor(this.leaseMs / 3));
     this.scanner = deps.scanner ?? scannerFor(deps.cfg);
     this.ocr = deps.ocr !== undefined ? deps.ocr : ocrEngineFor(deps.visionProvider);
+    this.largeJobBytes = opts.largeJobBytes ?? deps.cfg.FILE_LARGE_JOB_BYTES;
+    // Every working copy the pipeline makes goes under FILE_TMP_DIR (ADR-0066).
+    setFileTmpDir(deps.cfg.FILE_TMP_DIR);
   }
 
   /* ------------------------------------------------------------------ lifecycle */
@@ -190,7 +212,66 @@ export class FileService {
         ),
       );
     for (const r of rows) this.wanted.add(r.id);
+    if (rows.length === 0) {
+      const orphan = await this.reconcile(file);
+      if (orphan) this.wanted.add(orphan);
+    }
     await this.pump();
+  }
+
+  /**
+   * A file left `queued` with no live job for longer than FILE_ORPHAN_GRACE_MS gets one (review
+   * N3, ADR-0066): a crash between a status move and its job insert, or between a ZIP's member
+   * rows and their jobs, otherwise leaves a chip that spins forever. The row is locked while it
+   * is checked, so two polls at once queue one job.
+   */
+  private async reconcile(file: { attachmentId?: string; projectFileId?: string }): Promise<string | null> {
+    const { db, cfg } = this.deps;
+    const grace = sql`${`${String(cfg.FILE_ORPHAN_GRACE_MS)} milliseconds`}::interval`;
+    return db.transaction(async (tx) => {
+      if (file.attachmentId) {
+        const [row] = await tx
+          .select()
+          .from(attachments)
+          .where(and(eq(attachments.id, file.attachmentId), eq(attachments.status, 'queued'), sql`${attachments.createdAt} < now() - ${grace}`))
+          .for('update');
+        if (!row || (await this.hasRecentJob(tx, eq(fileJobs.attachmentId, row.id), grace))) return null;
+        this.deps.log.warn({ attachmentId: row.id }, 'orphaned queued file re-queued');
+        return this.enqueueAttachment(row, tx);
+      }
+      if (file.projectFileId) {
+        const [row] = await tx
+          .select()
+          .from(projectFiles)
+          .where(and(eq(projectFiles.id, file.projectFileId), eq(projectFiles.status, 'queued'), sql`${projectFiles.createdAt} < now() - ${grace}`))
+          .for('update');
+        if (!row || (await this.hasRecentJob(tx, eq(fileJobs.projectFileId, row.id), grace))) return null;
+        this.deps.log.warn({ projectFileId: row.id }, 'orphaned queued file re-queued');
+        return this.enqueueProjectFile(row, tx);
+      }
+      return null;
+    });
+  }
+
+  /**
+   * A job that still owns the file: queued with attempts left, any `running` one (held, or
+   * lapsed: failExhausted fails a lapsed one with no attempts left, so a new job must not
+   * bypass the attempt limit; review R3#5), or one that changed within the grace period.
+   */
+  private async hasRecentJob(tx: FileTx, target: SQL | undefined, grace: SQL): Promise<boolean> {
+    const [row] = await tx
+      .select({ id: fileJobs.id })
+      .from(fileJobs)
+      .where(
+        and(
+          target,
+          sql`((${fileJobs.state} = 'queued' and ${fileJobs.attempts} < ${fileJobs.maxAttempts})
+            or ${fileJobs.state} = 'running'
+            or ${fileJobs.updatedAt} >= now() - ${grace})`,
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
   }
 
   /** Waits until every job this worker is running or was handed has finished. For tests. */
@@ -206,14 +287,24 @@ export class FileService {
   async runOnce(ids?: string[]): Promise<boolean> {
     const job = await this.claim(ids ? { any: false, normalAllowed: true, ids } : { any: true, normalAllowed: true });
     if (!job) return false;
-    await this.runJob(job);
+    try {
+      await this.runJob(job);
+    } finally {
+      if (job.large) this.activeLarge -= 1;
+    }
     return true;
   }
 
   /* ------------------------------------------------------------------ queue */
 
-  async enqueueAttachment(row: AttachmentRow): Promise<string> {
-    const { db, cfg } = this.deps;
+  /**
+   * Queues the next read of an attachment. With `tx` the job insert and the status move are part
+   * of the caller's transaction (review N3): nothing is queued unless both land, and the caller
+   * wakes the worker (`poke`) after its commit.
+   */
+  async enqueueAttachment(row: AttachmentRow, tx?: FileTx): Promise<string> {
+    const { cfg } = this.deps;
+    const db = tx ?? this.deps.db;
     const [last] = await db
       .select({ v: sql<number>`coalesce(max(${fileJobs.version}), 0)::int` })
       .from(fileJobs)
@@ -232,13 +323,14 @@ export class FileService {
       .returning({ id: fileJobs.id });
     if (!job) throw new Error('file job already exists for this version');
     await db.update(attachments).set({ status: 'queued', error: '', errorCode: '', warnings: [] }).where(eq(attachments.id, row.id));
-    this.poke(job.id);
+    if (!tx) this.poke(job.id);
     return job.id;
   }
 
   /** A project file read (upload, replace or re-index) as a job, the next version of its reads. */
-  async enqueueProjectFile(row: ProjectFileRow): Promise<string> {
-    const { db, cfg } = this.deps;
+  async enqueueProjectFile(row: ProjectFileRow, tx?: FileTx): Promise<string> {
+    const { cfg } = this.deps;
+    const db = tx ?? this.deps.db;
     const [last] = await db
       .select({ v: sql<number>`coalesce(max(${fileJobs.version}), 0)::int` })
       .from(fileJobs)
@@ -257,7 +349,7 @@ export class FileService {
       .returning({ id: fileJobs.id });
     if (!job) throw new Error('file job already exists for this version');
     await db.update(projectFiles).set({ status: 'queued', error: '', errorCode: '' }).where(eq(projectFiles.id, row.id));
-    this.poke(job.id);
+    if (!tx) this.poke(job.id);
     return job.id;
   }
 
@@ -280,10 +372,35 @@ export class FileService {
 
   /* ------------------------------------------------------------------ claim */
 
-  private async claim(scope: { any: boolean; normalAllowed: boolean; ids?: string[] }): Promise<JobRow | null> {
+  /**
+   * Claims one due job. A large one only while no other large job runs here (ADR-0066): the
+   * large slot is taken before the query, so two claims in flight cannot both take a large job,
+   * and given back at once when the job claimed is not large. Whoever runs a large job releases
+   * the slot when it ends.
+   */
+  private async claim(scope: { any: boolean; normalAllowed: boolean; ids?: string[] }): Promise<ClaimedJob | null> {
+    const largeAllowed = this.activeLarge === 0;
+    if (largeAllowed) this.activeLarge += 1;
+    let job: ClaimedJob | null = null;
+    try {
+      job = await this.claimRow(scope, largeAllowed);
+      return job;
+    } finally {
+      if (largeAllowed && !job?.large) this.activeLarge -= 1;
+    }
+  }
+
+  private async claimRow(scope: { any: boolean; normalAllowed: boolean; ids?: string[] }, largeAllowed: boolean): Promise<ClaimedJob | null> {
     const lease = `${String(this.leaseMs)} milliseconds`;
     const target = scope.any ? sql`true` : sql`fj.id in ${scope.ids && scope.ids.length ? sql`(${sql.join(scope.ids.map((i) => sql`${i}::uuid`), sql`, `)})` : sql`(null)`}`;
     const lane = scope.normalAllowed ? sql`true` : sql`fj.lane = 'fast'`;
+    // Large: the stored file is above FILE_LARGE_JOB_BYTES, or it is a chat ZIP archive, whose
+    // expansion writes up to N-10's 500 MB of members to the work dir whatever its own size
+    // (review R3#4; ours). Only an attachment named .zip is expanded (pipeline.ts).
+    const isLarge = (job: SQL) =>
+      sql`(coalesce((select a.size_bytes from attachments a where a.id = ${job}.attachment_id), (select p.size_bytes from project_files p where p.id = ${job}.project_file_id), 0) > ${this.largeJobBytes}
+        or exists (select 1 from attachments a where a.id = ${job}.attachment_id and lower(a.filename) like '%.zip'))`;
+    const sizeFits = largeAllowed ? sql`true` : sql`not ${isLarge(sql.raw('fj'))}`;
     const rows = await this.deps.db.execute(sql`
       update file_jobs set
         state = 'running',
@@ -293,18 +410,18 @@ export class FileService {
         updated_at = now()
       where id = (
         select fj.id from file_jobs fj
-        where ${target} and ${lane}
+        where ${target} and ${lane} and ${sizeFits}
           and fj.attempts < fj.max_attempts
           and (fj.state = 'queued' or (fj.state = 'running' and fj.lease_expires_at < now()))
         order by (fj.lane = 'fast') desc, fj.created_at
         for update skip locked
         limit 1)
-      returning *`);
+      returning id, ${isLarge(sql.raw('file_jobs'))} as is_large`);
     const raw = (rows as unknown as Array<Record<string, unknown>>)[0];
     if (!raw) return null;
     // `execute` returns column names, not the schema's field names.
     const [job] = await this.deps.db.select().from(fileJobs).where(eq(fileJobs.id, String(raw['id'])));
-    return job ?? null;
+    return job ? { ...job, large: raw['is_large'] === true } : null;
   }
 
   /** Jobs whose lease lapsed with no attempts left: the file fails as `timeout`. */
@@ -372,12 +489,13 @@ export class FileService {
     }
   }
 
-  private launch(job: JobRow): void {
+  private launch(job: ClaimedJob): void {
     this.active += 1;
     if (job.lane === 'normal') this.activeNormal += 1;
     const p = this.runJob(job).finally(() => {
       this.active -= 1;
       if (job.lane === 'normal') this.activeNormal -= 1;
+      if (job.large) this.activeLarge -= 1;
       this.inFlight.delete(p);
       if (!this.dead) void this.pump();
     });
@@ -480,7 +598,7 @@ export class FileService {
   private async process(target: Target, job: JobRow | null, fence: Fence | null, localPath: string | null): Promise<void> {
     const { db, storage } = this.deps;
     const row = target.row;
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'arcnave-job-'));
+    const dir = await makeWorkDir('arcnave-job-');
     let objects: StoredObjects | null = null;
     try {
       const local = localPath ?? path.join(dir, 'file');
@@ -494,7 +612,8 @@ export class FileService {
         if (!(await holds())) throw new LeaseLost();
       };
 
-      let outcome = await this.read(target, local, dir, setStage, fence);
+      const verified = await this.verifyBytes(target, local, fence);
+      let outcome = verified.failure ?? (await this.read(target, local, dir, setStage, fence, verified.checksum));
       // Count and chunk the derivative (Stage 9 TOKENS / CHUNK).
       let counts = null;
       let plan: ChunkPlan | null = null;
@@ -527,7 +646,7 @@ export class FileService {
             userId: row.userId,
             ...(target.scope === 'attachment' ? { attachmentId: row.id } : { projectFileId: row.id }),
             version: job?.version ?? 0,
-            checksumSha256: row.checksumSha256,
+            checksumSha256: verified.checksum,
             draft: outcome.derivative,
             objects,
             counts,
@@ -554,6 +673,28 @@ export class FileService {
     }
   }
 
+  /**
+   * The job's first stage (D1 #35, review N4): the object must still be the generation `complete`
+   * recorded (a project file: the one stored), checked after the download so the local copy is
+   * that generation; then the SHA-256 of that copy, streamed, onto the row. A changed object is
+   * `corrupt`. Runs before the scan and before any reuse lookup, which is keyed on the checksum.
+   */
+  private async verifyBytes(target: Target, local: string, fence: Fence | null): Promise<{ checksum: string; failure: Outcome | null }> {
+    const { db, storage } = this.deps;
+    const row = target.row;
+    if (row.objectGeneration) {
+      const now = await storage.generation(row.storageKey);
+      if (now !== row.objectGeneration) return { checksum: '', failure: failed('corrupt', 'This file changed after it was uploaded. Upload it again.') };
+    }
+    const checksum = await fileChecksum(local);
+    if (checksum !== row.checksumSha256) {
+      if (fence && !(await this.renew(fence))) throw new LeaseLost();
+      if (target.scope === 'attachment') await db.update(attachments).set({ checksumSha256: checksum }).where(eq(attachments.id, row.id));
+      else await db.update(projectFiles).set({ checksumSha256: checksum }).where(eq(projectFiles.id, row.id));
+    }
+    return { checksum, failure: null };
+  }
+
   /** Scan, then reuse a derivative of the same bytes (G3), or run the pipeline. */
   private async read(
     target: Target,
@@ -561,14 +702,10 @@ export class FileService {
     dir: string,
     setStage: (stage: FileStage) => Promise<void>,
     fence: Fence | null,
+    checksum: string,
   ): Promise<Outcome> {
     const { db, storage, cfg } = this.deps;
     const row = target.row;
-    // D1 #35: the bytes must be the ones `complete` checked (a project file: the ones stored).
-    if (row.objectGeneration) {
-      const now = await storage.generation(row.storageKey);
-      if (now !== row.objectGeneration) return failed('corrupt', 'This file changed after it was uploaded. Upload it again.');
-    }
     await setStage('scanning');
     try {
       await this.scanner.scan(local);
@@ -579,7 +716,7 @@ export class FileService {
     const reuse = await findReusable(
       db,
       row.userId,
-      row.checksumSha256,
+      checksum,
       this.scanner.name,
       target.scope === 'attachment' ? { attachmentId: row.id } : { projectFileId: row.id },
     );

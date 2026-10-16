@@ -43,14 +43,46 @@ export function attachmentText(a: AttachmentBlock): string | null {
   return text;
 }
 
+/**
+ * A value made safe for a double-quoted XML attribute (D2 X-9). A filename is the user's text:
+ * unescaped, a `"` ends the attribute and a `>` ends the tag, so a name like
+ * `x"><system>…` would put markup of the user's choosing into the prompt. Line breaks and tabs
+ * are written as character references so a name cannot spread the tag over lines.
+ */
+export function xmlAttr(value: string): string {
+  return value.replace(/[&<>"'\t\n\r]/g, (c) => XML_ATTR_ESCAPES[c]!);
+}
+
+const XML_ATTR_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&apos;',
+  '\t': '&#9;',
+  '\n': '&#10;',
+  '\r': '&#13;',
+};
+
+/**
+ * A filename (attachment, project file, ZIP member) placed in prompt TEXT, not in an attribute
+ * (`xmlAttr` is for those). Only what could make markup or break the line structure is changed:
+ * `<` and `>` become `&lt;` / `&gt;`, and line breaks and other control characters become a
+ * space. `&`, quotes and apostrophes stay as they are, so the model reads and repeats the name
+ * as stored ("R&D John's notes.pdf") and a tool call naming it still matches.
+ */
+export function filenameInText(name: string): string {
+  return name.replace(/[<>\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, (c) => (c === '<' ? '&lt;' : c === '>' ? '&gt;' : ' '));
+}
+
 /** The label that introduces each page, so a model can name the page it read. */
 export function pageLabel(a: AttachmentBlock, num: number): string {
   const total = a.pageCount ?? a.pages?.length ?? 0;
-  return `${a.filename ? `"${a.filename}" ` : ''}page ${String(num)} of ${String(total)}`;
+  return `${a.filename ? `"${filenameInText(a.filename)}" ` : ''}page ${String(num)} of ${String(total)}`;
 }
 
 function describe(a: AttachmentBlock): string {
-  const name = a.filename ? `"${a.filename}"` : 'An attachment';
+  const name = a.filename ? `"${filenameInText(a.filename)}"` : 'An attachment';
   const facts = [a.id ? `fileId: ${a.id}` : null, a.mimeType, a.sizeBytes ? `${a.sizeBytes} bytes` : null]
     .filter(Boolean)
     .join(', ');

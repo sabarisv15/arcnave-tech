@@ -10,6 +10,7 @@
 import path from 'node:path';
 
 import type { AttachmentBlock } from '../../providers/types.js';
+import { filenameInText } from '../../providers/attachmentContent.js';
 
 export interface ManifestFile {
   id: string;
@@ -69,7 +70,7 @@ export function buildAttachmentManifest(files: ManifestFile[], opts: ManifestOpt
   if (files.length === 0) return '';
   const names = sandboxInputNames(files);
   const lines = files.map((f) => {
-    const parts = [`- fileId: "${f.id}"`, `filename: "${f.filename}"`, `type: ${f.mimeType}`, `size: ${String(f.sizeBytes ?? 0)} bytes`];
+    const parts = [`- fileId: "${f.id}"`, `filename: "${filenameInText(f.filename)}"`, `type: ${f.mimeType}`, `size: ${String(f.sizeBytes ?? 0)} bytes`];
     if (opts.sandbox) parts.push(`path: input/${names.get(f.id)!}`);
     if (f.inContext) parts.push(f.inContext);
     return parts.join(' | ');

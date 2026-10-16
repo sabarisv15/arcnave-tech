@@ -24,6 +24,7 @@ import { verifyPptx } from '../services/documents/verify/pptxVerify.js';
 import { AttachmentNotFoundError, ExecutionRuntime, type WorkspaceFiles } from './execution/executionRuntime.js';
 import type { SandboxClient } from './sandbox/client.js';
 import { sandboxInputNames, type ManifestFile } from '../services/attachments/manifest.js';
+import { filenameInText } from '../providers/attachmentContent.js';
 
 const log = logger.child({ module: 'codeExecutionExecutor' });
 
@@ -509,8 +510,8 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
           ok: false,
           error:
             err instanceof AttachmentNotFoundError
-              ? `Conversation file "${f.filename}" (${f.id}) was not found.`
-              : `Conversation file "${f.filename}" (${f.id}) could not be read from storage. Try again, or tell the user the file is unavailable.`,
+              ? `Conversation file "${filenameInText(f.filename)}" (${f.id}) was not found.`
+              : `Conversation file "${filenameInText(f.filename)}" (${f.id}) could not be read from storage. Try again, or tell the user the file is unavailable.`,
         };
       }
     }
