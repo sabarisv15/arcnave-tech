@@ -1,7 +1,7 @@
 /**
  * ArcNave Claude Sonnet 5 Real-Model E2E Behavior Evaluation Script.
  *
- * Tests Claude on Vertex AI (`claude-sonnet-5`) using AnthropicProvider
+ * Tests Claude on the Claude API (`claude-sonnet-5`) using AnthropicProvider
  * and the frozen Base System Prompt v1.
  */
 import { AnthropicProvider } from '../providers/anthropic.js';
@@ -27,7 +27,7 @@ const ALL_STANDARD_TOOLS: ToolDefinition[] = [
 
 async function main() {
   console.log('======================================================================');
-  console.log('  ArcNave Claude Live Model E2E Behavior Evaluation (Vertex AI)');
+  console.log('  ArcNave Claude Live Model E2E Behavior Evaluation (Claude API)');
   console.log('======================================================================\n');
 
   const cfg = loadConfig({
@@ -46,7 +46,6 @@ async function main() {
   const modelId = cfg.MODEL_SONNET || 'claude-sonnet-5';
 
   console.log(`Target Model      : ${modelId}`);
-  console.log(`GCP Project       : ${cfg.GOOGLE_CLOUD_PROJECT}`);
   console.log(`Prompt Tokens     : 7,186 (Claude exact count)\n`);
 
   // Run core sanity check: Casual Greeting and Tool Boundary

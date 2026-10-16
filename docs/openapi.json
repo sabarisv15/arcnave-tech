@@ -79,6 +79,9 @@
                         "vertexConfigured": {
                           "type": "boolean"
                         },
+                        "anthropicConfigured": {
+                          "type": "boolean"
+                        },
                         "groundingConfigured": {
                           "type": "boolean"
                         },
@@ -89,6 +92,7 @@
                       "required": [
                         "database",
                         "vertexConfigured",
+                        "anthropicConfigured",
                         "groundingConfigured",
                         "storageBackend"
                       ],
@@ -126,6 +130,9 @@
                         "vertexConfigured": {
                           "type": "boolean"
                         },
+                        "anthropicConfigured": {
+                          "type": "boolean"
+                        },
                         "groundingConfigured": {
                           "type": "boolean"
                         },
@@ -136,6 +143,7 @@
                       "required": [
                         "database",
                         "vertexConfigured",
+                        "anthropicConfigured",
                         "groundingConfigured",
                         "storageBackend"
                       ],

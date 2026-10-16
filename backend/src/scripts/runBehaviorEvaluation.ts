@@ -267,9 +267,8 @@ async function main() {
   const provider: Provider = isClaude ? new AnthropicProvider(cfg) : new GeminiProvider(cfg);
   const modelId = isClaude ? cfg.MODEL_SONNET || 'claude-sonnet-5' : cfg.MODEL_GEMINI_FLASH || 'gemini-3.8-flash';
 
-  console.log(`Target Provider   : ${isClaude ? 'Anthropic Vertex' : 'Google Vertex'}`);
+  console.log(`Target Provider   : ${isClaude ? 'Claude API' : 'Google Vertex'}`);
   console.log(`Target Model      : ${modelId}`);
-  console.log(`GCP Project       : ${cfg.GOOGLE_CLOUD_PROJECT}`);
   console.log(`System Prompt     : ${masterPrompt.length} chars (frozen v1)\n`);
 
   const results: ScenarioResult[] = [];

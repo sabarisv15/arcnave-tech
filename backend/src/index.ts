@@ -5,7 +5,7 @@
  * shutdown. The application itself is built by `createApp` so tests never bind a port.
  */
 import { createApp } from './app.js';
-import { config } from './config.js';
+import { config, providerReadiness } from './config.js';
 import { closeDb } from './db/client.js';
 import { logger } from './logger.js';
 import { sweepRetention } from './services/retention.js';
@@ -103,14 +103,22 @@ async function main(): Promise<void> {
       env: cfg.NODE_ENV,
       apiPrefix: cfg.API_PREFIX,
       vertexConfigured: cfg.vertexConfigured,
+      anthropicConfigured: cfg.anthropicConfigured,
       docs: `http://${cfg.HOST}:${cfg.PORT}/docs`,
     },
     'arcnave backend listening',
   );
 
-  if (!cfg.vertexConfigured) {
+  const readiness = providerReadiness(cfg);
+  if (readiness.google.inUse && !readiness.google.configured) {
     logger.warn(
-      'GOOGLE_CLOUD_PROJECT is not set. Every model alias will report unavailable; ' +
+      'GOOGLE_CLOUD_PROJECT is not set. The Gemini alias will report vertex_not_configured; ' +
+        'chats, projects, and settings still work.',
+    );
+  }
+  if (readiness.anthropic.inUse && !readiness.anthropic.configured) {
+    logger.warn(
+      'ANTHROPIC_API_KEY is not set. The Claude aliases will report anthropic_not_configured; ' +
         'chats, projects, and settings still work.',
     );
   }

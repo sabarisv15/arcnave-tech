@@ -1,5 +1,9 @@
 # ArcNave — current checkpoint
 
+> **2026-10-16: Claude Platform readiness + deploy wiring. Branch `claude/dazzling-albattani-l7vdeb`; not merged, not deployed.**
+> - The code move itself was ADR-0054 (2026-10-14). This task closed the rest: `/readyz` reports `anthropicConfigured` and is `ready` only when the providers in use are configured (`providerReadiness`), startup warnings per provider, stale Vertex wording removed from the dev scripts, `CLAUDE.md`/`AGENTS.md` lines updated.
+> - Record: [ADR-0064](../decisions/0064-claude-platform-gemini-vertex.md); owner steps (create the secret, mount it, live check): [`docs/ops/claude-platform-live-checklist.md`](../ops/claude-platform-live-checklist.md).
+
 > **2026-10-15: tech-build.2 — files ingest (P09 + P12 + P19 part + the P06 gaps). Branch `build/files-ingest` (from `build/files-fix` @ `5cafbac`); one commit, not merged, not deployed.**
 > - Record: [ADR-0063](../decisions/0063-files-ingest-and-automated-gates.md); evidence per exit test: [`docs/ops/build-2-result.md`](../ops/build-2-result.md); the owner's live test: [`docs/ops/build-2-live-checklist.md`](../ops/build-2-live-checklist.md) (+ `build-2-fixtures/`).
 > - Owner decision: automated gates are the pre-deploy gate, manual local runs optional, deploy = owner's merge; `CLAUDE.md` bullet edited.
