@@ -1,5 +1,10 @@
 # ArcNave — current checkpoint
 
+> **2026-10-16: reply composer one row (owner UI request). Branch `claude/nifty-einstein-y2e74u` (from `origin/main` @ `7cd294b`); frontend only, not merged, not deployed.**
+> - Record: [ADR-0077](../decisions/0077-reply-composer-one-row-tools-under.md); live checks: [`reply-composer-live-checklist.md`](../ops/reply-composer-live-checklist.md).
+> - In a conversation the box holds only the text and send (idle 101 px → 50 px; composer area 157 → 106 px at 1440×900). +, mode, style and mic moved to the row under the box, + first, as in Claude's redesigned composer card. New chat / project / artifact composers unchanged.
+> - Frontend: `tsc -b` clean, `vite build` clean, vitest 44 files / 413 passed (was 411; +2 composer tests). No backend change.
+
 > **2026-10-16: tech-p03 — answer-quality measurement harness (the "before" for P07 prompt / P10 routing). Branch `build/quality-eval` (from `origin/main` @ `7eb900b`, P05 merged); measurement only, not merged, not deployed.**
 > - Record: [ADR-0074](../decisions/0074-measure-first-quality-harness.md); evidence per step: [`docs/ops/p03-result.md`](../ops/p03-result.md); how to run: [`docs/ops/eval-runs/README.md`](../ops/eval-runs/README.md); found-not-fixed: [`DEFERRED.md`](../ops/audit/DEFERRED.md) "tech-p03".
 > - The 68 Stage 6 cases are in the repo (`backend/evals/prompt-kit/06-eval-cases-v1.json`, byte-identical to the master, sha256 `2bb6eae6…2765c`, owner-confirmed). 48 are offline-checkable (request-side requirements, `promptKit.test.ts`), 20 live-only. Offline critical cases: 28; 8 fully met, 20 have a recorded prompt gap (34 gaps in all, each with a reason in `EXPECTED_GAPS`). Gaps are P07/P10 work; nothing was patched.

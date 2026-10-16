@@ -248,6 +248,26 @@ describe("the row under the composer", () => {
     expect(host.querySelector(".composer-toolbar .cs-model-chip")).toBeNull();
   });
 
+  it("keeps the reply box to one row: the text and send, with the tools under it", async () => {
+    setWorkspace([user, reply({ text: "Done." })]);
+    await show();
+    const box = host.querySelector(".composer-k3-reply")!;
+    expect(box.querySelector(".composer-reply-row textarea")!.getAttribute("rows")).toBe("1");
+    expect(box.querySelector(".composer-reply-row [aria-label='Send message']")).not.toBeNull();
+    expect(box.querySelector(".composer-toolbar")).toBeNull();
+    const tools = host.querySelector(".composer-under .composer-under-tools")!;
+    expect(tools.querySelector("[aria-label='Add files and tools']")).not.toBeNull();
+    expect(tools.querySelector("[aria-label^='Mode:']")).not.toBeNull();
+    expect(tools.querySelector("[aria-label^='Use style:']")).not.toBeNull();
+  });
+
+  it("keeps the tools inside the box on a new chat", async () => {
+    setWorkspace([]);
+    await show("/app");
+    expect(host.querySelector(".composer-k3-new .composer-toolbar [aria-label='Add files and tools']")).not.toBeNull();
+    expect(host.querySelector(".composer-under-tools")).toBeNull();
+  });
+
   it("has no reminder on a new chat, only the chip", async () => {
     setWorkspace([]);
     await show("/app");
