@@ -23,13 +23,12 @@ import type { Database } from '../db/client.js';
 import { turnLogs } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
-import { type ModelRegistry, AUTO_ALIAS } from '../providers/registry.js';
+import type { ModelRegistry } from '../providers/registry.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { TurnLog } from './turnLog.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import type { CapabilityRegistry } from '../capabilities/registry.js';
 import { TurnTiming } from './turnTiming.js';
-import { compactionService } from './compaction/compactionService.js';
 import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
 import type { SandboxClient } from '../tools/sandbox/client.js';
 import type { SkillService } from './skills.js';
@@ -37,15 +36,14 @@ import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import type { TurnServices } from './turn/services.js';
-import type { StreamEvent, ModelInfo } from './turn/events.js';
+import type { StreamEvent } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
-import { loadPreferences, loadProject, loadHistory, compactIfNeeded } from './turn/context.js';
-import { resolveModel } from './turn/modelRouting.js';
 import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
 import { settleTurn } from './turn/settle.js';
 import { forcedAnswer } from './turn/forcedAnswer.js';
 import { streamAndCollect } from './turn/streamAndCollect.js';
 import { buildTurnContext } from './turn/turnContext.js';
+import { compactStage, prepareTurn } from './turn/prepareTurn.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -150,194 +148,83 @@ export class GenerationService {
       // Attachments are not copied into the workspace up front. A tool that needs one names its
       // fileId and the runtime materialises exactly that file (G26, G15): current and historical
       // attachments take the same path, and nothing is downloaded for turns that never use it.
-      const prefs = await loadPreferences(this.svc, input.userId);
+      const prepared = await prepareTurn(this.svc, input, timing, turnLog);
+      input = prepared.input;
+      const { prefs, project, entry, provider, grounded, modelInfo } = prepared;
 
-    const project = input.projectId ? await loadProject(this.svc, input.userId, input.projectId) : null;
-    let latestCompaction = this.cfg.ENABLE_CONTEXT_COMPACTION
-      ? await compactionService.getLatestCompaction(input.chatId, this.db)
-      : null;
-    // Loaded before model resolution (not its historical position) because whether this turn
-    // needs a vision-capable model depends on what's carried forward, not only on what's newly
-    // attached. Its character backstop is the model's window, so it is sized by a named model
-    // only; under Auto this first read keeps every turn, and the history is read again for the
-    // resolved model below (D2 X-2: `Auto` has no window and fell back to 128,000 tokens).
-    let historyAlias: string | null = input.modelAlias === AUTO_ALIAS ? null : input.modelAlias;
-    const loaded = await loadHistory(
-      this.svc,
-      input.chatId,
-      input.messageId,
-      latestCompaction?.throughSeq,
-      historyAlias,
-    );
-    timing.mark('history');
-    turnLog.stage('history', {
-      earlierTurns: loaded.turns.length,
-      compactedThroughSeq: latestCompaction?.throughSeq ?? null,
-      prompt: `${String(input.prompt.length)} characters`,
-      attachmentsOfThisMessage: input.attachments.length || loaded.currentUserAttachments.length,
-    });
-    let history = loaded.turns;
-    const currentUserAttachments = loaded.currentUserAttachments;
-    if (input.attachments.length === 0 && currentUserAttachments.length > 0) {
-      input = { ...input, attachments: currentUserAttachments, hasAttachments: true };
-    }
+      yield {
+        type: 'start',
+        messageId: input.messageId,
+        chatId: input.chatId,
+        requestId: input.requestId,
+        model: modelInfo,
+      };
 
-    // --- resolve the model ------------------------------------------------
-    const requiresGrounding = input.mode !== 'chat';
-    const requiresVision =
-      (input.attachments?.length ?? 0) > 0 || history.some((t) => (t.attachments?.length ?? 0) > 0);
-    const { entry, routing } = await resolveModel(
-      this.svc,
-      input,
-      prefs,
-      requiresGrounding,
-      requiresVision,
-      project?.instructions.length ?? 0,
-    );
-    timing.mark('model_resolve');
-    if (historyAlias !== entry.alias) {
-      historyAlias = entry.alias;
-      ({ turns: history } = await loadHistory(this.svc, input.chatId, input.messageId, latestCompaction?.throughSeq, historyAlias));
-    }
-    turnLog.stage('model', {
-      requested: input.modelAlias,
-      resolved: entry.alias,
-      provider: entry.provider,
-      providerModelId: entry.providerModelId,
-      needsVision: requiresVision,
-      needsGrounding: requiresGrounding,
-      ...(routing ? { autoRule: routing.rule, considered: routing.considered } : {}),
-    });
-    // A probe ran inside resolution when the alias's status was checked during this turn.
-    timing.note('probed', (this.registry.lastProbedAt(entry.alias) ?? 0) >= timing.since);
-    timing.note('model', entry.alias);
-    const provider = this.registry.providerFor(entry);
-    if (!provider) {
-      throw new ApiError('model_unavailable', {
-        detail: `No adapter is registered for provider "${entry.provider}".`,
-      });
-    }
-
-    // The web is searched when it helps, in every chat: the search
-    // tool is offered on every turn the web is on, and the model decides whether to use it.
-    // Search and Research modes still require it.
-    const searchAvailable = entry.supportsGrounding && provider.supportsGrounding();
-    const grounded = searchAvailable && (requiresGrounding || this.cfg.ENABLE_WEB);
-    if (requiresGrounding && !grounded) {
-      // Search and research promise cited answers. Rather than quietly degrade to an
-      // uncited chat reply, say the capability is off and let the user choose.
-      throw new ApiError('capability_unavailable', {
-        detail:
-          `${input.mode === 'research' ? 'Research' : 'Search'} needs a grounding provider, ` +
-          'which is not enabled for the selected model. Switch to Chat, or enable ' +
-          'grounding in the server configuration.',
-        meta: { mode: input.mode, alias: entry.alias },
-      });
-    }
-
-    const codeExecution = input.codeExecution && (provider.supportsCodeExecution?.() ?? false);
-    if (input.codeExecution && !codeExecution) {
-      // The Anthropic adapter has no code-execution tool on Vertex (ADR-0004): never silently run the turn
-      // on a different model than the one the caller asked for just because it can run code.
-      throw new ApiError('capability_unavailable', {
-        detail:
-          'Code execution needs a provider with a code-execution tool, which the selected ' +
-          'model does not have on Vertex. Switch to a Gemini model, or turn code execution off.',
-        meta: { alias: entry.alias },
-      });
-    }
-
-    const modelInfo: ModelInfo = {
-      requested: input.modelAlias,
-      resolved: entry.alias,
-      provider: entry.provider,
-      providerModelId: entry.providerModelId!,
-      ...(routing ? { routing: { rule: routing.rule, considered: routing.considered } } : {}),
-      grounded,
-      codeExecution,
-    };
-
-    turnLog.setModel({ requested: input.modelAlias, resolved: entry.alias, providerModelId: entry.providerModelId!, grounded });
-    turnLog.stage('capabilities', { builtInSearch: grounded, searchAvailable, codeExecution });
-
-    yield {
-      type: 'start',
-      messageId: input.messageId,
-      chatId: input.chatId,
-      requestId: input.requestId,
-      model: modelInfo,
-    };
-
-    // --- compact a long conversation (ADR-0019) ------------------------------
-    let compactedNow = false;
-    if (this.cfg.ENABLE_CONTEXT_COMPACTION) {
-      timing.mark('before_compaction');
-      const compacted = yield* compactIfNeeded(this.svc, input, prefs, entry, provider);
-      compactedNow = compacted;
-      timing.mark('compaction');
-      timing.note('compacted', compacted);
-      turnLog.stage('compaction', { compacted });
-      if (compacted) {
-        latestCompaction = await compactionService.getLatestCompaction(input.chatId, this.db);
-        ({ turns: history } = await loadHistory(this.svc, input.chatId, input.messageId, latestCompaction?.throughSeq, entry.alias));
-      }
-    }
-
-    const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents } =
-      yield* buildTurnContext(this.svc, input, {
+      const { compactedNow, latestCompaction, history } = yield* compactStage(this.svc, input, {
         prefs,
-        project,
-        history,
         entry,
-        grounded,
-        compactedNow,
-        latestCompaction,
-        workspace,
+        provider,
+        latestCompaction: prepared.latestCompaction,
+        history: prepared.history,
         timing,
         turnLog,
       });
 
-    const state = createTurnState(segments, contextEvents.length);
-    const addSegment = (type: 'thinking' | 'text', text: string) => {
-      const last = state.segments.at(-1);
-      if (last && last.type === type) last.text += text;
-      else state.segments.push({ type, text });
-    };
-    if (
-      yield* streamAndCollect(this.svc, input, state, {
-        provider,
-        request,
+      const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents } =
+        yield* buildTurnContext(this.svc, input, {
+          prefs,
+          project,
+          history,
+          entry,
+          grounded,
+          compactedNow,
+          latestCompaction,
+          workspace,
+          timing,
+          turnLog,
+        });
+
+      const state = createTurnState(segments, contextEvents.length);
+      const addSegment = (type: 'thinking' | 'text', text: string) => {
+        const last = state.segments.at(-1);
+        if (last && last.type === type) last.text += text;
+        else state.segments.push({ type, text });
+      };
+      if (
+        yield* streamAndCollect(this.svc, input, state, {
+          provider,
+          request,
+          entry,
+          prefs,
+          reasoningEffort,
+          startedAt,
+          timing,
+          turnLog,
+          logOutcome,
+          releaseReservation,
+          addSegment,
+          pendingUiEvents,
+        })
+      ) {
+        return;
+      }
+
+      // --- persist ----------------------------------------------------------
+      let text = state.collectedText.join('');
+
+      text = yield* forcedAnswer(state, { request, provider, turnLog, addSegment }, text);
+
+      yield* settleTurn(this.svc, input, state, {
         entry,
         prefs,
+        text,
         reasoningEffort,
-        startedAt,
-        timing,
         turnLog,
         logOutcome,
-        releaseReservation,
-        addSegment,
-        pendingUiEvents,
-      })
-    ) {
-      return;
-    }
-
-    // --- persist ----------------------------------------------------------
-    let text = state.collectedText.join('');
-
-    text = yield* forcedAnswer(state, { request, provider, turnLog, addSegment }, text);
-
-    yield* settleTurn(this.svc, input, state, {
-      entry,
-      prefs,
-      text,
-      reasoningEffort,
-      turnLog,
-      logOutcome,
-      startedAt,
-      allowedTools: routingDecision.allowedTools,
-      loadedSkills,
-    });
+        startedAt,
+        allowedTools: routingDecision.allowedTools,
+        loadedSkills,
+      });
     } catch (err) {
       // A failure outside the provider stream (model resolution, a limit, the budget, saving):
       // the log says which stage it came after, then the error goes on as before.
