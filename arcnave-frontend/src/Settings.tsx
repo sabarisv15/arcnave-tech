@@ -851,7 +851,6 @@ function Usage() {
     dailyTokenBudget: "",
     monthlyTokenBudget: "",
     warnThresholdPct: "",
-    routingPreference: "balanced",
     timezone: "UTC",
   });
 
@@ -864,7 +863,6 @@ function Usage() {
       monthlyTokenBudget:
         next.monthlyTokenBudget === null ? "" : String(next.monthlyTokenBudget),
       warnThresholdPct: String(next.warnThresholdPct),
-      routingPreference: next.routingPreference,
       timezone: next.timezone,
     });
   };
@@ -915,7 +913,6 @@ function Usage() {
         monthlyTokenBudget: numeric(form.monthlyTokenBudget),
         warnThresholdPct:
           Number(form.warnThresholdPct) || limits.warnThresholdPct,
-        routingPreference: form.routingPreference,
         timezone: form.timezone,
         version: limits.version,
       })
@@ -1095,24 +1092,6 @@ function Usage() {
         />
         <span className="field-help">
           Percent of a budget before ArcNave warns you.
-        </span>
-      </label>
-      <label className="field-label">
-        Routing preference
-        <select
-          value={form.routingPreference}
-          onChange={(e) =>
-            setForm({ ...form, routingPreference: e.target.value })
-          }
-        >
-          <option value="economy">
-            Economy — prefer the cheapest capable model
-          </option>
-          <option value="balanced">Balanced</option>
-          <option value="quality">Quality — prefer the strongest model</option>
-        </select>
-        <span className="field-help">
-          Used by Auto. Ignored when you pick a model yourself.
         </span>
       </label>
       <label className="field-label">

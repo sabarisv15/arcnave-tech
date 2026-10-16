@@ -26,6 +26,8 @@ const STORAGE_KEY = /\b[0-9a-f]{4}\/\d{4}\/\d{2}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const ISO = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g;
 const DATE_LINE = /The current date is [^()]+? \(time zone ([^)]+)\)\./g;
+/** The v3 per-turn time (ADR-0075): IST with offset and weekday. */
+const CURRENT_TIME = /<current_time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:30 [A-Z][a-z]+day IST<\/current_time>/g;
 
 export function plain(value: unknown): string {
   return JSON.stringify(value, function (this: unknown, _key, v: unknown) {
@@ -68,7 +70,8 @@ export function normalise(value: unknown): unknown {
       return `<uuid-${String(ids.get(key))}>`;
     })
     .replace(ISO, '<iso>')
-    .replace(DATE_LINE, 'The current date is <date> (time zone $1).');
+    .replace(DATE_LINE, 'The current date is <date> (time zone $1).')
+    .replace(CURRENT_TIME, '<current_time><ist-now></current_time>');
   return extractLong(JSON.parse(text));
 }
 

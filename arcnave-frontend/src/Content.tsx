@@ -6,7 +6,7 @@ import { ExternalLink, Download, Image as ImageIcon, AlertCircle } from "lucide-
 import type { Source } from "./types";
 import { url as resolveApiUrl } from "./api";
 import { downloadAuthenticated } from "./storage";
-import { remarkPlugins, rehypePlugins, sharedMarkdownComponents } from "./markdownPlugins";
+import { normalizeMathDelimiters, remarkPlugins, rehypePlugins, sharedMarkdownComponents } from "./markdownPlugins";
 
 export interface MarkdownContextValue {
   isStreaming: boolean;
@@ -312,7 +312,7 @@ export function Markdown({
             ),
           }}
         >
-          {text}
+          {normalizeMathDelimiters(text)}
         </ReactMarkdown>
       </div>
     </MarkdownContext.Provider>

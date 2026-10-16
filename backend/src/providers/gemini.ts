@@ -4,6 +4,7 @@
  * Deliberately not the legacy Vertex generative modules: those were removed on 2026-06-24.
  * See docs/backend-research.md section 1.
  */
+import { neutraliseDocumentText, neutraliseReservedTags } from '../services/prompt/reservedTags.js';
 import { StreamedCallAssembler } from './streamedCall.js';
 import { ApiError as GeminiApiError, FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Content, FunctionDeclaration, GoogleGenAIOptions, Part, Blob as GeminiBlob } from '@google/genai';
@@ -49,7 +50,7 @@ function attachmentParts(attachments: GenerationRequest['attachments']): Part[] 
           : page.image?.base64
             ? [{ inlineData: { mimeType: page.image.mimeType, data: page.image.base64 } satisfies GeminiBlob }]
             : []),
-        { text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.` },
+        { text: page.text ? `Text of page ${String(page.num)}:\n${neutraliseReservedTags(page.text)}` : `Page ${String(page.num)} has no text layer; read it from the image.` },
       ]));
     }
     return [attachmentPart(a)];
@@ -75,7 +76,7 @@ function attachmentPart(a: NonNullable<GenerationRequest['attachments']>[number]
   if (text !== null) {
     const shownName = a.filename ? nameForModel(a.filename) : '';
     const nameAttr = shownName.trim() ? ` filename="${shownName}"` : '';
-    return { text: `<document${nameAttr}>\n${text}\n</document>` };
+    return { text: `<document${nameAttr}>\n${neutraliseDocumentText(text)}\n</document>` };
   }
 
   // 3. Nothing sendable: say so. No raw bytes under an unsupported MIME type (G15, G17).
@@ -181,7 +182,12 @@ export function buildGeminiContents(request: GenerationRequest): Content[] {
     return [{ role: turn.role === 'user' ? 'user' : 'model', parts }];
   });
 
-  const currentParts: Part[] = [...attachmentParts(request.attachments), { text: request.prompt }];
+  // The turn preamble is its own leading part (Stage 6: "separate content part before user text").
+  const currentParts: Part[] = [
+    ...(request.turnPreamble ? [{ text: request.turnPreamble }] : []),
+    ...attachmentParts(request.attachments),
+    { text: request.prompt },
+  ];
   const allContents = [...historyContents, { role: 'user', parts: currentParts }];
 
   // Merge adjacent same-role turns so multi-turn requests alternate between 'user' and 'model' (e.g. after a terminal tool result)

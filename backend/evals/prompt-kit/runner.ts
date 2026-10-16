@@ -130,7 +130,8 @@ export function planLine(args: RunnerArgs, caseCount: number, judged: number): s
 
 const sha12 = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 12);
 
-/** First 12 hex of the sha256 of the assembled static system prompt. */
+/** First 12 hex of the sha256 of a text (the static prompt of a scenario, in tests). The run stamps the
+ *  turn's own prompt version instead (v3Prompt.promptVersion, ADR-0075). */
 export function promptStamp(stableSystemText: string): string {
   return sha12(stableSystemText);
 }
@@ -326,7 +327,7 @@ export function formatCommitSummary(meta: SummaryMeta, records: RunRecord[]): st
   return [
     `# Prompt eval run ${meta.utcDate} · ${meta.models.join(', ')} · prompt ${meta.prompt12}`,
     '',
-    `- prompt version: static system prompt sha256[:12] = \`${meta.prompt12}\`; tool declarations sha256[:12] = \`${meta.tools12}\``,
+    `- prompt version: v3 base file + appendix sha256[:12], per rendering used = \`${meta.prompt12}\`; tool declarations sha256[:12] = \`${meta.tools12}\``,
     `- kit: \`06-eval-cases-v1.json\` sha256 \`${meta.kitSha256}\`; ${String(meta.caseCount)} cases × ${String(meta.runs)} runs`,
     `- judges (cross-vendor, report-only until calibrated): ${Object.entries(meta.judges).map(([k, v]) => `${k} answers → ${v}`).join('; ')}`,
     '- judge verdicts are **report-only**: they gate nothing until the judge is calibrated.',

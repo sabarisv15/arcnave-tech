@@ -64,28 +64,6 @@ failure mode of this pattern, not a sign it is working.
 
 ## Entries
 
-### 2026-09-17 — The frontend pointed at the Cloud Run URL directly, and the session cookie stopped working
-
-- **Symptom:** Logging in returned `200` with the correct user object — server logs showed
-  nothing wrong — but the app immediately behaved as signed out, showing "Your session ended."
-  (Same banner text as the unrelated 2026-09-17 sign-out entry above; a different cause,
-  confirm which one before reusing that fix.)
-- **Cause:** `src/api.ts`'s `API_BASE` fallback had been pointed at the Cloud Run service's own
-  `*.run.app` URL directly — a different registrable domain from the frontend at
-  `www.arcnave.tech` — while the session cookie is `SameSite=Lax`. A Lax cookie is stored from a
-  cross-site response but is **never attached to a subsequent cross-site `fetch`**, only to
-  same-site requests or top-level navigations. Login worked and set the cookie; the very next
-  `fetch` (checking the session) silently went out without it.
-- **Rule:** **The frontend and the API must be same-origin in production, not merely
-  CORS-permitted.** `credentials: "include"` and a permissive `Access-Control-Allow-Origin` do
-  not fix a `SameSite=Lax` cookie across origins — only same-site (or `SameSite=None`, with its
-  own trade-offs) does. Route `/v1/*` through the same host the frontend is served from (a
-  Worker/proxy in production, matching what `vite.config.ts` already does in development) rather
-  than pointing `VITE_API_BASE` at the backend's own domain.
-- **Verify:** After login, `document.cookie` will not show the (HttpOnly) session cookie, but
-  the *next* authenticated request must succeed. If `GET /v1/auth/me` right after login returns
-  `user: null`, the API is cross-site from the frontend's perspective — check `API_BASE` first.
-
 ### 2026-09-17 — `docker start arcnave-pg` fails in this Claude Code web/cloud sandbox
 
 - **Symptom:** `global-setup.ts`'s own error message ("Is Postgres running? `docker start
@@ -800,6 +778,21 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `docs/ops/p05-result.md` per-step gates come from one sequential script
   (`docs/ops/p05-gates.sh`); every step shows the same count with 0 failed.
 
+### 2026-10-16 — A gate suite run while the tree was being edited reported a mix of old and new code
+
+- **Symptom:** In tech-p07 the baseline `npx vitest run` and a later full run were started in the
+  background, and editing went on while they ran. The second run reported 117 failures, some in
+  files already fixed (routing, usage) and some against tests half-rewritten at that moment; the
+  numbers described no single tree.
+- **Cause:** Vitest loads each test file and its imports when that file's worker starts, minutes
+  into a 9-minute run. Files edited meanwhile are read at whatever state they are in.
+- **Rule:** **A gate run is valid only for a tree that did not change during it.** Start the
+  sequential suite after the last edit, and edit nothing it imports (source, tests, prompt files,
+  docs a test reads) until it ends; write only files no test reads (new ADR or result docs).
+  A run that overlapped an edit is a hint list, never a gate number.
+- **Verify:** `git stash list` empty and `git status --short` unchanged between the start and the
+  end of the run; the gate line in the result doc names the commit or tree it ran on.
+
 ### 2026-10-16 — New guards and a fixture were wrong in ways the first green run hid
 
 - **Symptom:** (1) The grep guard for `topP` (case-insensitive) matched "stopped" in 10 source files;
@@ -842,6 +835,30 @@ practice, not canon.
 
 ## Changelog
 
+- **2026-10-16 (tech-p07, v3 prompt + Auto routing)** — Added the edited-during-a-gate-run entry.
+  Retired the oldest, "The frontend pointed at the Cloud Run URL directly, and the session cookie
+  stopped working" (2026-09-17), by the cap-40 rule; its rule stays here: the frontend and the API
+  must be same-origin in production (a `SameSite=Lax` cookie is not sent on a cross-site fetch);
+  route `/v1/*` through the frontend's host, never point `VITE_API_BASE` at the backend's own domain.
+  Not new headings: (1) twelve P03 requirement patterns said they accepted any wording that serves
+  the rule but matched only the legacy sentences, and three matched a tag merely *named* in the v3
+  prose (`<company_instructions`, `<pending_operations`, `<available_skills>`) — a presence check
+  must match the rendered block; both now have negative tests. (2) `evals/prompt-kit/kit.ts` cached
+  the skill service before `await load()`, so concurrent case builds read an empty service: cache
+  the promise, not the value. (3) The first `\( \)` normaliser was two lazy regexes, 12.8 s on
+  50,000 unmatched openers; the linear-time test written with it (the 2026-10-16 security-fix rule)
+  caught it before the commit. Review round 2 repeated three existing entries, so no new heading:
+  (4) a round-1 fix line in the static appendix ("which flag covers which tool") named tools the
+  turn had not declared (the 2026-09-26 tool-naming entry; caught by `projectKnowledge`); (5) the
+  round-1 math fix added `.replace(/\s*\n\s*/g, " ")`, quadratic on a long run of spaces, and the
+  linear-time test did not cover that branch (the security-fix rule: the adversarial test must
+  reach every scan the fix adds); (6) the round-1 reserved-tag neutraliser matched any case and
+  generic names, so it changed pasted code — a filter on user text needs a test of ordinary code it
+  must leave alone, not only of the forgery it stops. Round 3 repeated (5) once more: the round-2
+  neutraliser put an invisible-character class (with U+FEFF) next to `\s*`, which also matches
+  U+FEFF, and was quadratic (3 s at 40k); its linear test used only spaces. (7) A pattern is
+  linear only if no two adjacent repeated classes overlap; the linear test must run once per
+  character class the pattern repeats. **40 entries.**
 - **2026-10-16 (tech-p03, quality harness)** — Added the new-guards entry. Retired the oldest,
   "`gcloud run services update --set-env-vars` after a failed deploy compounded the damage"
   (2026-09-17), by the cap-40 rule; its rule stays here: never use `--set-env-vars` for an

@@ -8,8 +8,8 @@
 import { AnthropicProvider } from '../providers/anthropic.js';
 import type { GenerationRequest, ToolCall, ToolDefinition, ToolResult } from '../providers/types.js';
 import { loadConfig } from '../config.js';
-import { buildCapabilityRegistry } from '../capabilities/factory.js';
-import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
+import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
+import { ProjectToolRegistry } from '../tools/registry.js';
 import {
   ASK_USER_INPUT,
   codeToolDefinitions,
@@ -39,8 +39,11 @@ async function main() {
     ENABLE_SKILLS: 'true',
   });
 
-  const registry = buildCapabilityRegistry(cfg);
-  const masterPrompt = buildBaseSystemPrompt(cfg, registry);
+  // The v3 Claude stable text for a turn with the web and sandbox tools (ADR-0075).
+  const masterPrompt = buildStablePrefix(
+    'anthropic',
+    new ProjectToolRegistry(true, { codeEnabled: true, webEnabled: true }).getAvailableTools({ projectId: null, allowCode: true }),
+  ).systemText;
   const provider = new AnthropicProvider(cfg);
   const modelId = (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })());
 

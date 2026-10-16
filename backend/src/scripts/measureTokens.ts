@@ -10,8 +10,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { createAnthropicClient } from '../providers/anthropic.js';
 import { loadConfig } from '../config.js';
-import { buildCapabilityRegistry } from '../capabilities/factory.js';
-import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
+import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
+import { ProjectToolRegistry } from '../tools/registry.js';
 
 async function main() {
   console.log('=== ArcNave Master System Prompt v1: Exact Token Measurement ===\n');
@@ -24,8 +24,10 @@ async function main() {
     ENABLE_SKILLS: 'true',
   });
 
-  const registry = buildCapabilityRegistry(cfg);
-  const prompt = buildBaseSystemPrompt(cfg, registry);
+  // The v3 Gemini stable text for a turn with every tool on (ADR-0075).
+  const tools = new ProjectToolRegistry(true, { codeEnabled: true, webEnabled: true, memoryEnabled: true, generativeUiEnabled: true })
+    .getAvailableTools({ projectId: 'measure', allowCode: true });
+  const prompt = buildStablePrefix('google', tools).systemText;
 
   const charCount = prompt.length;
   const wordCount = prompt.split(/\s+/).filter(Boolean).length;

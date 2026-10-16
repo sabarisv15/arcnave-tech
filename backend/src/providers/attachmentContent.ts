@@ -6,6 +6,7 @@
  * decoded and passed off as text. The model is told what is missing, why, and the fileId that
  * still reaches the stored file through a tool.
  */
+import { neutraliseReservedTags } from '../services/prompt/reservedTags.js';
 import type { AttachmentBlock } from './types.js';
 
 /** MIME types whose raw bytes are text, so decoding them as UTF-8 is faithful. */
@@ -32,6 +33,8 @@ export function attachmentText(a: AttachmentBlock): string | null {
     if (decoded.trim() !== '') text = decoded;
   }
   if (text === null) return null;
+  // File text is the likeliest carrier of a forged block: it sits in the same turn as them.
+  text = neutraliseReservedTags(text);
   if (a.omittedReason) return `${unavailableAttachmentNote(a)}\nExtracted text follows.\n\n${text}`;
   if (a.textOnlyPageCount) {
     return (

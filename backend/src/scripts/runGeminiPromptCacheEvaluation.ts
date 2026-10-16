@@ -47,7 +47,7 @@ async function main() {
     WEB_FETCH,
   ];
 
-  const prefix = buildStablePrefix(tools);
+  const prefix = buildStablePrefix('google', tools);
 
   // Grounding & architectural reference context to bring prefix above Gemini 3.8 Flash threshold (>= 6,144 tokens)
   const docContext = `\n\n### Project Context Specification\n` +

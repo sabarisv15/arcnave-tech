@@ -1,5 +1,14 @@
 # ArcNave — current checkpoint
 
+> **2026-10-16: tech-p07 — Stage 6 v3 system prompts replace the legacy builder (P07), and Auto routes to Gemini by Stage 7 rules (P10). Branch `build/prompt-v3` (from `origin/main` @ `7cd294b`, P03 merged); not merged, not deployed, not run live.**
+> - Record: [ADR-0075](../decisions/0075-v3-prompts-replace-the-legacy-builder.md) (prompt), [ADR-0076](../decisions/0076-auto-routes-to-gemini-by-rules.md) (routing); evidence: [`docs/ops/p07-result.md`](../ops/p07-result.md); owner live steps: [`docs/ops/p07-live-checklist.md`](../ops/p07-live-checklist.md).
+> - `backend/prompts/system/v3/{claude,gemini}.md` = the renderings' code blocks + a whole-token tool-name map (drift test, byte for byte); a transitional product-tools appendix (ours) for tools with no stage equivalent; Stage 6 layout (Claude: system = stable + session state, per-turn first in the user turn; Gemini: system = stable only, session + per-turn lead the turn); escaping; `promptVersion` on every turn. Legacy builder deleted. Frontend renders `\( \)` / `\[ \]`.
+> - Auto = Gemini 3.8 Flash always (never Sonnet/Opus; Opus never kept); `routingPreference` UI removed, API accept-and-ignore, column kept (DEFERRED).
+> - P03 harness: offline C-gate 8/28 → 24/28 (20/28 with the backing feature in place); snapshots, budgets, requirement patterns and the live-runner wiring updated on purpose.
+> - Review (ADR-0068): two rounds (fresh Opus reviewer, `/code-review`, `/security-review`); round 2 found and fixed a quadratic math join, a reserved-tag filter that changed pasted code, and file text that could forge a block. 0 BLOCKER / MAJOR open that this task can fix.
+> - Owner decisions open: past-chat tools vs v3 LM-1, Gemini knowledge cutoff (unverified), skill loader via `view`, IST for every user. Models: Opus 5.5 main and reviewers.
+> - Next: owner runs `npm run eval:prompt` on the branch against the P03 baseline, then the merge (= deploy), then the live checklist.
+
 > **2026-10-16: tech-p03 — answer-quality measurement harness (the "before" for P07 prompt / P10 routing). Branch `build/quality-eval` (from `origin/main` @ `7eb900b`, P05 merged); measurement only, not merged, not deployed.**
 > - Record: [ADR-0074](../decisions/0074-measure-first-quality-harness.md); evidence per step: [`docs/ops/p03-result.md`](../ops/p03-result.md); how to run: [`docs/ops/eval-runs/README.md`](../ops/eval-runs/README.md); found-not-fixed: [`DEFERRED.md`](../ops/audit/DEFERRED.md) "tech-p03".
 > - The 68 Stage 6 cases are in the repo (`backend/evals/prompt-kit/06-eval-cases-v1.json`, byte-identical to the master, sha256 `2bb6eae6…2765c`, owner-confirmed). 48 are offline-checkable (request-side requirements, `promptKit.test.ts`), 20 live-only. Offline critical cases: 28; 8 fully met, 20 have a recorded prompt gap (34 gaps in all, each with a reason in `EXPECTED_GAPS`). Gaps are P07/P10 work; nothing was patched.

@@ -29,7 +29,7 @@ import { ModelNotFoundError, ProviderError } from '../providers/types.js';
 import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCompact.js';
 import type { TestContext } from './harness.js';
 import { pdfWithPages } from './fixtures/files.js';
-import { createTestApp, multipart, postProjectFile, signUp } from './harness.js';
+import { createTestApp, multipart, postProjectFile, promptOf, signUp } from './harness.js';
 import { answer, ASK, AttemptsProvider, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, upload, usage } from './turnSnapshot.js';
 
 /* -------------------------------------------------------------------------- instruments */
@@ -535,7 +535,7 @@ describe('turn characterization paths', () => {
         },
       ];
       const res = await generate(s, chatId, { prompt: 'What is the budget figure?' });
-      expect(s.provider.seen.at(-1)!.systemInstruction).toContain('<project_knowledge>');
+      expect(promptOf(s.provider.seen.at(-1)!)).toContain('<project_knowledge>\n');
       expect(res.frames.find((f) => f.event === 'tool_result')?.data).toMatchObject({ name: 'search_project_files', ok: true });
       return { chatId, responses: [res] };
     });
@@ -565,7 +565,7 @@ describe('turn characterization paths', () => {
       };
       const last = await generate(s, chatId, { prompt: 'turn 5' });
       responses.push(last);
-      expect(s.provider.seen.at(-1)!.systemInstruction).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
+      expect(promptOf(s.provider.seen.at(-1)!)).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
       expect(last.frames.find((f) => f.event === 'debug')?.data).toMatchObject({ trace: { loadedSkills: ['pdf'] } });
       return { chatId, responses };
     });

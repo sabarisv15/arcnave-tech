@@ -32,6 +32,7 @@ import type { GenerateInput, PreferencesRow } from './input.js';
 import { persistEvent } from './persistence.js';
 import type { TurnServices } from './services.js';
 import { buildToolExecutors } from './toolset.js';
+import { neutraliseReservedTags } from '../prompt/sessionState.js';
 
 // The module tag the turn's log lines had before the split (ADR-0067).
 const log = logger.child({ module: 'generation' });
@@ -117,38 +118,9 @@ export async function* buildTurnContext(
   // Skills are listed only when view can read them (Invariant 1). After a compaction, the
   // skills read in the summarised turns come back in full (ADR-0027): the summary alone would
   // leave a skill the model believes it has read.
-  const { skillsContext, loadedSkills, skillsEnabled } = await buildSkillsContext(svc, input, activeToolNames, latestCompaction);
+  const { skills, skillsReadEarlier, loadedSkills, skillsEnabled } = await buildSkillsContext(svc, input, activeToolNames, latestCompaction);
 
-  // --- assemble context -------------------------------------------------
-  timing.mark('skills_tools');
-  turnLog.stage('skills', {
-    enabled: skillsEnabled,
-    listed: skillsEnabled ? svc.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : [],
-    reinjectedAfterCompaction: loadedSkills.map((s) => s.name),
-  });
-  const { systemInstruction, contextEvents, promptAssembly } = await buildSystemInstruction(
-    svc,
-    input,
-    prefs,
-    project,
-    availableTools,
-    skillsContext,
-    // Every allowed tool is declared (ADR-0047); with tool use off, none is.
-    availableTools.map((t) => t.name),
-    grounded,
-  );
-  for (const event of contextEvents) {
-    yield event;
-    await persistEvent(svc, input.messageId, event);
-  }
-
-  timing.mark('system_prompt');
-  turnLog.stage('system prompt', {
-    characters: systemInstruction.length,
-    parts: Object.entries(promptAssembly.dynamicSuffix)
-      .filter(([, v]) => typeof v === 'string' && v.trim() !== '')
-      .map(([k, v]) => `${k} ${String((v as string).length)}`),
-  });
+  // Effort before the prompt: `<profile>` in the session state is read from it (RT-4).
   const modelSpec = getModelCapability(entry.alias);
   const maxOutputTokens = Math.min(
     prefs.maxOutputTokens || svc.cfg.DEFAULT_MAX_OUTPUT_TOKENS,
@@ -160,6 +132,39 @@ export async function* buildTurnContext(
   const reasoningEffort = effortFor(modelSpec, requestedEffort);
   timing.note('effort', reasoningEffort ?? null);
   if (input.effort) timing.note('requestedEffort', input.effort);
+
+  // --- assemble context -------------------------------------------------
+  timing.mark('skills_tools');
+  turnLog.stage('skills', {
+    enabled: skillsEnabled,
+    listed: skills.map((s) => s.name),
+    reinjectedAfterCompaction: loadedSkills.map((s) => s.name),
+  });
+  const { systemInstruction, turnPreamble, contextEvents, promptAssembly } = await buildSystemInstruction(
+    svc,
+    input,
+    prefs,
+    project,
+    // Every allowed tool is declared (ADR-0047); with tool use off, none is.
+    availableTools,
+    { skills, ...(skillsReadEarlier ? { skillsReadEarlier } : {}) },
+    grounded,
+    entry,
+    reasoningEffort,
+  );
+  for (const event of contextEvents) {
+    yield event;
+    await persistEvent(svc, input.messageId, event);
+  }
+
+  timing.mark('system_prompt');
+  // The prompt version is a hash of the prompt files, never their text (Stage 17 NO_CONTENT).
+  timing.note('promptVersion', promptAssembly.promptVersion);
+  turnLog.stage('system prompt', {
+    promptVersion: promptAssembly.promptVersion,
+    characters: systemInstruction.length,
+    parts: Object.entries(promptAssembly.blockSizes).map(([k, v]) => `${k} ${String(v)}`),
+  });
 
   // --- reserve budget ---------------------------------------------------
   // The reservation is the worst case for this request; it is released as soon as the real
@@ -251,7 +256,7 @@ export async function* buildTurnContext(
 
   const promptParts: string[] = [];
   if (attachmentManifestBlock) promptParts.push(attachmentManifestBlock);
-  promptParts.push(input.prompt);
+  promptParts.push(neutraliseReservedTags(input.prompt));
   const effectivePrompt = promptParts.join('\n\n');
 
   // The previous request's size, for the turn log only: no adapter shortens a request on it,
@@ -260,9 +265,11 @@ export async function* buildTurnContext(
   const previousContextTokens = compactedNow ? null : await previousContextTokensOf(svc, input);
   const request: GenerationRequest = {
     prompt: effectivePrompt,
-    history: wire.history,
+    // Earlier messages cannot carry a reserved tag either (the same rule as the current message).
+    history: wire.history.map((t) => (t.text ? { ...t, text: neutraliseReservedTags(t.text) } : t)),
     attachments: wire.current,
     systemInstruction,
+    ...(turnPreamble ? { turnPreamble } : {}),
     promptAssembly,
     mode: input.mode,
     maxOutputTokens,
@@ -282,6 +289,6 @@ export async function* buildTurnContext(
       .map((a) => a.filename ?? a.id),
     previousContextTokens,
   });
-  turnLog.sent(request, skillsEnabled ? svc.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : []);
+  turnLog.sent(request, skills.map((s) => s.name));
   return { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents };
 }

@@ -37,6 +37,12 @@ export interface ModelCapabilitySpec {
   maxPdfPagesPerRequest: number | null;
   /** Maximum request body in bytes on the platform we call, or `null` when not verified. */
   maxRequestBytes: number | null;
+  /**
+   * The model's reliable knowledge cutoff as YYYY-MM, from the provider's own model page, or
+   * `null` when no official page could be read: `<model_info>` then leaves the attribute out
+   * rather than guess (ADR-0075).
+   */
+  knowledgeCutoff: string | null;
 }
 
 /**
@@ -50,6 +56,9 @@ export interface ModelCapabilitySpec {
  * Both size figures are whole-request limits; the 1M window means 600 pages applies.
  */
 const CLAUDE_API_MAX_PDF_PAGES = 600;
+/** Models overview, "Reliable knowledge cutoff: Jun 2026" for Sonnet 5.5 and Opus 5.5.
+ *  https://platform.claude.com/docs/en/about-claude/models/overview, read 2026-10-16. */
+const CLAUDE_55_KNOWLEDGE_CUTOFF = '2026-06';
 const CLAUDE_API_MAX_REQUEST_BYTES = 32_000_000;
 
 const CLAUDE_SONNET_55_SPEC: ModelCapabilitySpec = {
@@ -66,6 +75,7 @@ const CLAUDE_SONNET_55_SPEC: ModelCapabilitySpec = {
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
   maxPdfPagesPerRequest: CLAUDE_API_MAX_PDF_PAGES,
   maxRequestBytes: CLAUDE_API_MAX_REQUEST_BYTES,
+  knowledgeCutoff: CLAUDE_55_KNOWLEDGE_CUTOFF,
 };
 
 const CLAUDE_OPUS_55_SPEC: ModelCapabilitySpec = {
@@ -82,6 +92,7 @@ const CLAUDE_OPUS_55_SPEC: ModelCapabilitySpec = {
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], // effort ladder (Claude models doc)
   maxPdfPagesPerRequest: CLAUDE_API_MAX_PDF_PAGES,
   maxRequestBytes: CLAUDE_API_MAX_REQUEST_BYTES,
+  knowledgeCutoff: CLAUDE_55_KNOWLEDGE_CUTOFF,
 };
 
 const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
@@ -102,6 +113,9 @@ const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
   // own rejection (mapped to provider_payload_limit) is the backstop.
   maxPdfPagesPerRequest: null,
   maxRequestBytes: null,
+  // Google's model page could not be read from the build environment on 2026-10-16 (Stage 7.9
+  // says Mar 2026, from secondary sources); unverified, so not stated (DEFERRED).
+  knowledgeCutoff: null,
 };
 
 export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
@@ -141,6 +155,7 @@ export function getModelCapability(aliasOrModelId: string): ModelCapabilitySpec 
     contextWindowTokens: 128_000,
     maxPdfPagesPerRequest: null,
     maxRequestBytes: null,
+    knowledgeCutoff: null,
   };
 }
 

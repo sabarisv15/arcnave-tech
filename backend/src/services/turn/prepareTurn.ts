@@ -74,14 +74,7 @@ export async function prepareTurn(
   const requiresGrounding = input.mode !== 'chat';
   const requiresVision =
     (input.attachments?.length ?? 0) > 0 || history.some((t) => (t.attachments?.length ?? 0) > 0);
-  const { entry, routing } = await resolveModel(
-    svc,
-    input,
-    prefs,
-    requiresGrounding,
-    requiresVision,
-    project?.instructions.length ?? 0,
-  );
+  const { entry, routing } = await resolveModel(svc, input, requiresGrounding, requiresVision);
   timing.mark('model_resolve');
   if (historyAlias !== entry.alias) {
     historyAlias = entry.alias;

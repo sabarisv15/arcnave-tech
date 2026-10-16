@@ -130,8 +130,6 @@ const envSchema = z.object({
   MODEL_SONNET: modelId('claude-sonnet-5-5'),
   MODEL_OPUS: modelId('claude-opus-5-5'),
 
-  AUTO_ROUTE_LONG_PROMPT_CHARS: int(2000),
-  AUTO_ROUTE_LONG_CONTEXT_CHARS: int(8000),
   MODEL_PROBE_TTL_SECONDS: int(300),
   /** N-43 (repo value, ADR-0024/0054): one provider request, stream included; no first-token cutoff. */
   PROVIDER_TIMEOUT_MS: int(NUMBERS.PROVIDER_TIMEOUT_MS.value),

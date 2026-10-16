@@ -45,7 +45,6 @@ const preferencesSchema = z.object({
   dailyTokenBudget: z.number().nullable(),
   monthlyTokenBudget: z.number().nullable(),
   warnThresholdPct: z.number(),
-  routingPreference: z.string(),
   timezone: z.string(),
   version: z.number(),
   updatedAt: z.string().nullable(),
@@ -187,7 +186,6 @@ function toDto(row: PrefsRow): z.infer<typeof preferencesSchema> {
     dailyTokenBudget: row.dailyTokenBudget,
     monthlyTokenBudget: row.monthlyTokenBudget,
     warnThresholdPct: row.warnThresholdPct,
-    routingPreference: row.routingPreference,
     // Normalised on the way out so the client never renders a zone the server will not honour.
     timezone: resolveZone(row.timezone),
     version: row.version,

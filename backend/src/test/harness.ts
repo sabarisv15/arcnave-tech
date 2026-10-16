@@ -166,6 +166,15 @@ export class FakeProvider implements Provider {
   }
 }
 
+/**
+ * Everything a request gives the model besides the history and the user's message: the system
+ * instruction and the turn's leading text. For Gemini the session state (memory, instructions,
+ * project files) is in the turn, not the system instruction (ADR-0075).
+ */
+export function promptOf(request: { systemInstruction: string; turnPreamble?: string }): string {
+  return `${request.systemInstruction}\n\n${request.turnPreamble ?? ''}`;
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -41,7 +41,7 @@ async function main() {
     WEB_FETCH,
   ];
 
-  const prefix = buildStablePrefix(tools);
+  const prefix = buildStablePrefix('anthropic', tools);
   console.log(`\nTool bundle: ${prefix.bundleName}`);
   console.log(`Tool bundle hash: ${prefix.toolBundleHash.slice(0, 12)}...`);
   console.log(`Stable prefix hash: ${prefix.prefixHash.slice(0, 12)}...`);

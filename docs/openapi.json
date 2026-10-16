@@ -5080,9 +5080,6 @@
                         "warnThresholdPct": {
                           "type": "number"
                         },
-                        "routingPreference": {
-                          "type": "string"
-                        },
                         "timezone": {
                           "type": "string"
                         },
@@ -5118,7 +5115,6 @@
                         "dailyTokenBudget",
                         "monthlyTokenBudget",
                         "warnThresholdPct",
-                        "routingPreference",
                         "timezone",
                         "dailyUsed",
                         "monthlyUsed",
@@ -5179,9 +5175,6 @@
                     "warnThresholdPct": {
                       "type": "number"
                     },
-                    "routingPreference": {
-                      "type": "string"
-                    },
                     "timezone": {
                       "type": "string"
                     },
@@ -5220,7 +5213,6 @@
                     "dailyTokenBudget",
                     "monthlyTokenBudget",
                     "warnThresholdPct",
-                    "routingPreference",
                     "timezone",
                     "dailyUsed",
                     "monthlyUsed",
@@ -5274,12 +5266,9 @@
                     "maximum": 100
                   },
                   "routingPreference": {
+                    "description": "Deprecated, no effect. Auto routes by rules only (ADR-0076); the value is accepted and ignored.",
                     "type": "string",
-                    "enum": [
-                      "economy",
-                      "balanced",
-                      "quality"
-                    ]
+                    "maxLength": 32
                   },
                   "timezone": {
                     "type": "string",
@@ -5316,9 +5305,6 @@
                     },
                     "warnThresholdPct": {
                       "type": "number"
-                    },
-                    "routingPreference": {
-                      "type": "string"
                     },
                     "timezone": {
                       "type": "string"
@@ -5358,7 +5344,6 @@
                     "dailyTokenBudget",
                     "monthlyTokenBudget",
                     "warnThresholdPct",
-                    "routingPreference",
                     "timezone",
                     "dailyUsed",
                     "monthlyUsed",
@@ -5607,9 +5592,6 @@
                     "warnThresholdPct": {
                       "type": "number"
                     },
-                    "routingPreference": {
-                      "type": "string"
-                    },
                     "timezone": {
                       "type": "string"
                     },
@@ -5639,7 +5621,6 @@
                     "dailyTokenBudget",
                     "monthlyTokenBudget",
                     "warnThresholdPct",
-                    "routingPreference",
                     "timezone",
                     "version",
                     "updatedAt"
@@ -5813,9 +5794,6 @@
                     "warnThresholdPct": {
                       "type": "number"
                     },
-                    "routingPreference": {
-                      "type": "string"
-                    },
                     "timezone": {
                       "type": "string"
                     },
@@ -5845,7 +5823,6 @@
                     "dailyTokenBudget",
                     "monthlyTokenBudget",
                     "warnThresholdPct",
-                    "routingPreference",
                     "timezone",
                     "version",
                     "updatedAt"

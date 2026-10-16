@@ -6,11 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildCapabilityRegistry } from '../capabilities/factory.js';
 import { InMemoryCapabilityRegistry } from '../capabilities/registry.js';
-import { loadConfig } from '../config.js';
 import { markdownToDocumentSpec, markdownToSpreadsheetSpec } from '../services/documents.js';
-import { buildBaseSystemPrompt } from '../services/systemPrompt.js';
+import { buildScenario } from './promptKit/scenarios.js';
 import { ProjectToolRegistry } from '../tools/registry.js';
 
 describe('Capability Regression Suite', () => {
@@ -93,23 +91,20 @@ Please fill the details below.
 
   describe('4. Truthful Base System Prompt', () => {
     it('only advertises tools and capabilities configured as available', () => {
-      const cfg = loadConfig({
-        ENABLE_TOOL_USE: 'true',
-        ENABLE_RUN_PYTHON: 'true',
-        ENABLE_WEB: 'false',
-        ENABLE_SKILLS: 'true',
-      });
-
-      const caps = buildCapabilityRegistry(cfg);
-      const prompt = buildBaseSystemPrompt(cfg, caps);
+      // Sandbox and skills on, web off: the v3 prompt as assembled (ADR-0075).
+      const s = buildScenario({ python: true, skills: true, web: false });
+      const prompt = s.whole;
 
       expect(prompt).toContain('ArcNave');
-      expect(prompt).not.toContain('create_artifact');
+      // The stage name is mapped to the declared tool (toolNameMap.ts).
+      expect(prompt).not.toMatch(/\bcreate_artifact\b/);
       expect(prompt).toContain('An artifact is a file written with create_file');
       expect(prompt).toContain('bash_tool');
       expect(prompt).toContain('view the SKILL.md');
-      // Web tool is disabled
-      expect(prompt).not.toContain('web_search');
+      // Web is disabled: no web tool declared, and the capability is stated off.
+      expect(s.toolNames).not.toContain('web_search');
+      expect(s.toolNames).not.toContain('web_fetch');
+      expect(prompt).toContain('web_search="off" fetch_url="off"');
     });
   });
 

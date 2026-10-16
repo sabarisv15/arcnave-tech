@@ -42,7 +42,6 @@ export interface PreferencesRow {
   dailyTokenBudget: number | null;
   monthlyTokenBudget: number | null;
   warnThresholdPct: number;
-  routingPreference: string;
   timezone: string;
   effort?: ReasoningEffort | null;
   /** The user's memory setting (ADR-0052). */

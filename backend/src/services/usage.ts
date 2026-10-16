@@ -470,7 +470,7 @@ export class UsageService {
 
   async summary(
     userId: string,
-    prefs: BudgetPrefs & { maxOutputTokens: number; routingPreference: string },
+    prefs: BudgetPrefs & { maxOutputTokens: number },
   ): Promise<UsageSummary> {
     const now = new Date();
     const { dayStart, monthStart } = periodBounds(now, prefs.timezone);
@@ -488,7 +488,6 @@ export class UsageService {
         dailyTokenBudget: prefs.dailyTokenBudget,
         monthlyTokenBudget: prefs.monthlyTokenBudget,
         warnThresholdPct: prefs.warnThresholdPct,
-        routingPreference: prefs.routingPreference,
         timezone: resolveZone(prefs.timezone),
         dailyUsed: state.dailyUsed,
         monthlyUsed: state.monthlyUsed,
@@ -543,7 +542,6 @@ export interface UsageSummary {
     dailyTokenBudget: number | null;
     monthlyTokenBudget: number | null;
     warnThresholdPct: number;
-    routingPreference: string;
     timezone: string;
     dailyUsed: number;
     monthlyUsed: number;

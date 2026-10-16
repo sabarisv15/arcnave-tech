@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 
 import { preferences, styles, usageRecords } from '../db/schema.js';
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, signUp } from '../test/harness.js';
+import { createTestApp, signUp, promptOf } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -465,8 +465,8 @@ describe('WP-05 Styles API Integration Tests', () => {
       // 5. Verify fake provider saw the concise style instructions in prompt
       const lastRequest = ctx.provider.seen.at(-1);
       expect(lastRequest).toBeDefined();
-      expect(lastRequest!.systemInstruction).toContain('<style_instructions>');
-      expect(lastRequest!.systemInstruction).toContain('Respond concisely');
+      expect(promptOf(lastRequest!)).toContain('<style_instructions>\n');
+      expect(promptOf(lastRequest!)).toContain('Respond concisely');
 
       // 6. Verify preferences.styleId was NOT overwritten on generate (user instruction 1)
       const currentPrefsAfter = (await ctx.app.inject({ method: 'GET', url: '/v1/preferences', headers: auth() })).json();

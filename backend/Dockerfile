@@ -49,6 +49,8 @@ COPY package.json ./
 # The migration runner reads these at startup, before the server binds.
 COPY drizzle ./drizzle
 COPY skills ./skills
+# The v3 system prompt files (ADR-0075), read relative to dist/services/prompt.
+COPY prompts ./prompts
 
 # The `node` user ships with the image; creating our own would only add a UID to remember.
 # The upload volume has to be writable by it, so ownership is set here rather than at runtime

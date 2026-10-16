@@ -25,8 +25,6 @@ const REPAIRED = [
 
 const SANDBOX_IDENTIFIERS = 'hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts)';
 const STALE: Record<string, string> = {
-  'runBehaviorEvaluation.ts': 'frozen Master Prompt v1 scenarios, removed tool read_uploaded_file, hard-coded project and retired model name; superseded by npm run eval:prompt',
-  'runReliabilityMatrix.ts': 'built on the runBehaviorEvaluation scenarios and the old builder, hard-coded project; superseded by npm run eval:prompt',
   'testBatch6RehydrationLive.ts': 'describes the removed in-memory tool registry (LOAD_SKILL / SEARCH_TOOLS) and the inspectPdf tool',
   'testCloudRunDirect.ts': SANDBOX_IDENTIFIERS,
   'testDynamicOutput.ts': SANDBOX_IDENTIFIERS,
