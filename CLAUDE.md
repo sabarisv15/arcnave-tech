@@ -1,6 +1,6 @@
 # ArcNave
 
-React 19 + Vite frontend, Node 22 + Fastify 5 backend, PostgreSQL 16, Vertex AI.
+React 19 + Vite frontend, Node 22 + Fastify 5 backend, PostgreSQL 16, Claude Platform (Claude) and Vertex AI (Gemini).
 
 **Read [`mistakes.md`](mistakes.md) before writing code, and add to it before you finish.**
 It is the log of what has already gone wrong here. Every entry cost a debugging session; none
@@ -93,7 +93,7 @@ docker start arcnave-pg
 - **A transaction is not a lock.** Serialising writers needs `FOR UPDATE`, or a unique
   constraint plus a retry. Not a bare `SELECT max(...)`.
 - **Tests must never reach a provider.** Providers are injected through the service container;
-  `src/test/harness.ts` supplies fakes. Nothing in the suite may spend Vertex quota.
+  `src/test/harness.ts` supplies fakes. Nothing in the suite may spend provider quota.
 - **A decision is not changed until the document recording it is changed**, in the same commit.
   ADRs are superseded, not rewritten — the record of what was decided has value even when the
   decision was reversed.

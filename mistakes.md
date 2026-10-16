@@ -10,6 +10,12 @@
   the configured `python` executable, not only `python3`. Parse Markdown front matter after
   normalizing CRLF so Windows checkouts validate the same content as Linux.
 
+- **2026-10-16 (Claude Platform task, existing 40-entry cap)** — A task brief described work
+  (swap `AnthropicVertex` for the first-party client, per-provider readiness) that ADR-0054 had
+  already done two days earlier; the brief was written from an older picture of the repo. Rule:
+  grep the code and `docs/decisions/` for what a brief asks to build before planning, and do only
+  the delta. Verify: `grep -rn "vertex-sdk\|AnthropicVertex" backend/src` is empty.
+
 **Owner:** the coding agent. Humans may prune it; the agent writes it.
 **Read:** at the start of every session, before touching code.
 **Write:** before closing any task, while the mistake is still fresh.

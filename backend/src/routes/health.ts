@@ -8,6 +8,7 @@
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
+import { providerReadiness } from '../config.js';
 import { pingDb } from '../db/client.js';
 import type { AppInstance } from '../types.js';
 
@@ -51,6 +52,7 @@ export async function healthRoutes(app: AppInstance): Promise<void> {
             checks: z.object({
               database: z.boolean(),
               vertexConfigured: z.boolean(),
+              anthropicConfigured: z.boolean(),
               groundingConfigured: z.boolean(),
               storageBackend: z.string(),
             }),
@@ -60,6 +62,7 @@ export async function healthRoutes(app: AppInstance): Promise<void> {
             checks: z.object({
               database: z.boolean(),
               vertexConfigured: z.boolean(),
+              anthropicConfigured: z.boolean(),
               groundingConfigured: z.boolean(),
               storageBackend: z.string(),
             }),
@@ -74,18 +77,20 @@ export async function healthRoutes(app: AppInstance): Promise<void> {
       const checks = {
         database,
         vertexConfigured: cfg.vertexConfigured,
+        anthropicConfigured: cfg.anthropicConfigured,
         groundingConfigured:
           cfg.ENABLE_GOOGLE_SEARCH_GROUNDING || cfg.ENABLE_ANTHROPIC_WEB_SEARCH,
         storageBackend: cfg.STORAGE_BACKEND,
       };
 
-      // Without a database nothing works, so that is the only hard failure. Missing Vertex
-      // configuration is "degraded": the app still serves history, projects, and settings.
+      // Without a database nothing works, so that is the only hard failure. A provider that is
+      // in use (a model id is configured for it) but lacks credentials is "degraded": the app
+      // still serves history, projects, and settings.
       if (!database) {
         return reply.status(503).send({ status: 'unavailable' as const, checks });
       }
       return reply.send({
-        status: checks.vertexConfigured ? ('ready' as const) : ('degraded' as const),
+        status: providerReadiness(cfg).ready ? ('ready' as const) : ('degraded' as const),
         checks,
       });
     },

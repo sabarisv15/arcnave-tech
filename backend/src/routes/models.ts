@@ -20,7 +20,7 @@ const modelSchema = z.object({
   provider: z.string(),
   tier: z.string(),
   available: z.boolean(),
-  /** ok | not_configured | vertex_not_configured | probe_failed | unknown */
+  /** ok | not_configured | vertex_not_configured | anthropic_not_configured | probe_failed | unknown */
   reason: z.string(),
   detail: z.string(),
   supportsGrounding: z.boolean(),
