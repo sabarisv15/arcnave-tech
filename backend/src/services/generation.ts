@@ -19,7 +19,6 @@
  */
 import { VISUAL_MAX_HTML_BYTES } from './ui/validator.js';
 import { asc } from 'drizzle-orm';
-import { AnswerProtocolGuard } from './answerProtocolGuard.js';
 import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../tools/catalog.js';
 import type { Config } from '../config.js';
 import type { Database } from '../db/client.js';
@@ -28,7 +27,7 @@ import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import { type ModelRegistry, AUTO_ALIAS } from '../providers/registry.js';
 import { effortFor, getModelCapability } from '../providers/capabilitiesTable.js';
-import { type AttachmentBlock, type GenerationRequest, type HistoryToolCall, type ProviderSource, type ProviderUsage, type ReasoningEffort, addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, toolCallAsText, toolResultPreview, withoutImageBytes } from '../providers/types.js';
+import { type AttachmentBlock, type GenerationRequest, type ReasoningEffort, addRequestUsage, isAbort, ModelNotFoundError, toolCallAsText, toolResultPreview, withoutImageBytes } from '../providers/types.js';
 import { buildAttachmentManifest, contextNote } from './attachments/manifest.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { applyFileBudget, applyManyImagesRule, familyOf, useNormalisedImages } from './attachments/fileBudget.js';
@@ -57,6 +56,7 @@ import { resolveModel } from './turn/modelRouting.js';
 import { buildToolExecutors } from './turn/toolset.js';
 import { streamWithRetry, FailedAfterToolRun, refusalError, isTurnDeadline, mapProviderError, visualDrafts } from './turn/providerLoop.js';
 import { persistEvent, persistToolCall, finalise } from './turn/persistence.js';
+import { createTurnState } from './turn/turnState.js';
 
 const log = logger.child({ module: 'generation' });
 
@@ -509,33 +509,12 @@ export class GenerationService {
     });
     turnLog.sent(request, skillsEnabled ? this.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0).map((s) => s.name) : []);
 
-    let usage: ProviderUsage = EMPTY_USAGE;
-    let finishReason = 'stop';
-    let status: 'complete' | 'cancelled' | 'error' = 'complete';
-    let errorCode: string | null = null;
-    // Set when the provider failed after a tool ran (ER-2b): the turn ends with what it has.
-    let endedPartial = false;
-    const collectedText: string[] = [];
-    const collectedThinking: string[] = [];
-    const answerGuard = new AnswerProtocolGuard();
+    const state = createTurnState(segments, contextEvents.length);
     const addSegment = (type: 'thinking' | 'text', text: string) => {
-      const last = segments.at(-1);
+      const last = state.segments.at(-1);
       if (last && last.type === type) last.text += text;
-      else segments.push({ type, text });
+      else state.segments.push({ type, text });
     };
-    const collectedSources: ProviderSource[] = [];
-    let searchEntryPoint: string | undefined;
-    let eventOrdinal = contextEvents.length;
-    const pendingToolInputs = new Map<string, unknown>();
-    // Gemini's signature for a call, stored so a later turn can replay the call as it was made.
-    const pendingSignatures = new Map<string, string>();
-    const toolsCalled: string[] = [];
-    // This turn's calls with their results. The adapter's loop keeps them in its own request; a
-    // forced answer after the loop is a new request, and without these it cannot see the work.
-    const turnCalls: HistoryToolCall[] = [];
-    // Characters of each visual draft already sent, by draft id.
-    const draftSent = new Map<string, number>();
-
     try {
       const stream = streamWithRetry(this.svc, provider.stream.bind(provider), request);
       timing.mark('before_provider');
@@ -556,8 +535,8 @@ export class GenerationService {
         if (event.type === 'tool_use') timing.note('toolCalls', (toolCallCount += 1));
         switch (event.type) {
           case 'delta': {
-            const safe = answerGuard.push(event.text);
-            collectedText.push(safe);
+            const safe = state.answerGuard.push(event.text);
+            state.collectedText.push(safe);
             addSegment('text', safe);
             turnLog.text(safe);
             if (safe) yield { type: 'delta', text: safe };
@@ -566,14 +545,14 @@ export class GenerationService {
 
           case 'thinking':
             turnLog.thinking(event.text);
-            collectedThinking.push(event.text);
+            state.collectedThinking.push(event.text);
             addSegment('thinking', event.text);
             yield { type: 'thinking', text: event.text };
             break;
 
           case 'sources': {
-            collectedSources.push(...event.sources);
-            if (event.searchEntryPoint) searchEntryPoint = event.searchEntryPoint;
+            state.collectedSources.push(...event.sources);
+            if (event.searchEntryPoint) state.searchEntryPoint = event.searchEntryPoint;
             const dtos = event.sources.map((s, i) => toSourceDto(s, i + 1));
             yield {
               type: 'sources',
@@ -595,36 +574,36 @@ export class GenerationService {
           case 'tool_input_partial': {
             if (event.name !== 'show_widget') break;
             // A call's index restarts each response; the calls already made keep the id unique.
-            for (const draft of visualDrafts(event.input, `${String(toolsCalled.length + event.index)}`)) {
-              const sent = draftSent.get(draft.draftId) ?? 0;
+            for (const draft of visualDrafts(event.input, `${String(state.toolsCalled.length + event.index)}`)) {
+              const sent = state.draftSent.get(draft.draftId) ?? 0;
               const html = draft.html.slice(0, VISUAL_MAX_HTML_BYTES);
               if (html.length <= sent) continue;
-              draftSent.set(draft.draftId, html.length);
+              state.draftSent.set(draft.draftId, html.length);
               yield { type: 'ui_draft', draftId: draft.draftId, title: draft.title, from: sent, text: html.slice(sent) };
             }
             break;
           }
 
           case 'tool_use': {
-            toolsCalled.push(event.name);
+            state.toolsCalled.push(event.name);
             {
-              const last = segments.at(-1);
+              const last = state.segments.at(-1);
               if (last?.type === 'tools') last.toolCallIds.push(event.toolCallId);
-              else segments.push({ type: 'tools', toolCallIds: [event.toolCallId] });
+              else state.segments.push({ type: 'tools', toolCallIds: [event.toolCallId] });
             }
-            pendingToolInputs.set(event.toolCallId, event.input);
+            state.pendingToolInputs.set(event.toolCallId, event.input);
             turnLog.call(event.toolCallId, event.name, event.input);
-              if (event.thoughtSignature) pendingSignatures.set(event.toolCallId, event.thoughtSignature);
+              if (event.thoughtSignature) state.pendingSignatures.set(event.toolCallId, event.thoughtSignature);
             yield { type: 'tool_use', toolCallId: event.toolCallId, name: event.name, input: event.input };
             break;
           }
 
           case 'tool_result': {
             turnLog.result(event.toolCallId, event.result);
-            turnCalls.push({
+            state.turnCalls.push({
               id: event.toolCallId,
               name: event.name,
-              input: pendingToolInputs.get(event.toolCallId),
+              input: state.pendingToolInputs.get(event.toolCallId),
               result: { ...event.result, content: withoutImageBytes(event.result.content) },
             });
             const preview = toolResultPreview(event.result, this.cfg.TOOL_RESULT_PREVIEW_CHARS);
@@ -643,10 +622,10 @@ export class GenerationService {
               input.messageId,
               event.toolCallId,
               event.name,
-              pendingToolInputs.get(event.toolCallId),
+              state.pendingToolInputs.get(event.toolCallId),
               event.result,
-              eventOrdinal++,
-              pendingSignatures.get(event.toolCallId),
+              state.eventOrdinal++,
+              state.pendingSignatures.get(event.toolCallId),
             );
             while (pendingUiEvents.length > 0) {
               yield pendingUiEvents.shift()!;
@@ -665,7 +644,7 @@ export class GenerationService {
               },
             };
             yield out;
-            await persistEvent(this.svc, input.messageId, out, eventOrdinal++);
+            await persistEvent(this.svc, input.messageId, out, state.eventOrdinal++);
             break;
           }
 
@@ -674,18 +653,18 @@ export class GenerationService {
 
           case 'completed':
             {
-              const tail = answerGuard.finish();
+              const tail = state.answerGuard.finish();
               if (tail) {
-                collectedText.push(tail);
+                state.collectedText.push(tail);
                 addSegment('text', tail);
                 turnLog.text(tail);
                 yield { type: 'delta', text: tail };
               }
             }
-            usage = event.usage;
-            finishReason = event.finishReason;
+            state.usage = event.usage;
+            state.finishReason = event.finishReason;
             this.registry.recordOutcome(entry.alias, { available: true });
-            turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: toolsCalled.length, stream: split.summary() });
+            turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: state.toolsCalled.length, stream: split.summary() });
             break;
         }
       }
@@ -697,34 +676,34 @@ export class GenerationService {
       if (err instanceof FailedAfterToolRun && !deadlineHit && !input.signal.aborted) {
         // The answer so far, the tool calls already stored, and a typed code: never a second run
         // of a tool, never a failure presented as a finished answer (done carries `partial`).
-        endedPartial = true;
-        errorCode = 'partial_after_tool_run';
-        finishReason = 'partial';
+        state.endedPartial = true;
+        state.errorCode = 'partial_after_tool_run';
+        state.finishReason = 'partial';
         const cause = mapProviderError(err.failure).code;
-        turnLog.stage('provider failed after a tool ran', { code: cause, toolCalls: toolsCalled.length });
-        log.warn({ code: cause, chatId: input.chatId, requestId: input.requestId, toolCalls: toolsCalled.length }, 'provider failed after a tool ran; ending the turn partial');
-        const tail = answerGuard.finish();
+        turnLog.stage('provider failed after a tool ran', { code: cause, toolCalls: state.toolsCalled.length });
+        log.warn({ code: cause, chatId: input.chatId, requestId: input.requestId, toolCalls: state.toolsCalled.length }, 'provider failed after a tool ran; ending the turn partial');
+        const tail = state.answerGuard.finish();
         if (tail) {
-          collectedText.push(tail);
+          state.collectedText.push(tail);
           addSegment('text', tail);
           turnLog.text(tail);
           yield { type: 'delta', text: tail };
         }
       } else if (!deadlineHit && (isAbort(err) || input.signal.aborted)) {
-        status = 'cancelled';
+        state.status = 'cancelled';
       } else {
-        status = 'error';
+        state.status = 'error';
         const mapped = mapProviderError(deadlineHit ? input.signal.reason : err);
-        errorCode = mapped.code;
+        state.errorCode = mapped.code;
         turnLog.fail(err);
-        turnLog.stage('provider failed', { code: mapped.code, deadline: deadlineHit, toolCalls: toolsCalled.length });
+        turnLog.stage('provider failed', { code: mapped.code, deadline: deadlineHit, toolCalls: state.toolsCalled.length });
         log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
         await finalise(this.svc, input, {
-          text: collectedText.join(''),
-          thinking: collectedThinking.join(''),
-          segments,
-          sources: collectedSources,
-          searchEntryPoint,
+          text: state.collectedText.join(''),
+          thinking: state.collectedThinking.join(''),
+          segments: state.segments,
+          sources: state.collectedSources,
+          searchEntryPoint: state.searchEntryPoint,
           status: 'error',
           errorCode: mapped.code,
           finishReason: null,
@@ -743,18 +722,18 @@ export class GenerationService {
           modelAlias: entry.alias,
           provider: entry.provider,
           providerModelId: entry.providerModelId!,
-          usage,
+          usage: state.usage,
           startedAt,
           status: 'error',
           errorCode: mapped.code,
         });
-        Object.assign(logOutcome, { status: 'error', errorCode: mapped.code, usage });
+        Object.assign(logOutcome, { status: 'error', errorCode: mapped.code, usage: state.usage });
         yield {
           type: 'error',
           code: mapped.code,
           title: mapped.title,
           detail: mapped.detail,
-          usage: toUsageDto(usage, null),
+          usage: toUsageDto(state.usage, null),
         };
         return;
       }
@@ -763,16 +742,16 @@ export class GenerationService {
     }
 
     // --- persist ----------------------------------------------------------
-    let text = collectedText.join('');
+    let text = state.collectedText.join('');
 
     // Guaranteed Final Outcome: synthesize text if tool loop finished blank. Not after a provider
     // failure that ended the turn partial: it ends with what it has (ER-2b).
-    if (status === 'complete' && !endedPartial && text.trim().length === 0) {
+    if (state.status === 'complete' && !state.endedPartial && text.trim().length === 0) {
       turnLog.stage('empty reply', { note: 'the tool loop ended with no text; one more request, without tools, asks for the answer' });
       try {
         // The loop's tool steps live only in the adapter's own request, so they are written into
         // this one: an answer "from the results above" with no results in the request is a re-do.
-        const workDone = turnCalls.map((c) => toolCallAsText(c)).join('\n\n');
+        const workDone = state.turnCalls.map((c) => toolCallAsText(c)).join('\n\n');
         const synthesisRequest: GenerationRequest = {
           ...request,
           tools: [],
@@ -786,47 +765,47 @@ export class GenerationService {
         const synthesisStream = provider.stream(synthesisRequest);
         for await (const event of synthesisStream) {
           if (event.type === 'delta' && event.text) {
-            const safe = answerGuard.push(event.text);
-            collectedText.push(safe);
+            const safe = state.answerGuard.push(event.text);
+            state.collectedText.push(safe);
             addSegment('text', safe);
             turnLog.text(safe);
             if (safe) yield { type: 'delta', text: safe };
           } else if (event.type === 'completed') {
-            const tail = answerGuard.finish();
+            const tail = state.answerGuard.finish();
             if (tail) {
-              collectedText.push(tail);
+              state.collectedText.push(tail);
               addSegment('text', tail);
               turnLog.text(tail);
               yield { type: 'delta', text: tail };
             }
             // A second request of the same turn: billed on top of the first.
-            usage = addRequestUsage(usage, event.usage);
+            state.usage = addRequestUsage(state.usage, event.usage);
             // A loop that ran out of tool steps stays marked so: the user is offered Continue, and
             // the forced answer's own "stop" must not hide that the work was cut short.
-            if (finishReason !== 'tool_limit') finishReason = event.finishReason;
+            if (state.finishReason !== 'tool_limit') state.finishReason = event.finishReason;
           }
         }
-        text = collectedText.join('');
+        text = state.collectedText.join('');
       } catch (synthErr) {
         log.warn({ err: synthErr }, 'Forced synthesis round failed');
         if (synthErr instanceof ApiError && synthErr.code === 'tool_protocol_in_text') {
-          status = 'error';
-          errorCode = synthErr.code;
-          text = collectedText.join('');
-          yield { type: 'error', code: synthErr.code, title: synthErr.title, detail: synthErr.detail, usage: toUsageDto(usage, null) };
+          state.status = 'error';
+          state.errorCode = synthErr.code;
+          text = state.collectedText.join('');
+          yield { type: 'error', code: synthErr.code, title: synthErr.title, detail: synthErr.detail, usage: toUsageDto(state.usage, null) };
         }
       }
 
-      if (status !== 'error' && text.trim().length === 0) {
-        status = 'error';
-        errorCode = 'empty_response';
+      if (state.status !== 'error' && text.trim().length === 0) {
+        state.status = 'error';
+        state.errorCode = 'empty_response';
         const emptyApi = new ApiError('empty_response');
         yield {
           type: 'error',
           code: emptyApi.code,
           title: emptyApi.title,
           detail: emptyApi.detail,
-          usage: toUsageDto(usage, null),
+          usage: toUsageDto(state.usage, null),
         };
       }
     }
@@ -835,25 +814,25 @@ export class GenerationService {
 
     await finalise(this.svc, input, {
       text,
-      thinking: collectedThinking.join(''),
-      segments,
-      sources: collectedSources,
-      searchEntryPoint,
-      status: status === 'cancelled' ? 'stopped' : status === 'error' ? 'error' : 'complete',
-      errorCode,
-      finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
+      thinking: state.collectedThinking.join(''),
+      segments: state.segments,
+      sources: state.collectedSources,
+      searchEntryPoint: state.searchEntryPoint,
+      status: state.status === 'cancelled' ? 'stopped' : state.status === 'error' ? 'error' : 'complete',
+      errorCode: state.errorCode,
+      finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
       entry,
       mode: input.mode,
       questions,
       effort: reasoningEffort,
     });
 
-    turnLog.stage('saved', { status, textCharacters: text.length, segments: segments.length });
+    turnLog.stage('saved', { status: state.status, textCharacters: text.length, segments: state.segments.length });
     Object.assign(logOutcome, {
-      status: status === 'cancelled' ? 'stopped' : status,
-      finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
-      errorCode,
-      usage,
+      status: state.status === 'cancelled' ? 'stopped' : state.status,
+      finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
+      errorCode: state.errorCode,
+      usage: state.usage,
     });
     await this.usage.record({
       userId: input.userId,
@@ -865,31 +844,31 @@ export class GenerationService {
       modelAlias: entry.alias,
       provider: entry.provider,
       providerModelId: entry.providerModelId!,
-      usage,
+      usage: state.usage,
       startedAt,
-      status: status === 'cancelled' ? 'cancelled' : status === 'error' ? 'error' : 'complete',
-      finishReason: status === 'cancelled' ? 'cancelled' : finishReason,
+      status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
+      finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
     });
 
     // A cancelled run has no terminal `done`: the client already knows it stopped, and
     // emitting "done" would claim a completion that did not happen.
-    if (status === 'complete') {
+    if (state.status === 'complete') {
       const debugTrace: RuntimeDebugTrace = {
         loadedSkills: loadedSkills.map((s) => s.name),
         allowedTools: routingDecision.allowedTools,
-        toolsCalled,
+        toolsCalled: state.toolsCalled,
       };
       log.info({ debugTrace }, 'Runtime debug trace');
       yield { type: 'debug', trace: debugTrace };
 
-      const costUsd = computeCostFor(this.cfg, entry.providerModelId!, usage);
+      const costUsd = computeCostFor(this.cfg, entry.providerModelId!, state.usage);
       yield {
         type: 'done',
         questions,
-        usage: toUsageDto(usage, costUsd, usdToInr(this.cfg, costUsd)),
-        finishReason,
+        usage: toUsageDto(state.usage, costUsd, usdToInr(this.cfg, costUsd)),
+        finishReason: state.finishReason,
         ...(reasoningEffort ? { effort: reasoningEffort } : {}),
-        ...(endedPartial ? { partial: true as const, errorCode: 'partial_after_tool_run' as const } : {}),
+        ...(state.endedPartial ? { partial: true as const, errorCode: 'partial_after_tool_run' as const } : {}),
       };
     }
     } catch (err) {
