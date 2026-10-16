@@ -700,6 +700,32 @@
   padding-top: 9px;
 }
 
+/* The reply box is one row: the text, then send. The tools moved under the box
+   (`.composer-under-tools`), so an idle reply is 48 px instead of two rows (~100 px), and the
+   thread above keeps that height. 9 px above and below a 22 px line + 4 px box padding = 48. */
+.composer-reply-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.composer-reply-row > .composer-input {
+  flex: 1 1 auto;
+}
+
+.composer-wrap .composer-k3-reply .composer-reply-row textarea {
+  min-height: 40px;
+  padding: 9px 0;
+}
+
+.composer-reply-row .composer-suggestion {
+  inset: 9px 0 auto;
+}
+
+.composer-reply-row > .send-button {
+  margin-bottom: 4px;
+}
+
 .composer-wrap .composer-k3 .send-button,
 .composer-wrap .composer-k3 .send-button:not(:disabled):hover {
   width: 32px;

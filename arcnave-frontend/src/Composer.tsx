@@ -627,6 +627,202 @@ export default function Composer({
     },
   ];
 
+  const addMenu = (
+    <Dropdown
+      label="Add files and tools"
+      side="top"
+      trigger={
+        <button className="icon-button" aria-label="Add files and tools">
+          <Plus size={21} />
+        </button>
+      }
+      items={[
+        {
+          label: "Upload files",
+          description: "Documents, images, spreadsheets & code",
+          icon: <Paperclip size={16} />,
+          onSelect: () => {
+            if (input.current)
+              input.current.accept =
+                ".pdf,.docx,.pptx,.xlsx,.xls,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.yml,.yaml,.xml,.sql,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.ogg,.flac,.aac,.mp4,.webm,.mov";
+            input.current?.click();
+          },
+        },
+        {
+          label: "Upload images",
+          icon: <Image size={16} />,
+          onSelect: () => {
+            if (input.current)
+              input.current.accept =
+                "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif";
+            input.current?.click();
+          },
+        },
+        {
+          label: "Save response as artifact",
+          description: "Keep this reply as an editable document",
+          icon: <PanelsTopLeft size={16} />,
+          separator: true,
+          onSelect: () => {
+            setArtifact(true);
+            textarea.current?.focus();
+          },
+        },
+      ]}
+    />
+  );
+  const modeMenu = (
+    <Dropdown
+      label="Conversation mode"
+      side="top"
+      trigger={
+        <button
+          className={`quiet-button mode-button ${mode !== "chat" ? "mode-active" : ""}`}
+          aria-label={`Mode: ${mode === "chat" ? "Chat" : mode === "search" ? "Search" : "Research"}`}
+        >
+          {modeIcon}
+          <span className="composer-control-label">{mode === "chat"
+            ? "Chat"
+            : mode === "search"
+              ? "Search"
+              : "Research"}</span>
+          <ChevronDown size={13} />
+        </button>
+      }
+      items={[
+        {
+          label: "Chat",
+          description: "Think, write, and work through ideas",
+          icon: <MessageCircleMore size={16} />,
+          selected: mode === "chat",
+          onSelect: () => setMode("chat"),
+        },
+        {
+          label: "Search",
+          description: grounded
+            ? "A quick answer with references"
+            : models?.capabilities.detail,
+          icon: <Globe2 size={16} />,
+          selected: mode === "search",
+          disabled: !grounded,
+          onSelect: () => setMode("search"),
+        },
+        {
+          label: "Research",
+          description: grounded
+            ? "Explore evidence in more depth"
+            : models?.capabilities.detail,
+          icon: <Telescope size={16} />,
+          selected: mode === "research",
+          disabled: !grounded,
+          onSelect: () => setMode("research"),
+        },
+      ]}
+    />
+  );
+  const styleMenu = (
+    <Dropdown
+      label="Use style"
+      side="top"
+      trigger={
+        <button
+          className={`quiet-button style-button ${activeStyleId !== "normal" ? "style-active" : ""}`}
+          aria-label={`Use style: ${activeStyleName}`}
+        >
+          <PenLine size={15} />
+          <span className="composer-control-label">{activeStyleName}</span>
+          <ChevronDown size={13} />
+        </button>
+      }
+      items={styleItems}
+    />
+  );
+  const dictation = (
+    <DictationButton text={text} setText={setText} onError={toast} disabled={!!ownRun} />
+  );
+  const sendControl = ownRun ? (
+    <button
+      className="send-button"
+      aria-label="Stop response"
+      onClick={stop}
+    >
+      <Square size={13} fill="currentColor" />
+    </button>
+  ) : (
+    <button
+      className="send-button"
+      aria-label="Send message"
+      onClick={submit}
+      disabled={editing || busy || !!blocked || (!text.trim() && !files.length)}
+    >
+      <ArrowUp size={19} />
+    </button>
+  );
+  const inputField = (
+    <div className="composer-input">
+      {showFollowUp && followUpSuggestion && (
+        <div className="composer-suggestion" aria-hidden="true">
+          <span>{followUpSuggestion}</span>
+          <kbd>Tab</kbd>
+        </div>
+      )}
+      <textarea
+        ref={textarea}
+        // One row empty: the default two rows made an idle reply box 62 px of blank text.
+        rows={1}
+        aria-label={
+          showFollowUp && followUpSuggestion
+            ? `Your message. Suggested follow-up: ${followUpSuggestion}. Press Tab to use it.`
+            : "Your message"
+        }
+        placeholder={
+          artifactIntent
+            ? "Describe the artifact you want to create…"
+            : chatId
+            ? showFollowUp && followUpSuggestion
+              ? ""
+              : "Reply…"
+            : "How can I help today? English, தமிழ், Tanglish…"
+        }
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onPaste={(e) => {
+          // A pasted file (a screenshot) attaches, and a long paste becomes a text file,
+          // a "pasted text" attachment instead of message text.
+          const pastedFiles = Array.from(e.clipboardData.files);
+          const asFile = pastedFiles.length ? null : pastedTextFile(e.clipboardData.getData("text/plain"));
+          if (!pastedFiles.length && !asFile) return;
+          e.preventDefault();
+          void addFiles(pastedFiles.length ? pastedFiles : [asFile!]);
+        }}
+        onKeyDown={(e) => {
+          if (
+            (e.key === "Tab" || e.key === "ArrowRight") &&
+            showFollowUp &&
+            followUpSuggestion
+          ) {
+            e.preventDefault();
+            setText(followUpSuggestion);
+            window.requestAnimationFrame(() => {
+              const end = followUpSuggestion.length;
+              textarea.current?.setSelectionRange(end, end);
+            });
+            return;
+          }
+          if (
+            e.key === "Enter" &&
+            !e.shiftKey &&
+            !e.nativeEvent.isComposing &&
+            (preferences.enterToSend || e.ctrlKey || e.metaKey)
+          ) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+      />
+    </div>
+  );
+
   return (
     <div className="composer-wrap">
       {/* Composer K3 on every screen that has one (docs/brand-extra/Fix-Composer.dc.html):
@@ -684,192 +880,24 @@ export default function Composer({
             )}
           </div>
         )}
-        <div className="composer-input">
-          {showFollowUp && followUpSuggestion && (
-            <div className="composer-suggestion" aria-hidden="true">
-              <span>{followUpSuggestion}</span>
-              <kbd>Tab</kbd>
-            </div>
-          )}
-          <textarea
-            ref={textarea}
-            aria-label={
-              showFollowUp && followUpSuggestion
-                ? `Your message. Suggested follow-up: ${followUpSuggestion}. Press Tab to use it.`
-                : "Your message"
-            }
-            placeholder={
-              artifactIntent
-                ? "Describe the artifact you want to create…"
-                : chatId
-                ? showFollowUp && followUpSuggestion
-                  ? ""
-                  : "Reply…"
-                : "How can I help today? English, தமிழ், Tanglish…"
-            }
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onPaste={(e) => {
-              // A pasted file (a screenshot) attaches, and a long paste becomes a text file,
-              // a "pasted text" attachment instead of message text.
-              const pastedFiles = Array.from(e.clipboardData.files);
-              const asFile = pastedFiles.length ? null : pastedTextFile(e.clipboardData.getData("text/plain"));
-              if (!pastedFiles.length && !asFile) return;
-              e.preventDefault();
-              void addFiles(pastedFiles.length ? pastedFiles : [asFile!]);
-            }}
-            onKeyDown={(e) => {
-              if (
-                (e.key === "Tab" || e.key === "ArrowRight") &&
-                showFollowUp &&
-                followUpSuggestion
-              ) {
-                e.preventDefault();
-                setText(followUpSuggestion);
-                window.requestAnimationFrame(() => {
-                  const end = followUpSuggestion.length;
-                  textarea.current?.setSelectionRange(end, end);
-                });
-                return;
-              }
-              if (
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing &&
-                (preferences.enterToSend || e.ctrlKey || e.metaKey)
-              ) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-          />
-        </div>
-        <div className="composer-toolbar">
-          <Dropdown
-            label="Add files and tools"
-            side="top"
-            trigger={
-              <button className="icon-button" aria-label="Add files and tools">
-                <Plus size={21} />
-              </button>
-            }
-            items={[
-              {
-                label: "Upload files",
-                description: "Documents, images, spreadsheets & code",
-                icon: <Paperclip size={16} />,
-                onSelect: () => {
-                  if (input.current)
-                    input.current.accept =
-                      ".pdf,.docx,.pptx,.xlsx,.xls,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.yml,.yaml,.xml,.sql,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.ogg,.flac,.aac,.mp4,.webm,.mov";
-                  input.current?.click();
-                },
-              },
-              {
-                label: "Upload images",
-                icon: <Image size={16} />,
-                onSelect: () => {
-                  if (input.current)
-                    input.current.accept =
-                      "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif";
-                  input.current?.click();
-                },
-              },
-              {
-                label: "Save response as artifact",
-                description: "Keep this reply as an editable document",
-                icon: <PanelsTopLeft size={16} />,
-                separator: true,
-                onSelect: () => {
-                  setArtifact(true);
-                  textarea.current?.focus();
-                },
-              },
-            ]}
-          />
-          <Dropdown
-            label="Conversation mode"
-            side="top"
-            trigger={
-              <button
-                className={`quiet-button mode-button ${mode !== "chat" ? "mode-active" : ""}`}
-                aria-label={`Mode: ${mode === "chat" ? "Chat" : mode === "search" ? "Search" : "Research"}`}
-              >
-                {modeIcon}
-                <span className="composer-control-label">{mode === "chat"
-                  ? "Chat"
-                  : mode === "search"
-                    ? "Search"
-                    : "Research"}</span>
-                <ChevronDown size={13} />
-              </button>
-            }
-            items={[
-              {
-                label: "Chat",
-                description: "Think, write, and work through ideas",
-                icon: <MessageCircleMore size={16} />,
-                selected: mode === "chat",
-                onSelect: () => setMode("chat"),
-              },
-              {
-                label: "Search",
-                description: grounded
-                  ? "A quick answer with references"
-                  : models?.capabilities.detail,
-                icon: <Globe2 size={16} />,
-                selected: mode === "search",
-                disabled: !grounded,
-                onSelect: () => setMode("search"),
-              },
-              {
-                label: "Research",
-                description: grounded
-                  ? "Explore evidence in more depth"
-                  : models?.capabilities.detail,
-                icon: <Telescope size={16} />,
-                selected: mode === "research",
-                disabled: !grounded,
-                onSelect: () => setMode("research"),
-              },
-            ]}
-          />
-          <Dropdown
-            label="Use style"
-            side="top"
-            trigger={
-              <button
-                className={`quiet-button style-button ${activeStyleId !== "normal" ? "style-active" : ""}`}
-                aria-label={`Use style: ${activeStyleName}`}
-              >
-                <PenLine size={15} />
-                <span className="composer-control-label">{activeStyleName}</span>
-                <ChevronDown size={13} />
-              </button>
-            }
-            items={styleItems}
-          />
-          <div className="spacer" />
-          <DictationButton text={text} setText={setText} onError={toast} disabled={!!ownRun} />
-          {ownRun ? (
-            <button
-              className="send-button"
-              aria-label="Stop response"
-              onClick={stop}
-            >
-              <Square size={13} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              className="send-button"
-              aria-label="Send message"
-              onClick={submit}
-              disabled={editing || busy || !!blocked || (!text.trim() && !files.length)}
-            >
-              <ArrowUp size={19} />
-            </button>
-          )}
-        </div>
+        {inlineReply ? (
+          <div className="composer-reply-row">
+            {inputField}
+            {sendControl}
+          </div>
+        ) : (
+          inputField
+        )}
+        {!inlineReply && (
+          <div className="composer-toolbar">
+            {addMenu}
+            {modeMenu}
+            {styleMenu}
+            <div className="spacer" />
+            {dictation}
+            {sendControl}
+          </div>
+        )}
         <input
           ref={input}
           className="sr-only"
@@ -884,8 +912,17 @@ export default function Composer({
         />
       </div>
       {/* Under the composer (docs/brand-extra/Fix-Composer.dc.html): the model and effort on the
-          right; in a conversation the reminder in the middle. */}
-      <div className="composer-under">
+          right. In a conversation the reply box holds only the text and send, so the tools sit
+          here on the left and the reminder in the middle, and the thread keeps the height. */}
+      <div className={`composer-under${inlineReply ? " composer-under-reply" : ""}`}>
+        {inlineReply && (
+          <div className="composer-toolbar composer-under-tools">
+            {addMenu}
+            {modeMenu}
+            {styleMenu}
+            {dictation}
+          </div>
+        )}
         {inlineReply && <span className="composer-under-note">arcnave can make mistakes.</span>}
         {modelMenu}
       </div>
