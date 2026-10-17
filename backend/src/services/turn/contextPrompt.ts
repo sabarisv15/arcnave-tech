@@ -51,8 +51,10 @@ export async function buildSkillsContext(
     for (const s of svc.skills!.listSkills(activeToolNames).filter((x) => x.missingTools.length === 0)) {
       skills.push({ name: s.name, version: s.version, description: s.description, path: `${SKILLS_ROOT}/${s.name}/SKILL.md` });
     }
-    const reinjected = latestCompaction
-      ? await skillsLoadedThrough(svc, input.chatId, latestCompaction.throughSeq)
+    // The turns a compaction or a history summary (ADR-0080) stands in for: their skill reads come back.
+    const coveredThrough = latestCompaction?.throughSeq ?? input.historySummary?.coversUptoSeq;
+    const reinjected = coveredThrough !== undefined
+      ? await skillsLoadedThrough(svc, input.chatId, coveredThrough)
       : [];
     for (const skillName of reinjected) {
       const detail = svc.skills!.getSkill(skillName);
@@ -125,8 +127,11 @@ export async function buildSystemInstruction(
       : undefined;
 
   // 2. Conversation compaction summary: per-turn state (doc-sync 2026-10-14).
-  let summary: { throughSeq: number; text: string } | undefined;
-  if (svc.cfg.ENABLE_CONTEXT_COMPACTION) {
+  let summary: { throughSeq: number; text: string; version?: number } | undefined;
+  // P13 (ADR-0080): the history summary the turn read in prepareTurn, with its version.
+  if (input.historySummary) {
+    summary = { throughSeq: input.historySummary.coversUptoSeq, text: input.historySummary.text, version: input.historySummary.summaryVersion };
+  } else if (svc.cfg.ENABLE_CONTEXT_COMPACTION) {
     const latestCompaction = await compactionService.getLatestCompaction(input.chatId, svc.db);
     if (latestCompaction) {
       const text = compactionService.formatCompactionBody(latestCompaction);

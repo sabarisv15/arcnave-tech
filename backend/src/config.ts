@@ -588,6 +588,32 @@ const envSchema = z.object({
   SAFE_FETCH_GROUNDING_MAX_REDIRECTS: int(8),
   /** One TCP connect attempt before safeFetch tries the host's next checked address (ours). */
   SAFE_FETCH_CONNECT_TIMEOUT_MS: int(3_000),
+
+  // --- P13: history budget, summary, title and router helpers (ADR-0080) --------------------
+  /**
+   * The helper model (title, summary and router shadow jobs): Claude Haiku 5.5 on the first-party
+   * Claude API (owner decision, ADR-0080). A helper row is never a chat model: it is not listed in
+   * /models, never picked by Auto, and never a fallback. Empty turns the helper jobs off; unset
+   * without ANTHROPIC_API_KEY they are skipped with `helper_unavailable` (Invariant 1).
+   */
+  MODEL_HAIKU: modelId('claude-haiku-5-5'),
+  /**
+   * The rolling history summary (Stage 6 CXD-5, N-77) and the N-03 input budget for history.
+   * On by default: the stage's pick is to re-point the old compaction to this summary and retire
+   * the compaction after the switch. With it on, ENABLE_CONTEXT_COMPACTION defaults to false.
+   */
+  ENABLE_HISTORY_SUMMARY: bool(true),
+  /**
+   * Ours, pending the owner (ADR-0080): a turn older than the newest N-16 turns is dropped only
+   * once a summary covers it. False is the stage rule (newest 6 turns only, the rest unsent).
+   */
+  HISTORY_KEEP_UNCOVERED: bool(true),
+  /**
+   * Router M2 in shadow mode (Stage 7 RT-2, N-69): one helper classify call per turn, never
+   * awaited before generation and never changing the route; one coded log line. Off by default
+   * (the stage ships it off until the intent list exists).
+   */
+  ROUTER_SHADOW: bool(false),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -635,6 +661,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
 
   return {
     ...env,
+    // P13 (ADR-0080, OQ-09 / CXD-5): the history summary replaces the compaction; the two never
+    // run together. ENABLE_HISTORY_SUMMARY=false brings the compaction back per its own flag.
+    ENABLE_CONTEXT_COMPACTION: env.ENABLE_HISTORY_SUMMARY ? false : env.ENABLE_CONTEXT_COMPACTION,
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
     vertexConfigured: Boolean(env.GOOGLE_CLOUD_PROJECT),

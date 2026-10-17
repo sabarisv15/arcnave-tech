@@ -42,6 +42,7 @@ import { launchTurn } from '../services/turn/launch.js';
 import { precheckTurn } from '../services/turn/turnGate.js';
 import { GENERATE_ENDPOINT, loadChat, sendFingerprint, startTurn, type StartTurnBody } from '../services/turn/turnStart.js';
 import { latestTurnOfChat, requestCancel } from '../services/turn/turnStore.js';
+import { copySummaries } from '../services/summary/summaryStore.js';
 import { resumeFrom, SseConnection, streamLive, streamStored, type SnapshotFrame } from './turnStream.js';
 import type { AppInstance } from '../types.js';
 import {
@@ -391,7 +392,11 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       if (request.body.projectId) await assertProject(request, request.body.projectId);
 
       const patch: Record<string, unknown> = { version: chat.version + 1, updatedAt: new Date() };
-      if (request.body.title !== undefined) patch['title'] = request.body.title;
+      // P13 (ADR-0080): a rename is the user's; the title job's compare-and-set never overwrites it.
+      if (request.body.title !== undefined) {
+        patch['title'] = request.body.title;
+        patch['titleSource'] = 'user';
+      }
       if (request.body.pinned !== undefined) patch['pinned'] = request.body.pinned;
       if (request.body.projectId !== undefined) patch['projectId'] = request.body.projectId;
 
@@ -402,7 +407,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         .returning();
       // Versions are one conversation: its name, pin and project are shared.
       const shared: Record<string, unknown> = {};
-      for (const key of ['title', 'pinned', 'projectId'] as const) {
+      for (const key of ['title', 'titleSource', 'pinned', 'projectId'] as const) {
         if (key in patch) shared[key] = patch[key];
       }
       if (Object.keys(shared).length > 0) {
@@ -516,6 +521,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
               ? {
                   userId: user.id,
                   title: chat.title,
+                  titleSource: chat.titleSource,
                   projectId: chat.projectId,
                   pinned: chat.pinned,
                   parentChatId: chat.id,
@@ -529,7 +535,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
                 },
           )
           .returning();
-        await copyMessages(tx, kept, created!.id, user.id);
+        await copyMessages(tx, kept, created!.id, user.id, chat.id);
         return created!;
       });
       return reply.status(201).send(toChatDto(branch));
@@ -963,7 +969,7 @@ async function loadVersions(
  * calls and attachments. An attachment row is copied, not its bytes; retention deletes the bytes
  * only when no row outside the purged chat still names them.
  */
-async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, userId: string): Promise<void> {
+async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, userId: string, fromChatId?: string): Promise<void> {
   if (rows.length === 0) return;
   const inserted = await tx
     .insert(messages)
@@ -1014,4 +1020,6 @@ async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, user
   if (events.length) await tx.insert(researchEvents).values(events.map(fresh));
   if (calls.length) await tx.insert(toolCallsTable).values(calls.map(fresh));
   if (files.length) await tx.insert(attachmentsTable).values(files.map(fresh));
+  // P13 (ADR-0080): the summaries over a kept message come along, pointed at the copies.
+  if (fromChatId) await copySummaries(tx, fromChatId, chatId, idFor);
 }

@@ -268,11 +268,14 @@ export const chats = pgTable(
     parentChatId: uuid('parent_chat_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
     rootChatId: uuid('root_chat_id'),
     forkSeq: integer('fork_seq'),
+    /** P13 (ADR-0080): who named the chat: default | prompt | generated | user. A user rename wins. */
+    titleSource: varchar('title_source', { length: 16 }).notNull().default('default'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
+    check('ck_chats_title_source', sql`${t.titleSource} in ('default', 'prompt', 'generated', 'user')`),
     index('ix_chats_user_updated').on(t.userId, t.updatedAt),
     index('ix_chats_project').on(t.projectId),
     index('ix_chats_root').on(t.rootChatId),
@@ -321,6 +324,19 @@ export const messages = pgTable(
     /** The answer's thinking, text and tool steps in the order they happened. Null for answers
      *  stored before it existed; the client then shows them grouped. */
     segments: jsonb('segments').$type<MessageSegment[]>(),
+    // P13 turn stamps (Stage 6 STAMPS, ADR-0080), on the assistant row; ids and counts only.
+    historyTurns: integer('history_turns'),
+    historyDroppedTurns: integer('history_dropped_turns'),
+    ctxTokens: integer('ctx_tokens'),
+    /** Ours: the fixed part (system instruction + tool declarations) of `ctx_tokens`, read by the summary trigger. */
+    ctxFixedTokens: integer('ctx_fixed_tokens'),
+    /** provider | none */
+    ctxCountSource: varchar('ctx_count_source', { length: 16 }),
+    overBudget: boolean('over_budget'),
+    summaryVersion: integer('summary_version'),
+    promptVersion: varchar('prompt_version', { length: 64 }),
+    /** Null until the registry is versioned (P10). */
+    registryVersion: varchar('registry_version', { length: 32 }),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
@@ -1274,3 +1290,43 @@ export const budgetReservations = pgTable(
 
 export type TurnRow = typeof turns.$inferSelect;
 export type BudgetReservation = typeof budgetReservations.$inferSelect;
+
+// --- P13: history summaries (ADR-0080) ------------------------------------------------------
+
+/**
+ * A rolling summary of a chat's earlier turns (Stage 6 CXD-5, N-77). It stands in for every
+ * message up to and including `covers_upto_message_id`, and is used only while that message is
+ * in this chat, below the current user message, and still exists (the FK cascades). A branch
+ * copies the summaries whose covered message it keeps. Text only, at most N-77 6,000 characters.
+ */
+export const summaries = pgTable(
+  'summaries',
+  {
+    id: id(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    coversUptoMessageId: uuid('covers_upto_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    coversUptoSeq: integer('covers_upto_seq').notNull(),
+    summaryVersion: integer('summary_version').notNull(),
+    text: text('text').notNull(),
+    /** The provider model id that wrote it. */
+    model: varchar('model', { length: 128 }).notNull(),
+    /** ready | discarded */
+    status: varchar('status', { length: 16 }).notNull().default('ready'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('uq_summaries_chat_covers').on(t.chatId, t.coversUptoMessageId),
+    uniqueIndex('uq_summaries_chat_version').on(t.chatId, t.summaryVersion),
+    index('ix_summaries_chat_seq').on(t.chatId, t.coversUptoSeq),
+    check('ck_summaries_status', sql`${t.status} in ('ready', 'discarded')`),
+    check('ck_summaries_text_len', sql`char_length(${t.text}) <= 6000`),
+  ],
+);
+
+export type SummaryRow = typeof summaries.$inferSelect;

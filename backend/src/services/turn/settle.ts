@@ -82,6 +82,16 @@ export async function* settleTurn(
     },
   );
 
+  // P13 (ADR-0080): the title and summary jobs start once the settle committed. Never awaited and
+  // never failing the turn; each job reads the stored rows, not this turn's memory.
+  svc.helperJobs?.afterSettle({
+    userId: input.userId,
+    chatId: input.chatId,
+    messageId: input.messageId,
+    status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
+    entry,
+  });
+
   turnLog.stage('saved', { status: state.status, textCharacters: text.length, segments: state.segments.length });
   Object.assign(logOutcome, {
     status: state.status === 'cancelled' ? 'stopped' : state.status,

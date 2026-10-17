@@ -46,6 +46,11 @@ export interface GenerateInput {
   /** The durable turn this run writes for (ADR-0078). Absent for a script calling the service. */
   turn?: TurnBinding;
   checkpoint?: TurnCheckpoint;
+  /**
+   * P13 (ADR-0080): the history summary this turn uses, read once in `prepareTurn` so the
+   * history, the rendered summary and the stamps describe the same row. Null: none applies.
+   */
+  historySummary?: import('../summary/summaryStore.js').ActiveSummary | null;
 }
 
 export interface PreferencesRow {

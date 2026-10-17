@@ -37,6 +37,8 @@ export async function drain(
   clearTimeout(timer);
   const result = { runs: runs.length, settled, ms: Date.now() - began };
   logger.info(result, 'drained');
+  // P13 (ADR-0080): background helper jobs are abandoned, not awaited: the history stays whole.
+  services.helperJobs.close();
   if (opts.closeApp !== false) await app.close();
   if (opts.closeDb) await opts.closeDb();
   return result;

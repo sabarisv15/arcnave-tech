@@ -36,6 +36,7 @@ import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import type { TurnServices } from './turn/services.js';
+import type { HelperJobs } from './helpers/helperJobs.js';
 import type { StreamEvent } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
 import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
@@ -84,6 +85,8 @@ export class GenerationService {
     executionRuntime?: ExecutionRuntime,
     /** Where Gemini reads page images from instead of the request (ADR-0016); unset, inline. */
     private readonly modelInputs?: ModelInputStore,
+    /** P13 (ADR-0080): the helper jobs (title, summary, router shadow). */
+    helperJobs?: HelperJobs,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
@@ -99,6 +102,7 @@ export class GenerationService {
       capabilities: this.capabilities,
       executionRuntime: this.executionRuntime,
       modelInputs,
+      helperJobs,
     };
   }
 

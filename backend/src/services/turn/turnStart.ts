@@ -335,7 +335,8 @@ async function appendMessages(
   if (next === 0) {
     await tx
       .update(chats)
-      .set({ title: prompt.slice(0, 80), updatedAt: new Date() })
+      // P13 (ADR-0080): the placeholder until the title job names the chat (`prompt` → `generated`).
+      .set({ title: prompt.slice(0, 80), titleSource: 'prompt', updatedAt: new Date() })
       .where(eq(chats.id, chatId));
   }
 

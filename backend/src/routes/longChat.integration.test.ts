@@ -18,7 +18,9 @@ let ctx: TestContext;
 let user: TestUser;
 
 beforeAll(async () => {
-  ctx = await createTestApp({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process' });
+  // The compaction (ADR-0019) runs only with the history summary off (ADR-0080); the summary's
+  // own long-chat test is historySummary.integration.test.ts.
+  ctx = await createTestApp({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process', ENABLE_HISTORY_SUMMARY: 'false' });
   user = await signUp(ctx);
 });
 
