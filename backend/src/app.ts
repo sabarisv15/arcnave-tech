@@ -50,9 +50,10 @@ import { NUMBERS } from './config/numbers.js';
 /**
  * SQLSTATEs that mean the database could not serve the request in time, not that the request
  * was wrong: a statement timeout (57014, `statement_timeout`, N-45), a lock wait timeout (55P03,
- * `lock_timeout`) and no free connection (53300).
+ * `lock_timeout`), no free connection (53300), and a serialization failure or a deadlock
+ * (40001 / 40P01) that its transaction's own retries did not get past (review R3).
  */
-export const DB_UNAVAILABLE_CODES = new Set(['57014', '55P03', '53300']);
+export const DB_UNAVAILABLE_CODES = new Set(['57014', '55P03', '53300', '40001', '40P01']);
 /** Ours: the Retry-After of that 503. */
 export const DB_RETRY_AFTER_S = 5;
 

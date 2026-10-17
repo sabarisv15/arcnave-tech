@@ -50,4 +50,15 @@ describe('per-model token bucket (E18)', () => {
     t += 2_000;
     expect(limiter.reserve('Gemini 3.8 Flash')).toBe(0);
   });
+
+  it('a refused wait (above the cap) takes no token, so later calls are not delayed (review R8)', () => {
+    let t = 0;
+    const limiter = new RateLimiter(60, () => t);
+    for (let i = 0; i < 60; i += 1) expect(limiter.reserve('Gemini 3.8 Flash', 500)).toBe(0);
+    // Ten refusals: each would wait 1 s, above the 500 ms cap.
+    for (let i = 0; i < 10; i += 1) expect(limiter.reserve('Gemini 3.8 Flash', 500)).toBeGreaterThan(500);
+    // One second later one token has refilled: the next call starts at once.
+    t += 1_000;
+    expect(limiter.reserve('Gemini 3.8 Flash', 500)).toBe(0);
+  });
 });

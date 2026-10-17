@@ -256,7 +256,8 @@ export class ProviderGateway {
         if (!admitted.ok) throw withPartial(new NotAdmitted(entry.alias, admitted.reason));
         admission = admitted.admission;
       }
-      const wait = this.rateLimiter.reserve(entry.alias);
+      // A wait above the cap takes no token: the refusal is not a call (review R8).
+      const wait = this.rateLimiter.reserve(entry.alias, this.cfg.PROVIDER_RETRY_AFTER_MAX_MS);
       if (wait > this.cfg.PROVIDER_RETRY_AFTER_MAX_MS) {
         admission?.release();
         throw withPartial(new ProviderError(`Local rate limit for "${entry.alias}" is full`, { kind: 'transient', retryAfterMs: wait }));
@@ -281,6 +282,10 @@ export class ProviderGateway {
       let ttftMs: number | undefined;
       let visible = false;
       let toolRan = false;
+      // A consumer that stops iterating (a refusal, a failed tool-call write) closes this
+      // generator with return(): neither the success line nor the catch runs, and a half-open
+      // trial would stay in flight until restart (review R1). The finally gives the admission
+      // back in that case; the breaker settles an admission once, so it is a no-op otherwise.
       try {
         for await (const raw of target.provider.stream(request)) {
           if (ttftMs === undefined) {
@@ -400,6 +405,8 @@ export class ProviderGateway {
         attempt += 1;
         log.warn({ code: 'provider_retry', alias: entry.alias, attempt, delay, kind }, 'retrying provider call');
         await this.clock.sleep(delay, request.signal);
+      } finally {
+        admission?.release();
       }
     }
   }

@@ -4,8 +4,8 @@
  * loaded from.
  *
  * - **One settle, one order.** Success, a provider error, a failure outside the stream and the
- *   sweeper all end a turn through `settleTurnTx`, in this order: lock the turn and check its
- *   fencing token, the message row, its sources, the usage row, the counters, the reservation,
+ *   sweeper all end a turn through `settleTurnTx`, in this order: lock the chat (root, then the
+ *   chat: a start's order), lock the turn and check its fencing token, the message row, its sources, the usage row, the counters, the reservation,
  *   the turn's state, the chat's `updatedAt`. All of it lands, or none of it does.
  * - **Fencing.** A runner writes only while the turn's `fencing_token` is the one it was given.
  *   A takeover increments it, so a runner that lost its lease (a frozen process that wakes up)
@@ -28,6 +28,7 @@ import {
   type TurnParams,
   type TurnRow,
 } from '../../db/schema.js';
+import { NUMBERS } from '../../config/numbers.js';
 import { notFound } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { type AttachmentRef, type CallUsage, type Mode, type ProviderSource, type ProviderUsage, type ReasoningEffort, EMPTY_USAGE } from '../../providers/types.js';
@@ -41,6 +42,12 @@ export interface TurnBinding {
   turnId: string;
   fencingToken: number;
   reservation: ReservationRef | null;
+  /**
+   * Called once the settle of this binding committed: the runner's lease timers stop there, so a
+   * tick that reads the turn after its own settle does not take the ended state for a lost lease
+   * (review R5).
+   */
+  onSettled?: () => void;
 }
 
 /** The runner's lease is gone: another instance took the turn over, or it already ended. */
@@ -135,6 +142,11 @@ export async function settleTurnTx(
     reservation?: 'settled' | 'released' | 'expired';
   },
 ): Promise<void> {
+  // 0. The chat, locked before the turn: the order every start takes (the family's root, then the
+  //    chat, then its turns; `startTurn`). Locking the turn first and reaching the chat later
+  //    (the usage row's foreign key, step 8) deadlocked a Stop-then-Send (review R3).
+  await lockChatFamily(tx, ids.chatId);
+
   // 1. The turn, locked, and still this runner's.
   if (binding) {
     const [row] = await tx
@@ -266,8 +278,27 @@ export async function settleTurnTx(
   await tx.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, ids.chatId));
 }
 
+/**
+ * Locks a chat the way a start does (ADR-0078 lock order: the family's root, then the chat, then
+ * its turns). With `skipLocked` a row another transaction holds is not waited for, and the
+ * result is false (the sweeper leaves that chat for the next sweep, or for the start that holds
+ * it, which takes a lapsed turn over itself).
+ */
+export async function lockChatFamily(tx: Transaction, chatId: string, opts: { skipLocked?: boolean } = {}): Promise<boolean> {
+  const mode = opts.skipLocked ? ({ skipLocked: true } as const) : undefined;
+  const [found] = await tx.select({ rootChatId: chats.rootChatId }).from(chats).where(eq(chats.id, chatId)).limit(1);
+  if (!found) return true;
+  if (found.rootChatId && found.rootChatId !== chatId) {
+    const root = await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, found.rootChatId)).for('update', mode);
+    if (opts.skipLocked && root.length === 0) return false;
+  }
+  const chat = await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, chatId)).for('update', mode);
+  return !(opts.skipLocked && chat.length === 0);
+}
+
 /** SQLSTATEs a whole transaction is retried on (N-45): serialization failure, deadlock. */
-const RETRYABLE = new Set(['40001', '40P01']);
+export const RETRYABLE_TX_STATES = new Set(['40001', '40P01']);
+const RETRYABLE = RETRYABLE_TX_STATES;
 
 export function sqlState(err: unknown): string | undefined {
   let current: unknown = err;
@@ -289,6 +320,7 @@ export async function settleTurn(
   for (let attempt = 0; ; attempt += 1) {
     try {
       await deps.db.transaction((tx) => settleTurnTx(deps, tx, ids, binding, write));
+      binding?.onSettled?.();
       return;
     } catch (err) {
       const state = sqlState(err);
@@ -376,9 +408,6 @@ export interface SweepResult {
   legacyRowsMarked: number;
 }
 
-/** Rows per kind per sweep (ours: N-73's 1,000 batch for `app.chat_sweep`). */
-const SWEEP_BATCH = 1_000;
-
 /**
  * The turn sweeper (boot, then every N-76 60 s): turns whose lease lapsed, reservations nobody
  * settled, idempotency keys past N-34's 24 h, and assistant rows left `generating` from before
@@ -391,16 +420,31 @@ export async function sweepTurns(
 ): Promise<SweepResult> {
   return deps.db.transaction(async (tx) => {
     await withLongStatements(tx, deps.cfg);
-    const due = await tx
-      .select()
+    // The lapse is judged on the database's clock, the one the lease was written on (`dbNowPlus`):
+    // an app clock ahead of it swept live turns (review R4). `now` dates the other cut-offs.
+    // Unlocked here: each turn is locked after its chat (the start's order, review R3).
+    const candidates = await tx
+      .select({ id: turns.id, chatId: turns.chatId })
       .from(turns)
-      .where(and(inArray(turns.state, [...ACTIVE_STATES]), lt(turns.leaseExpiresAt, now)))
+      .where(and(inArray(turns.state, [...ACTIVE_STATES]), sql`${turns.leaseExpiresAt} < now()`))
       .orderBy(asc(turns.leaseExpiresAt))
-      .limit(SWEEP_BATCH)
-      .for('update', { skipLocked: true });
-    for (const turn of due) await interruptTurnTx(deps, tx, turn);
+      .limit(NUMBERS.SWEEP_BATCH.value); // N-73 sweep batch
+    let interrupted = 0;
+    for (const c of candidates) {
+      // A chat another transaction holds (a start, a settle) is left: that start takes a lapsed
+      // turn over itself, and the next sweep sees whatever the settle left.
+      if (!(await lockChatFamily(tx, c.chatId, { skipLocked: true }))) continue;
+      const [turn] = await tx
+        .select()
+        .from(turns)
+        .where(and(eq(turns.id, c.id), inArray(turns.state, [...ACTIVE_STATES]), sql`${turns.leaseExpiresAt} < now()`))
+        .for('update', { skipLocked: true });
+      if (!turn) continue;
+      await interruptTurnTx(deps, tx, turn);
+      interrupted += 1;
+    }
 
-    const reservationsExpired = await deps.usage.expireReservations(tx, now, SWEEP_BATCH);
+    const reservationsExpired = await deps.usage.expireReservations(tx, now, NUMBERS.SWEEP_BATCH.value);
 
     const keyCutoff = new Date(now.getTime() - deps.cfg.IDEMPOTENCY_KEY_TTL_HOURS * 3_600_000);
     const keys = await tx.delete(idempotencyKeys).where(lte(idempotencyKeys.createdAt, keyCutoff)).returning({ id: idempotencyKeys.id });
@@ -419,12 +463,12 @@ export async function sweepTurns(
       .returning({ id: messages.id });
 
     const result = {
-      interrupted: due.length,
+      interrupted,
       reservationsExpired,
       idempotencyKeysDeleted: keys.length,
       legacyRowsMarked: legacy.length,
     };
-    if (due.length > 0 || legacy.length > 0) log.info(result, 'turn sweep');
+    if (interrupted > 0 || legacy.length > 0) log.info(result, 'turn sweep');
     return result;
   });
 }
@@ -464,6 +508,17 @@ export async function loadTurnAttachments(db: DbLike, userId: string, attachment
   return rows.map(toAttachmentRef);
 }
 
+/** The turn's held budget reservation, if it still has one. */
+export async function heldReservation(db: DbLike, turnId: string): Promise<ReservationRef | null> {
+  const [held] = await db
+    .select()
+    .from(budgetReservations)
+    .where(and(eq(budgetReservations.turnId, turnId), eq(budgetReservations.status, 'held')))
+    .orderBy(desc(budgetReservations.createdAt))
+    .limit(1);
+  return held ? reservationRef(held) : null;
+}
+
 /**
  * What `GenerationService.run` needs, read back from the turn's row (D-G3-02: the seam for an
  * executor that is not the process that took the request). The prompt is the user message's own
@@ -496,14 +551,8 @@ export async function loadTurnInput(
     const [user] = await db.select({ text: messages.text }).from(messages).where(eq(messages.id, row.userMessageId)).limit(1);
     prompt = user?.text ?? '';
   }
-  const [held] = await db
-    .select()
-    .from(budgetReservations)
-    .where(and(eq(budgetReservations.turnId, row.id), eq(budgetReservations.status, 'held')))
-    .orderBy(desc(budgetReservations.createdAt))
-    .limit(1);
   return {
-    turn: { turnId: row.id, fencingToken: row.fencingToken, reservation: held ? reservationRef(held) : null },
+    turn: { turnId: row.id, fencingToken: row.fencingToken, reservation: await heldReservation(db, row.id) },
     userId: row.userId,
     chatId: row.chatId,
     messageId: row.assistantMessageId,

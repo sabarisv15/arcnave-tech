@@ -52,6 +52,8 @@ export const KNOWN: KnownRow[] = [
   { nId: 'N-13', file: 'services/turn/contextAttachments.ts', pattern: /\?\? 12_?000_?000/ },
   { nId: 'N-74', file: 'db/schema.ts', pattern: /max_output_tokens'\)\.notNull\(\)\.default\(\d/ },
   { nId: 'N-77', file: 'db/schema.ts', pattern: /<= 6000/ },
+  // p05 review R10: slipped past (b) because 1,000 is a common value; pinned here instead.
+  { nId: 'N-73', file: 'services/turn/turnStore.ts', pattern: /SWEEP_BATCH = \d|\.limit\(1_?000\)|, 1_?000\)/ },
 ];
 
 export function knownHits(files: SourceFile[], rows = KNOWN): string[] {
@@ -87,7 +89,7 @@ export function configKeyHits(configText: string): string[] {
  * with one of these values is pinned by rule (a) and the config-key rule instead.
  */
 const COMMON_VALUES: Record<number, string> = {
-  1_000: 'milliseconds per second; also round caps (poll intervals, sweep batch, UI string limits)',
+  1_000: 'milliseconds per second; also round caps (poll intervals, UI string limits); the N-73 sweep batch is pinned by rule (a)',
   1_024: 'bytes per KiB; also password / filename length caps',
   2_000: 'round caps (chunks per file, chart points, UI strings, image edge px)',
   5_000: 'round timers (grounding redirect, poll hold)',

@@ -6,7 +6,7 @@
  * the model missing, the job is skipped with a code, and no other model is called in its place.
  * Thinking is off (N-69, N-77); no cache breakpoint; no SDK retry (the job is simply skipped).
  */
-import { HELPER_ALIAS, type ModelRegistry } from '../../providers/registry.js';
+import { HELPER_ALIAS, type ModelEntry, type ModelRegistry } from '../../providers/registry.js';
 import { isAbort, ProviderError, type HelperResult, type ProviderUsage, type ReasoningEffort } from '../../providers/types.js';
 
 export type HelperRole = 'title' | 'summary' | 'router';
@@ -20,6 +20,8 @@ export interface HelperCallUsage {
   ordinal: number;
   attempt: number;
   role: HelperRole;
+  /** The helper registry row's provider: the ledger row names it (review R9). */
+  provider: ModelEntry['provider'];
   providerModelId: string;
   usage: ProviderUsage;
   usageSource: 'provider' | 'provider_partial' | 'none';
@@ -63,6 +65,7 @@ export async function callHelper(registry: ModelRegistry, request: HelperCallReq
     ordinal: 0,
     attempt: 1,
     role: request.role,
+    provider: entry.provider,
     providerModelId: entry.providerModelId!,
     usage: result?.usage ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, exact: false },
     usageSource: result?.usage.exact ? 'provider' : 'none',

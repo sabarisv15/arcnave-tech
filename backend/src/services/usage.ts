@@ -483,6 +483,13 @@ export class UsageService {
     const calls = input.calls ?? null;
     const usage = calls ? usageFromCalls(calls) : input.usage;
     const total = totalTokens(usage);
+    // The budget counter's figure (enforcement), apart from the row's (display): the tokens of
+    // every call whose counts the provider reported. One call without counts makes the row
+    // exact:false with zeros (Invariant 3), but the calls that did report were billed, and a
+    // retried or hopped turn that committed 0 would let a turn spend past the budget while a
+    // provider is failing (review R2). A call without counts adds nothing: it is never charged
+    // as an exact zero, and it is not estimated (Invariant 3; its price needs a billing source).
+    const budgetTokens = calls ? calls.reduce((n, c) => n + (c.usage.exact ? totalTokens(c.usage) : 0), 0) : total;
     // Output tokens per second of generation, over the calls that were timed: their output over
     // their time after the first event. A call with no clock adds neither.
     const timed = (calls ?? []).filter((c) => c.durationMs !== undefined);
@@ -546,8 +553,8 @@ export class UsageService {
         );
       }
 
-      if (total > 0) {
-        await this.commitTokens(t, input.userId, input.prefs, total, completedAt);
+      if (budgetTokens > 0) {
+        await this.commitTokens(t, input.userId, input.prefs, budgetTokens, completedAt);
       }
       return { usageRecordId: inserted!.id, priceVersion: totals.priceVersion };
     };

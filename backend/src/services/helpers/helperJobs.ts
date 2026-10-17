@@ -65,8 +65,8 @@ export class HelperJobs {
         userId: turn.userId,
         chatId: turn.chatId,
         messageId: turn.messageId,
-        // The helper row is Claude Haiku 5.5 only (ADR-0080).
-        provider: 'anthropic',
+        // The helper registry row's own provider, not a constant (review R9).
+        provider: call.provider,
         startedAt: row.startedAt!,
       }, [row]);
     } catch (err) {

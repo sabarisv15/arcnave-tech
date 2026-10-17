@@ -138,20 +138,33 @@ export interface SnapshotFrame {
 
 export type SnapshotOf = (turn: TurnRow) => Promise<SnapshotFrame>;
 
+/** What `streamLive` writes to (an `SseConnection`; a fake in tests). */
+export type LiveConnection = Pick<SseConnection, 'frame' | 'end' | 'closed'>;
+
 /**
  * A run on this instance: the frames after `after`, then live ones until it ends. When the buffer
- * no longer holds the frames after `after`, the stored row goes first as a `snapshot`.
+ * no longer holds the frames after `after`, the stored row goes first as a `snapshot`, and the
+ * live frames resume after it only when the buffer still holds every frame after the snapshot.
+ * Otherwise (the flushed row is older than the buffer's head, or there is none) resuming live
+ * would skip the frames in between, so the connection follows the stored row instead (`stored`:
+ * polled until the turn ends, then its final row; review R7).
  */
-export async function streamLive(conn: SseConnection, run: Run, after: number, snapshot: () => Promise<SnapshotFrame | null>): Promise<void> {
+export async function streamLive(
+  conn: LiveConnection,
+  run: Run,
+  after: number,
+  snapshot: () => Promise<SnapshotFrame | null>,
+  stored: () => Promise<void>,
+): Promise<void> {
   let from = after;
   if (!run.canReplayFrom(from)) {
     const snap = await snapshot();
-    if (snap) {
-      conn.frame(snap, snap.seq);
-      from = Math.max(snap.seq, run.firstBuffered - 1);
-    } else {
-      from = run.firstBuffered - 1;
+    if (!snap || !run.canReplayFrom(snap.seq)) {
+      await stored();
+      return;
     }
+    conn.frame(snap, snap.seq);
+    from = snap.seq;
   }
   const unsubscribe = run.subscribe(from, (event, index) => conn.frame(event, index), () => conn.end());
   await conn.closed;

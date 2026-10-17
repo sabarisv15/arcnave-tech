@@ -144,6 +144,8 @@ export const NUMBERS = {
   SHUTDOWN_DRAIN_MS: n(5_000, 'N-73', 'register (N-76): SIGTERM budget = N-73 5 s'),
   /** The turn sweeper: expired leases, expired reservations, old idempotency keys. */
   TURN_SWEEP_INTERVAL_MS: n(60_000, 'N-76', 'register: sweep tick 60 s'),
+  /** Rows per kind per turn sweep (the register's `app.chat_sweep` batch). */
+  SWEEP_BATCH: n(1_000, 'N-73', 'register: app.chat_sweep batch 1,000 rows per kind per call'),
   /** An Idempotency-Key is honoured, then forgotten, after this long. */
   IDEMPOTENCY_KEY_TTL_HOURS: n(24, 'N-34', 'register: idempotency keys 24 h'),
   /** Every API statement. */

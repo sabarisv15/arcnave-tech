@@ -59,3 +59,70 @@ documentation (ADR-0073, DEFERRED, this file, p05-result, mistakes, CURRENT).
 
 0 BLOCKER, 0 MAJOR open against the split. One pre-existing MAJOR (finding 1) deferred with its
 phase (P08).
+
+---
+
+# P05 waves 1–3 review, round 1 (ADR-0068) — branch `build/turn-jobs`
+
+Reviewed at `2c50e34` (waves 1–3: durable turns, ledger, helper jobs, error matrix, module
+boundaries). Fixes in one commit on top ("fix(p05): review round 1 — …"; its sha is in the git log
+and the final report). Worker model: Opus 5.5.
+
+## Reviewers
+
+| Reviewer | Result |
+|---|---|
+| `/code-review` skill | 10 findings (R1, R4–R10 and the two MINOR skips below; severities main's) |
+| `/security-review` skill | 0 vulnerabilities. What it checked (one paragraph, as reported by the orchestrator): not handed to this worker; the orchestrator fills it in from the skill's own report. |
+| Independent Opus 5.5 reviewer (read-only) | 0 BLOCKER / 3 MAJOR / 3 MINOR (counts as reported). The brief attributes R1, R2, R3, R4 (MAJOR) and R7 plus two R11 items (MINOR) to it, alone or with `/code-review`; that is four MAJOR against the reported three, so one of R1 / R4 was likely rated differently — the orchestrator holds the original report. |
+
+Every finding was re-checked against the code before it was fixed (file:line in the table).
+
+## Findings
+
+Mutation proof = the fix reverted (`git stash push -- <files>` or the hunk removed), the new test
+run alone, the failing line recorded, the fix re-applied, the test passing.
+
+| # | Finding (verified at) | Verdict | Commit | Mutation proof (fix reverted → failure; fix → pass) |
+|---|---|---|---|---|
+| R1 | MAJOR. `gateway.ts` `call`: an attempt's admission was settled only on normal end or in `catch`; a consumer that stops iterating (refusal → `refusalError`, a failed tool-call write) closes the generator with `return()`, so a half-open trial stayed in flight → `breaker_open` until restart. Confirmed: neither line runs on `return()`. | **fixed**: `finally { admission?.release() }` per attempt (the breaker settles an admission once, so it is a no-op after `success`/`failure`) | this | `npx vitest run src/providers/gatewayAdmission.test.ts` → `AssertionError: expected { ok: false, reason: 'breaker_open' } to deeply equal { ok: true }`; fixed: 1 passed |
+| R2 | MAJOR. `usage.ts record`: one `exact:false` call (a 503 retry, a hop) zeroes the turn (`usageFromCalls`), and `commitTokens` was skipped at `total > 0` → the counter charged 0. Confirmed. | **fixed**: the counter commits the sum of the exact calls' tokens (enforcement); the turn row stays `exact:false` zeros (display, Invariant 3). A no-count call adds nothing (no exact zero, no estimate). | this | `npx vitest run src/routes/fallback.integration.test.ts -t "503 then success"` → `AssertionError: expected +0 to be 12`; fixed: 1 passed |
+| R3 | MAJOR. Lock order: `settleTurnTx` locked the turn, then reached the chat (step 8 update, FK key-share); `startTurn` locks root → chat → turn. Confirmed and reproduced in the test (40P01). `startTurn` had no retry; 40P01 / 40001 were 500. | **fixed**: `lockChatFamily` (root, then chat) first in every settle; the sweeper selects unlocked, then chat `SKIP LOCKED`, then turn `SKIP LOCKED`; `startTurn` retried whole ≤ `DB_TX_MAX_RETRIES` (N-45) on 40001/40P01; both added to `DB_UNAVAILABLE_CODES` (503 `unavailable`, `Retry-After: 5`) | this | `npx vitest run src/services/turn/turnSettle.integration.test.ts` with the settle lock and the `app.ts` codes reverted → `AssertionError: expected [ 'ok', '40P01' ] to deeply equal [ 'ok', 'ok' ]` and `expected [ false, false ] to deeply equal [ true, true ]`; `turnStart.ts` reverted → `-t deadlock`: `Error: deadlock detected { code: '40P01' }`; fixed: 7 passed |
+| R4 | MAJOR. `sweepTurns` compared `lease_expires_at` (DB clock, `dbNowPlus`) with the app's `new Date()`. Confirmed. | **fixed**: SQL `now()` in both predicates; `now` still dates the key / legacy / reservation cut-offs (all written on the app clock) | this | `-t "R4"` with `lt(turns.leaseExpiresAt, now)` restored → `AssertionError: expected { state: 'interrupted', … } to deeply equal { state: 'running', fencingToken: 1 }`; fixed: 2 passed |
+| R5 | `turnLease.ts`: heartbeat / cancel-check ran until `runtime.stop()` in launch's `finally`; a tick that read the settled state called `lose()` (abort `interrupted`). Confirmed (the in-flight tick case). | **fixed**: `TurnBinding.onSettled`, called by `settleTurn` after commit; the runtime stops its timers and ignores ticks in flight (`settled`) | this | `-t "R5"` with `turnLease.ts` reverted → `AssertionError: expected true to be false` (`runtime.lost`); fixed: 1 passed |
+| R6 | `launch.ts`: binding starts with `reservation: null`; a throw in `loadTurnInput` → `failTurn` settled without releasing the held row. Confirmed. | **fixed**: `failTurn` looks up the turn's held reservation by `turn_id` when the binding has none (`heldReservation`, shared with `loadTurnInput`) | this | `-t "R6"` with the lookup removed → `AssertionError: expected [ { status: 'held' } ] to deeply equal [ { status: 'released' } ]`; fixed: 1 passed |
+| R7 | MINOR. `streamLive`: a snapshot with `seq < firstBuffered - 1` resumed live from the buffer head, skipping the frames between. Confirmed. | **fixed**: when the buffer cannot continue from the snapshot (or there is none), the connection follows the stored row (`streamStored`) until the turn ends | this | `npx vitest run src/routes/turnStream.test.ts` (buffer cap 3) with `turnStream.ts` reverted → `AssertionError: expected +0 to be 1`; fixed: 2 passed |
+| R8 | `rateLimiter.reserve` took a token even when the gateway then refused the wait (> cap). Confirmed. | **fixed**: `reserve(key, maxWaitMs)` takes no token on a refusal | this | `npx vitest run src/providers/retryBudget.test.ts` → `AssertionError: expected 10000 to be +0`; fixed: 3 passed |
+| R9 | `helperJobs.record`: provider hard-coded `'anthropic'`. Confirmed. | **fixed**: `HelperCallUsage.provider` = the helper registry entry's provider, used for the ledger row | this | `npx vitest run src/services/helpers/helperJobs.test.ts` → `AssertionError: expected 'anthropic' to be 'google'`; fixed: 1 passed |
+| R10 | `turnStore.ts` `SWEEP_BATCH = 1_000` (N-73 value) as a literal; it slipped past numbersGuard (b) because 1,000 is in `COMMON_VALUES`. Confirmed. | **fixed**: `NUMBERS.SWEEP_BATCH` (N-73); a numbersGuard rule (a) row pins `turnStore.ts`, and the `COMMON_VALUES` note no longer lists the sweep batch | this | `npx vitest run src/test/numbersGuard.test.ts` with HEAD's `turnStore.ts` → `"N-73 services/turn/turnStore.ts:380: const SWEEP_BATCH = 1_000;"`; fixed: 6 passed |
+| R11a | MINOR. `runHub` serialises each event twice (`JSON.stringify` for the size, then for the frame). | **deferred** (performance only, no behaviour) | — | — |
+| R11b | MINOR. Count burst on a cold cache. | **deferred** (DEFERRED: concurrency cap) | — | — |
+| R11c | `costUsd` null on retried turns. | **owner item** (needs a billing source for the no-count call; Invariant 2 keeps it null) | — | — |
+
+## Gates (after all fixes, one run each, nothing else running)
+
+| Gate | Result |
+|---|---|
+| backend `npx tsc --noEmit` | clean |
+| backend `npm run lint` | 0 errors, 145 warnings (the touched files add none: their two warnings are pre-existing) |
+| backend `npx vitest run` | 164 files passed; 1,866 passed, 23 skipped (1,889) |
+| characterization snapshots | unchanged (no `.snap` in the diff) |
+| frontend | not touched; not run |
+| `npm run openapi` | not needed (no route schema changed) |
+
+## For the orchestrator (proposed lines; this worker did not edit these files)
+
+- **mistakes.md**: "2026-10-17 — A generator's admission was released only on end or throw.
+  Symptom: a half-open breaker refused a model until restart after one refusal. Cause: a consumer
+  that stops iterating calls `return()`; neither the success line nor `catch` runs. Rule: any
+  resource taken inside an async generator is released in `finally`. Verify:
+  `src/providers/gatewayAdmission.test.ts`."
+- **mistakes.md**: "2026-10-17 — Two transactions took the same rows in opposite orders. Symptom:
+  40P01 on Stop-then-Send. Cause: settle locked turn → chat, start chat → turn. Rule: every
+  transaction that touches a turn locks root chat → chat → turn; a sweep takes them `SKIP LOCKED`
+  in that order. Verify: `turnSettle.integration.test.ts` 'lock order (review R3)'."
+- **mistakes.md**: "2026-10-17 — A DB-clock timestamp compared with the app clock. Rule: a value
+  written with `now()` is compared with `now()`. Verify: 'the sweeper reads the database clock'."
+- **CURRENT.md**: p05 review round 1 done; R1–R10 fixed, R11 deferred / owner; suite 1,866 passed.
+- **DEFERRED.md**: runHub double `JSON.stringify` (perf); count burst on a cold cache (concurrency
+  cap); `costUsd` null on retried turns (owner: billing source).

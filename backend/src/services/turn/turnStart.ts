@@ -45,7 +45,7 @@ import { FILE_LIMITS } from '../attachments/pipeline.js';
 import { isUniqueViolation } from '../auth.js';
 import type { BudgetPrefs } from '../usage.js';
 import { dbNowPlus } from './turnLease.js';
-import { type SettleDeps, type TurnBinding, FencedOut, activeTurnForUpdate, settleTurn } from './turnStore.js';
+import { type SettleDeps, type TurnBinding, FencedOut, RETRYABLE_TX_STATES, activeTurnForUpdate, heldReservation, settleTurn, sqlState } from './turnStore.js';
 
 export { loadTurnAttachments } from './turnStore.js';
 
@@ -171,8 +171,30 @@ export async function startTurn(
   body: StartTurnBody,
   opts: StartTurnOptions,
 ): Promise<StartedTurn> {
-  const { db, usage, cfg } = request.services;
+  const { cfg } = request.services;
   const print = sendFingerprint(chatId, body);
+  // N-45: the whole start is retried at most DB_TX_MAX_RETRIES times on a serialization failure
+  // or a deadlock, as the settle is (review R3); one that still fails is a 503 (`dbUnavailable`).
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await startTurnOnce(request, chatId, userId, body, opts, print);
+    } catch (err) {
+      const state = sqlState(err);
+      if (state && RETRYABLE_TX_STATES.has(state) && attempt < cfg.DB_TX_MAX_RETRIES) continue;
+      throw err;
+    }
+  }
+}
+
+async function startTurnOnce(
+  request: TurnServicesForStart,
+  chatId: string,
+  userId: string,
+  body: StartTurnBody,
+  opts: StartTurnOptions,
+  print: string,
+): Promise<StartedTurn> {
+  const { db, usage, cfg } = request.services;
   try {
     return await db.transaction(async (tx) => {
       // Serialises every start in this conversation: two sends, a send and a regenerate, two
@@ -565,6 +587,13 @@ export async function failTurn(
   },
 ): Promise<void> {
   try {
+    // A run that failed before it read its turn (`loadTurnInput` threw) has no reservation in its
+    // binding; the turn's held one is found by its id and given back with the settle, not left
+    // held until the sweeper expires it (review R6).
+    if (!binding.reservation) {
+      const reservation = await heldReservation(deps.db, binding.turnId);
+      if (reservation) binding = { ...binding, reservation };
+    }
     await settleTurn(deps, ids, binding, {
       message: { kind: 'failed', errorCode: failure.code, mode: failure.mode },
       usage: failure.model

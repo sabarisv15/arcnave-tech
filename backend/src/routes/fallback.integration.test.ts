@@ -15,7 +15,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { messages, modelCalls, toolCalls, usageRecords } from '../db/schema.js';
+import { messages, modelCalls, toolCalls, usageCounters, usageRecords } from '../db/schema.js';
 import { ProviderError } from '../providers/types.js';
 import { CUT_MARKERS } from '../services/history/failedExchanges.js';
 import { createTestApp, signUp } from '../test/harness.js';
@@ -132,6 +132,28 @@ describe('labelled fallback (7.12, OQ-02 A)', () => {
     ]);
     expect(calls.map((c) => c.ordinal)).toEqual(Array.from({ length: 2 + retries }, (_, i) => i + 1));
     expect(await usageOf(row.id as string)).toMatchObject({ modelAlias: 'Sonnet 5.5', inputTokens: 0, outputTokens: 0, tokensExact: false, costUsd: null });
+  });
+
+  // Review R2: the turn row stays exact:false with zeros (display, Invariant 3), but the budget
+  // counter is charged the tokens of the calls that did report counts (enforcement).
+  it('503 then success on one model: usage_counters gains the successful call, the turn row stays exact:false', async () => {
+    const dayUsed = async () =>
+      (await s.ctx.db.select().from(usageCounters).where(and(eq(usageCounters.userId, s.user.id), eq(usageCounters.periodKind, 'day')))).reduce((n, c) => n + c.tokensUsed, 0);
+    const before = await dayUsed();
+    const chatId = await newChat(s);
+    gemini.attempts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw busy();
+      },
+    ];
+    await generate(s, chatId, { prompt: 'Hi', model: 'Gemini 3.8 Flash' });
+    const row = await stored(chatId);
+    expect(row).toMatchObject({ status: 'complete', modelAlias: 'Gemini 3.8 Flash' });
+    expect(gemini.seen).toHaveLength(2);
+    expect(await usageOf(row.id as string)).toMatchObject({ inputTokens: 0, outputTokens: 0, tokensExact: false });
+    // The successful request's own counts (answer(): 10 in, 2 out); the failed one adds nothing.
+    expect((await dayUsed()) - before).toBe(12);
   });
 
   it('claude_limit on Opus → Gemini, every Claude row skipped', async () => {

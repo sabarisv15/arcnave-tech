@@ -19,8 +19,12 @@ export class RateLimiter {
     return this.perMinute !== undefined && this.perMinute > 0;
   }
 
-  /** Milliseconds to wait before a call to `key` may start; 0 means a token was taken now. */
-  reserve(key: string): number {
+  /**
+   * Milliseconds to wait before a call to `key` may start; 0 means a token was taken now. A wait
+   * above `maxWaitMs` is refused and takes no token, so refusals do not drive the bucket negative
+   * and delay the calls that are admitted later (review R8).
+   */
+  reserve(key: string, maxWaitMs = Number.POSITIVE_INFINITY): number {
     if (!this.enabled) return 0;
     const capacity = this.perMinute!;
     const perMs = capacity / 60_000;
@@ -34,6 +38,7 @@ export class RateLimiter {
       return 0;
     }
     const wait = Math.ceil((1 - b.tokens) / perMs);
+    if (wait > maxWaitMs) return wait;
     // The awaited token is taken now, so two waiters do not share one.
     b.tokens -= 1;
     return wait;

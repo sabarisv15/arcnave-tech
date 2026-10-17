@@ -30,6 +30,8 @@ export class TurnRuntime implements TurnCheckpoint {
   private busy = false;
   /** True once a fenced write found the lease gone. */
   lost = false;
+  /** True once this runner's own settle committed: the turn ended here, so nothing is lost. */
+  settled = false;
 
   constructor(
     private readonly db: Database,
@@ -39,7 +41,15 @@ export class TurnRuntime implements TurnCheckpoint {
     private readonly controller: AbortController,
     /** The index of the last stream event published: what a flushed row covers. */
     private readonly publishedSeq: () => number,
-  ) {}
+  ) {
+    binding.onSettled = () => this.markSettled();
+  }
+
+  /** The settle committed: stop the timers, and treat any tick still in flight as moot. */
+  markSettled(): void {
+    this.settled = true;
+    this.stop();
+  }
 
   start(): void {
     this.heartbeat = setInterval(() => void this.renew(), this.cfg.TURN_HEARTBEAT_MS);
@@ -58,7 +68,7 @@ export class TurnRuntime implements TurnCheckpoint {
   }
 
   private lose(): void {
-    if (this.lost) return;
+    if (this.lost || this.settled) return;
     this.lost = true;
     this.stop();
     log.warn({ turnId: this.binding.turnId }, 'turn lease lost; stopping the run');
@@ -67,7 +77,7 @@ export class TurnRuntime implements TurnCheckpoint {
 
   /** Renews the lease; a renewal that finds no row means another instance owns the turn now. */
   async renew(): Promise<void> {
-    if (this.lost || this.controller.signal.aborted) return;
+    if (this.lost || this.settled || this.controller.signal.aborted) return;
     try {
       const [row] = await this.db
         .update(turns)
@@ -75,7 +85,7 @@ export class TurnRuntime implements TurnCheckpoint {
         .where(this.fenced())
         .returning({ cancel: turns.cancelRequested });
       if (!row) this.lose();
-      else if (row.cancel) this.controller.abort();
+      else if (row.cancel && !this.settled) this.controller.abort();
     } catch (err) {
       // The database is unreachable: the lease may lapse, and the sweeper decides. Nothing here.
       log.warn({ turnId: this.binding.turnId, ...errorLogFields(err) }, 'turn heartbeat failed');
@@ -84,7 +94,7 @@ export class TurnRuntime implements TurnCheckpoint {
 
   /** A Stop sent to any instance sets the flag; this one notices within N-73's 2 s. */
   async checkCancel(): Promise<void> {
-    if (this.lost || this.controller.signal.aborted || this.busy) return;
+    if (this.lost || this.settled || this.controller.signal.aborted || this.busy) return;
     this.busy = true;
     try {
       const [row] = await this.db
@@ -93,7 +103,7 @@ export class TurnRuntime implements TurnCheckpoint {
         .where(eq(turns.id, this.binding.turnId))
         .limit(1);
       if (!row || row.token !== this.binding.fencingToken || row.state !== 'running') this.lose();
-      else if (row.cancel) this.controller.abort();
+      else if (row.cancel && !this.settled) this.controller.abort();
     } catch (err) {
       log.warn({ turnId: this.binding.turnId, ...errorLogFields(err) }, 'turn cancel check failed');
     } finally {

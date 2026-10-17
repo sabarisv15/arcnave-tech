@@ -149,3 +149,26 @@ frame ids, explicit stop, client reconnect), with the reconnect timing now N-46'
 - Tests run under production's statement and lock timeouts.
 - Characterization snapshots changed (the `ack` frame, the settle order, the 402 refusal); each
   change is listed in `docs/ops/p08-result.md`.
+
+## Amendment (2026-10-17, p05 review round 1, `docs/ops/p05-review.md`)
+
+Decisions 2, 4, 6, 8, 11 and 12 are amended as follows; the text above is kept as decided.
+
+- **Lock order (6, 8).** The settle now locks the chat first, in a start's order (the family's
+  root, then the chat, then the turn): settle → chat → turn fence check → message → … The sweeper
+  selects lapsed turns unlocked, then per turn takes the chat (`SKIP LOCKED`), then the turn
+  (`SKIP LOCKED`). Turn-first locking deadlocked a Stop-then-Send (40P01, reproduced).
+- **Start retry, 503 (2, 12).** `startTurn` is retried whole at most N-45 twice on 40001 / 40P01, as
+  the settle is; 40001 / 40P01 that outlive the retries map to 503 `unavailable` with
+  `Retry-After: 5`, not 500.
+- **Database clock (8).** The sweeper compares `lease_expires_at` with SQL `now()`, the clock the
+  lease was written on, not the app's clock.
+- **Lease after settle (4).** The runner's heartbeat and cancel-check stop the moment its own settle
+  commits (`TurnBinding.onSettled`); a tick in flight after that is not a lost lease.
+- **Reservation on early failure (7).** `failTurn` finds the turn's held reservation by `turn_id`
+  when the run's binding has none (the run failed before `loadTurnInput` returned) and settles it.
+- **Stored mode on a gap (11).** A reconnect whose snapshot is older than the hub buffer's head no
+  longer resumes live from the buffer (frames in between were skipped); it follows the stored row.
+- **Budget counter on retried turns (6).** The counter commit is the sum of the tokens of the calls
+  whose counts are exact (enforcement), even when the turn's usage row is `exact: false` with zeros
+  (display, Invariant 3 unchanged). A call without counts adds nothing (never an exact zero).

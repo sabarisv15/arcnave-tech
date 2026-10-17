@@ -654,7 +654,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       // and its stream belong to that chat, which the `ack` and `start` frames name.
       const run = launchTurn(services, started, { userId: user.id, chatId: started.chatId, requestId: request.id, prefs });
       const conn = new SseConnection(request, reply, { userId: user.id, chatId: started.chatId });
-      await streamLive(conn, run, -1, () => snapshotOfTurnId(request, started.turnId));
+      await streamLive(conn, run, -1, () => snapshotOfTurnId(request, started.turnId), () => streamStored(conn, request, started.turnId, (turn) => snapshotOfTurn(request, turn)));
       return reply;
     },
   );
@@ -789,7 +789,7 @@ async function reattach(
   const run = request.services.runHub.latest(chatId);
   const conn = new SseConnection(request, reply, { userId: user.id, chatId });
   if (run && run.userId === user.id && run.turnId === turnId) {
-    await streamLive(conn, run, from, () => snapshotOfTurnId(request, turnId));
+    await streamLive(conn, run, from, () => snapshotOfTurnId(request, turnId), () => streamStored(conn, request, turnId, (turn) => snapshotOfTurn(request, turn)));
   } else {
     await streamStored(conn, request, turnId, (turn) => snapshotOfTurn(request, turn));
   }
