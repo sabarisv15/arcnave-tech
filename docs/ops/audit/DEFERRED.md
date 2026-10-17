@@ -524,3 +524,7 @@ Closed: A-16, S21-10 / A-17 wiring (values unchanged), A-19, A-23, A-25, A-26, C
 
 Opened: OQ-15 values (N-01, N-02, N-33, N-35, N-39, turn deadline; N-06 / N-74 without P10) — owner; OQ-29 OpenAPI type generator — owner; OQ-13(b) renderers vs skills — owner; default-off flags (listed in ADR-0082) — owner; S21-02 `CLAUDE.md` text proposed in ADR-0082, not written — owner; lint warnings to burn down (backend 145, frontend 18); six allowlisted `process.env` reads; `checkPrivacy` takes ~0.6 s on a 20,000-character single-token string (a pathological memory import can run for minutes, pre-existing); SSE responses now carry the rate-limit headers.
 
+## tech-p05 review round 1 (2026-10-17, `p05-review.md`)
+
+Deferred: `runHub` serialises each event twice (perf only); a cold count cache sends one `count_tokens` request per history exchange at once (needs a concurrency cap, else 429s null the count and skip the window / summary until warm); the `turnGate` precheck sums `usage_records`, which show 0 for a retried turn (the reservation's check on `usage_counters` enforces the budget since R2). Owner: `costUsd` null on a retried turn (billing source for a request rejected before its stream).
+

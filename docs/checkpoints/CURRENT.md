@@ -1,5 +1,7 @@
 # ArcNave — current checkpoint
 
+> **2026-10-17: tech-p05 review round 1 (ADR-0068) done on `build/turn-jobs` — `/code-review` 10 findings, `/security-review` 0 vulnerabilities, independent Opus reviewer 0 BLOCKER / 3 MAJOR / 3 MINOR; R1–R10 fixed, each with a mutation proof ([`p05-review.md`](../ops/p05-review.md)). Backend 164 files / 1,866 passed / 23 skipped; frontend 47 / 457; lint 0 errors. PR open for the owner; not merged, not deployed.**
+
 > **2026-10-17: tech-p05 wave 3 done — P21 module boundaries, numbers wired, ESLint in CI, on `build/turn-jobs` (behaviour-neutral); not merged, not deployed. Next: the ADR-0068 review round, then the PR (owner merges).**
 > - Record: [ADR-0082](../decisions/0082-module-boundaries-numbers-and-lint.md); evidence: [`p21-result.md`](../ops/p21-result.md); live: [`p21-live-checklist.md`](../ops/p21-live-checklist.md).
 > - Memory / compaction / chat search injected by the container (no module-level `getDb()`); 38 numbers moved to `config/numbers.ts` at the same values; `services/analytics` deleted; `src/scripts` → `backend/scripts/live` (out of the image); 67 silent catches marked `benign:`, 8 coded lines, 1 typed error (memory import: a database failure is now a 500, not "skipped" + 200); `last_seen_at` written at most every 15 min (ours); SSE headers from the Fastify plugins; per-route body limits (1 MiB global, uploads / memory import / artifacts keep room); openapi ↔ frontend contract test; ESLint (0 errors; warn backend 145, frontend 18) + CI Lint step.

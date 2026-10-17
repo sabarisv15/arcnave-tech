@@ -1537,3 +1537,17 @@ practice, not canon.
   built a per-request usage record and counted earlier rounds twice — one source per request, and a
   failed request carries its own counts (`ProviderError.failedRequestUsage`,
   `fallback.integration.test.ts`). **40 entries.**
+- **2026-10-17 (tech-p05 review round 1)** — No new heading (at the cap; each lesson is now a test).
+  (1) A breaker admission taken inside an async generator was released only on normal end or in
+  `catch`; a consumer that stops iterating calls `return()`, so a half-open model was refused until
+  restart. Rule: anything taken inside an async generator is released in `finally`
+  (`gatewayAdmission.test.ts`). (2) Settle locked turn → chat while start locked chat → turn:
+  40P01 on Stop-then-Send, shown as a 500. Rule: every transaction touching a turn locks root chat →
+  chat → turn; sweeps take them `SKIP LOCKED` in that order; 40001 / 40P01 retried, then 503
+  (`turnSettle.integration.test.ts` "lock order"). (3) A lease written with the database's `now()`
+  was compared with the app's `new Date()`. Rule: compare a DB-clock value with `now()` ("the sweeper
+  reads the database clock"). (4) A turn with one inexact call charged 0 tokens to the budget,
+  because the counter used the display total. Rule: an enforcement counter sums the exact calls;
+  the display row keeps Invariant 3 (`fallback.integration.test.ts` "503 then success").
+  **40 entries.**
+
