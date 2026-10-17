@@ -18,6 +18,9 @@ import type { ModelInfo, StreamEvent } from './events.js';
 import type { GenerateInput, PreferencesRow } from './input.js';
 import { resolveModel } from './modelRouting.js';
 import type { TurnServices } from './services.js';
+import { messages } from '../../db/schema.js';
+import { eq } from 'drizzle-orm';
+import { activeSummary } from '../summary/summaryStore.js';
 
 /** What the rest of the turn reads from its start. */
 export interface PreparedTurn {
@@ -44,6 +47,12 @@ export async function prepareTurn(
   let latestCompaction = svc.cfg.ENABLE_CONTEXT_COMPACTION
     ? await compactionService.getLatestCompaction(input.chatId, svc.db)
     : null;
+  // P13 (ADR-0080): the history summary this turn may use, read once; history starts after it.
+  if (svc.cfg.ENABLE_HISTORY_SUMMARY) {
+    const [self] = await svc.db.select({ seq: messages.seq }).from(messages).where(eq(messages.id, input.messageId)).limit(1);
+    input = { ...input, historySummary: self ? await activeSummary(svc.db, input.chatId, self.seq - 1) : null };
+  }
+  const historyAfterSeq = (): number | undefined => latestCompaction?.throughSeq ?? input.historySummary?.coversUptoSeq;
   // Loaded before model resolution (not its historical position) because whether this turn
   // needs a vision-capable model depends on what's carried forward, not only on what's newly
   // attached. Its character backstop is the model's window, so it is sized by a named model
@@ -54,13 +63,14 @@ export async function prepareTurn(
     svc,
     input.chatId,
     input.messageId,
-    latestCompaction?.throughSeq,
+    historyAfterSeq(),
     historyAlias,
   );
   timing.mark('history');
   turnLog.stage('history', {
     earlierTurns: loaded.turns.length,
     compactedThroughSeq: latestCompaction?.throughSeq ?? null,
+    ...(input.historySummary ? { summaryCoversUptoSeq: input.historySummary.coversUptoSeq } : {}),
     prompt: `${String(input.prompt.length)} characters`,
     attachmentsOfThisMessage: input.attachments.length || loaded.currentUserAttachments.length,
   });
@@ -78,8 +88,10 @@ export async function prepareTurn(
   timing.mark('model_resolve');
   if (historyAlias !== entry.alias) {
     historyAlias = entry.alias;
-    ({ turns: history } = await loadHistory(svc, input.chatId, input.messageId, latestCompaction?.throughSeq, historyAlias));
+    ({ turns: history } = await loadHistory(svc, input.chatId, input.messageId, historyAfterSeq(), historyAlias));
   }
+  // P13 (ADR-0080): the router M2 shadow call, never awaited; it logs its pick and changes nothing.
+  svc.helperJobs?.routerShadow({ userId: input.userId, chatId: input.chatId, messageId: input.messageId, prompt: input.prompt, resolvedAlias: entry.alias });
   turnLog.stage('model', {
     requested: input.modelAlias,
     resolved: entry.alias,

@@ -424,7 +424,37 @@ export interface GenerationRequest {
   toolExecutor?: ToolExecutor;
   /** The prompt as assembled: stable text, session state, per-turn state (ADR-0075). */
   promptAssembly?: import('../services/promptCache/types.js').PromptAssembly;
+  /**
+   * `off` asks for no thinking (ADR-0080). An adapter sends it only to a model whose capability
+   * spec allows it (`thinkingOff`) and refuses the request otherwise: some models answer a
+   * disabled-thinking request with a 400. Absent: the model's default (adaptive).
+   */
+  thinking?: 'off';
   signal: AbortSignal;
+}
+
+/**
+ * One helper call (ADR-0080): a single request, no tools, no history, no cache breakpoint, for a
+ * background job (title, summary) or the router shadow. `schema` asks for structured output
+ * (`classify`); without it the answer is plain text (`complete`).
+ */
+export interface HelperRequest {
+  providerModelId: string;
+  system: string;
+  /** The one user message. The caller escapes any untrusted text in it. */
+  text: string;
+  maxOutputTokens: number;
+  /** Helper calls run with thinking off (N-69, N-77); the adapter refuses a model that cannot. */
+  thinking: 'off';
+  reasoningEffort?: ReasoningEffort;
+  signal: AbortSignal;
+}
+
+export interface HelperResult {
+  text: string;
+  usage: ProviderUsage;
+  /** The provider's stop reason as reported (`end_turn`, `max_tokens`, `refusal`, …). */
+  finishReason: string;
 }
 
 /**
@@ -518,6 +548,13 @@ export interface Provider {
    * Provider metadata, not an estimate (Invariant 3). Throws when the count API fails.
    */
   countTokens?(text: string, signal: AbortSignal): Promise<{ tokens: number; model: string }>;
+  /** A helper call with a plain-text answer (ADR-0080). Optional: only the Claude adapter has it. */
+  complete?(request: HelperRequest): Promise<HelperResult>;
+  /**
+   * A helper call with structured output: the answer is JSON matching `schema` (Claude
+   * `output_config.format`). `value` is the parsed JSON, or undefined when it did not parse.
+   */
+  classify?(request: HelperRequest & { schema: Record<string, unknown> }): Promise<HelperResult & { value: unknown }>;
 }
 
 /** One input to `readMedia`: inline bytes, or a `gs://` URI the model reads (Gemini). */

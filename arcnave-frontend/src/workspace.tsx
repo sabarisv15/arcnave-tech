@@ -134,7 +134,7 @@ interface Context {
    * will be refused as a conflict.
    */
   refreshPreferences: () => Promise<void>;
-  refreshChats: () => Promise<void>;
+  refreshChats: () => Promise<unknown>;
   refreshProjects: () => Promise<void>;
   refreshArtifacts: () => Promise<void>;
   edit: { chatId: string; messageId: string; text: string } | null;
@@ -150,6 +150,18 @@ interface Context {
 }
 
 const C = createContext<Context>(null!);
+
+/** When the chat list is read again for a generated title (ours: the job takes about a second). */
+export const TITLE_REFRESH_DELAYS_MS = [3_000, 10_000] as const;
+
+/**
+ * True while the chat still carries the placeholder title the first message gave it (the server
+ * writes the prompt's first 80 characters, then the title job replaces it; ADR-0080).
+ */
+export function needsGeneratedTitle(list: readonly Chat[] | undefined, chatId: string, prompt: string | undefined): boolean {
+  if (!list || !prompt) return false;
+  return list.find((c) => c.id === chatId)?.title === prompt.slice(0, 80);
+}
 export const useWorkspace = () => useContext(C);
 
 /**
@@ -244,7 +256,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const refreshChats = useCallback(async () => {
     const page = await api.chats.list({ limit: 100 });
-    setChats(page.items.map(toChat));
+    const list = page.items.map(toChat);
+    setChats(list);
+    return list;
   }, []);
 
   const refreshProjects = useCallback(async () => {
@@ -826,7 +840,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         status: outcome,
         text,
       });
-      await refreshChats().catch(() => {});
+      const listed = await refreshChats().catch(() => undefined);
+      // P13 (ADR-0080): a new chat is named by a background job a moment after its first answer;
+      // while it still shows the placeholder (the prompt's first 80 characters), read the list again.
+      if (outcome === "complete" && needsGeneratedTitle(listed, chatId, options.prompt)) {
+        for (const ms of TITLE_REFRESH_DELAYS_MS) setTimeout(() => void refreshChats().catch(() => {}), ms);
+      }
     },
     [
       preferences.modelAlias,

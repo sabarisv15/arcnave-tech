@@ -44,6 +44,7 @@ import { GcsModelInputStore, type ModelInputStore } from './services/attachments
 import { Storage as GcsClient } from '@google-cloud/storage';
 import { logger } from './logger.js';
 import { FileService, type WorkerOptions } from './services/attachments/fileJobs.js';
+import { HelperJobs } from './services/helpers/helperJobs.js';
 
 const log = logger.child({ module: 'container' });
 
@@ -87,6 +88,9 @@ export interface Services {
   ledger: LedgerService;
   /** Deletion records in object storage, outside the database (Stage 5 P11). */
   deletionLedger: DeletionLedger;
+
+  /** P13 (ADR-0080): the helper jobs (title, summary, router shadow), run in the background. */
+  helperJobs: HelperJobs;
 }
 
 export interface BuildOptions {
@@ -245,6 +249,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
 
   const modelInputs =
     options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined);
+  const helperJobs = new HelperJobs({ db, cfg, registry, ledger, log: logger.child({ module: 'helpers' }) });
   const generation = new GenerationService(
     db,
     cfg,
@@ -257,6 +262,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     capabilities,
     executionRuntime,
     modelInputs,
+    helperJobs,
   );
 
   return {
@@ -277,6 +283,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     instanceId: `${hostname().slice(0, 40)}:${String(process.pid)}:${randomUUID().slice(0, 8)}`,
     lifecycle: { draining: false },
     warmSandbox: rawSandboxClient instanceof WarmSandboxClient ? rawSandboxClient : null,
+    helperJobs,
     files: new FileService(
       {
         db,

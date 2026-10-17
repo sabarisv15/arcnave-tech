@@ -156,6 +156,31 @@ export const NUMBERS = {
   DB_MAX_LIFETIME_S: n(1_800, 'N-45', 'register: pool_recycle 1,800 s'),
   /** A whole settle transaction is retried at most this often on a serialization failure or deadlock. */
   DB_TX_MAX_RETRIES: n(2, 'N-45', 'register: whole-tx retry ≤2'),
+
+  // --- P13: history budget, summary, title and router helpers (ADR-0080) --------------------
+  /** History window: the newest turns sent word for word. */
+  HISTORY_TURNS: n(6, 'N-16', 'register: keep last 6 turns (CXD-5)'),
+  /** The newest turns always sent, even past the budget (`over_budget` is then set). */
+  HISTORY_FLOOR_TURNS: n(2, 'N-75', 'register: HISTORY_FLOOR_TURNS 2'),
+  /** Input token budget of the Normal profile; the only profile until P10. */
+  INPUT_BUDGET_NORMAL: n(48_000, 'N-03', 'register: Fast 16k / Normal 48k / Deep 200k; CXD-6 default normal'),
+  /** The summary job runs when summary + uncovered turns pass this share of (N-03 − fixed part). */
+  SUMMARY_TRIGGER_RATIO: n(0.6, 'N-77', 'register: trigger 0.6 × (N-03 − fixed part)'),
+  SUMMARY_INPUT_MAX_TOKENS: n(30_000, 'N-77', 'register: SUMMARY_INPUT_MAX_TOKENS 30,000'),
+  SUMMARY_MAX_OUTPUT_TOKENS: n(1_200, 'N-77', 'register: SUMMARY_MAX_OUTPUT_TOKENS 1,200'),
+  SUMMARY_CALL_TIMEOUT_S: n(60, 'N-77', 'register: SUMMARY_CALL_TIMEOUT_S 60'),
+  SUMMARY_TEXT_MAX_CHARS: n(6_000, 'N-77', 'register: SUMMARY_TEXT_MAX_CHARS 6,000'),
+  /** Characters of the first user message, and of the first answer, given to the title job. */
+  TITLE_INPUT_CHARS: n(1_500, 'N-76', 'register: TITLE_INPUT_CHARS 1,500 each'),
+  TITLE_MAX_OUTPUT_TOKENS: n(40, 'N-76', 'register: TITLE_MAX_OUTPUT_TOKENS 40'),
+  TITLE_CALL_TIMEOUT_MS: n(20_000, 'N-76', 'register: title call timeout 20 s'),
+  /** A generated title is cut to this many code points, markup stripped. */
+  TITLE_MAX_CHARS: n(60, 'N-76', 'register: generated title cut to 60 characters'),
+  /** Router M2 shadow call: the rules default stands when it takes longer. */
+  ROUTER_TIMEOUT_MS: n(1_500, 'N-69', 'register: router timeout 1.5 s'),
+  ROUTER_MAX_TOKENS: n(1_024, 'N-74', 'register: router M2 max output 1,024'),
+  /** One provider count call, one request, no retry (in-turn history budget). */
+  HISTORY_COUNT_TIMEOUT_MS: n(1_000, 'N-75', 'register: COUNT_TIMEOUT_SECONDS 1 s'),
 } as const satisfies Record<string, RegisteredNumber>;
 
 export type NumberKey = keyof typeof NUMBERS;

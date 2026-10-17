@@ -21,9 +21,10 @@
  * The proof that each fails when its branch is broken is in `docs/ops/p05-result.md`.
  */
 import { asc, eq, inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { messages, messageSources, turnLogs, usageCounters } from '../db/schema.js';
+import { setDb } from '../db/client.js';
 import type { GenerationRequest, ProviderEvent, ProviderSource } from '../providers/types.js';
 import { ModelNotFoundError, ProviderError } from '../providers/types.js';
 import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCompact.js';
@@ -199,13 +200,23 @@ const aborted = () => new DOMException('The operation was aborted.', 'AbortError
 
 /* -------------------------------------------------------------------------- main app */
 
+/** A second app's close, then the process-wide handle back on the main app's pool. */
+let mainSession: PathSession | undefined;
+async function closeLegacy(legacy: PathSession): Promise<void> {
+  await legacy.ctx.close();
+  if (mainSession) setDb(mainSession.ctx.db, mainSession.ctx.sql);
+}
+
+const MAIN_ENV = { ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process', PROJECT_FULL_CONTEXT_MAX_CHARS: '20000' };
+
 describe('turn characterization paths', () => {
   let s: PathSession;
 
   beforeAll(async () => {
     // The computer's tools are declared (view reads a skill), and a small project limit makes a
     // small fixture cross into search.
-    s = await openSession({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process', PROJECT_FULL_CONTEXT_MAX_CHARS: '20000' });
+    s = await openSession(MAIN_ENV);
+    mainSession = s;
   });
   afterAll(async () => {
     vi.restoreAllMocks();
@@ -234,6 +245,9 @@ describe('turn characterization paths', () => {
   });
 
   it('(3) compaction: the summary request, then the answer on the reloaded history', async () => {
+    // The compaction runs only with the history summary off (ADR-0080); its own app, same env.
+    const s = await openSession({ ...MAIN_ENV, ENABLE_HISTORY_SUMMARY: 'false' });
+    onTestFinished(() => closeLegacy(s));
     const snap = await scenario(s, async () => {
       const chatId = await newChat(s);
       const responses: Response[] = [];
@@ -546,6 +560,8 @@ describe('turn characterization paths', () => {
   });
 
   it('(12) a skill read before a compaction is given back after it', async () => {
+    const s = await openSession({ ...MAIN_ENV, ENABLE_HISTORY_SUMMARY: 'false' });
+    onTestFinished(() => closeLegacy(s));
     const snap = await scenario(s, async () => {
       const chatId = await newChat(s);
       const responses: Response[] = [];

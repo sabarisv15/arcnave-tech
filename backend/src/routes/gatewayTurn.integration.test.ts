@@ -10,7 +10,7 @@
  */
 import { ApiError as GeminiApiError } from '@google/genai';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { messages, toolCalls } from '../db/schema.js';
 import { classifyGeminiError } from '../providers/gemini.js';
@@ -88,6 +88,12 @@ async function lastAssistant(chatId: string) {
 
 describe('history is sized by the resolved model, never Auto (D2 X-2)', () => {
   it('Auto with 600k characters of tool results keeps the earliest turn', async () => {
+    // The character backstop is what D2 X-2 is about; with a count, the N-03 input budget would
+    // drop the oldest turns first (ADR-0080, historySummary.integration.test.ts). No count here.
+    provider.tokenCount = null;
+    onTestFinished(() => {
+      provider.tokenCount = (text) => Math.ceil(text.length / 4);
+    });
     const { send } = await newChat();
     provider.script = plain('first answer');
     await send('EARLIEST question');

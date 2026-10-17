@@ -23,6 +23,8 @@ import type {
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
+import { getModelCapability } from './capabilitiesTable.js';
+import type { HelperRequest, HelperResult, ReasoningEffort } from './types.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -426,6 +428,28 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
   return normalized as Anthropic.MessageParam[];
 }
 
+/**
+ * The `thinking` field for a request (ADR-0080). Thinking on is adaptive with its summary shown;
+ * `off` is sent as `{type: "disabled"}` only to a model whose spec allows it, and only at effort
+ * `high` or below (Haiku 5.5: "disabled only at high or below"). Any other `off` is refused here,
+ * before a request is made: Sonnet 5.5 and Opus 5.5 answer it with a 400.
+ */
+export function thinkingParam(
+  thinking: 'off' | undefined,
+  providerModelId: string,
+  effort: ReasoningEffort | undefined,
+): Anthropic.ThinkingConfigParam {
+  if (thinking !== 'off') return { type: 'adaptive', display: 'summarized' };
+  const spec = getModelCapability(providerModelId);
+  if (spec.thinkingOff !== 'disabled' || effort === 'xhigh' || effort === 'max') {
+    throw new ProviderError(`Thinking cannot be turned off for "${providerModelId}" at this effort`, {
+      code: 'model_unavailable',
+      retryable: false,
+    });
+  }
+  return { type: 'disabled' };
+}
+
 export class AnthropicProvider implements Provider {
   readonly name = 'anthropic';
   private client: AnthropicClient | undefined;
@@ -480,6 +504,7 @@ export class AnthropicProvider implements Provider {
     // P22: the request in flight, as a partial `call_usage`, for a stop that ends it: the SDK
     // throws on the abort, so the loop's own abort check is not always reached.
     let inFlight: (() => ProviderEvent) | null = null;
+    const thinking = thinkingParam(request.thinking, request.providerModelId, request.reasoningEffort);
 
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
@@ -536,7 +561,7 @@ export class AnthropicProvider implements Provider {
             // Claude 5 models think adaptively whether or not this is sent, but their summary
             // display defaults to "omitted" (empty text). Summarized, as Claude's app shows it.
             // The blocks go back unchanged in the tool loop below (final.content).
-            thinking: { type: 'adaptive', display: 'summarized' },
+            thinking,
             // Effort is Claude 5's control for how hard it thinks (default medium).
             ...(request.reasoningEffort ? { output_config: { effort: request.reasoningEffort } } : {}),
             messages,
@@ -740,6 +765,63 @@ export class AnthropicProvider implements Provider {
     } catch (err) {
       if (isAbort(err) || signal.aborted) throw err;
       throw classifyAnthropicError(err, model);
+    }
+  }
+
+  /** A helper call with a plain-text answer (ADR-0080). */
+  async complete(request: HelperRequest): Promise<HelperResult> {
+    return this.helperCall(request, undefined);
+  }
+
+  /**
+   * A helper call with structured output (Claude `output_config.format`, `json_schema`): the router
+   * shadow's classify call (Stage 7 RT-2). `value` is undefined when the text is not JSON.
+   */
+  async classify(request: HelperRequest & { schema: Record<string, unknown> }): Promise<HelperResult & { value: unknown }> {
+    const result = await this.helperCall(request, request.schema);
+    let value: unknown;
+    try {
+      value = JSON.parse(result.text);
+    } catch {
+      value = undefined;
+    }
+    return { ...result, value };
+  }
+
+  /**
+   * One non-streaming request: no tools, no history, no `cache_control` (a helper prompt is far
+   * below any cache minimum and is not resent), no sampling parameters (Haiku 5.5 refuses
+   * non-default ones), thinking off where the model allows it. Retries: none (the job is skipped).
+   */
+  private async helperCall(request: HelperRequest, schema: Record<string, unknown> | undefined): Promise<HelperResult> {
+    const thinking = thinkingParam(request.thinking, request.providerModelId, request.reasoningEffort);
+    const outputConfig: Anthropic.OutputConfig = {
+      ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
+      ...(schema ? { format: { type: 'json_schema' as const, schema: structuredClone(schema) } } : {}),
+    };
+    try {
+      const message = await this.getClient().messages.create(
+        {
+          model: request.providerModelId,
+          max_tokens: request.maxOutputTokens,
+          system: request.system,
+          messages: [{ role: 'user', content: request.text }],
+          thinking,
+          ...(Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {}),
+        },
+        { signal: request.signal },
+      );
+      const text = (message.content ?? [])
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      return { text, usage: usageFrom(message.usage as AnthropicUsage), finishReason: String(message.stop_reason ?? 'unknown') };
+    } catch (err) {
+      if (request.signal.aborted || isAbort(err)) throw err;
+      if (err instanceof APIConnectionError) {
+        throw new ProviderError(`Claude helper request lost its connection: ${String(err)}`, { retryable: false });
+      }
+      throw classifyAnthropicError(err, request.providerModelId);
     }
   }
 

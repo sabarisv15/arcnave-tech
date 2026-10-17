@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-14
+- Amended by [ADR-0080](0080-history-summary-and-helper-jobs.md): one helper row (Claude Haiku 5.5, `role: 'helper'`) for background jobs only; the three chat models stand.
 - Task: tech-p1.C (build plan decision B-4)
 - Supersedes in part: [ADR-0002](0002-model-aliases.md) (the alias table and its Decision 4, the
   `GPT 5 Terra` → `GPT-OSS 120B` remap). ADR-0002's rules 1–3 (registry, no substitution, Auto

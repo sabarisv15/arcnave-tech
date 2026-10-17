@@ -164,8 +164,8 @@ export function currentTimeIst(now: Date): string {
 
 export interface PerTurnInput {
   now: Date;
-  /** The compaction summary's text and how far it reaches. */
-  summary?: { throughSeq: number; text: string };
+  /** The summary's text and how far it reaches; `version` marks a history summary (ADR-0080). */
+  summary?: { throughSeq: number; text: string; version?: number };
   /** The search / research mode instruction for this message. Ours (legacy, carried). */
   modeDirective?: string;
   /** A note about the client (a phone). Ours (legacy, carried). */
@@ -176,9 +176,12 @@ export interface PerTurnInput {
 export function renderPerTurn(t: PerTurnInput): string {
   const parts = [`<current_time>${currentTimeIst(t.now)}</current_time>`];
   if (t.summary?.text.trim()) {
-    parts.push(
-      `<earlier_conversation_summary through_seq="${String(t.summary.throughSeq)}">\n${escapeText(t.summary.text.trim())}\n</earlier_conversation_summary>`,
-    );
+    // A history summary (ADR-0080) says what it covers and its version; the compaction keeps its seq.
+    const attrs =
+      t.summary.version !== undefined
+        ? `covers_upto="${String(t.summary.throughSeq)}" version="${String(t.summary.version)}"`
+        : `through_seq="${String(t.summary.throughSeq)}"`;
+    parts.push(`<earlier_conversation_summary ${attrs}>\n${escapeText(t.summary.text.trim())}\n</earlier_conversation_summary>`);
   }
   if (t.modeDirective?.trim()) parts.push(t.modeDirective.trim());
   if (t.clientNote?.trim()) parts.push(t.clientNote.trim());

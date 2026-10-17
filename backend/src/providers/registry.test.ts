@@ -24,12 +24,16 @@ function fakeProvider(): Provider {
 const providers = { google: fakeProvider(), anthropic: fakeProvider() };
 
 describe('the alias table (ADR-0055)', () => {
-  it('has exactly Gemini 3.8 Flash, Sonnet 5.5 and Opus 5.5', () => {
+  it('has exactly Gemini 3.8 Flash, Sonnet 5.5 and Opus 5.5 as chat models, and Haiku 5.5 as the helper', () => {
     const entries = buildEntries(loadConfig({ NODE_ENV: 'test' }));
-    expect(entries.map((e) => [e.alias, e.provider, e.tier])).toEqual([
+    expect(entries.filter((e) => (e.role ?? 'chat') === 'chat').map((e) => [e.alias, e.provider, e.tier])).toEqual([
       ['Gemini 3.8 Flash', 'google', 'economy'],
       ['Sonnet 5.5', 'anthropic', 'balanced'],
       ['Opus 5.5', 'anthropic', 'quality'],
+    ]);
+    // ADR-0080: one helper row, the first-party Haiku id by default.
+    expect(entries.filter((e) => e.role === 'helper').map((e) => [e.alias, e.providerModelId])).toEqual([
+      ['Haiku 5.5', 'claude-haiku-5-5'],
     ]);
   });
 
@@ -82,6 +86,31 @@ describe('ModelRegistry status', () => {
     registry.recordOutcome('Opus 5.5', { available: false, detail: 'not found' });
     const status = await registry.status('Opus 5.5', { probe: false });
     expect(status).toMatchObject({ available: false, reason: 'probe_failed' });
+  });
+});
+
+describe('the helper row (ADR-0080)', () => {
+  it('is never a chat alias, never in the statuses /models and Auto read', async () => {
+    const cfg = loadConfig({ NODE_ENV: 'test', ANTHROPIC_API_KEY: 'k' });
+    const registry = new ModelRegistry(cfg, providers);
+    expect(registry.aliases).not.toContain('Haiku 5.5');
+    expect(registry.entry('Haiku 5.5')).toBeUndefined();
+    expect((await registry.allStatuses({ probe: 'never' })).map((s) => s.entry.alias)).not.toContain('Haiku 5.5');
+    expect((await registry.availableEntries({ probe: 'never' })).map((e) => e.alias)).not.toContain('Haiku 5.5');
+    expect(registry.helperEntry()?.providerModelId).toBe('claude-haiku-5-5');
+    expect(registry.helperStatus()).toMatchObject({ available: true, reason: 'ok' });
+  });
+
+  it('is unavailable with a code without a key or an id, and after a failed real call', () => {
+    const noKey = new ModelRegistry(loadConfig({ NODE_ENV: 'test' }), providers);
+    expect(noKey.helperStatus()).toMatchObject({ available: false, reason: 'anthropic_not_configured' });
+    const noId = new ModelRegistry(loadConfig({ NODE_ENV: 'test', ANTHROPIC_API_KEY: 'k', MODEL_HAIKU: '' }), providers);
+    expect(noId.helperStatus()).toMatchObject({ available: false, reason: 'not_configured' });
+    const failed = new ModelRegistry(loadConfig({ NODE_ENV: 'test', ANTHROPIC_API_KEY: 'k' }), providers);
+    failed.recordHelperOutcome('Haiku 5.5', { available: false, detail: 'not found' });
+    expect(failed.helperStatus()).toMatchObject({ available: false, reason: 'probe_failed' });
+    // A chat alias is not touched by a helper outcome.
+    expect(failed.lastProbedAt('Sonnet 5.5')).toBeNull();
   });
 });
 

@@ -13,6 +13,7 @@ import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCompact.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, signUp, promptOf } from '../test/harness.js';
+import { setDb } from '../db/client.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -50,6 +51,21 @@ async function newChat() {
       return ctx.provider.seen.at(-1)!;
     },
   };
+}
+
+/** The compaction runs only with the history summary off (ADR-0080): these tests get their own app. */
+async function withCompactionApp(run: () => Promise<void>): Promise<void> {
+  const main = { ctx, user };
+  ctx = await createTestApp({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', SANDBOX_ENGINE: 'process', ENABLE_HISTORY_SUMMARY: 'false' });
+  try {
+    user = await signUp(ctx);
+    await run();
+  } finally {
+    await ctx.close();
+    ({ ctx, user } = main);
+    // createTestApp pointed the process-wide handle at the closed app's pool; point it back.
+    setDb(ctx.db, ctx.sql);
+  }
 }
 
 const plainAnswer = (): void => {
@@ -156,7 +172,7 @@ describe('tool calls in the history (ADR-0022)', () => {
     expect(results).toEqual(['k1', 'k2', 'k3', 'k4', 'k5'].map((id) => [id, { type: 'text', text: `result ${id}` }]));
   });
 
-  it('gives the summarizer what older turns ran and found, as Claude compacts the whole transcript', async () => {
+  it('gives the summarizer what older turns ran and found, as Claude compacts the whole transcript', () => withCompactionApp(async () => {
     const { send } = await newChat();
     scriptCall('s1', 'bash_tool', 'Federal: 244 debits, 33 credits');
     await send('turn 1');
@@ -185,8 +201,8 @@ describe('tool calls in the history (ADR-0022)', () => {
     const text = summary.history.map((t) => t.text).join('\n');
     expect(text).toContain('bash_tool');
     expect(text).toContain('244 debits');
-  });
-  it('gives a skill read before a compaction back in full after it (ADR-0027)', async () => {
+  }));
+  it('gives a skill read before a compaction back in full after it (ADR-0027)', () => withCompactionApp(async () => {
     const { send } = await newChat();
     ctx.provider.script = [
       { type: 'tool_use', toolCallId: 'ls1', name: 'view', input: { path: '/skills/pdf/SKILL.md', description: 'read the skill' }, thoughtSignature: 'sig-ls1' },
@@ -218,7 +234,7 @@ describe('tool calls in the history (ADR-0022)', () => {
     ctx.provider.onRequest = null;
     expect(after.history.some((t) => t.toolCalls?.some((c) => c.name === 'view'))).toBe(false);
     expect(promptOf(after)).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
-  });
+  }));
 
   it('replays a turn-ending ask_user_input_v0 call and its {status:"shown"} result on the next turn (ADR-0034)', async () => {
     const { send } = await newChat();

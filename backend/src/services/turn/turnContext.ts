@@ -31,6 +31,7 @@ import { persistEvent } from './persistence.js';
 import type { TurnServices } from './services.js';
 import { buildToolExecutors } from './toolset.js';
 import { neutraliseReservedTags } from '../prompt/sessionState.js';
+import { applyHistoryWindow } from '../summary/turnWindow.js';
 
 // The module tag the turn's log lines had before the split (ADR-0067).
 const log = logger.child({ module: 'generation' });
@@ -66,7 +67,8 @@ export async function* buildTurnContext(
   input: GenerateInput,
   turn: TurnContextInput,
 ): AsyncGenerator<StreamEvent, TurnContext> {
-  const { prefs, project, history, entry, grounded, compactedNow, latestCompaction, workspace, timing, turnLog } = turn;
+  const { prefs, project, entry, grounded, compactedNow, latestCompaction, workspace, timing, turnLog } = turn;
+  let { history } = turn;
   // --- tools this turn may use (ADR-0006, ADR-0047) ---------------------
   const codeEnabled = svc.cfg.ENABLE_RUN_PYTHON && svc.sandboxClient !== undefined;
   const webEnabled = Boolean(svc.cfg.ENABLE_WEB);
@@ -153,6 +155,18 @@ export async function* buildTurnContext(
     yield event;
     await persistEvent(svc, input.messageId, event);
   }
+
+  // P13 (ADR-0080): the history window (N-16, N-03, floor N-75) and the turn's stamps, now that the
+  // fixed part is known and before anything below reads the history.
+  history = await applyHistoryWindow(svc, input, {
+    entry,
+    history,
+    // The fixed part on both layouts: the stable text and the session state (ADR-0075).
+    systemInstruction: `${promptAssembly.stablePrefix.systemText}\n\n${promptAssembly.sessionState}`,
+    tools: availableTools,
+    promptVersion: promptAssembly.promptVersion,
+    turnLog,
+  });
 
   timing.mark('system_prompt');
   // The prompt version is a hash of the prompt files, never their text (Stage 17 NO_CONTENT).

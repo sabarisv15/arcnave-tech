@@ -43,6 +43,11 @@ export interface ModelCapabilitySpec {
    * rather than guess (ADR-0075).
    */
   knowledgeCutoff: string | null;
+  /**
+   * How this model takes "thinking off" (`GenerationRequest.thinking: 'off'`), or absent when it
+   * cannot: Sonnet 5.5 and Opus 5.5 answer `{type: "disabled"}` with a 400 (ADR-0080).
+   */
+  thinkingOff?: 'disabled';
 }
 
 /**
@@ -95,6 +100,31 @@ const CLAUDE_OPUS_55_SPEC: ModelCapabilitySpec = {
   knowledgeCutoff: CLAUDE_55_KNOWLEDGE_CUTOFF,
 };
 
+/**
+ * Claude Haiku 5.5, the helper model (ADR-0080), from Anthropic's model docs as carried by the
+ * claude-api skill (cached 2026-10-06), read 2026-10-17: id `claude-haiku-5-5`, 1M context,
+ * 128K output, adaptive thinking on by default, `{type: "disabled"}` accepted at effort `high`
+ * or below, effort low…max with default `medium`, non-default sampling and prefill refused.
+ * Knowledge cutoff: not on the page read, so not stated.
+ */
+const CLAUDE_HAIKU_55_SPEC: ModelCapabilitySpec = {
+  alias: 'Haiku 5.5',
+  provider: 'anthropic',
+  supportsVision: true,
+  maxEncodedImageBytes: 5_242_880,
+  maxNativeResolutionPx: 2576,
+  supportsNativeVideoFrames: false,
+  supportsNativeAudio: false,
+  supportsNativePdf: true,
+  maxInputTokens: 1_000_000,
+  maxOutputTokens: 128_000,
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  maxPdfPagesPerRequest: CLAUDE_API_MAX_PDF_PAGES,
+  maxRequestBytes: CLAUDE_API_MAX_REQUEST_BYTES,
+  knowledgeCutoff: null,
+  thinkingOff: 'disabled',
+};
+
 const GEMINI_38_FLASH_SPEC: ModelCapabilitySpec = {
   alias: 'Gemini 3.8 Flash',
   provider: 'google',
@@ -125,6 +155,8 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilitySpec> = {
   'Sonnet 5.5': CLAUDE_SONNET_55_SPEC,
   'claude-opus-5-5': CLAUDE_OPUS_55_SPEC,
   'Opus 5.5': CLAUDE_OPUS_55_SPEC,
+  'claude-haiku-5-5': CLAUDE_HAIKU_55_SPEC,
+  'Haiku 5.5': CLAUDE_HAIKU_55_SPEC,
 };
 
 export function getModelCapability(aliasOrModelId: string): ModelCapabilitySpec {

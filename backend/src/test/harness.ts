@@ -30,6 +30,8 @@ import * as schema from '../db/schema.js';
 import type {
   AttachmentBlock,
   GenerationRequest,
+  HelperRequest,
+  HelperResult,
   MediaPart,
   MediaReading,
   Provider,
@@ -157,6 +159,44 @@ export class FakeProvider implements Provider {
     }
   }
 
+  /**
+   * P13 helper calls (ADR-0080). Unset by default, so this fake has no helper adapter and every
+   * helper job is skipped (`no_helper_adapter`); a test sets `helperHandler` to answer them.
+   * `complete` / `classify` exist only while it is set, as a real adapter either has them or not.
+   */
+  readonly helperSeen: Array<HelperRequest & { schema?: Record<string, unknown> }> = [];
+  private helperFn: ((req: HelperRequest & { schema?: Record<string, unknown> }) => Promise<HelperResult>) | null = null;
+  complete?: (req: HelperRequest) => Promise<HelperResult>;
+  classify?: (req: HelperRequest & { schema: Record<string, unknown> }) => Promise<HelperResult & { value: unknown }>;
+
+  get helperHandler(): ((req: HelperRequest & { schema?: Record<string, unknown> }) => Promise<HelperResult>) | null {
+    return this.helperFn;
+  }
+
+  set helperHandler(fn: ((req: HelperRequest & { schema?: Record<string, unknown> }) => Promise<HelperResult>) | null) {
+    this.helperFn = fn;
+    if (!fn) {
+      delete this.complete;
+      delete this.classify;
+      return;
+    }
+    this.complete = async (req) => {
+      this.helperSeen.push(req);
+      return fn(req);
+    };
+    this.classify = async (req) => {
+      this.helperSeen.push(req);
+      const result = await fn(req);
+      let value: unknown;
+      try {
+        value = JSON.parse(result.text);
+      } catch {
+        value = undefined;
+      }
+      return { ...result, value };
+    };
+  }
+
   /** Probe calls made, so a test can prove a turn made none. */
   probes = 0;
 
@@ -267,6 +307,8 @@ export async function createTestApp(
     provider,
     storageRoot,
     close: async () => {
+      // P13: background helper jobs end before the pool does.
+      await app.services.helperJobs.idle();
       await app.close();
       await sql.end({ timeout: 5 }).catch(() => undefined);
       await rm(storageRoot, { recursive: true, force: true });

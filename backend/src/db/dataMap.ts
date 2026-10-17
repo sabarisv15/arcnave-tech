@@ -64,6 +64,7 @@ export const DATA_MAP: Readonly<Record<string, DataMapEntry>> = {
   goal_events: { retention: 'chat', personal: true, deletedBy: 'with its goal' },
   memory_items: { retention: 'library', personal: true, deletedBy: 'user delete, account deletion' },
   conversation_compactions: { retention: 'chat', personal: true, deletedBy: 'with its chat' },
+  summaries: { retention: 'chat', personal: true, deletedBy: 'with its chat (or the covered message)' },
   styles: { retention: 'library', personal: true, deletedBy: 'user delete, account deletion' },
   turns: { retention: 'chat', personal: true, deletedBy: 'with its chat' },
   budget_reservations: { retention: 'ledger', personal: true, deletedBy: 'account deletion' },
