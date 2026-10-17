@@ -283,6 +283,43 @@
   padding: 6px 4px 0;
 }
 
+/* In a conversation the row also carries the reply's tools on the left. The reminder gives way
+   first: one line, cut with an ellipsis, gone when the row is narrow. */
+.composer-under-reply .composer-under-note {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1000px) {
+  .composer-under-reply .composer-under-note {
+    visibility: hidden;
+  }
+}
+/* In a conversation the row also carries the reply's tools on the left. */
+.composer-under-reply {
+  padding-top: 4px;
+}
+
+.composer-under .composer-under-tools {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.composer-under-tools .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.composer-under-tools .quiet-button {
+  gap: 6px;
+  padding: 6px 7px;
+}
+
 .composer-under-note {
   flex: 1 1 0;
   min-width: 0;
@@ -510,6 +547,15 @@
 
   .composer-under {
     padding-inline: 2px;
+  }
+
+  /* Tools on the left and the model on the right need the whole phone row. */
+  .composer-under-reply .composer-under-note {
+    display: none;
+  }
+
+  .composer-under-reply {
+    justify-content: space-between;
   }
 
   .cs-model-chip {

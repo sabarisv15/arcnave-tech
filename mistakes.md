@@ -1500,3 +1500,8 @@ practice, not canon.
   grep the code and `docs/decisions/` for what a brief asks to build before planning, and do only
   the delta. Verify: `grep -rn "vertex-sdk\|AnthropicVertex" backend/src` is empty.
 - **2026-10-16 (tech-ops.3b, merge with main)** — Added the ADR-number-collision entry. Retired the oldest, "A deliberate sign-out announced itself as an expired session" (2026-09-17), by the owner's rule for this task (cap 40, prune oldest); no test carries its rule, so the rule stays in this changelog: give a global 401 handler the intent (a flag set before sign-out) instead of inferring it. Main's own changelog line (Claude Platform task) moved here from the top of the file, text unchanged. **40 entries.**
+- **2026-10-16** — No new heading (at the cap; the lesson is now a test). The reply composer's
+  textarea had the browser default `rows=2`, so its auto-height (`max(min, scrollHeight)`) kept an
+  idle box two lines tall, and my first screenshot after the layout change still showed 72 px, not
+  48. Measured on screen (Playwright `getBoundingClientRect`), not from the CSS, as the 2026-09-27
+  entry says. Held by `ChatView.test.tsx` (`rows="1"` on the reply textarea).
