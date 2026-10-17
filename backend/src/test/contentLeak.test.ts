@@ -54,6 +54,7 @@ vi.mock('../logger.js', async () => {
 });
 
 import { users } from '../db/schema.js';
+import { FIELD_ALLOWLIST, logEvent } from '../observability/logEvent.js';
 import { memoryService } from '../services/memory/memoryService.js';
 import type { TestContext, TestUser } from './harness.js';
 import { createTestApp, multipart, signUp } from './harness.js';
@@ -163,6 +164,43 @@ describe('content-leak check (shadow mode)', () => {
     expect(sink.length, 'no log lines were captured; the check would pass vacuously').toBeGreaterThan(0);
 
     expect(findLeaks(sink)).toEqual([]);
+  });
+
+  it('P22: the coded model_call and chat_turn_finished lines are written, and carry no content', async () => {
+    await runTurn();
+    const coded = sink.map((l) => JSON.parse(l) as Record<string, unknown>);
+    const calls = coded.filter((l) => l['code'] === 'model_call');
+    const finished = coded.filter((l) => l['code'] === 'chat_turn_finished');
+    expect(calls.length, 'no model_call line: the check would pass vacuously').toBeGreaterThan(0);
+    expect(finished).toHaveLength(1);
+    expect(finished[0]).toMatchObject({ status: 'complete', callCount: calls.length, tokensExact: true });
+    expect(calls[0]).toMatchObject({ role: 'answer', usageSource: 'provider', inputTokens: 11, outputTokens: 7 });
+    // The old free-form line is gone.
+    expect(coded.some((l) => l['msg'] === 'turn timing')).toBe(false);
+    // Every field of a coded line is on the allowlist (plus pino's own and the code itself).
+    const own = new Set(['level', 'time', 'service', 'module', 'msg', 'code']);
+    for (const line of [...calls, ...finished]) {
+      for (const key of Object.keys(line)) {
+        if (!own.has(key)) expect(FIELD_ALLOWLIST as readonly string[], key).toContain(key);
+      }
+    }
+    expect(findLeaks(sink.filter((l) => l.includes('"code":"model_call"') || l.includes('"code":"chat_turn_finished"')))).toEqual([]);
+  });
+
+  it('P22: no allowlisted field name looks like a content field', () => {
+    const contentLike = /prompt|text|content|query|title|filename|email/i;
+    expect(FIELD_ALLOWLIST.filter((f) => contentLike.test(f))).toEqual([]);
+    // The pattern does match the names it must keep out (negative control).
+    expect(['prompt', 'replyText', 'fileName'.toLowerCase(), 'title', 'email'].every((f) => contentLike.test(f))).toBe(true);
+  });
+
+  it('P22: logEvent drops a field that is not on the allowlist, whatever it holds', async () => {
+    const { logger } = await import('../logger.js');
+    sink.length = 0;
+    logEvent(logger.child({ module: 'control' }), 'model_call', { prompt: SENTINELS.user, text: SENTINELS.reply, turnId: 't-1', phasesMs: { history: 3, leak: SENTINELS.file } });
+    expect(sink).toHaveLength(1);
+    expect(findLeaks(sink)).toEqual([]);
+    expect(JSON.parse(sink[0]!)).toMatchObject({ code: 'model_call', turnId: 't-1', phasesMs: { history: 3 } });
   });
 
   it('a failed query logs its type and SQLSTATE, never the values it carried', async () => {

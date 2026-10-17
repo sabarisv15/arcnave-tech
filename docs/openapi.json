@@ -1707,6 +1707,43 @@
         }
       }
     },
+    "/chats/{id}/active-version": {
+      "put": {
+        "summary": "Make this version the one the conversation opens on (ADR-0079)",
+        "tags": [
+          "chats"
+        ],
+        "description": "Stores the choice on the server: `GET /chats` lists this version for the conversation until another is chosen or a generate runs in another one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/chats/{id}/branch": {
       "post": {
         "summary": "Copy a chat: up to a message, or as a new version of an edited prompt",

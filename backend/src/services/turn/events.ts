@@ -2,7 +2,6 @@
  * What a turn sends the browser: the SSE event shapes and the DTOs inside them. Moved from
  * `services/generation.ts` unchanged, which still exports every name (ADR-0067).
  */
-import type { Config } from '../../config.js';
 import { type ProviderSource, type ProviderUsage, type ReasoningEffort, type ToolErrorCode, type ToolResult, totalTokens } from '../../providers/types.js';
 import type { UIBlock } from '../ui/types.js';
 import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
@@ -22,7 +21,18 @@ export type StreamEvent =
    * client that loses the connection now can reattach to this turn, and a retried send with the
    * same Idempotency-Key gets the same ids.
    */
-  | { type: 'ack'; turnId: string; messageId: string; userMessageId: string | null }
+  | {
+      type: 'ack';
+      turnId: string;
+      /**
+       * P22: present only when the turn runs in another chat than the one the request named: a
+       * regenerate that keeps the old answer runs in its new version (ADR-0079). The client
+       * follows it there (and reconnects there).
+       */
+      chatId?: string;
+      messageId: string;
+      userMessageId: string | null;
+    }
   | { type: 'start'; messageId: string; chatId: string; requestId: string; model: ModelInfo }
   | { type: 'research'; event: { stage: string; label: string; detail: string; at: string } }
   | { type: 'delta'; text: string }
@@ -137,16 +147,4 @@ export function toSourceDto(source: ProviderSource, id: number): SourceDto {
     passage: source.passage,
     retrievedAt: source.retrievedAt.toISOString(),
   };
-}
-
-export function computeCostFor(cfg: Config, providerModelId: string, usage: ProviderUsage): number | null {
-  const row = cfg.PRICING_TABLE[providerModelId];
-  if (!row || !usage.exact) return null;
-  const cost =
-    (usage.inputTokens * row.input +
-      usage.outputTokens * row.output +
-      usage.cacheReadTokens * row.cacheRead +
-      usage.cacheWriteTokens * row.cacheWrite) /
-    1_000_000;
-  return Math.round(cost * 1e6) / 1e6;
 }

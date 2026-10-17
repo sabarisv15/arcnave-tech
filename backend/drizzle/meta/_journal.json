@@ -218,6 +218,13 @@
       "when": 1792400000000,
       "tag": "0030_durable_turns",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0031_ledger",
+      "breakpoints": true
     }
   ]
 }

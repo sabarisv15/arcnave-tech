@@ -38,7 +38,8 @@ import type { UsageService } from './usage.js';
 import type { TurnServices } from './turn/services.js';
 import type { StreamEvent } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
-import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
+import { createTurnState, type TurnLogOutcome, type TurnState } from './turn/turnState.js';
+import { logEvent } from '../observability/logEvent.js';
 import { settleTurn } from './turn/settle.js';
 import { forcedAnswer } from './turn/forcedAnswer.js';
 import { streamAndCollect } from './turn/streamAndCollect.js';
@@ -49,7 +50,7 @@ const log = logger.child({ module: 'generation' });
 
 // Every name this module exported before the split is still exported from it (ADR-0067).
 export type { ModelInfo, PresentedFileDto, SourceDto, StreamEvent, UsageDto } from './turn/events.js';
-export { computeCostFor, presentedFiles, toSourceDto, toUsageDto } from './turn/events.js';
+export { presentedFiles, toSourceDto, toUsageDto } from './turn/events.js';
 export type { AgentLoopInput, GenerateInput, PreferencesRow } from './turn/input.js';
 export { readOfficeFilesWithCode } from './turn/contextAttachments.js';
 export {
@@ -143,6 +144,8 @@ export class GenerationService {
     const logOutcome: TurnLogOutcome = {
       status: 'unfinished',
     };
+    // P22: read by the turn's coded log line once the turn has ended.
+    let finished: { state: TurnState; entry: { alias: string; provider: string; providerModelId?: string | undefined } } | undefined;
 
     try {
       // Attachments are not copied into the workspace up front. A tool that needs one names its
@@ -185,6 +188,7 @@ export class GenerationService {
         });
 
       const state = createTurnState(segments, contextEvents.length);
+      finished = { state, entry };
       const addSegment = (type: 'thinking' | 'text', text: string) => {
         const last = state.segments.at(-1);
         if (last && last.type === type) last.text += text;
@@ -232,7 +236,32 @@ export class GenerationService {
       throw err;
     } finally {
       timing.mark('stream_and_persist');
-      log.info({ chatId: input.chatId, messageId: input.messageId, ...timing.summary() }, 'turn timing');
+      // LG-3 / OD-8 (P22): one coded, allowlisted line per turn, replacing "turn timing".
+      const summary = timing.summary();
+      const usage = finished?.state.usage;
+      logEvent(log, 'chat_turn_finished', {
+        ...summary,
+        turnId: input.turn?.turnId,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        requestId: input.requestId,
+        status: logOutcome.status,
+        finishReason: logOutcome.finishReason ?? null,
+        errorCode: logOutcome.errorCode ?? null,
+        modelAlias: finished?.entry.alias,
+        provider: finished?.entry.provider,
+        providerModelId: finished?.entry.providerModelId,
+        callCount: finished?.state.calls.length ?? 0,
+        tokensExact: usage?.exact ?? false,
+        inputTokens: usage?.inputTokens,
+        outputTokens: usage?.outputTokens,
+        cacheReadTokens: usage?.cacheReadTokens,
+        cacheWriteTokens: usage?.cacheWriteTokens,
+        costUsd: finished ? this.svc.usage.turnCost(finished.state.calls, startedAt) : null,
+        providerTtftMs: finished?.state.clocks.providerTtftMs ?? null,
+        firstVisibleMs: finished?.state.clocks.firstVisibleMs ?? null,
+        turnTotalMs: summary.totalMs,
+      });
       {
         turnLog.finish({ ...logOutcome, timing: timing.summary() });
         const markdown = turnLog.markdown();

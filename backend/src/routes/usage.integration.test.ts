@@ -41,16 +41,18 @@ describe('usage summary', () => {
     };
 
     expect(body.today).toMatchObject({ totalTokens: 0, requests: 0 });
-    // Null, not 0: no pricing table is configured in the test environment.
+    // Null, not 0: nothing was used, and the test models are not in the price book.
     expect(body.today.costUsd).toBeNull();
     expect(body.today.costInr).toBeNull();
-    expect(body.pricingConfigured).toBe(false);
+    // P22: the price book is the default source and has rows, so pricing is configured.
+    expect(body.pricingConfigured).toBe(true);
     expect(body.limits.dailyTokenBudget).toBeNull();
     expect(body.limits.timezone).toBe('UTC');
   });
 
   it('prices usage only when a pricing table is configured', async () => {
     const priced = await createTestApp({
+      PRICE_SOURCE: 'env',
       PRICING_TABLE: JSON.stringify({
         'fake-flash': { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 },
       }),
@@ -408,6 +410,7 @@ describe('costInr beside costUsd', () => {
 
   it('carries both on the per-message route and the CSV export', async () => {
     const priced = await createTestApp({
+      PRICE_SOURCE: 'env',
       PRICING_TABLE: JSON.stringify({
         'fake-flash': { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 },
       }),

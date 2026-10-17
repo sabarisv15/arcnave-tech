@@ -16,6 +16,7 @@ import type {
   Provider,
   ProviderEvent,
   ProviderUsage,
+  UsageSource,
   ToolDefinition,
   ToolResult,
 } from './types.js';
@@ -204,6 +205,29 @@ function requestUsage(round: ProviderUsage): ProviderUsage {
       inputTokens: round.inputTokens + round.cacheReadTokens + round.cacheWriteTokens,
       outputTokens: round.outputTokens,
     },
+  };
+}
+
+/** P22: one request's `call_usage` event (ADR-0079). The id is Claude's message id. */
+function callUsageEvent(
+  round: number,
+  usage: ProviderUsage,
+  usageSource: UsageSource,
+  finishReason: string,
+  ref: string | undefined,
+  startedAt: number,
+  firstAt: number | undefined,
+): ProviderEvent {
+  const now = Date.now();
+  return {
+    type: 'call_usage',
+    ordinal: round,
+    usage,
+    usageSource,
+    finishReason,
+    ...(ref ? { providerRef: { type: 'message_id' as const, value: ref } } : {}),
+    ...(firstAt !== undefined ? { ttftMs: firstAt - startedAt } : {}),
+    durationMs: now - startedAt,
   };
 }
 
@@ -453,6 +477,9 @@ export class AnthropicProvider implements Provider {
     ];
 
     const failedToolCalls = new Set<string>();
+    // P22: the request in flight, as a partial `call_usage`, for a stop that ends it: the SDK
+    // throws on the abort, so the loop's own abort check is not always reached.
+    let inFlight: (() => ProviderEvent) | null = null;
 
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
@@ -522,9 +549,18 @@ export class AnthropicProvider implements Provider {
 
         let roundUsage = EMPTY_USAGE;
         let lastPartialAt = 0;
+        // P22: this request's own clocks and id, for its `call_usage` (OD-8, OD-13).
+        const roundStartedAt = Date.now();
+        let roundFirstAt: number | undefined;
+        let roundRef: string | undefined;
+        // Stopped mid-request: what the provider had reported so far, labelled partial.
+        inFlight = () => callUsageEvent(round, requestUsage(roundUsage), roundUsage.exact ? 'provider_partial' : 'none', 'cancelled', roundRef, roundStartedAt, roundFirstAt);
         for await (const event of stream) {
+          roundFirstAt ??= Date.now();
           if (request.signal.aborted) {
             usage = addRequestUsage(usage, requestUsage(roundUsage));
+            yield inFlight();
+            inFlight = null;
             break roundLoop;
           }
           switch (event.type) {
@@ -553,6 +589,7 @@ export class AnthropicProvider implements Provider {
             }
             case 'message_start':
               roundUsage = merge(roundUsage, usageFrom(event.message.usage as AnthropicUsage));
+              if (typeof event.message.id === 'string') roundRef = event.message.id;
               break;
             case 'message_delta': {
               roundUsage = merge(roundUsage, usageFrom(event.usage as AnthropicUsage));
@@ -570,8 +607,18 @@ export class AnthropicProvider implements Provider {
         }
 
         const final = await stream.finalMessage();
+        inFlight = null;
         roundUsage = merge(roundUsage, usageFrom(final.usage as AnthropicUsage));
         usage = addRequestUsage(usage, requestUsage(roundUsage));
+        yield callUsageEvent(
+          round,
+          requestUsage(roundUsage),
+          roundUsage.exact ? 'provider' : 'none',
+          final.stop_reason ? String(final.stop_reason) : 'unknown',
+          typeof final.id === 'string' ? final.id : roundRef,
+          roundStartedAt,
+          roundFirstAt,
+        );
         if (final.stop_reason) finishReason = String(final.stop_reason);
         if (final.stop_reason === 'refusal') {
           const details = final.stop_details ?? null;
@@ -640,7 +687,10 @@ export class AnthropicProvider implements Provider {
         }
       }
     } catch (err) {
-      if (request.signal.aborted) throw err;
+      if (request.signal.aborted) {
+        if (inFlight) yield inFlight();
+        throw err;
+      }
       // Not the caller's abort: the SDK's timeout or a dropped connection, both transient
       // (ER-2: "connection/408/409"); the app's retry decides, the SDK's is off.
       if (isAbort(err) || err instanceof APIConnectionError) {

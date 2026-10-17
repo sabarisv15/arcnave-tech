@@ -30,9 +30,9 @@ import {
 } from '../../db/schema.js';
 import { notFound } from '../../errors.js';
 import { logger } from '../../logger.js';
-import { type AttachmentRef, type Mode, type ProviderSource, type ProviderUsage, type ReasoningEffort, EMPTY_USAGE } from '../../providers/types.js';
+import { type AttachmentRef, type CallUsage, type Mode, type ProviderSource, type ProviderUsage, type ReasoningEffort, EMPTY_USAGE } from '../../providers/types.js';
 import { toAttachmentRef } from '../attachments/attachmentRef.js';
-import { type BudgetPrefs, type ReservationRef, type UsageService, reservationRef } from '../usage.js';
+import { type BudgetPrefs, type ReservationRef, type TurnClocks, type UsageService, reservationRef } from '../usage.js';
 
 const log = logger.child({ module: 'turns' });
 
@@ -92,6 +92,10 @@ export interface UsageWrite {
   status: 'complete' | 'cancelled' | 'error' | 'blocked';
   finishReason?: string | null;
   errorCode?: string | null;
+  /** P22 (E19): the turn's model calls; the usage row is their sum and each goes to the ledger. */
+  calls?: readonly CallUsage[];
+  /** P22 OD-8 clocks. */
+  clocks?: TurnClocks;
 }
 
 export interface SettleIds {
@@ -203,9 +207,11 @@ export async function settleTurnTx(
       .where(and(eq(messages.id, ids.messageId), eq(messages.status, 'generating')));
   }
 
-  // 4 + 5. The usage row and the counters (one call: `record` commits what it records).
+  // 4 + 5. The usage row and the counters (one call: `record` commits what it records), and
+  //    the turn's model calls in the ledger beside it (P22, ADR-0079).
+  let recorded: { usageRecordId: string; priceVersion: string | null } | null = null;
   if (write.usage) {
-    await deps.usage.record(
+    recorded = await deps.usage.record(
       {
         userId: ids.userId,
         prefs: write.usage.prefs,
@@ -221,6 +227,9 @@ export async function settleTurnTx(
         status: write.usage.status,
         ...(write.usage.finishReason !== undefined ? { finishReason: write.usage.finishReason } : {}),
         ...(write.usage.errorCode !== undefined ? { errorCode: write.usage.errorCode } : {}),
+        ...(write.usage.calls ? { calls: write.usage.calls } : {}),
+        ...(write.usage.clocks ? { clocks: write.usage.clocks } : {}),
+        turnId: binding?.turnId ?? null,
       },
       tx,
     );
@@ -228,9 +237,12 @@ export async function settleTurnTx(
 
   // 6. The reservation: settled against the usage just recorded, or given back.
   if (binding?.reservation) {
+    const status = write.reservation ?? (write.usage ? 'settled' : 'released');
     await deps.usage.release(binding.reservation, {
-      status: write.reservation ?? (write.usage ? 'settled' : 'released'),
+      status,
       tx,
+      // P22: a settled hold names the usage row it was settled against.
+      ...(status === 'settled' && recorded ? { settledUsageRecordId: recorded.usageRecordId, priceVersion: recorded.priceVersion } : {}),
     });
   }
 

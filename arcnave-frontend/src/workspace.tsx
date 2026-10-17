@@ -452,6 +452,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       const ac = new AbortController();
+      // The chat this run writes to: the one asked for, until the server says the turn runs in a
+      // new version (a regenerate that keeps the old answer, ADR-0079).
+      let runChat = chatId;
       controllers.current.set(chatId, ac);
       setActiveRun(chatId);
       setRunningChats((list) => (list.includes(chatId) ? list : [...list, chatId]));
@@ -460,12 +463,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       wakers.current.set(chatId, () => wakeNow?.());
       /** Ends this run's hold on the chat, once, and only if no newer run replaced it. */
       const release = (): void => {
-        if (controllers.current.get(chatId) !== ac) return;
-        controllers.current.delete(chatId);
-        wakers.current.delete(chatId);
-        setRunningChats((list) => list.filter((c) => c !== chatId));
-        setReconnecting((r) => ({ ...r, [chatId]: false }));
-        setActiveRun((current) => (current === chatId ? ([...controllers.current.keys()].at(-1) ?? null) : current));
+        const held = runChat;
+        if (controllers.current.get(held) !== ac) return;
+        controllers.current.delete(held);
+        wakers.current.delete(held);
+        setRunningChats((list) => list.filter((c) => c !== held));
+        setReconnecting((r) => ({ ...r, [held]: false }));
+        setActiveRun((current) => (current === held ? ([...controllers.current.keys()].at(-1) ?? null) : current));
+      };
+      /** The turn runs in a new version: this run, its row and the open page move there. */
+      const follow = (to: string, messageId: string): void => {
+        const from = runChat;
+        const placeholder = assistantId;
+        setMessages((all) => {
+          const list = all[from] ?? [];
+          const at = list.findIndex((m) => m.id === placeholder);
+          const before = at >= 0 ? list.slice(0, at) : list;
+          const row = at >= 0 ? list[at]! : undefined;
+          const { [from]: _old, ...rest } = all;
+          return {
+            ...rest,
+            [to]: [...before, ...(row ? [{ ...row, id: messageId, text: "", status: "generating" as const }] : [])],
+          };
+        });
+        // The old version keeps its answer on the server; it is read again when opened.
+        setTranscript((t) => {
+          const { [from]: _old, ...rest } = t;
+          return { ...rest, [to]: "ready" };
+        });
+        controllers.current.delete(from);
+        controllers.current.set(to, ac);
+        const waker = wakers.current.get(from);
+        wakers.current.delete(from);
+        if (waker) wakers.current.set(to, waker);
+        setRunningChats((list) => [...list.filter((c) => c !== from && c !== to), to]);
+        setActiveRun((current) => (current === from ? to : current));
+        setChats((list) => list.map((c) => (c.id === from ? { ...c, id: to } : c)));
+        if (new RegExp(`^/chat/${from}(/|$)`).test(window.location.pathname)) navigate(`/chat/${to}`, { replace: true });
+        runChat = to;
+        assistantId = messageId;
       };
       let assistantId = options.placeholderId;
       let text = "";
@@ -477,7 +513,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       if (options.attachTo) {
         // Frames are replayed from the start, so what the row showed is rebuilt, not appended to.
-        patchMessage(chatId, assistantId, (m) => ({
+        patchMessage(runChat, assistantId, (m) => ({
           ...m,
           text: "",
           status: "generating",
@@ -510,17 +546,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       try {
         for await (const event of source) {
           if (event.type === "reconnecting") {
-            setReconnecting((r) => ({ ...r, [chatId]: true }));
+            const held = runChat;
+            setReconnecting((r) => ({ ...r, [held]: true }));
             continue;
           }
           if (event.type === "reconnected") {
-            setReconnecting((r) => ({ ...r, [chatId]: false }));
+            const held = runChat;
+            setReconnecting((r) => ({ ...r, [held]: false }));
             continue;
+          }
+          if ((event.type === "ack" || event.type === "start") && event.chatId && event.chatId !== runChat) {
+            follow(event.chatId, event.messageId);
           }
           if (event.type === "ack" && event.messageId !== assistantId) {
             // The turn exists: adopt the server's id now, before the model answers (ADR-0078).
             const adopt = adoptServerId(assistantId, event.messageId, { status: "generating" });
-            setMessages((all) => ({ ...all, [chatId]: adopt(all[chatId] ?? []) }));
+            const held = runChat;
+            setMessages((all) => ({ ...all, [held]: adopt(all[held] ?? []) }));
             assistantId = event.messageId;
           }
           if (event.type === "snapshot" && event.message) {
@@ -528,9 +570,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             // past the server's buffer): it replaces the row as a whole.
             const stored = toMessage(event.message);
             const from = assistantId;
+            const held = runChat;
             setMessages((all) => ({
               ...all,
-              [chatId]: (all[chatId] ?? []).map((m) => (m.id === from || m.id === stored.id ? stored : m)),
+              [held]: (all[held] ?? []).map((m) => (m.id === from || m.id === stored.id ? stored : m)),
             }));
             assistantId = stored.id;
             text = stored.text;
@@ -551,12 +594,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               modelAlias: event.model.resolved,
               providerModelId: event.model.providerModelId,
             });
-            setMessages((all) => ({ ...all, [chatId]: adopt(all[chatId] ?? []) }));
+            const held = runChat;
+            setMessages((all) => ({ ...all, [held]: adopt(all[held] ?? []) }));
             assistantId = realId;
           }
           if (event.type === "delta") {
             text += event.text;
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               text: m.text + event.text,
               segments: appendSegment(m.segments, { type: "text", text: event.text }),
@@ -564,19 +608,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }));
           }
           if (event.type === "thinking")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               thinking: (m.thinking ?? "") + event.text,
               segments: appendSegment(m.segments, { type: "thinking", text: event.text }),
               status: "generating",
             }));
           if (event.type === "sources")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               sources: event.sources.map(toSource),
             }));
           if (event.type === "research")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               events: [
@@ -586,7 +630,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               researchStage: event.event.stage,
             }));
           if (event.type === "tool_use")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               segments: appendSegment(m.segments, { type: "tool", toolCallId: event.toolCallId }),
@@ -600,14 +644,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ],
             }));
           if (event.type === "ui_draft")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               visualDrafts: applyVisualDraft(m.visualDrafts, event),
             }));
           if (event.type === "tool_result") {
             const files = event.files;
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               // The finished visual follows as a checked ui_block; the draft goes now either way.
               ...(event.name === "render_ui" || event.name === "show_widget" ? { visualDrafts: undefined } : {}),
@@ -645,7 +689,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }
           }
           if (event.type === "artifact_created") {
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               artifactId: event.artifactId,
             }));
@@ -656,7 +700,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }
           }
           if (event.type === "code")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               codeBlocks: [
@@ -665,7 +709,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ],
             }));
           if (event.type === "ui_block") {
-            patchMessage(chatId, assistantId, (m) => {
+            patchMessage(runChat, assistantId, (m) => {
               const existing = m.uiBlocks ?? [];
               const exists = existing.some((b) => b.blockId === event.block.blockId);
               const updated = exists
@@ -689,7 +733,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           if (event.type === "done") {
             completed = true;
             outcome = "complete";
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               visualDrafts: undefined,
               status: "complete",
@@ -701,7 +745,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }
           if (event.type === "error") {
             outcome = "error";
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               visualDrafts: undefined,
               status: "error",
@@ -722,13 +766,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           pollInstead = true;
         } else if (ac.signal.aborted) {
           outcome = "stopped";
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             status: "stopped",
           }));
         } else if (error instanceof ApiError) {
           outcome = "error";
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             status: "error",
             error: error.code,
@@ -737,7 +781,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }));
         } else {
           outcome = "error";
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             status: "error",
             error: "network",
@@ -747,7 +791,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         release();
       }
       if (pollInstead) {
-        pollGenerating(chatId, assistantId);
+        pollGenerating(runChat, assistantId);
         return;
       }
       if (completed && options.makeArtifact && text.trim()) {
@@ -760,12 +804,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 ? "code"
                 : "document",
             content: text,
-            chatId,
+            chatId: runChat,
           });
           setArtifacts((list) => [toArtifact(created), ...list]);
           // The backend has no message→artifact column writer, so this link lives only for
           // the current session. The artifact itself stays findable by chat in Artifacts.
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             artifactId: created.id,
           }));
@@ -777,7 +821,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       // Reconcile against what was actually persisted: ids, sequence, final status. The
       // outcome this tab observed is passed along so a read that beats the server's own
       // write cannot resurrect the spinner.
-      await loadTranscript(chatId, {
+      await loadTranscript(runChat, {
         messageId: assistantId,
         status: outcome,
         text,
@@ -793,6 +837,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       loadTranscript,
       refreshChats,
       report,
+      navigate,
     ],
   );
 
@@ -1119,6 +1164,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           );
           setVersionAnchor({ chatId: toChatId, seq, offset });
           navigate(`/chat/${toChatId}`, { replace: true });
+          // The choice is the conversation's, on the server: the list opens this version next
+          // time, on any device (ADR-0079). A failed save leaves only this tab on it.
+          void api.chats.activateVersion(toChatId).catch(() => {});
         } catch (error) {
           report(error, "That version could not be opened.");
         }

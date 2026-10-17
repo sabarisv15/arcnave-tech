@@ -588,6 +588,23 @@ const envSchema = z.object({
   SAFE_FETCH_GROUNDING_MAX_REDIRECTS: int(8),
   /** One TCP connect attempt before safeFetch tries the host's next checked address (ours). */
   SAFE_FETCH_CONNECT_TIMEOUT_MS: int(3_000),
+
+  // --- P22: data model and the ledger (ADR-0079) ---------------------------
+  /**
+   * Where a call's price comes from (Stage 18 CD-1, N-36). `book`: the effective-dated rows in
+   * `config/priceBook.ts`, mirrored into `price_table` at boot. `env`: `PRICING_TABLE` above,
+   * kept until the owner retires it ("env JSON stays until the switch").
+   */
+  PRICE_SOURCE: z.enum(['book', 'env']).default('book'),
+  /**
+   * Object-storage prefix the deletion ledger is written under (Stage 5 P11, G4; N-34 keeps it a
+   * year by a bucket lifecycle rule, which is infrastructure). At least 5 characters, so it can
+   * never be a 4-hex owner shard: `storage.deleteOwned` reaches only `<shard>/…`.
+   */
+  DELETION_LEDGER_PREFIX: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{4,40}$/, 'DELETION_LEDGER_PREFIX: lowercase letters, digits and "-", 5 to 41 characters')
+    .default('deletion-ledger'),
 });
 
 export type Env = z.infer<typeof envSchema>;

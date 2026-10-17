@@ -2,9 +2,11 @@
  * G16: an Office attachment's extracted text reaches each provider exactly once, on the turn it
  * is attached and on later turns that carry it as history.
  */
+import { eq } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { attachments } from '../db/schema.js';
 import { buildAnthropicMessages } from '../providers/anthropic.js';
 import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest } from '../providers/types.js';
@@ -88,7 +90,10 @@ describe('G16: Office text is sent once', () => {
     const retry = await send({ prompt: 'What is in this sheet?', retryMessageId: firstAssistant.id });
     expect(retry.statusCode).toBe(200);
     const retried = ctx.provider.seen.at(-1)!;
-    expect((retried.attachments ?? []).map((a) => a.id)).toEqual([fileId]);
+    // P22 (ADR-0079): the finished answer is kept and the retry runs in a new version, whose copied
+    // prompt holds a copy of the file's row (same stored bytes).
+    expect(retried.attachments ?? []).toHaveLength(1);
+    expect(retried.attachments![0]!.storageKey).toBe((await ctx.db.select().from(attachments).where(eq(attachments.id, fileId)))[0]!.storageKey);
     for (const [provider, wire] of wires(retried)) {
       expect(occurrences(wire), `${provider} retry`).toBe(1);
     }

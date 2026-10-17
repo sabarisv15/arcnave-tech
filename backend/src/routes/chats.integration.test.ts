@@ -609,9 +609,16 @@ describe('budget enforcement', () => {
 /* -------------------------------------------------------------------------- retry & branch */
 
 describe('retry and branch', () => {
-  it('reuses the assistant row on retry instead of appending a new pair', async () => {
+  // P22 (ADR-0079): a finished answer is kept and its regenerate runs in a new version
+  // (regenerateVersions.integration.test.ts); a failed one is still retried in place.
+  it('reuses a failed assistant row on retry instead of appending a new pair', async () => {
     const chatId = await newChat();
-    await generate(chatId);
+    ctx.provider.streamError = new Error('boom');
+    try {
+      await generate(chatId);
+    } finally {
+      ctx.provider.streamError = null;
+    }
 
     const before = await transcript(chatId);
     const assistantId = before.messages.find((m) => m.role === 'assistant')!.id;

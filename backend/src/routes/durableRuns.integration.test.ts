@@ -13,10 +13,10 @@
  * plus: a budget refusal is HTTP 402 with no rows; `ack` is the first frame; `ping` arrives; a
  * deleted session ends the stream with an `unauthorized` frame.
  */
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { budgetReservations, messages, turns, usageCounters, usageRecords } from '../db/schema.js';
+import { budgetReservations, chats, messages, turns, usageCounters, usageRecords } from '../db/schema.js';
 import { drain } from '../services/shutdown.js';
 import { FencedOut, settleTurn, sweepTurns } from '../services/turn/turnStore.js';
 import type { ProviderEvent } from '../providers/types.js';
@@ -91,6 +91,16 @@ async function turnsOf(chatId: string) {
   return A.db.select().from(turns).where(eq(turns.chatId, chatId)).orderBy(asc(turns.createdAt));
 }
 
+/** Every turn in the conversation: P22's regenerate of a kept answer runs in a new version (ADR-0079). */
+async function familyTurnsOf(chatId: string) {
+  return A.db
+    .select({ state: turns.state, chatId: turns.chatId })
+    .from(turns)
+    .innerJoin(chats, eq(chats.id, turns.chatId))
+    .where(sql`coalesce(${chats.rootChatId}, ${chats.id}) = ${chatId}`)
+    .orderBy(asc(turns.createdAt));
+}
+
 async function until(check: () => Promise<boolean>, ms = 5_000): Promise<void> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -127,8 +137,8 @@ describe('(a) one turn per chat across two instances', () => {
       expect(codes).toEqual([200, 409]);
       const refused = ra.statusCode === 409 ? ra : rb;
       expect((refused.json() as { error: { code: string } }).error.code).toBe('run_in_progress');
-      // One new turn, ended; never two running.
-      const all = await turnsOf(chatId);
+      // One new turn, ended; never two running (counted over the conversation's versions).
+      const all = await familyTurnsOf(chatId);
       expect(all).toHaveLength(2);
       expect(all.every((t) => t.state === 'done')).toBe(true);
       providerA.gapMs = 0;

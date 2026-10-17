@@ -13,6 +13,8 @@ import { sweepCheckpoints } from './services/sandboxCheckpoints.js';
 import { drain } from './services/shutdown.js';
 import { sweepTurns } from './services/turn/turnStore.js';
 import { errorLogFields } from './errorLog.js';
+import { ensureLedgerPartitions } from './services/ledger.js';
+import { logEvent } from './observability/logEvent.js';
 
 /** How often expired session rows are swept. Cheap, indexed, and not time-critical. */
 const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -20,6 +22,13 @@ const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 async function main(): Promise<void> {
   const cfg = config();
   const app = await createApp(cfg);
+
+  // P22 (ADR-0079): the price book mirrored into price_table, and the ledger's month partitions
+  // ahead of the clock. Pricing reads the code rows, so a failure here costs reporting, not prices.
+  void app.services.pricing
+    .syncTable(app.services.db)
+    .catch((err: unknown) => logger.warn(errorLogFields(err), 'price table not synced'));
+  void ensureLedgerPartitions(app.services.db).catch((err: unknown) => logger.warn(errorLogFields(err), 'ledger partitions not checked'));
 
   const sweep = setInterval(() => {
     void app.services.auth
@@ -40,9 +49,10 @@ async function main(): Promise<void> {
       unsentUploadTtlHours: cfg.UNSENT_UPLOAD_TTL_HOURS,
       sandboxStateDays: cfg.SANDBOX_STATE_RETENTION_DAYS,
       statementTimeoutMs: cfg.DB_LONG_STATEMENT_TIMEOUT_MS,
+      deletionLedger: app.services.deletionLedger,
     }, new Date(), logger)
       .then((r) => {
-        if (r.chatsPurged > 0 || r.uploadsPurged > 0 || r.checkpointsPurged > 0) logger.info(r, 'retention sweep');
+        if (r.chatsPurged > 0 || r.uploadsPurged > 0 || r.checkpointsPurged > 0) logEvent(logger, 'retention_sweep', { ...r });
       })
       .catch((err: unknown) => logger.error({ err }, 'retention sweep failed'));
   }, SESSION_SWEEP_INTERVAL_MS);

@@ -2,6 +2,7 @@
 
 - Status: accepted. Tested locally with a scripted provider; not live.
 - Date: 2026-09-27
+- Superseded in part by: [ADR-0079](0079-ledger-price-book-and-versions.md) (§5, and the consequence that a regenerate replaces the answer in place).
 - Supersedes: the "editing a prompt branches into a new chat" convention in
   `arcnave-frontend/src/workspace.tsx` (it had no ADR of its own).
 

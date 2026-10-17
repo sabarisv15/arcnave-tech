@@ -276,6 +276,22 @@ describe("P08 reconnect contract (ADR-0078)", () => {
     expect(header(calls[1]!.init, "Last-Event-ID")).toBe("4");
   });
 
+  it("P22: reconnects to the version a regenerate moved to (ack names its chat)", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        calls.push(String(input));
+        if (calls.length === 1)
+          return sse(`id: 0\n${frame({ type: "ack", turnId: "t", chatId: "chat-2", messageId: "m2", userMessageId: "u2" })}id: 1\n${frame({ type: "delta", text: "a" })}`);
+        return sse(`id: 2\n${frame({ type: "done", questions: [], usage: usageZero(), finishReason: "stop" })}`);
+      }),
+    );
+    await collect();
+    expect(calls[0]).toContain("/chats/chat-1/generate");
+    expect(calls[1]).toContain("/chats/chat-2/stream");
+  });
+
   it("waits with full jitter over 1/2/4/8/16 s, and gives up after 5 attempts", async () => {
     expect(RECONNECT_BASES_MS).toEqual([1000, 2000, 4000, 8000, 16000]);
     RECONNECT_BASES_MS.forEach((base, i) => {

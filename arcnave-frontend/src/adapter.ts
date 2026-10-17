@@ -43,7 +43,14 @@ export interface RuntimeDebugTrace {
 
 export type StreamEvent =
   /** The first frame of a run: the turn exists, with both of its messages (ADR-0078). */
-  | { type: "ack"; turnId: string; messageId: string; userMessageId: string | null }
+  | {
+      type: "ack";
+      turnId: string;
+      messageId: string;
+      userMessageId: string | null;
+      /** Present when the turn runs in another chat: a regenerate that keeps the old answer (ADR-0079). */
+      chatId?: string;
+    }
   /**
    * The stored reply, sent when the live frames are not available (the run is on another server
    * instance, ended, or its buffer moved past the gap): it replaces the row.
@@ -243,12 +250,17 @@ async function* resumable(
   let response = first;
   let lastId = -1;
   let attempt = 0;
+  // A regenerate that keeps the old answer runs in a new version (ADR-0079): its `ack` (or
+  // `start`) names that chat, and a reconnect goes there, where the turn is.
+  let streamChat = chatId;
   for (;;) {
     let ended = false;
     try {
       for await (const frame of readFrames(response)) {
         if ((frame.event as { type: string }).type === "ping") continue;
         if (frame.id !== null) lastId = frame.id;
+        const moved = (frame.event as { type: string; chatId?: string });
+        if ((moved.type === "ack" || moved.type === "start") && moved.chatId) streamChat = moved.chatId;
         if (attempt > 0) yield { type: "reconnected" };
         attempt = 0;
         yield frame.event;
@@ -267,7 +279,7 @@ async function* resumable(
       await backoff(reconnectDelay(attempt, random), signal, wake);
       attempt += 1;
       try {
-        response = await openStream(chatId, lastId, signal);
+        response = await openStream(streamChat, lastId, signal);
         break;
       } catch (error) {
         if (signal.aborted) throw error;

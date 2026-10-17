@@ -11,7 +11,7 @@ import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
 import type { SkillDetail } from '../skills.js';
 import type { TurnLog } from '../turnLog.js';
 import { usdToInr } from '../usage.js';
-import { type StreamEvent, computeCostFor, toUsageDto } from './events.js';
+import { type StreamEvent, toUsageDto } from './events.js';
 import type { GenerateInput, PreferencesRow } from './input.js';
 import { endStateFor, settleTurn as settleTurnRows } from './turnStore.js';
 import type { TurnServices } from './services.js';
@@ -76,6 +76,8 @@ export async function* settleTurn(
         startedAt,
         status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
         finishReason,
+        calls: state.calls,
+        clocks: state.clocks,
       },
       end: endStateFor(status, state.errorCode),
       finishCode: state.status === 'complete' ? (state.endedPartial ? 'partial_after_tool_run' : state.finishReason) : (state.errorCode ?? finishReason),
@@ -101,7 +103,8 @@ export async function* settleTurn(
     log.info({ debugTrace }, 'Runtime debug trace');
     yield { type: 'debug', trace: debugTrace };
 
-    const costUsd = computeCostFor(svc.cfg, entry.providerModelId!, state.usage);
+    // The usage row's own figure: the calls priced one by one (P22, ADR-0079).
+    const costUsd = svc.usage.turnCost(state.calls, startedAt);
     yield {
       type: 'done',
       questions,

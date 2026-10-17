@@ -25,7 +25,7 @@ import { and, eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { messages } from '../db/schema.js';
+import { chats, messages } from '../db/schema.js';
 import { AnthropicProvider } from '../providers/anthropic.js';
 import { GeminiProvider } from '../providers/gemini.js';
 import type { ProviderEvent } from '../providers/types.js';
@@ -213,7 +213,8 @@ describe('turn characterization: fake provider', () => {
     ).toMatchSnapshot();
   });
 
-  it('a regenerated reply (retryMessageId) replaces the earlier attempt', async () => {
+  // P22 (ADR-0079): a finished answer is kept; the regenerate runs in a new version of the chat.
+  it('a regenerated reply (retryMessageId) keeps the earlier answer as a version', async () => {
     expect(
       await scenario(async () => {
         const chatId = await newChat(s);
@@ -225,7 +226,8 @@ describe('turn characterization: fake provider', () => {
           .where(and(eq(messages.chatId, chatId), eq(messages.role, 'assistant')));
         provider.script = answer('New answer.');
         const second = await generate(s, chatId, { prompt: 'Say it.', mode: 'search', retryMessageId: assistant!.id });
-        return { chatId, responses: [first, second] };
+        const [version] = await s.ctx.db.select({ id: chats.id }).from(chats).where(eq(chats.parentChatId, chatId));
+        return { chatId, responses: [first, second, { version: await rowsOf(s, version!.id) }] };
       }),
     ).toMatchSnapshot();
   });
