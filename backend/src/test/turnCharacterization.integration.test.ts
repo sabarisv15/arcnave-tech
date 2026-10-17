@@ -31,7 +31,9 @@ import { GeminiProvider } from '../providers/gemini.js';
 import type { ProviderEvent } from '../providers/types.js';
 import { ProviderError } from '../providers/types.js';
 import { createTestApp, signUp } from './harness.js';
-import { answer, ASK, AttemptsProvider, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, upload, usage } from './turnSnapshot.js';
+import { answer, ASK, AttemptsProvider, freezeSnapshotClock, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, upload, usage } from './turnSnapshot.js';
+
+freezeSnapshotClock();
 
 /* -------------------------------------------------------------------------- fake provider */
 

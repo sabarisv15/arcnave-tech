@@ -30,7 +30,9 @@ import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCo
 import type { TestContext } from './harness.js';
 import { pdfWithPages } from './fixtures/files.js';
 import { createTestApp, multipart, postProjectFile, promptOf, signUp } from './harness.js';
-import { answer, ASK, AttemptsProvider, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, upload, usage } from './turnSnapshot.js';
+import { answer, ASK, AttemptsProvider, freezeSnapshotClock, generate, longTexts, newChat, normalise, plain, rowsOf, type Session, upload, usage } from './turnSnapshot.js';
+
+freezeSnapshotClock();
 
 /* -------------------------------------------------------------------------- instruments */
 

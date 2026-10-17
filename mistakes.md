@@ -431,19 +431,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `npx vitest run src/routes/providerTimeout.integration.test.ts` (a slow first
   event completes with one request).
 
-### 2026-09-26 — The system prompt named tools the turn could not use
-
-- **Symptom:** The audit found the prompt telling the model to call `get_goal`, to use the
-  `research-deep-dive` skill with web search off, to search project files outside a project, and
-  to "store" memories with no tool that stores one. While fixing it, two new lines named
-  `run_python` in static text and were only caught by the test below.
-- **Cause:** Guidance was written once, in static text, while the tools come and go per turn.
-  Nothing compared the two.
-- **Rule:** **Guidance that names a tool goes in only when the turn allows that tool.** Put it in
-  the dynamic runtime context, gated on the turn's allowed tools, and list a skill only when its
-  `requires.tools` are allowed.
-- **Verify:** `npx vitest run src/routes/promptToolParity.integration.test.ts`.
-
 ### 2026-09-26 — A PDF was "converted" to Excel by splitting its extracted text
 
 - **Symptom:** "Convert this PDF into Excel" produced a sheet cut on spaces and commas; the
@@ -810,6 +797,23 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** `forbiddenParams.test.ts` ("would catch each name" / "stopped" is fine) and
   `promptKit.test.ts` (each requirement's gap flips both ways); `for i in 1 2 3; do npx vitest run
   src/test/goldenRequests.integration.test.ts; done` is green every time.
+
+### 2026-10-17 — 29 characterization snapshots failed on a Saturday, with no code change
+
+- **Symptom:** On the tech-ops.3e merge gate (Saturday 2026-10-17) backend vitest failed 29 tests,
+  all in `turnCharacterization*.integration.test.ts`, every diff `"perTurn": 65` → `67`. The same
+  code had passed the day before; `backend/src` was byte-identical to the evaluated commit.
+- **Cause:** The per-turn block holds `<current_time>… Friday IST</current_time>`. The normaliser
+  hid the time text but not `promptAssembly.blockSizes.perTurn`, which counts the weekday name.
+  The snapshots were recorded on a Friday; "Saturday" is two characters longer ("Monday" and
+  "Sunday" are not, so a Monday run passed and hid it).
+- **Rule:** **A snapshot test never depends on the wall clock.** Fake `Date` (only `Date`) at a
+  fixed instant for the whole file (`freezeSnapshotClock()` in `src/test/turnSnapshot.ts`), and let
+  it advance with real time: a clock that stands still made `probed` true in 18 turn logs. Check a
+  date-dependent test on a day whose name has a different length, not just a different day.
+- **Verify:** run the two files with the host clock shifted (a `--import` preload that offsets
+  `Date`, `HOST_SHIFT_DAYS=0` and `=4`, Saturday and Wednesday): both 37/37; with the
+  `freezeSnapshotClock()` call removed both fail 29.
 
 ## Convention and sources
 
@@ -1505,3 +1509,7 @@ practice, not canon.
   idle box two lines tall, and my first screenshot after the layout change still showed 72 px, not
   48. Measured on screen (Playwright `getBoundingClientRect`), not from the CSS, as the 2026-09-27
   entry says. Held by `ChatView.test.tsx` (`rows="1"` on the reply textarea).
+- **2026-10-17 (tech-ops.3e)** — Added "29 characterization snapshots failed on a Saturday".
+  Retired "The system prompt named tools the turn could not use" (2026-09-26):
+  `src/routes/promptToolParity.integration.test.ts` makes it fail the suite (criterion 1); its rule
+  stays here: guidance that names a tool goes in only when the turn allows that tool. **40 entries.**
