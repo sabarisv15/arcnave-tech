@@ -219,7 +219,95 @@ export type ProviderEvent =
   | { type: 'tool_input_partial'; index: number; name: string; input: Record<string, unknown> }
   /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
   | { type: 'refusal'; category: string | null; explanation: string | null }
+  /**
+   * P22 (ADR-0079, Stage 17 OD-13): one provider request has ended. `usage` is that request's
+   * alone (never the running total), as the provider reported it. Emitted at each round end,
+   * before `completed`; a stop mid-request reports what the provider had sent so far
+   * (`provider_partial`). No metadata: `exact: false`, zeros, `none` (Invariant 3).
+   */
+  | {
+      type: 'call_usage';
+      /** The request's place in this adapter call, 0-based (one per tool round). */
+      ordinal: number;
+      usage: ProviderUsage;
+      usageSource: UsageSource;
+      /** The provider's own stop reason for this request (`end_turn`, `tool_use`, `STOP`, …). */
+      finishReason: string;
+      providerRef?: ProviderRef;
+      /** Request sent → its first stream event. */
+      ttftMs?: number;
+      /** Request sent → its last stream event. */
+      durationMs?: number;
+    }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
+
+/* -------------------------------------------------------------------------- P22: per-call usage */
+
+/**
+ * Where a call's counts came from (OD-13). There is no `estimated` (Invariant 3): a stopped
+ * request keeps the provider's own partial counts, and a request with no metadata has none.
+ */
+export const USAGE_SOURCES = ['provider', 'provider_partial', 'none'] as const;
+export type UsageSource = (typeof USAGE_SOURCES)[number];
+
+/** What a call was for. `title` / `style` / `summary` / `router` are helper calls (P13). */
+export const CALL_ROLES = ['answer', 'forced_answer', 'title', 'style', 'summary', 'router'] as const;
+export type CallRole = (typeof CALL_ROLES)[number];
+
+/** The provider's id for a request: Claude's message id, Gemini's response id. */
+export interface ProviderRef {
+  type: 'message_id' | 'response_id' | 'request_id';
+  value: string;
+}
+
+/**
+ * One model call of a turn, as the ledger stores it (wave-plan §4 contract: P13's helper jobs
+ * and P11's attempts build this same shape and hand it to `ledger.recordCalls`).
+ */
+export interface CallUsage {
+  /** 1-based place of the call in its turn. */
+  ordinal: number;
+  /**
+   * 1-based request number on this model in the turn, set by the gateway (P11): a retry is the
+   * next number, a hop starts again at 1 on the next model. A failed attempt that reached the
+   * provider has its own row (`provider_partial`, or `none` with zeros).
+   */
+  attempt: number;
+  role: CallRole;
+  providerModelId: string;
+  /** The provider of that model; after a hop it differs from the turn's. Defaults to the turn's. */
+  provider?: string;
+  usage: ProviderUsage;
+  usageSource: UsageSource;
+  finishReason: string;
+  providerRef?: ProviderRef;
+  ttftMs?: number;
+  durationMs?: number;
+  /** When the request was sent; the ledger's partition key. Defaults to the turn's start. */
+  startedAt?: Date;
+}
+
+/**
+ * A turn's usage from its calls (E19): the sum of every call's counts when every call is exact.
+ * One call without counts makes the turn `exact: false` with zeros (Invariant 3: a part is never
+ * shown as the whole); that call's row says so and the others keep their own counts in the
+ * ledger. `lastRequest` is the last call's own (what the next turn resends).
+ */
+export function usageFromCalls(calls: readonly CallUsage[]): ProviderUsage {
+  if (calls.length === 0) return EMPTY_USAGE;
+  const exact = calls.every((c) => c.usage.exact);
+  if (!exact) return EMPTY_USAGE;
+  const last = calls.at(-1)!.usage;
+  return {
+    inputTokens: calls.reduce((n, c) => n + c.usage.inputTokens, 0),
+    outputTokens: calls.reduce((n, c) => n + c.usage.outputTokens, 0),
+    cacheReadTokens: calls.reduce((n, c) => n + c.usage.cacheReadTokens, 0),
+    cacheWriteTokens: calls.reduce((n, c) => n + c.usage.cacheWriteTokens, 0),
+    exact,
+    // Only a size the provider reported for that request: a call without one has no claim to it.
+    ...(exact && last.lastRequest ? { lastRequest: last.lastRequest } : {}),
+  };
+}
 
 /** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */
 /**
@@ -342,7 +430,37 @@ export interface GenerationRequest {
   toolExecutor?: ToolExecutor;
   /** The prompt as assembled: stable text, session state, per-turn state (ADR-0075). */
   promptAssembly?: import('../services/promptCache/types.js').PromptAssembly;
+  /**
+   * `off` asks for no thinking (ADR-0080). An adapter sends it only to a model whose capability
+   * spec allows it (`thinkingOff`) and refuses the request otherwise: some models answer a
+   * disabled-thinking request with a 400. Absent: the model's default (adaptive).
+   */
+  thinking?: 'off';
   signal: AbortSignal;
+}
+
+/**
+ * One helper call (ADR-0080): a single request, no tools, no history, no cache breakpoint, for a
+ * background job (title, summary) or the router shadow. `schema` asks for structured output
+ * (`classify`); without it the answer is plain text (`complete`).
+ */
+export interface HelperRequest {
+  providerModelId: string;
+  system: string;
+  /** The one user message. The caller escapes any untrusted text in it. */
+  text: string;
+  maxOutputTokens: number;
+  /** Helper calls run with thinking off (N-69, N-77); the adapter refuses a model that cannot. */
+  thinking: 'off';
+  reasoningEffort?: ReasoningEffort;
+  signal: AbortSignal;
+}
+
+export interface HelperResult {
+  text: string;
+  usage: ProviderUsage;
+  /** The provider's stop reason as reported (`end_turn`, `max_tokens`, `refusal`, …). */
+  finishReason: string;
 }
 
 /**
@@ -351,7 +469,43 @@ export interface GenerationRequest {
  * `retryable` drives the backoff policy; `code` is mapped onto an API error code by the
  * service, so provider-specific vocabulary stops at this boundary.
  */
-export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit' | 'provider_quota_unavailable';
+export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit' | 'provider_quota_unavailable' | 'provider_payload_limit' | 'response_blocked';
+
+/**
+ * P11 (Stage 15 ER-2f/g/h, ADR-0081): the closed set of failure kinds. The kind, not the HTTP
+ * status, decides retry, fallback and the breaker (`providers/failures.ts` holds the table).
+ */
+export type FailureKind =
+  | 'transient'
+  | 'timeout'
+  | 'quota'
+  | 'config'
+  | 'credentials'
+  | 'claude_limit'
+  | 'request_rejected'
+  | 'blocked'
+  | 'context_overflow'
+  | 'cancelled';
+
+/** The kind an error with no explicit one gets, from its code and retry flag (older call sites). */
+function defaultKind(code: ProviderErrorCode, retryable: boolean): FailureKind {
+  switch (code) {
+    case 'context_overflow':
+      return 'context_overflow';
+    case 'provider_limit':
+      return 'claude_limit';
+    case 'provider_quota_unavailable':
+      return 'quota';
+    case 'model_unavailable':
+      return 'config';
+    case 'response_blocked':
+      return 'blocked';
+    case 'provider_timeout':
+      return retryable ? 'timeout' : 'request_rejected';
+    default:
+      return retryable ? 'transient' : 'request_rejected';
+  }
+}
 
 export class ProviderError extends Error {
   readonly retryable: boolean;
@@ -359,6 +513,24 @@ export class ProviderError extends Error {
   readonly statusCode: number | undefined;
   /** The provider's own Retry-After, in ms, when it sent one (Stage 15 ER-2 honours it ≤ N-42). */
   readonly retryAfterMs: number | undefined;
+  /** P11: what kind of failure this is (ER-2f/g/h); the gateway's retry, fallback and breaker read it. */
+  readonly kind: FailureKind;
+  /**
+   * P11 (AL-1): what the provider reported before the failure, from its last cumulative usage.
+   * Undefined when the request failed before a response stream opened (nothing was billed);
+   * zeros with `exact: false` when the stream opened but reported nothing. The gateway sums it
+   * over the attempts, so it is writable there.
+   */
+  partialUsage: ProviderUsage | undefined;
+  /**
+   * Merge of P22 and P11: the reported usage of the one request that failed, without the earlier
+   * rounds of the same attempt (each of those already reported its own `call_usage`). The gateway
+   * writes the failed request's ledger row from it: `provider_partial` when exact, `none` with
+   * zeros otherwise. Undefined when no response stream had opened.
+   */
+  failedRequestUsage: ProviderUsage | undefined;
+  /** P11 (AL-2): the block or refusal category, for `blocked` (e.g. Gemini `SAFETY`). */
+  readonly refusalCategory: string | undefined;
 
   constructor(
     message: string,
@@ -367,14 +539,22 @@ export class ProviderError extends Error {
       code?: ProviderErrorCode;
       statusCode?: number;
       retryAfterMs?: number;
+      kind?: FailureKind;
+      partialUsage?: ProviderUsage;
+      failedRequestUsage?: ProviderUsage;
+      refusalCategory?: string;
     } = {},
   ) {
     super(message);
     this.name = 'ProviderError';
-    this.retryable = options.retryable ?? false;
     this.code = options.code ?? 'provider_error';
+    this.retryable = options.retryable ?? (options.kind === 'transient' || options.kind === 'timeout');
+    this.kind = options.kind ?? defaultKind(this.code, this.retryable);
     this.statusCode = options.statusCode;
     this.retryAfterMs = options.retryAfterMs;
+    this.partialUsage = options.partialUsage;
+    this.failedRequestUsage = options.failedRequestUsage;
+    this.refusalCategory = options.refusalCategory;
   }
 }
 
@@ -436,6 +616,13 @@ export interface Provider {
    * Provider metadata, not an estimate (Invariant 3). Throws when the count API fails.
    */
   countTokens?(text: string, signal: AbortSignal): Promise<{ tokens: number; model: string }>;
+  /** A helper call with a plain-text answer (ADR-0080). Optional: only the Claude adapter has it. */
+  complete?(request: HelperRequest): Promise<HelperResult>;
+  /**
+   * A helper call with structured output: the answer is JSON matching `schema` (Claude
+   * `output_config.format`). `value` is the parsed JSON, or undefined when it did not parse.
+   */
+  classify?(request: HelperRequest & { schema: Record<string, unknown> }): Promise<HelperResult & { value: unknown }>;
 }
 
 /** One input to `readMedia`: inline bytes, or a `gs://` URI the model reads (Gemini). */

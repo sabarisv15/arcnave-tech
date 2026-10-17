@@ -4,13 +4,12 @@
  */
 import type { ToolDefinition, ToolExecutor, Turn } from '../../providers/types.js';
 import { CodeExecutionToolExecutor } from '../../tools/codeExecutionExecutor.js';
-import { DispatchingToolExecutor } from '../../tools/dispatchingExecutor.js';
+import { DispatchingToolExecutor, toolTimeouts } from '../../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../../tools/executor.js';
 import { WebToolExecutor } from '../../tools/webExecutor.js';
 import { WebFetchService } from '../webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from '../webSearch.js';
 import type { MessageSegment } from '../../db/schema.js';
-import { memoryService } from '../memory/memoryService.js';
 import { MemoryToolExecutor } from '../../tools/memoryExecutor.js';
 import { ChatToolExecutor } from '../../tools/chatExecutor.js';
 import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS, UI_TOOL_DEFINITIONS } from '../../tools/definitions.js';
@@ -78,10 +77,10 @@ export function buildToolExecutors(
   webToolExecutor?.allowUrlsIn(input.prompt, JSON.stringify(history));
 
   const memoryToolExecutor = memoryEnabled
-    ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+    ? new MemoryToolExecutor(svc.memory, input.userId, project?.id ?? null)
     : undefined;
   const chatToolExecutor = chatSearchEnabled
-    ? new ChatToolExecutor(input.userId, project?.id ?? null, input.chatId)
+    ? new ChatToolExecutor(svc.chatSearch, input.userId, project?.id ?? null, input.chatId)
     : undefined;
 
   const pendingUiEvents: StreamEvent[] = [];
@@ -138,6 +137,7 @@ export function buildToolExecutors(
     for (const name of CODE_TOOL_NAMES) toolMap.set(name, codeExecutor);
   }
 
-  const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
+  // P11 (ER-4c): N-43 tool timers.
+  const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap, toolTimeouts(svc.cfg)) : undefined;
   return { pendingUiEvents, toolMap, codeExecutor, toolExecutor };
 }

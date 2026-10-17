@@ -16,11 +16,13 @@
  */
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
-import type { Database } from '../db/client.js';
+import { type Database, withLongStatements } from '../db/client.js';
 import { attachments, chats, fileDerivatives, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
 import { storageKeyInUse } from './attachments/references.js';
 import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
 import type { ObjectStorage } from './storage.js';
+import type { DeletionLedger } from './deletionLedger.js';
+import { ensureLedgerPartitions } from './ledger.js';
 
 /** Fixed key so two instances never sweep at once; any other value would do. */
 const RETENTION_LOCK_KEY = 872_634_002;
@@ -31,6 +33,13 @@ export interface RetentionPolicy {
   chatPurgeAfterDays: number;
   unsentUploadTtlHours: number;
   sandboxStateDays: number;
+  /** N-45 executor statement timeout for the sweep's transaction (`SET LOCAL`); unset keeps the pool's. */
+  statementTimeoutMs?: number;
+  /**
+   * P22 (Stage 5 P11, G4): where each purge is recorded, `requested` before the bytes go and
+   * `completed` after them, before the rows. A failed write leaves the chat for the next sweep.
+   */
+  deletionLedger?: DeletionLedger;
 }
 
 export interface SweepResult {
@@ -48,7 +57,8 @@ export async function sweepRetention(
   now: Date = new Date(),
   log: { warn: (obj: object, msg: string) => void } = console,
 ): Promise<SweepResult> {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx): Promise<SweepResult> => {
+    if (policy.statementTimeoutMs) await withLongStatements(tx, { DB_LONG_STATEMENT_TIMEOUT_MS: policy.statementTimeoutMs });
     const [lock] = (await tx.execute(
       sql`select pg_try_advisory_xact_lock(${RETENTION_LOCK_KEY}) as ok`,
     )) as unknown as Array<{ ok: boolean }>;
@@ -56,7 +66,7 @@ export async function sweepRetention(
 
     const chatCutoff = new Date(now.getTime() - policy.chatPurgeAfterDays * 86_400_000);
     const due = await tx
-      .select({ id: chats.id })
+      .select({ id: chats.id, userId: chats.userId })
       .from(chats)
       .where(and(isNotNull(chats.deletedAt), lt(chats.deletedAt, chatCutoff)))
       .limit(CHATS_PER_SWEEP);
@@ -86,9 +96,14 @@ export async function sweepRetention(
         .innerJoin(messages, eq(messages.id, attachments.messageId))
         .where(eq(messages.chatId, chat.id));
       const derivedKeys = derived.flatMap((d) => [d.m, d.n].filter((k): k is string => Boolean(k)));
+      const objectKeys = [...files.map((f) => f.storageKey), ...derivedKeys];
+      const ledger = policy.deletionLedger;
+      const [counted] = await tx.select({ n: sql<number>`count(*)::int` }).from(messages).where(eq(messages.chatId, chat.id));
+      const counts = { objects: objectKeys.length, messages: counted?.n ?? 0 };
+      if (ledger && !(await writeLedger(ledger, { kind: 'chat_purge', phase: 'requested', subjectId: chat.id, userId: chat.userId, at: now, counts }, log))) continue;
       // Bytes first, rows second: a failed object delete keeps the row, so the next sweep
       // retries it instead of leaving bytes nothing points to.
-      if (!(await deleteObjects(storage, [...files.map((f) => f.storageKey), ...derivedKeys], log))) continue;
+      if (!(await deleteObjects(storage, objectKeys, log))) continue;
       const workspaces = await tx
         .select({ manifestKey: sandboxWorkspaces.manifestKey })
         .from(sandboxWorkspaces)
@@ -96,6 +111,8 @@ export async function sweepRetention(
       let checkpointsGone = true;
       for (const w of workspaces) checkpointsGone = (await deleteCheckpoint(storage, w.manifestKey, log)) && checkpointsGone;
       if (!checkpointsGone) continue;
+      // The record that it was done, before the rows go: without it the chat stays for the next sweep.
+      if (ledger && !(await writeLedger(ledger, { kind: 'chat_purge', phase: 'completed', subjectId: chat.id, userId: chat.userId, at: new Date(), counts }, log))) continue;
       await tx.delete(chats).where(eq(chats.id, chat.id));
       chatsPurged++;
     }
@@ -146,6 +163,24 @@ export async function sweepRetention(
 
     return { chatsPurged, uploadsPurged: removable.length, checkpointsPurged, skipped: false };
   });
+  // The ledger's month partitions stay ahead of the clock (P22): this month and the next. Outside
+  // the sweep's transaction, so the parent table's lock is held only for the create itself.
+  if (!result.skipped) await ensureLedgerPartitions(db, now);
+  return result;
+}
+
+async function writeLedger(
+  ledger: DeletionLedger,
+  rec: Parameters<DeletionLedger['write']>[0],
+  log: { warn: (obj: object, msg: string) => void },
+): Promise<boolean> {
+  try {
+    await ledger.write(rec);
+    return true;
+  } catch (err) {
+    log.warn({ code: (err as { code?: string }).code, phase: rec.phase, subjectId: rec.subjectId }, 'retention: deletion ledger not written; the chat stays for the next sweep');
+    return false;
+  }
 }
 
 async function deleteObjects(

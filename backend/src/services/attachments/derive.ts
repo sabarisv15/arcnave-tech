@@ -278,7 +278,7 @@ export async function inspectPdf(inputPath: string, strippedPath: string): Promi
       fields.push({ name: f.getName(), value });
     }
   } catch {
-    // A malformed form leaves the fields unread; the pages still are.
+    // benign: A malformed form leaves the fields unread; the pages still are.
   }
 
   const comments: PdfInspection['comments'] = [];

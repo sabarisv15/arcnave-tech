@@ -58,6 +58,7 @@ async function isUtf8(path: string): Promise<boolean> {
     decoder.decode();
     return true;
   } catch {
+    // benign: not valid in this encoding: the caller tries the next one
     return false;
   }
 }

@@ -37,6 +37,7 @@ export async function runMigrations(databaseUrl: string, socketPath?: string): P
     try {
       await migrate(drizzle(sql), { migrationsFolder: './drizzle' });
     } finally {
+      // benign: the advisory lock ends with the connection, closed just below
       await sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`.catch(() => undefined);
     }
   } finally {

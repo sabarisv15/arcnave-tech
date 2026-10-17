@@ -87,8 +87,14 @@ interface Context {
   setSettings: (value: boolean) => void;
   search: boolean;
   setSearch: (value: boolean) => void;
-  /** The chat id of the run this tab is streaming, or null. */
+  /** The chat id of the run this tab started last and is still streaming, or null. */
   activeRun: string | null;
+  /** Every chat this tab is streaming a reply for: one controller each (RG6, ADR-0078). */
+  runningChats: string[];
+  /** Chats whose stream dropped and is reconnecting (N-46 backoff). */
+  reconnecting: Record<string, boolean>;
+  /** Reattach to a chat's reply now, without waiting for the next backoff step. */
+  reconnect: (chatId: string) => void;
   openChat: (id: string) => void;
   send: (
     text: string,
@@ -99,7 +105,8 @@ interface Context {
     artifact?: boolean,
   ) => void;
   retry: (chatId: string, messageId: string) => void;
-  stop: () => void;
+  /** Stops the reply in `chatId`; without one, the open chat's (else the last started). */
+  stop: (chatId?: unknown) => void;
   feedback: (
     chatId: string,
     messageId: string,
@@ -127,7 +134,7 @@ interface Context {
    * will be refused as a conflict.
    */
   refreshPreferences: () => Promise<void>;
-  refreshChats: () => Promise<void>;
+  refreshChats: () => Promise<unknown>;
   refreshProjects: () => Promise<void>;
   refreshArtifacts: () => Promise<void>;
   edit: { chatId: string; messageId: string; text: string } | null;
@@ -143,6 +150,18 @@ interface Context {
 }
 
 const C = createContext<Context>(null!);
+
+/** When the chat list is read again for a generated title (ours: the job takes about a second). */
+export const TITLE_REFRESH_DELAYS_MS = [3_000, 10_000] as const;
+
+/**
+ * True while the chat still carries the placeholder title the first message gave it (the server
+ * writes the prompt's first 80 characters, then the title job replaces it; ADR-0080).
+ */
+export function needsGeneratedTitle(list: readonly Chat[] | undefined, chatId: string, prompt: string | undefined): boolean {
+  if (!list || !prompt) return false;
+  return list.find((c) => c.id === chatId)?.title === prompt.slice(0, 80);
+}
 export const useWorkspace = () => useContext(C);
 
 /**
@@ -191,6 +210,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [settings, setSettings] = useState(false),
     [search, setSearch] = useState(false),
     [activeRun, setActiveRun] = useState<string | null>(null),
+    [runningChats, setRunningChats] = useState<string[]>([]),
+    [reconnecting, setReconnecting] = useState<Record<string, boolean>>({}),
     [edit, setEdit] = useState<Context["edit"]>(null),
     [quote, setQuote] = useState<Context["quote"]>(null),
     [artifactUpdateEvent, setArtifactUpdateEvent] = useState<Context["artifactUpdateEvent"]>(null);
@@ -206,7 +227,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setQuote((q) => (q?.chatId && !location.pathname.startsWith(`/chat/${q.chatId}`) ? null : q));
   }, [location.pathname]);
 
-  const controller = useRef<AbortController | null>(null);
+  /** One controller per chat (RG6): Stop on one chat never touches another chat's run. */
+  const controllers = useRef(new Map<string, AbortController>());
+  /** Per running chat: ends its current reconnect wait now (the banner's Retry). */
+  const wakers = useRef(new Map<string, () => void>());
   /** Set once `run` exists, so a transcript load can reattach to a reply still running. */
   const attachRef = useRef<((chatId: string, messageId: string) => void) | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -232,7 +256,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const refreshChats = useCallback(async () => {
     const page = await api.chats.list({ limit: 100 });
-    setChats(page.items.map(toChat));
+    const list = page.items.map(toChat);
+    setChats(list);
+    return list;
   }, []);
 
   const refreshProjects = useCallback(async () => {
@@ -306,7 +332,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(
     () => () => {
-      controller.current?.abort();
+      for (const ac of controllers.current.values()) ac.abort();
       clearTimeout(toastTimer.current);
     },
     [],
@@ -355,7 +381,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const running = settled
           ? undefined
           : mapped.find((m) => m.role === "assistant" && m.status === "generating");
-        if (running && !controller.current) attachRef.current?.(id, running.id);
+        if (running && !controllers.current.has(id)) attachRef.current?.(id, running.id);
 
         // Read again shortly so the persisted text and usage replace what this tab inferred.
         // Bounded: if the server never settles the row, the local terminal status stands
@@ -382,11 +408,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const openChat = useCallback(
     (id: string) => {
       // A chat already streaming in this tab holds newer state than the server has written.
-      if (controller.current && activeRun === id) return;
+      if (controllers.current.has(id)) return;
       if (transcript[id] === "ready" || transcript[id] === "loading") return;
       void loadTranscript(id);
     },
-    [loadTranscript, transcript, activeRun],
+    [loadTranscript, transcript],
   );
 
   const patchMessage = useCallback(
@@ -440,8 +466,57 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       const ac = new AbortController();
-      controller.current = ac;
+      // The chat this run writes to: the one asked for, until the server says the turn runs in a
+      // new version (a regenerate that keeps the old answer, ADR-0079).
+      let runChat = chatId;
+      controllers.current.set(chatId, ac);
       setActiveRun(chatId);
+      setRunningChats((list) => (list.includes(chatId) ? list : [...list, chatId]));
+      let wakeNow: (() => void) | undefined;
+      const wake = (): Promise<void> => new Promise<void>((resolve) => (wakeNow = resolve));
+      wakers.current.set(chatId, () => wakeNow?.());
+      /** Ends this run's hold on the chat, once, and only if no newer run replaced it. */
+      const release = (): void => {
+        const held = runChat;
+        if (controllers.current.get(held) !== ac) return;
+        controllers.current.delete(held);
+        wakers.current.delete(held);
+        setRunningChats((list) => list.filter((c) => c !== held));
+        setReconnecting((r) => ({ ...r, [held]: false }));
+        setActiveRun((current) => (current === held ? ([...controllers.current.keys()].at(-1) ?? null) : current));
+      };
+      /** The turn runs in a new version: this run, its row and the open page move there. */
+      const follow = (to: string, messageId: string): void => {
+        const from = runChat;
+        const placeholder = assistantId;
+        setMessages((all) => {
+          const list = all[from] ?? [];
+          const at = list.findIndex((m) => m.id === placeholder);
+          const before = at >= 0 ? list.slice(0, at) : list;
+          const row = at >= 0 ? list[at]! : undefined;
+          const { [from]: _old, ...rest } = all;
+          return {
+            ...rest,
+            [to]: [...before, ...(row ? [{ ...row, id: messageId, text: "", status: "generating" as const }] : [])],
+          };
+        });
+        // The old version keeps its answer on the server; it is read again when opened.
+        setTranscript((t) => {
+          const { [from]: _old, ...rest } = t;
+          return { ...rest, [to]: "ready" };
+        });
+        controllers.current.delete(from);
+        controllers.current.set(to, ac);
+        const waker = wakers.current.get(from);
+        wakers.current.delete(from);
+        if (waker) wakers.current.set(to, waker);
+        setRunningChats((list) => [...list.filter((c) => c !== from && c !== to), to]);
+        setActiveRun((current) => (current === from ? to : current));
+        setChats((list) => list.map((c) => (c.id === from ? { ...c, id: to } : c)));
+        if (new RegExp(`^/chat/${from}(/|$)`).test(window.location.pathname)) navigate(`/chat/${to}`, { replace: true });
+        runChat = to;
+        assistantId = messageId;
+      };
       let assistantId = options.placeholderId;
       let text = "";
       let completed = false;
@@ -452,7 +527,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       if (options.attachTo) {
         // Frames are replayed from the start, so what the row showed is rebuilt, not appended to.
-        patchMessage(chatId, assistantId, (m) => ({
+        patchMessage(runChat, assistantId, (m) => ({
           ...m,
           text: "",
           status: "generating",
@@ -463,7 +538,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }));
       }
       const source = options.attachTo
-        ? attach(chatId, ac.signal)
+        ? attach(chatId, ac.signal, { wake })
         : generate(
             chatId,
             {
@@ -478,10 +553,51 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 : {}),
             },
             ac.signal,
+            // One key per send, reused by the adapter if the POST fails on the network (ER-10c).
+            { idempotencyKey: crypto.randomUUID(), wake },
           );
 
       try {
         for await (const event of source) {
+          if (event.type === "reconnecting") {
+            const held = runChat;
+            setReconnecting((r) => ({ ...r, [held]: true }));
+            continue;
+          }
+          if (event.type === "reconnected") {
+            const held = runChat;
+            setReconnecting((r) => ({ ...r, [held]: false }));
+            continue;
+          }
+          if ((event.type === "ack" || event.type === "start") && event.chatId && event.chatId !== runChat) {
+            follow(event.chatId, event.messageId);
+          }
+          if (event.type === "ack" && event.messageId !== assistantId) {
+            // The turn exists: adopt the server's id now, before the model answers (ADR-0078).
+            const adopt = adoptServerId(assistantId, event.messageId, { status: "generating" });
+            const held = runChat;
+            setMessages((all) => ({ ...all, [held]: adopt(all[held] ?? []) }));
+            assistantId = event.messageId;
+          }
+          if (event.type === "snapshot" && event.message) {
+            // The stored reply stands in for frames this tab cannot get (another server, or a gap
+            // past the server's buffer): it replaces the row as a whole.
+            const stored = toMessage(event.message);
+            const from = assistantId;
+            const held = runChat;
+            setMessages((all) => ({
+              ...all,
+              [held]: (all[held] ?? []).map((m) => (m.id === from || m.id === stored.id ? stored : m)),
+            }));
+            assistantId = stored.id;
+            text = stored.text;
+            if (stored.status === "complete") {
+              completed = true;
+              outcome = "complete";
+            } else if (stored.status === "error" || stored.status === "stopped") {
+              outcome = stored.status;
+            }
+          }
           if (event.type === "start") {
             // The server owns the message id. Adopt it now so feedback and retry address the
             // real row rather than a placeholder that only exists in this tab.
@@ -491,13 +607,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               status: "generating",
               modelAlias: event.model.resolved,
               providerModelId: event.model.providerModelId,
+              // ER-12a: the support code a failure card shows.
+              ...(event.requestId ? { requestId: event.requestId } : {}),
             });
-            setMessages((all) => ({ ...all, [chatId]: adopt(all[chatId] ?? []) }));
+            const held = runChat;
+            setMessages((all) => ({ ...all, [held]: adopt(all[held] ?? []) }));
             assistantId = realId;
           }
           if (event.type === "delta") {
             text += event.text;
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               text: m.text + event.text,
               segments: appendSegment(m.segments, { type: "text", text: event.text }),
@@ -505,19 +624,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }));
           }
           if (event.type === "thinking")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               thinking: (m.thinking ?? "") + event.text,
               segments: appendSegment(m.segments, { type: "thinking", text: event.text }),
               status: "generating",
             }));
           if (event.type === "sources")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               sources: event.sources.map(toSource),
             }));
           if (event.type === "research")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               events: [
@@ -527,7 +646,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               researchStage: event.event.stage,
             }));
           if (event.type === "tool_use")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               segments: appendSegment(m.segments, { type: "tool", toolCallId: event.toolCallId }),
@@ -541,14 +660,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ],
             }));
           if (event.type === "ui_draft")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               visualDrafts: applyVisualDraft(m.visualDrafts, event),
             }));
           if (event.type === "tool_result") {
             const files = event.files;
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               // The finished visual follows as a checked ui_block; the draft goes now either way.
               ...(event.name === "render_ui" || event.name === "show_widget" ? { visualDrafts: undefined } : {}),
@@ -586,7 +705,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }
           }
           if (event.type === "artifact_created") {
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               artifactId: event.artifactId,
             }));
@@ -597,7 +716,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             }
           }
           if (event.type === "code")
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               status: "generating",
               codeBlocks: [
@@ -606,7 +725,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ],
             }));
           if (event.type === "ui_block") {
-            patchMessage(chatId, assistantId, (m) => {
+            patchMessage(runChat, assistantId, (m) => {
               const existing = m.uiBlocks ?? [];
               const exists = existing.some((b) => b.blockId === event.block.blockId);
               const updated = exists
@@ -627,10 +746,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               // Ignore in non-browser context
             }
           }
+          if (event.type === "model_switch") {
+            // P11: the label shows at once; the stored row carries it after a reload.
+            const switched = { from: event.from, to: event.to, reason: event.reason };
+            patchMessage(runChat, assistantId, (m) => ({
+              ...m,
+              modelAlias: switched.to,
+              fallbackFrom: m.fallbackFrom ?? switched.from,
+              fallbackReason: m.fallbackReason ?? switched.reason,
+            }));
+          }
           if (event.type === "done") {
             completed = true;
             outcome = "complete";
-            patchMessage(chatId, assistantId, (m) => ({
+            const fallback = event.fallback;
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               visualDrafts: undefined,
               status: "complete",
@@ -638,11 +768,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               usage: toUsage(event.usage),
               finishReason: event.finishReason,
               ...(event.effort ? { effort: event.effort } : {}),
+              ...(fallback ? { fallbackFrom: fallback.from, fallbackReason: fallback.reason } : {}),
             }));
           }
           if (event.type === "error") {
             outcome = "error";
-            patchMessage(chatId, assistantId, (m) => ({
+            patchMessage(runChat, assistantId, (m) => ({
               ...m,
               visualDrafts: undefined,
               status: "error",
@@ -657,22 +788,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         if (error instanceof ApiError && error.code === "no_active_run") {
-          // The run is not on this server (finished, or on another instance). The persisted
-          // row is the truth; poll it while it still says generating.
-          if (controller.current === ac) {
-            controller.current = null;
-            setActiveRun(null);
-          }
+          // The chat has no turn the server knows of. The persisted row is the truth; poll it
+          // while it still says generating.
+          release();
           pollInstead = true;
         } else if (ac.signal.aborted) {
           outcome = "stopped";
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             status: "stopped",
           }));
         } else if (error instanceof ApiError) {
           outcome = "error";
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             status: "error",
             error: error.code,
@@ -681,20 +809,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }));
         } else {
           outcome = "error";
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             status: "error",
             error: "network",
           }));
         }
       } finally {
-        if (controller.current === ac) {
-          controller.current = null;
-          setActiveRun(null);
-        }
+        release();
       }
       if (pollInstead) {
-        pollGenerating(chatId, assistantId);
+        pollGenerating(runChat, assistantId);
         return;
       }
       if (completed && options.makeArtifact && text.trim()) {
@@ -707,12 +832,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 ? "code"
                 : "document",
             content: text,
-            chatId,
+            chatId: runChat,
           });
           setArtifacts((list) => [toArtifact(created), ...list]);
           // The backend has no message→artifact column writer, so this link lives only for
           // the current session. The artifact itself stays findable by chat in Artifacts.
-          patchMessage(chatId, assistantId, (m) => ({
+          patchMessage(runChat, assistantId, (m) => ({
             ...m,
             artifactId: created.id,
           }));
@@ -724,12 +849,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       // Reconcile against what was actually persisted: ids, sequence, final status. The
       // outcome this tab observed is passed along so a read that beats the server's own
       // write cannot resurrect the spinner.
-      await loadTranscript(chatId, {
+      await loadTranscript(runChat, {
         messageId: assistantId,
         status: outcome,
         text,
       });
-      await refreshChats().catch(() => {});
+      const listed = await refreshChats().catch(() => undefined);
+      // P13 (ADR-0080): a new chat is named by a background job a moment after its first answer;
+      // while it still shows the placeholder (the prompt's first 80 characters), read the list again.
+      if (outcome === "complete" && needsGeneratedTitle(listed, chatId, options.prompt)) {
+        for (const ms of TITLE_REFRESH_DELAYS_MS) setTimeout(() => void refreshChats().catch(() => {}), ms);
+      }
     },
     [
       preferences.modelAlias,
@@ -740,6 +870,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       loadTranscript,
       refreshChats,
       report,
+      navigate,
     ],
   );
 
@@ -802,7 +933,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const send: Context["send"] = useCallback(
     (text, mode, files, chatId, projectId, artifact = false) => {
-      if (controller.current) {
+      if (chatId && controllers.current.has(chatId)) {
         toast("Stop the current response before starting another.");
         return;
       }
@@ -858,7 +989,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const retry: Context["retry"] = useCallback(
     (chatId, messageId) => {
-      if (controller.current) {
+      if (controllers.current.has(chatId)) {
         toast("Stop the current response first.");
         return;
       }
@@ -893,12 +1024,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [messages, patchMessage, run, toast],
   );
 
-  const stop = useCallback(() => {
-    const chatId = activeRun;
-    controller.current?.abort();
-    // A run started in another tab has no socket here to close, so ask the server directly.
-    if (chatId) void api.chats.stop(chatId).catch(() => {});
-  }, [activeRun]);
+  const stop = useCallback(
+    (target?: unknown) => {
+      // Called with a chat id, or bare (an onClick passes its event): then the open chat's run.
+      const open = /^\/chat\/([^/]+)/.exec(location.pathname)?.[1];
+      const chatId = typeof target === "string" ? target : open ?? activeRun;
+      if (!chatId) return;
+      controllers.current.get(chatId)?.abort();
+      // The server stops the run on whichever instance holds it (a run started in another tab
+      // has no socket here to close at all).
+      void api.chats.stop(chatId).catch(() => {});
+    },
+    [activeRun, location.pathname],
+  );
+
+  /** Reattach now: the Retry on the "Reconnecting…" banner, and a tab back in the foreground. */
+  const reconnect = useCallback(
+    (chatId: string) => {
+      const wakeRun = wakers.current.get(chatId);
+      if (wakeRun) wakeRun();
+      else void loadTranscript(chatId);
+    },
+    [loadTranscript],
+  );
+
+  // A tab back in the foreground re-reads every chat it shows as generating with no stream of
+  // its own, and reattaches to the ones still running (Stage 5 F3b).
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState !== "visible") return;
+      for (const [chatId, list] of Object.entries(messagesRef.current)) {
+        const generating = list.some((m) => m.role === "assistant" && m.status === "generating");
+        if (generating && !controllers.current.has(chatId)) void loadTranscript(chatId);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadTranscript]);
 
   /* ------------------------------------------------------------------ chat actions */
 
@@ -972,7 +1136,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const deleteChat: Context["deleteChat"] = useCallback(
     (id) => {
-      if (activeRun === id) controller.current?.abort();
+      controllers.current.get(id)?.abort();
       void api.chats
         .remove(id)
         .then(() => {
@@ -994,7 +1158,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           report(error, "The conversation could not be deleted."),
         );
     },
-    [activeRun, navigate, toast, report],
+    [navigate, toast, report],
   );
 
   const branch: Context["branch"] = useCallback(
@@ -1017,7 +1181,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [versionAnchor, setVersionAnchor] = useState<Context["versionAnchor"]>(null);
   const switchVersion: Context["switchVersion"] = useCallback(
     (fromChatId, toChatId, seq, offset) => {
-      if (controller.current) {
+      if (controllers.current.has(fromChatId)) {
         toast("Stop the current response first.");
         return;
       }
@@ -1033,6 +1197,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           );
           setVersionAnchor({ chatId: toChatId, seq, offset });
           navigate(`/chat/${toChatId}`, { replace: true });
+          // The choice is the conversation's, on the server: the list opens this version next
+          // time, on any device (ADR-0079). A failed save leaves only this tab on it.
+          void api.chats.activateVersion(toChatId).catch(() => {});
         } catch (error) {
           report(error, "That version could not be opened.");
         }
@@ -1160,6 +1327,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       search,
       setSearch,
       activeRun,
+      runningChats,
+      reconnecting,
+      reconnect,
       openChat,
       send,
       retry,
@@ -1202,6 +1372,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       settings,
       search,
       activeRun,
+      runningChats,
+      reconnecting,
+      reconnect,
       openChat,
       send,
       retry,

@@ -94,6 +94,7 @@ export function numberedView(text: string, range?: [number, number] | null): str
 /** name -> mtime of each plain file in `dir` (empty when it does not exist). */
 async function snapshotDir(dir: string): Promise<Map<string, number>> {
   const out = new Map<string, number>();
+  // benign: no directory yet: nothing to snapshot
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
   for (const e of entries) {
     if (e.isFile()) out.set(e.name, (await fs.stat(path.join(dir, e.name))).mtimeMs);
@@ -347,6 +348,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     try {
       shown = JSON.parse(run.stdout) as typeof shown;
     } catch {
+      // benign: the tool result says the file could not be read
       return textResult(call.id, false, `view could not read ${p}.`);
     }
     if (shown.kind === 'text') return textResult(call.id, true, shown.text ?? '');
@@ -409,6 +411,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
     const names: string[] = [];
     for (const name of new Set(expected)) {
       const filePath = path.join(this.workspace.outputDir, name);
+      // benign: a missing output is reported in problems just below
       const buf = await fs.readFile(filePath).catch(() => null);
       if (!buf) {
         problems.push(`${name}: the sandbox did not return it.`);
@@ -469,7 +472,7 @@ export class CodeExecutionToolExecutor implements ToolExecutor {
       try {
         parsed = JSON.parse(chunk.text) as typeof parsed;
       } catch {
-        // Not the documented shape: treat as empty output rather than throwing.
+        // benign: Not the documented shape: treat as empty output rather than throwing.
       }
     }
     return { stdout: parsed.msg_out ?? '', stderr: parsed.msg_err ?? '', exitCode: parsed.exit_code ?? null };

@@ -139,7 +139,7 @@ export async function hydrateAttachmentBytes(
         try {
           return await asPdfForModel(att, data);
         } catch {
-          // The bytes arrived; reading them failed. That is the file, not storage (D1 #34).
+          // benign: The bytes arrived; reading them failed. That is the file, not storage (D1 #34).
           return { ...att, omittedReason: 'unreadable' as const, omittedDetail: 'the PDF could not be rendered' };
         }
       }
@@ -155,33 +155,28 @@ export async function hydrateAttachmentBytes(
  * Explicitly referenced attachments (by fileId or unique filename) are promoted for hydration.
  */
 /**
- * G18: the selected model's limits, applied to what is about to be sent. Runs after the budget
- * reservation, so a refusal here must release it before propagating.
+ * G18: the selected model's limits, applied to what is about to be sent. A refusal here
+ * propagates; the failed turn's settle gives its reservation back (ADR-0078), as it does for any
+ * failure between the reservation and the stream (DEFERRED, review gate 0).
  */
 export async function limitToModel(
   svc: TurnServices,
   alias: string,
   current: AttachmentBlock[],
   history: Turn[],
-  releaseReservation: () => Promise<void>,
 ): Promise<{ current: AttachmentBlock[]; history: Turn[] }> {
-  try {
-    const spec = getModelCapability(alias);
-    const limited = await enforceModelLimits(spec, current, history);
-    // Gemini reads page images from Cloud Storage, keeping a large PDF out of the request
-    // (ADR-0016). The Anthropic adapter on Vertex takes base64 only, so it is left as is.
-    if (spec.provider !== 'google' || !svc.modelInputs) return { current, history: limited };
-    const store = svc.modelInputs;
-    return {
-      current: await referencePages(current, store),
-      history: await Promise.all(
-        limited.map(async (t) => (t.attachments ? { ...t, attachments: await referencePages(t.attachments, store) } : t)),
-      ),
-    };
-  } catch (err) {
-    await releaseReservation();
-    throw err;
-  }
+  const spec = getModelCapability(alias);
+  const limited = await enforceModelLimits(spec, current, history);
+  // Gemini reads page images from Cloud Storage, keeping a large PDF out of the request
+  // (ADR-0016). The Anthropic adapter on Vertex takes base64 only, so it is left as is.
+  if (spec.provider !== 'google' || !svc.modelInputs) return { current, history: limited };
+  const store = svc.modelInputs;
+  return {
+    current: await referencePages(current, store),
+    history: await Promise.all(
+      limited.map(async (t) => (t.attachments ? { ...t, attachments: await referencePages(t.attachments, store) } : t)),
+    ),
+  };
 }
 
 export async function hydrateHistoryAttachments(
@@ -190,7 +185,7 @@ export async function hydrateHistoryAttachments(
   currentPrompt: string | undefined,
   alias: string,
 ): Promise<Turn[]> {
-  const maxBudget = svc.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
+  const maxBudget = svc.cfg.HISTORY_MAX_ATTACHMENT_BYTES; // N-13 (always set by config)
   let cumulativeBytes = 0;
 
   // Every earlier image of the chat stays available. The budget only guards bytes that ride inline in a request whose limit is

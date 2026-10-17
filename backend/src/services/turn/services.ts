@@ -6,6 +6,7 @@
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
 import type { ModelRegistry } from '../../providers/registry.js';
+import type { ProviderGateway } from '../../providers/gateway.js';
 import type { ModelInputStore } from '../attachments/modelInputStore.js';
 import type { CapabilityRegistry } from '../../capabilities/registry.js';
 import type { ExecutionRuntime } from '../../tools/execution/executionRuntime.js';
@@ -14,6 +15,10 @@ import type { SkillService } from '../skills.js';
 import type { ObjectStorage } from '../storage.js';
 import type { Retriever } from '../retrieval.js';
 import type { UsageService } from '../usage.js';
+import type { HelperJobs } from '../helpers/helperJobs.js';
+import type { MemoryService } from '../memory/memoryService.js';
+import type { ChatSearch } from '../memory/chatSearch.js';
+import type { CompactionService } from '../compaction/compactionService.js';
 
 export interface TurnServices {
   readonly db: Database;
@@ -27,4 +32,12 @@ export interface TurnServices {
   readonly capabilities: CapabilityRegistry;
   readonly executionRuntime: ExecutionRuntime;
   readonly modelInputs: ModelInputStore | undefined;
+  /** P13 (ADR-0080): the title / summary jobs after the settle, the router shadow. */
+  readonly helperJobs?: HelperJobs | undefined;
+  /** P11 (ADR-0081): every model call goes through it (retries, breaker, fallback chain). */
+  readonly gateway: ProviderGateway;
+  /** P21 (A-16): memory files, conversation compactions and chat search, on the container's database. */
+  readonly memory: MemoryService;
+  readonly compaction: CompactionService;
+  readonly chatSearch: ChatSearch;
 }

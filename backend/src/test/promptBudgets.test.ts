@@ -9,7 +9,7 @@
  * P07 (v3 prompt, ADR-0075): the figures below. The v3 base is fixed text (the drift test guards
  * it); its section sizes are pinned here so a docs-mirror update shows its size change in review.
  * Stage 6 target: Gemini base ≈ 6.5k tokens + tools ≈ 2.2k tokens; whether the base meets it
- * needs the provider's count (owner-run `src/scripts/measureTokens.ts`), not a character figure.
+ * needs the provider's count (owner-run `scripts/live/measureTokens.ts`), not a character figure.
  * The tool declarations are Prompt 6's (unchanged here). No N-id exists for these sizes.
  *
  * Measured on the "full" scenarios of `promptKit/scenarios.ts` (every capability on).

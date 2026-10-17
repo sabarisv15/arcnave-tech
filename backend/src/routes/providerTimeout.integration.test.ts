@@ -95,7 +95,9 @@ describe('provider timeouts, as Claude\'s SDK', () => {
     ctx.provider.streamError = null;
     expect(events.find((e) => e.type === 'error')).toMatchObject({ code: 'provider_timeout' });
     expect(events.some((e) => e.type === 'done')).toBe(false);
-    expect(ctx.provider.seen.length - before).toBe(2);
+    // P11 (ADR-0081): one retry on each model of the chain (one fake serves both slots here).
+    expect(events.find((e) => e.type === 'model_switch')).toMatchObject({ from: 'Gemini 3.8 Flash', to: 'Sonnet 5.5', reason: 'timeout' });
+    expect(ctx.provider.seen.length - before).toBe(4);
     expect(last).toMatchObject({ status: 'error' });
   });
 

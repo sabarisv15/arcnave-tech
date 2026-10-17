@@ -86,13 +86,15 @@ describe('nextReset', () => {
 });
 
 describe('computeCost', () => {
+  // The env JSON source (P22: `PRICE_SOURCE=env`; the default is the price book).
   const priced = loadConfig({
     NODE_ENV: 'test',
+    PRICE_SOURCE: 'env',
     PRICING_TABLE: JSON.stringify({
       'test-model': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
     }),
   });
-  const unpriced = loadConfig({ NODE_ENV: 'test' });
+  const unpriced = loadConfig({ NODE_ENV: 'test', PRICE_SOURCE: 'env' });
 
   it('prices a model that has a table entry', () => {
     expect(computeCost(priced, 'test-model', usage())).toBe(18);
@@ -126,7 +128,7 @@ describe('usdToInr (N-37 planning rate)', () => {
   const pricing = JSON.stringify({
     'test-model': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   });
-  const rate88 = loadConfig({ NODE_ENV: 'test', PRICING_TABLE: pricing });
+  const rate88 = loadConfig({ NODE_ENV: 'test', PRICE_SOURCE: 'env', PRICING_TABLE: pricing });
 
   it('defaults to the register planning rate of 88 per USD', () => {
     expect(rate88.PRICING_INR_PER_USD).toBe(88);
@@ -139,7 +141,7 @@ describe('usdToInr (N-37 planning rate)', () => {
   });
 
   it('uses a configured rate, including a decimal one', () => {
-    const cfg = loadConfig({ NODE_ENV: 'test', PRICING_TABLE: pricing, PRICING_INR_PER_USD: '83.5' });
+    const cfg = loadConfig({ NODE_ENV: 'test', PRICE_SOURCE: 'env', PRICING_TABLE: pricing, PRICING_INR_PER_USD: '83.5' });
     expect(usdToInr(cfg, 2)).toBe(167);
   });
 

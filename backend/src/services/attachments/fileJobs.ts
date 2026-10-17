@@ -41,7 +41,7 @@ import path from 'node:path';
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type { Config } from '../../config.js';
-import type { Database } from '../../db/client.js';
+import { type Database, withLongStatements } from '../../db/client.js';
 import { attachments, fileChunks, fileJobs, projectFiles, type FileWarning } from '../../db/schema.js';
 import type { Provider } from '../../providers/types.js';
 import { INDEX_VERSION } from '../retrieval.js';
@@ -532,7 +532,7 @@ export class FileService {
     const beat =
       this.heartbeatMs > 0
         ? setInterval(() => {
-            if (!this.dead) void this.renew(fence).catch(() => undefined);
+            if (!this.dead) void this.renew(fence).catch((err: unknown) => this.logError(err, 'file job heartbeat failed', { jobId: job.id }));
           }, this.heartbeatMs)
         : undefined;
     beat?.unref();
@@ -671,6 +671,8 @@ export class FileService {
       }
 
       const committed = await db.transaction(async (tx) => {
+        // A file's derivative, pages and chunks can be many rows: N-45's executor statement time.
+        await withLongStatements(tx, this.deps.cfg);
         if (fence) {
           const [held] = await tx
             .update(fileJobs)
@@ -917,6 +919,7 @@ export class FileService {
       .returning();
     for (const m of members) {
       if (await storageKeyInUse(db, m.storageKey)) continue;
+      // benign: an orphan costs storage, not data; the member rows are already gone
       await storage.delete(m.storageKey).catch(() => undefined);
     }
     await deleteObjects(storage, derived);

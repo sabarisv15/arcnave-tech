@@ -2,7 +2,6 @@
  * What a turn sends the browser: the SSE event shapes and the DTOs inside them. Moved from
  * `services/generation.ts` unchanged, which still exports every name (ADR-0067).
  */
-import type { Config } from '../../config.js';
 import { type ProviderSource, type ProviderUsage, type ReasoningEffort, type ToolErrorCode, type ToolResult, totalTokens } from '../../providers/types.js';
 import type { UIBlock } from '../ui/types.js';
 import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
@@ -17,6 +16,23 @@ import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
  * metadata a real backend has to report.
  */
 export type StreamEvent =
+  /**
+   * The first frame of every run (Stage 3 1.8, ADR-0078): the turn and both rows exist, so a
+   * client that loses the connection now can reattach to this turn, and a retried send with the
+   * same Idempotency-Key gets the same ids.
+   */
+  | {
+      type: 'ack';
+      turnId: string;
+      /**
+       * P22: present only when the turn runs in another chat than the one the request named: a
+       * regenerate that keeps the old answer runs in its new version (ADR-0079). The client
+       * follows it there (and reconnects there).
+       */
+      chatId?: string;
+      messageId: string;
+      userMessageId: string | null;
+    }
   | { type: 'start'; messageId: string; chatId: string; requestId: string; model: ModelInfo }
   | { type: 'research'; event: { stage: string; label: string; detail: string; at: string } }
   | { type: 'delta'; text: string }
@@ -44,10 +60,21 @@ export type StreamEvent =
       usage: UsageDto;
       finishReason: string;
       effort?: ReasoningEffort;
-      /** ER-2b: the model failed after a tool ran; the turn ended with what it had (ADR-0072). */
+      /**
+       * The answer stopped early and was kept: the model failed after a tool ran (ER-2b,
+       * `partial_after_tool_run`, ADR-0072) or after text was shown (ER-3c, finish
+       * `interrupted`, `errorCode` the cause; ADR-0081).
+       */
       partial?: true;
-      errorCode?: 'partial_after_tool_run';
+      errorCode?: string;
+      /** P11 (7.12, OQ-02 A): the turn was answered by another model than the first; the label. */
+      fallback?: { from: string; reason: string };
     }
+  /**
+   * P11 (7.12, ADR-0081): the turn moved to the next model of its chain before anything was
+   * shown. The client labels the answer "Answered by `to` because `from` was unavailable".
+   */
+  | { type: 'model_switch'; from: string; to: string; reason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
 export interface PresentedFileDto {
@@ -131,16 +158,4 @@ export function toSourceDto(source: ProviderSource, id: number): SourceDto {
     passage: source.passage,
     retrievedAt: source.retrievedAt.toISOString(),
   };
-}
-
-export function computeCostFor(cfg: Config, providerModelId: string, usage: ProviderUsage): number | null {
-  const row = cfg.PRICING_TABLE[providerModelId];
-  if (!row || !usage.exact) return null;
-  const cost =
-    (usage.inputTokens * row.input +
-      usage.outputTokens * row.output +
-      usage.cacheReadTokens * row.cacheRead +
-      usage.cacheWriteTokens * row.cacheWrite) /
-    1_000_000;
-  return Math.round(cost * 1e6) / 1e6;
 }

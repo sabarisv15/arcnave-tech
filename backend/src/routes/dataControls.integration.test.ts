@@ -160,7 +160,12 @@ describe('account deletion', () => {
     }
     const [chatLeft] = await ctx.db.execute<{ n: number }>(sql`select count(*)::int as n from messages where chat_id = ${chatId}`);
     expect(chatLeft!.n).toBe(0);
-    expect((await listFiles(ctx.storageRoot)).filter((p) => p.includes(user.id))).toEqual([]);
+    // P22 (ADR-0079): the deletion ledger's two records are the one thing meant to outlive the
+    // account (ids and counts only, under their own prefix); nothing else names the user.
+    const left = (await listFiles(ctx.storageRoot)).filter((p) => p.includes(user.id));
+    const ledger = `/${ctx.cfg.DELETION_LEDGER_PREFIX}/`;
+    expect(left.filter((p) => !p.includes(ledger))).toEqual([]);
+    expect(left.map((p) => p.slice(p.lastIndexOf('-') + 1)).sort()).toEqual(['completed.json', 'requested.json']);
 
     // The session went with the account.
     const me = await ctx.app.inject({ url: '/v1/auth/me', headers: auth });

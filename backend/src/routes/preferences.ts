@@ -21,6 +21,7 @@ import { resolveStyle } from '../services/styles.js';
 import { resolveZone } from '../services/usage.js';
 import type { AppInstance } from '../types.js';
 import { assertVersion, iso } from './helpers.js';
+import { NUMBERS } from '../config/numbers.js';
 
 export type PrefsRow = typeof preferences.$inferSelect;
 
@@ -83,7 +84,7 @@ export async function preferenceRoutes(app: AppInstance): Promise<void> {
           // 'serif' stays accepted for older clients; the chat shows it as the default font.
           font: z.enum(['sans', 'serif', 'system', 'dyslexic']).optional(),
           modelAlias: z.string().trim().min(1).max(64).optional(),
-          instructions: z.string().max(20_000).optional(),
+          instructions: z.string().max(NUMBERS.INSTRUCTIONS_MAX_CHARS.value /* N-35 */).optional(),
           enterToSend: z.boolean().optional(),
           reducedMotion: z.boolean().optional(),
           defaultMode: z.enum(['chat', 'search', 'research']).optional(),

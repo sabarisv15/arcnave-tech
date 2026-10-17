@@ -1,6 +1,8 @@
 # ADR-0009: A generation run outlives the connection that started it
 
-- Status: accepted
+- Status: accepted; amended by [ADR-0078](0078-durable-turns.md) (2026-10-17): a reconnect on
+  another instance now gets a `snapshot` of the stored reply, SIGTERM drains and settles runs as
+  `interrupted`, and reconnect timing is N-46's. The text below is the decision as made.
 - Date: 2026-09-24
 - Supersedes: the "client disconnect aborts the run" behaviour described in
   `backend/src/routes/chats.ts` (its header comment, until this commit) and the

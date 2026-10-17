@@ -6,8 +6,8 @@
  */
 import { neutraliseDocumentText, neutraliseReservedTags } from '../services/prompt/reservedTags.js';
 import { StreamedCallAssembler } from './streamedCall.js';
-import { ApiError as GeminiApiError, FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
-import type { Content, FunctionDeclaration, GoogleGenAIOptions, Part, Blob as GeminiBlob } from '@google/genai';
+import { ApiError as GeminiApiError, FunctionCallingConfigMode, GoogleGenAI, HarmBlockThreshold, HarmCategory, ThinkingLevel } from '@google/genai';
+import type { Content, FunctionDeclaration, GoogleGenAIOptions, Part, SafetySetting, Blob as GeminiBlob } from '@google/genai';
 
 import type { Config } from '../config.js';
 import { logger } from '../logger.js';
@@ -23,12 +23,14 @@ import type {
   Provider,
   ProviderEvent,
   ProviderUsage,
+  UsageSource,
   ToolDefinition,
   ToolResult,
 } from './types.js';
 import { addRequestUsage, EMPTY_USAGE, isAbort, ModelNotFoundError, primaryToolContent, ProviderError, replayNatively, toolCallAsText, toolImages } from './types.js';
 import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
+import { geminiFinish } from './finish.js';
 
 /** Added to the system instruction on the final round, whose function calling is off. */
 const FINAL_ROUND_NOTE =
@@ -36,6 +38,18 @@ const FINAL_ROUND_NOTE =
   'If something could not be finished, say what and why.';
 
 const log = logger.child({ module: 'provider:gemini' });
+
+/**
+ * Stage 16 SD-9a: the thresholds are set explicitly, not left to the model's defaults, at
+ * BLOCK_MEDIUM_AND_ABOVE for the four harm categories (enum names read in @google/genai 2.22).
+ * A block ends the answer `blocked` (finish.ts), never retried and never handed to another model.
+ */
+export const GEMINI_SAFETY_SETTINGS: SafetySetting[] = [
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+].map((category) => ({ category, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE }));
 
 function attachmentParts(attachments: GenerationRequest['attachments']): Part[] {
   if (!attachments || attachments.length === 0) return [];
@@ -244,6 +258,7 @@ function googleRpcError(err: unknown): GoogleRpcError | undefined {
     const parsed = JSON.parse(message.slice(start)) as { error?: GoogleRpcError };
     return typeof parsed.error === 'object' && parsed.error !== null ? parsed.error : undefined;
   } catch {
+    // benign: not a Google RPC error body; the caller classifies by status
     return undefined;
   }
 }
@@ -304,15 +319,27 @@ export function classifyGeminiError(err: unknown, modelId: string, location: str
     });
   }
   if (status === 401 || status === 403) {
+    // M-21: 401 is the project's credentials, 403 this model's permission; both go to the chain.
     return new ProviderError(`Gemini rejected the credentials or permissions: ${String(err)}`, {
       code: 'model_unavailable',
+      kind: status === 401 ? 'credentials' : 'config',
+      retryable: false,
+      statusCode: status,
+    });
+  }
+  if (status === 404) {
+    return new ProviderError(`Gemini model or resource not found: ${String(err)}`, {
+      code: 'model_unavailable',
+      kind: 'config',
       retryable: false,
       statusCode: status,
     });
   }
   const after = status === undefined ? undefined : retryDelayOf(body);
+  const retryable = status !== undefined ? RETRYABLE_STATUS.has(status) : isConnectionError(err);
   return new ProviderError(`Gemini request failed: ${String(err)}`, {
-    retryable: status !== undefined ? RETRYABLE_STATUS.has(status) : isConnectionError(err),
+    retryable,
+    kind: retryable ? 'transient' : 'request_rejected',
     ...(status !== undefined ? { statusCode: status } : {}),
     ...(after !== undefined ? { retryAfterMs: after } : {}),
   });
@@ -350,6 +377,28 @@ export function mediaReadingComplete(finishReason: string): boolean {
 
 function incompleteMediaNote(finishReason: string): string {
   return `\n\n[Incomplete: the reading stopped early (finish reason ${finishReason}), so the text above may be cut off.]`;
+}
+
+/** P22: one request's `call_usage` event (ADR-0079). The id is Gemini's response id. */
+function geminiCallUsage(
+  round: number,
+  usage: ProviderUsage,
+  usageSource: UsageSource,
+  finishReason: string,
+  ref: string | undefined,
+  startedAt: number,
+  firstAt: number | undefined,
+): ProviderEvent {
+  return {
+    type: 'call_usage',
+    ordinal: round,
+    usage,
+    usageSource,
+    finishReason,
+    ...(ref ? { providerRef: { type: 'response_id' as const, value: ref } } : {}),
+    ...(firstAt !== undefined ? { ttftMs: firstAt - startedAt } : {}),
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 interface GeminiUsageMetadata {
@@ -552,7 +601,13 @@ export class GeminiProvider implements Provider {
     let contents = buildGeminiContents(request);
     // A call that failed with this exact input is not run again this turn (D2 X-10).
     const failedToolCalls = new Set<string>();
+    // P22: the request in flight, as a partial `call_usage`, for a stop that ends it (the SDK
+    // throws on the abort, so the loop's own abort check is not always reached).
+    let inFlight: (() => ProviderEvent) | null = null;
     const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
+    // The round in flight, for the usage a failure reports (AL-1).
+    let roundUsage = EMPTY_USAGE;
+    let roundOpened = false;
 
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
@@ -594,6 +649,7 @@ export class GeminiProvider implements Provider {
                   ],
                 }
               : {}),
+            safetySettings: GEMINI_SAFETY_SETTINGS,
             ...(forceAnswer
               ? { toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.NONE } } }
               : stream
@@ -612,6 +668,10 @@ export class GeminiProvider implements Provider {
           },
         });
 
+        // P22: this request's own clocks, id and stop reason, for its `call_usage` (OD-8, OD-13).
+        const roundStartedAt = Date.now();
+        let roundFirstAt: number | undefined;
+        let roundRef: string | undefined;
         let stream: Awaited<ReturnType<typeof open>>;
         try {
           stream = await open(finalToolRound, streamArgs && !finalToolRound);
@@ -631,14 +691,27 @@ export class GeminiProvider implements Provider {
         }
 
         let roundText = '';
-        let roundUsage = EMPTY_USAGE;
+        roundUsage = EMPTY_USAGE;
+        roundOpened = false;
+        // The round's finish reason and a prompt block, read by finish.ts after the round.
+        let roundFinish: string | undefined;
+        let blockReason: string | undefined;
         const assembler = new StreamedCallAssembler();
 
+        // Stopped mid-request: Gemini's last cumulative count so far, labelled partial.
+        inFlight = () => geminiCallUsage(round, roundUsage, roundUsage.exact ? 'provider_partial' : 'none', 'cancelled', roundRef, roundStartedAt, roundFirstAt);
         for await (const chunk of stream) {
+          roundFirstAt ??= Date.now();
+          roundOpened = true;
+          // F9: a blocked prompt is said in the first chunk's promptFeedback.
+          if (chunk.promptFeedback?.blockReason) blockReason = String(chunk.promptFeedback.blockReason);
           if (request.signal.aborted) {
             usage = addRequestUsage(usage, roundUsage);
+            yield inFlight();
+            inFlight = null;
             break roundLoop;
           }
+          if (chunk.responseId) roundRef = chunk.responseId;
 
           for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
             if (part.thought && part.text) yield { type: 'thinking', text: part.text };
@@ -681,12 +754,39 @@ export class GeminiProvider implements Provider {
             if (candidate.groundingMetadata) {
               lastMetadata = candidate.groundingMetadata as GeminiGroundingMetadata;
             }
-            if (candidate.finishReason) finishReason = String(candidate.finishReason);
+            if (candidate.finishReason) roundFinish = String(candidate.finishReason);
           }
         }
-        usage = addRequestUsage(usage, roundUsage);
+        // The stream ended: a stop no longer finds this request in flight. A block or a stream
+        // with no finish reason below fails the request; the gateway writes its row from
+        // `failedRequestUsage` (P22 + P11 merge: one source per request).
+        inFlight = null;
         assembler.close();
         const roundCalls = assembler.calls;
+        // ER-3c / ER-3d: a block ends the answer `blocked`; a stream with no finish reason is a
+        // failure (transient before text, interrupted after it: the gateway and the turn decide);
+        // a round that made calls is read by its calls.
+        const outcome = geminiFinish(roundFinish, blockReason);
+        if (outcome.kind === 'blocked') {
+          throw new ProviderError(`Gemini blocked the response (${outcome.category})`, {
+            code: 'response_blocked',
+            kind: 'blocked',
+            refusalCategory: outcome.category,
+            partialUsage: addRequestUsage(usage, roundUsage),
+            failedRequestUsage: roundUsage,
+          });
+        }
+        if (outcome.kind === 'no_finish' && roundCalls.length === 0 && !finalToolRound) {
+          throw new ProviderError('Gemini stream ended without a finish reason', {
+            kind: 'transient',
+            partialUsage: addRequestUsage(usage, roundUsage),
+            failedRequestUsage: roundUsage,
+          });
+        }
+        if (outcome.kind === 'finished') finishReason = outcome.finishReason;
+        usage = addRequestUsage(usage, roundUsage);
+        yield geminiCallUsage(round, roundUsage, roundUsage.exact ? 'provider' : 'none', roundFinish ?? 'unknown', roundRef, roundStartedAt, roundFirstAt);
+        roundOpened = false;
 
         // The final round is reached only while the model is still working, and it was made to
         // answer: the turn used every tool step it may. A call it makes anyway is not run, since
@@ -740,16 +840,30 @@ export class GeminiProvider implements Provider {
 
       }
     } catch (err) {
-      if (request.signal.aborted) throw err;
+      if (request.signal.aborted) {
+        if (inFlight) yield inFlight();
+        throw err;
+      }
+      // Already typed above (a block, a stream with no finish reason).
+      if (err instanceof ProviderError) throw err;
+      // AL-1: what was reported before the failure; undefined when no stream had opened.
+      const billed = roundOpened ? addRequestUsage(usage, roundUsage) : usage;
+      // P22 + P11 merge: the failed request's own counts, for its ledger row.
+      const failedRequestUsage = roundOpened ? roundUsage : undefined;
       // The caller did not abort, so this is the SDK's own per-request timeout firing: a typed,
       // retryable timeout, as the other adapter's SDK treats one.
       if (isAbort(err)) {
         throw new ProviderError(`Gemini request timed out after ${this.cfg.PROVIDER_TIMEOUT_MS}ms`, {
-          retryable: true,
+          kind: 'timeout',
           code: 'provider_timeout',
+          ...(billed !== null ? { partialUsage: billed } : {}),
+          ...(failedRequestUsage !== undefined ? { failedRequestUsage } : {}),
         });
       }
-      throw classifyGeminiError(err, request.providerModelId, this.cfg.geminiLocation);
+      const classified = classifyGeminiError(err, request.providerModelId, this.cfg.geminiLocation);
+      if (billed !== null) classified.partialUsage = billed;
+      classified.failedRequestUsage = failedRequestUsage;
+      throw classified;
     }
 
     if (grounded && !request.signal.aborted) {

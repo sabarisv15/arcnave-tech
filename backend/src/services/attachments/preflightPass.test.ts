@@ -150,7 +150,7 @@ describe('every XML part is scanned through its whole length (N1)', () => {
   });
 
   it('finds an entity declared deep in a UTF-16 part', async () => {
-    const xml = Buffer.from(`﻿<?xml version="1.0" encoding="UTF-16"?><!--${'q'.repeat(50_000)}--><!ENTITY y "boom">${documentXml('x', '')}`, 'utf16le');
+    const xml = Buffer.from(`\uFEFF<?xml version="1.0" encoding="UTF-16"?><!--${'q'.repeat(50_000)}--><!ENTITY y "boom">${documentXml('x', '')}`, 'utf16le');
     const docx = docxWithParts({ 'word/document.xml': xml });
     await expect(preflightContainer(bufferSource(docx), 'u16.docx', { maxRatio: 100 })).rejects.toMatchObject({ code: 'corrupt' });
   });
@@ -543,7 +543,7 @@ describe('refusals survive every chunk split and encoding (ADR-0070, F13, F20)',
   }
 
   it('preflightContainer: an ENTITY after 10 KB of comments in a UTF-16 chapter is refused', async () => {
-    const xhtml = Buffer.from(`﻿${pad}<!DOCTYPE html><html><body><p>x</p></body></html><!ENTITY late "x">`, 'utf16le');
+    const xhtml = Buffer.from(`\uFEFF${pad}<!DOCTYPE html><html><body><p>x</p></body></html><!ENTITY late "x">`, 'utf16le');
     const epub = Buffer.from(zipSync({ mimetype: enc('application/epub+zip'), 'OEBPS/ch1.xhtml': xhtml }));
     await expect(preflightContainer(bufferSource(epub), 'book.epub', { maxRatio: 100 })).rejects.toMatchObject({ code: 'corrupt' });
   });

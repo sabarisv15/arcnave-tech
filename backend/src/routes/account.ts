@@ -7,6 +7,8 @@ import { z } from 'zod';
 
 import { accountExports, chats, users } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
+import { withLongStatements } from '../db/client.js';
+import { requestCancel } from '../services/turn/turnStore.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
 import { buildAccountExport } from '../services/accountExport.js';
 import { verifyPassword } from '../services/auth.js';
@@ -36,8 +38,15 @@ export async function accountRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, storage } = request.services;
-      const zip = Buffer.from(await buildAccountExport(db, storage, user.id));
+      const { db, storage, cfg } = request.services;
+      // One read snapshot, allowed N-45's executor statement time: a large account's export is
+      // longer work than an API statement (ADR-0078).
+      const zip = Buffer.from(
+        await db.transaction(async (tx) => {
+          await withLongStatements(tx, cfg);
+          return buildAccountExport(tx, storage, user.id);
+        }),
+      );
       const key = generateStorageKey(user.id);
       await storage.put(key, zip, 'application/zip');
       const [row] = await db
@@ -94,16 +103,25 @@ export async function accountRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, storage, activeRuns, cfg } = request.services;
+      const { db, storage, runHub, cfg } = request.services;
       const [row] = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id));
       if (!row?.passwordHash || !(await verifyPassword(request.body.password, row.passwordHash))) {
         throw new ApiError('password_incorrect');
       }
-      // Stop anything still writing for this account before its rows go.
+      // Stop anything still writing for this account before its rows go: the flag reaches a run on
+      // any instance (ADR-0078), the local abort ends one here at once.
       const owned = await db.select({ id: chats.id }).from(chats).where(eq(chats.userId, user.id));
-      for (const chat of owned) activeRuns.get(chat.id)?.abort();
+      await requestCancel(db, owned.map((c) => c.id));
+      for (const chat of owned) runHub.active(chat.id)?.controller.abort();
+      // P22 (Stage 5 P11): the deletion ledger records the request before anything goes, and
+      // its completion after the bytes, before the rows. A failed record stops the deletion
+      // here: the account is intact and the request can be retried.
+      const { deletionLedger } = request.services;
+      const counts = { chats: owned.length };
+      await deletionLedger.write({ kind: 'account_delete', phase: 'requested', subjectId: user.id, userId: user.id, at: new Date(), counts });
       // Bytes first: if storage fails, the rows that name the bytes are still there to retry.
-      await storage.deleteOwned(user.id);
+      const objects = await storage.deleteOwned(user.id);
+      await deletionLedger.write({ kind: 'account_delete', phase: 'completed', subjectId: user.id, userId: user.id, at: new Date(), counts: { ...counts, objects } });
       // Every other table's rows cascade from the user (ADR-0040 lists them).
       await db.delete(users).where(eq(users.id, user.id));
       void reply.clearCookie(cfg.SESSION_COOKIE_NAME, { path: '/' });

@@ -25,11 +25,13 @@ import type { Config } from '../config.js';
 import type { BuildOptions } from '../container.js';
 import { loadConfig } from '../config.js';
 import type { Database } from '../db/client.js';
-import { setDb } from '../db/client.js';
+import { pgOptions, setDb } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import type {
   AttachmentBlock,
   GenerationRequest,
+  HelperRequest,
+  HelperResult,
   MediaPart,
   MediaReading,
   Provider,
@@ -157,6 +159,44 @@ export class FakeProvider implements Provider {
     }
   }
 
+  /**
+   * P13 helper calls (ADR-0080). Unset by default, so this fake has no helper adapter and every
+   * helper job is skipped (`no_helper_adapter`); a test sets `helperHandler` to answer them.
+   * `complete` / `classify` exist only while it is set, as a real adapter either has them or not.
+   */
+  readonly helperSeen: Array<HelperRequest & { schema?: Record<string, unknown> }> = [];
+  private helperFn: ((req: HelperRequest & { schema?: Record<string, unknown> }) => Promise<HelperResult>) | null = null;
+  complete?: (req: HelperRequest) => Promise<HelperResult>;
+  classify?: (req: HelperRequest & { schema: Record<string, unknown> }) => Promise<HelperResult & { value: unknown }>;
+
+  get helperHandler(): ((req: HelperRequest & { schema?: Record<string, unknown> }) => Promise<HelperResult>) | null {
+    return this.helperFn;
+  }
+
+  set helperHandler(fn: ((req: HelperRequest & { schema?: Record<string, unknown> }) => Promise<HelperResult>) | null) {
+    this.helperFn = fn;
+    if (!fn) {
+      delete this.complete;
+      delete this.classify;
+      return;
+    }
+    this.complete = async (req) => {
+      this.helperSeen.push(req);
+      return fn(req);
+    };
+    this.classify = async (req) => {
+      this.helperSeen.push(req);
+      const result = await fn(req);
+      let value: unknown;
+      try {
+        value = JSON.parse(result.text);
+      } catch {
+        value = undefined;
+      }
+      return { ...result, value };
+    };
+  }
+
   /** Probe calls made, so a test can prove a turn made none. */
   probes = 0;
 
@@ -184,6 +224,8 @@ export function sleep(ms: number): Promise<void> {
 export interface TestContext {
   app: AppInstance;
   db: Database;
+  /** The app's own pool: a test can end it to play an instance that died. */
+  sql: postgres.Sql;
   cfg: Config;
   provider: FakeProvider;
   /** Where the local object storage wrote its files, so a test can inspect or assert on it. */
@@ -224,6 +266,13 @@ function baseEnv(): Record<string, string> {
     UPLOADS_PER_USER_PER_DAY: '100000',
     // N-42's 1 s → 2 s backoff is real time; a retry test checks that it retries, not how long.
     PROVIDER_RETRY_BASE_MS: '5',
+    // P11: the instance retry budget (N-47 10 %, reserve 2) spans every test of a file that
+    // shares one app; a test of the budget sets its own. Raised like the rate limits above.
+    RETRY_BUDGET_MIN_RESERVE: '100000',
+    // …and so does each model's circuit breaker (N-47: 5 failures / 30 s): failures one test
+    // provokes must not open the breaker for the next. breaker.test.ts tests the real values.
+    BREAKER_FAILURES: '100000',
+    BREAKER_MIN_CALLS: '100000',
   };
 }
 
@@ -239,7 +288,9 @@ export async function createTestApp(
   const storageRoot = await mkdtemp(join(tmpdir(), 'arcnave-test-'));
   const cfg = loadConfig({ ...baseEnv(), STORAGE_LOCAL_PATH: storageRoot, ...env });
 
-  const sql = postgres(cfg.DATABASE_URL, { max: 4, onnotice: () => {} });
+  // The pool's session limits are production's (N-45), so a statement or lock wait that would time
+  // out in production times out here too.
+  const sql = postgres(cfg.DATABASE_URL, { max: 4, onnotice: () => {}, ...pgOptions(cfg) });
   const db = drizzle(sql, { schema, casing: 'snake_case' });
   // `/readyz` and anything else reaching for the process-wide handle must find this one, not
   // open a second pool against the development database.
@@ -258,12 +309,15 @@ export async function createTestApp(
   return {
     app,
     db,
+    sql,
     cfg,
     provider,
     storageRoot,
     close: async () => {
+      // P13: background helper jobs end before the pool does.
+      await app.services.helperJobs.idle();
       await app.close();
-      await sql.end({ timeout: 5 });
+      await sql.end({ timeout: 5 }).catch(() => undefined);
       await rm(storageRoot, { recursive: true, force: true });
     },
   };
@@ -351,14 +405,17 @@ export interface SseFrame {
   data: Record<string, unknown>;
 }
 
-/** Parse an `event:`/`data:` stream into frames, ignoring comment-only heartbeats. */
+/**
+ * Parse an `event:`/`data:` stream into frames, ignoring the named `ping` keep-alive (N-24): it is
+ * a transport frame, not part of the run, and when one lands depends on the clock.
+ */
 export function parseSse(body: string): SseFrame[] {
   const frames: SseFrame[] = [];
   for (const block of body.split('\n\n')) {
     const lines = block.split('\n');
     const event = lines.find((l) => l.startsWith('event: '))?.slice(7);
     const data = lines.find((l) => l.startsWith('data: '))?.slice(6);
-    if (!event || !data) continue;
+    if (!event || !data || event === 'ping') continue;
     frames.push({ event, data: JSON.parse(data) as Record<string, unknown> });
   }
   return frames;

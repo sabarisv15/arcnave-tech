@@ -3,21 +3,35 @@
  * the stream's failure (partial after a tool ran, a stop, or an error that settles the turn
  * here). Cut from the turn generator unchanged (ADR-0073); `this` became `svc`.
  *
- * Returns true when the turn ended here (the error branch saved the row, recorded usage and
- * yielded `error`): the caller returns at once, so its outer `finally` (timing, turn log,
- * workspace cleanup) still runs exactly once. The reservation is released in this function's
- * `finally`, before that, as it was in the turn generator.
+ * Returns true when the turn ended here (the error branch settled the turn in one transaction
+ * and yielded `error`): the caller returns at once, so its outer `finally` (timing, turn log,
+ * workspace cleanup) still runs exactly once. The reservation stays held after a normal end, through
+ * the forced answer, until the settle step ends it (ADR-0078).
+ *
+ * P11 (ADR-0081): the stream comes from the provider gateway, which retries and may hand the turn
+ * to the next model of its chain (`model_switch`, labelled, never silent). A failure after text
+ * was shown keeps the partial answer: the turn ends complete with `partial`, finish `interrupted`
+ * and the cause's code (ER-3c), so the history keeps it with a cut marker.
+ *
+ * P22 + P11 merge: the gateway writes the turn's ledger rows into `state.calls` (one per provider
+ * request, with its attempt number and model); the turn's usage is always their sum.
  */
 import { VISUAL_MAX_HTML_BYTES } from '../ui/validator.js';
+import type { MessageSegment } from '../../db/schema.js';
+import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
+import { kindOf } from '../../providers/failures.js';
+import type { HopNeeds } from '../../providers/fallback.js';
+import type { GatewayTurn, HopTarget } from '../../providers/gateway.js';
 import type { ModelEntry } from '../../providers/registry.js';
-import { type GenerationRequest, type Provider, type ReasoningEffort, isAbort, ModelNotFoundError, toolResultPreview, withoutImageBytes } from '../../providers/types.js';
+import { type GenerationRequest, type Provider, type ReasoningEffort, isAbort, ModelNotFoundError, ProviderError, toolResultPreview, usageFromCalls, withoutImageBytes } from '../../providers/types.js';
 import type { TurnLog } from '../turnLog.js';
 import { StreamTimeSplit, type TurnTiming } from '../turnTiming.js';
 import { type StreamEvent, presentedFiles, toSourceDto, toUsageDto } from './events.js';
 import type { GenerateInput, PreferencesRow } from './input.js';
-import { finalise, persistEvent, persistToolCall } from './persistence.js';
-import { FailedAfterToolRun, isTurnDeadline, mapProviderError, refusalError, streamWithRetry, visualDrafts } from './providerLoop.js';
+import { persistEvent, persistToolCall } from './persistence.js';
+import { FailedAfterToolRun, isTypedStop, mapProviderError, refusalError, visualDrafts } from './providerLoop.js';
+import { endStateFor, settleTurn } from './turnStore.js';
 import type { TurnServices } from './services.js';
 import type { TurnLogOutcome, TurnState } from './turnState.js';
 
@@ -35,11 +49,26 @@ export interface StreamInput {
   timing: TurnTiming;
   turnLog: TurnLog;
   logOutcome: TurnLogOutcome;
-  /** Called here once the stream ends, whatever happened; it acts only the first time. */
-  releaseReservation: () => Promise<void>;
   addSegment: (type: 'thinking' | 'text', text: string) => void;
   /** Visuals a tool showed, sent after its tool result. */
   pendingUiEvents: StreamEvent[];
+  /** P11: how the turn may move down its fallback chain (absent = it may not). */
+  hop?: TurnHop;
+}
+
+/** The turn rebuilt for another model (ER-14b: capability stripping is a rebuild). */
+export interface HopBuild {
+  target: HopTarget;
+  reasoningEffort: ReasoningEffort | undefined;
+  pendingUiEvents: StreamEvent[];
+  segments: MessageSegment[];
+}
+
+export interface TurnHop {
+  needs: HopNeeds;
+  entries: readonly ModelEntry[];
+  canServe: (entry: ModelEntry) => boolean;
+  build: (entry: ModelEntry) => Promise<HopBuild | null>;
 }
 
 export async function* streamAndCollect(
@@ -48,10 +77,41 @@ export async function* streamAndCollect(
   state: TurnState,
   turn: StreamInput,
 ): AsyncGenerator<StreamEvent, boolean> {
-  const { provider, request, entry, prefs, reasoningEffort, startedAt, timing, turnLog, logOutcome, releaseReservation, addSegment, pendingUiEvents } = turn;
+  const { provider, request, prefs, startedAt, timing, turnLog, logOutcome, addSegment } = turn;
+  // The model serving the turn, and what goes with it: they change when the turn moves down its
+  // fallback chain (P11).
+  let entry = turn.entry;
+  let reasoningEffort = turn.reasoningEffort;
+  let pendingUiEvents = turn.pendingUiEvents;
+  // The answer so far, to the message row (throttled, fenced): a run that dies keeps it.
+  const checkpoint = async (): Promise<void> => {
+    await input.checkpoint?.flush({ text: state.collectedText.join(''), thinking: state.collectedThinking.join(''), segments: state.segments });
+  };
   try {
-    const stream = streamWithRetry(svc, provider.stream.bind(provider), request);
+    const builds = new Map<string, HopBuild>();
+    const run: GatewayTurn = {
+      signal: request.signal,
+      ...(input.deadlineAt !== undefined ? { deadlineAt: input.deadlineAt } : {}),
+      // P22 (E19) + P11: one ledger row per provider request, numbered by the gateway.
+      calls: state.calls,
+      callRole: 'answer',
+      ...(turn.hop
+        ? {
+            needs: turn.hop.needs,
+            entries: turn.hop.entries,
+            canServe: turn.hop.canServe,
+            build: async (next: ModelEntry) => {
+              const built = await turn.hop!.build(next);
+              if (!built) return null;
+              builds.set(next.alias, built);
+              return built.target;
+            },
+          }
+        : {}),
+    };
+    const stream = svc.gateway.stream({ entry, provider, request }, run);
     timing.mark('before_provider');
+    const providerSentAt = Date.now();
     let firstProviderEvent = true;
     let toolCallCount = 0;
     // Splits the stream's time between waiting on the model and waiting on tools, so a slow
@@ -61,6 +121,8 @@ export async function* streamAndCollect(
     for await (const event of stream) {
       if (firstProviderEvent) {
         firstProviderEvent = false;
+        // OD-8 provider_ttft: request sent → first stream event (retries included).
+        state.clocks.providerTtftMs = Date.now() - providerSentAt;
         timing.mark('provider_first_event');
         turnLog.stage('provider first event', { event: event.type });
       }
@@ -73,7 +135,12 @@ export async function* streamAndCollect(
           state.collectedText.push(safe);
           addSegment('text', safe);
           turnLog.text(safe);
-          if (safe) yield { type: 'delta', text: safe };
+          if (safe) {
+            // OD-8 first_visible: turn start → the first answer text sent to the client.
+            state.clocks.firstVisibleMs ??= Date.now() - startedAt.getTime();
+            yield { type: 'delta', text: safe };
+          }
+          await checkpoint();
           break;
         }
 
@@ -82,6 +149,7 @@ export async function* streamAndCollect(
           state.collectedThinking.push(event.text);
           addSegment('thinking', event.text);
           yield { type: 'thinking', text: event.text };
+          await checkpoint();
           break;
 
         case 'sources': {
@@ -164,6 +232,7 @@ export async function* streamAndCollect(
           while (pendingUiEvents.length > 0) {
             yield pendingUiEvents.shift()!;
           }
+          await checkpoint();
           break;
         }
 
@@ -183,7 +252,35 @@ export async function* streamAndCollect(
         }
 
         case 'refusal':
+          // AL-2: the category goes to the usage row; M-14: finish `blocked`, no fallback.
+          state.refusalCategory = event.category?.slice(0, 32) ?? null;
           throw refusalError(event);
+
+        case 'call_usage':
+          // P22 (E19): the gateway has written this request's row; the turn is their sum.
+          state.usage = usageFromCalls(state.calls);
+          break;
+
+        case 'model_switch': {
+          // 7.12 / OQ-02 A: nothing was shown and no tool ran on the failed model; the next one
+          // answers, rebuilt for it, and the answer carries the label.
+          const built = builds.get(event.to);
+          if (event.cause instanceof ModelNotFoundError) {
+            svc.registry.recordOutcome(entry.alias, { available: false, detail: event.cause.message });
+          }
+          entry = event.target.entry;
+          reasoningEffort = built?.reasoningEffort;
+          state.served = { entry, provider: event.target.provider, request: event.target.request, reasoningEffort };
+          state.fallback ??= { from: event.from, reason: event.reason };
+          if (built) {
+            pendingUiEvents = built.pendingUiEvents;
+            state.segments = built.segments;
+          }
+          turnLog.stage('model switch', { from: event.from, to: event.to, reason: event.reason });
+          turnLog.setModel({ requested: input.modelAlias, resolved: entry.alias, providerModelId: entry.providerModelId!, grounded: event.target.request.grounded });
+          yield { type: 'model_switch', from: event.from, to: event.to, reason: event.reason };
+          break;
+        }
 
         case 'completed':
           {
@@ -195,7 +292,8 @@ export async function* streamAndCollect(
               yield { type: 'delta', text: tail };
             }
           }
-          state.usage = event.usage;
+          // The sum of the calls, not the event's own total (P22): each row has its own model.
+          state.usage = usageFromCalls(state.calls);
           state.finishReason = event.finishReason;
           svc.registry.recordOutcome(entry.alias, { available: true });
           turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: state.toolsCalled.length, stream: split.summary() });
@@ -206,7 +304,11 @@ export async function* streamAndCollect(
     if (err instanceof ModelNotFoundError) {
       svc.registry.recordOutcome(entry.alias, { available: false, detail: err.message });
     }
-    const deadlineHit = isTurnDeadline(input.signal.reason);
+    // A typed stop (the deadline, a shutdown, a lost lease) is an error with its code, not a cancel.
+    const deadlineHit = isTypedStop(input.signal.reason);
+    // The gateway wrote the failed request's row before it threw (P22 + P11 merge).
+    state.usage = usageFromCalls(state.calls);
+    const textShown = state.collectedText.join('').trim().length > 0;
     if (err instanceof FailedAfterToolRun && !deadlineHit && !input.signal.aborted) {
       // The answer so far, the tool calls already stored, and a typed code: never a second run
       // of a tool, never a failure presented as a finished answer (done carries `partial`).
@@ -225,42 +327,72 @@ export async function* streamAndCollect(
       }
     } else if (!deadlineHit && (isAbort(err) || input.signal.aborted)) {
       state.status = 'cancelled';
+    } else if (textShown && !deadlineHit && !(err instanceof ApiError) && kindOf(err) !== 'blocked') {
+      // M-17 / ER-3c: a failure after text keeps the partial answer, finish `interrupted` with the
+      // cause's code; never retried (the text would repeat), never another model.
+      const cause = mapProviderError(err).code;
+      state.endedPartial = true;
+      state.errorCode = cause;
+      state.finishReason = 'interrupted';
+      turnLog.stage('provider failed after text', { code: cause, toolCalls: state.toolsCalled.length });
+      log.warn({ code: cause, chatId: input.chatId, requestId: input.requestId }, 'provider failed after text; the partial answer is kept');
+      const tail = state.answerGuard.finish();
+      if (tail) {
+        state.collectedText.push(tail);
+        addSegment('text', tail);
+        turnLog.text(tail);
+        yield { type: 'delta', text: tail };
+      }
     } else {
       state.status = 'error';
       const mapped = mapProviderError(deadlineHit ? input.signal.reason : err);
       state.errorCode = mapped.code;
+      // M-14 / M-23: a refusal or a safety block ends `blocked`, with its category (AL-2).
+      const blocked = !deadlineHit && ((err instanceof ApiError && err.code === 'model_refused') || kindOf(err) === 'blocked');
+      if (err instanceof ProviderError && err.refusalCategory) state.refusalCategory = err.refusalCategory;
       turnLog.fail(err);
       turnLog.stage('provider failed', { code: mapped.code, deadline: deadlineHit, toolCalls: state.toolsCalled.length });
       log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
-      await finalise(svc, input, {
-        text: state.collectedText.join(''),
-        thinking: state.collectedThinking.join(''),
-        segments: state.segments,
-        sources: state.collectedSources,
-        searchEntryPoint: state.searchEntryPoint,
-        status: 'error',
-        errorCode: mapped.code,
-        finishReason: null,
-        entry,
-        mode: input.mode,
-        effort: reasoningEffort,
-      });
-      await releaseReservation();
-      await svc.usage.record({
-        userId: input.userId,
-        prefs,
-        requestId: input.requestId,
-        chatId: input.chatId,
-        messageId: input.messageId,
-        projectId: input.projectId,
-        modelAlias: entry.alias,
-        provider: entry.provider,
-        providerModelId: entry.providerModelId!,
-        usage: state.usage,
-        startedAt,
-        status: 'error',
-        errorCode: mapped.code,
-      });
+      // One transaction: the row, its sources, the usage row, the counters, the reservation and
+      // the turn's state (ADR-0078).
+      await settleTurn(
+        svc,
+        { userId: input.userId, chatId: input.chatId, messageId: input.messageId, requestId: input.requestId, projectId: input.projectId },
+        input.turn,
+        {
+          message: {
+            kind: 'final',
+            text: state.collectedText.join(''),
+            thinking: state.collectedThinking.join(''),
+            segments: state.segments,
+            sources: state.collectedSources,
+            searchEntryPoint: state.searchEntryPoint,
+            status: 'error',
+            errorCode: mapped.code,
+            finishReason: blocked ? 'blocked' : null,
+            model: { alias: entry.alias, provider: entry.provider, providerModelId: entry.providerModelId ?? null },
+            mode: input.mode,
+            ...(reasoningEffort ? { effort: reasoningEffort } : {}),
+            ...(state.fallback ? { fallback: state.fallback } : {}),
+          },
+          usage: {
+            prefs,
+            modelAlias: entry.alias,
+            provider: entry.provider,
+            providerModelId: entry.providerModelId!,
+            usage: state.usage,
+            startedAt,
+            status: blocked ? 'blocked' : 'error',
+            errorCode: mapped.code,
+            ...(blocked ? { finishReason: 'blocked' } : {}),
+            refusalCategory: state.refusalCategory,
+            calls: state.calls,
+            clocks: state.clocks,
+          },
+          end: endStateFor('error', mapped.code),
+          finishCode: mapped.code,
+        },
+      );
       Object.assign(logOutcome, { status: 'error', errorCode: mapped.code, usage: state.usage });
       yield {
         type: 'error',
@@ -271,8 +403,6 @@ export async function* streamAndCollect(
       };
       return true;
     }
-  } finally {
-    await releaseReservation();
   }
   return false;
 }

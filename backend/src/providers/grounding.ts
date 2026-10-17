@@ -58,6 +58,7 @@ export function domainOf(url: string): string {
     const { hostname } = new URL(url);
     return hostname.startsWith('www.') ? hostname.slice(4) : hostname;
   } catch {
+    // benign: an unparsable URL has no host to show
     return '';
   }
 }
@@ -109,6 +110,7 @@ async function resolveOne(
     if (!final || final.includes(VERTEX_REDIRECT_HOST)) return { url, resolved: false };
     return { url: final, resolved: true };
   } catch {
+    // benign: an unresolved grounding redirect keeps its original URL, marked resolved: false
     return { url, resolved: false };
   } finally {
     clearTimeout(timer);

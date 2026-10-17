@@ -2,6 +2,7 @@
 
 - Status: accepted; deployed 2026-09-25, compaction not yet seen live. Trigger amended by [ADR-0021](0021-turn-usage-sums-every-request.md): it reads the last request's size (`context_tokens`), not the turn's total. Trigger superseded by [ADR-0027](0027-compaction-as-the-window-fills.md): as the window fills, not at 150,000.
 - Date: 2026-09-25
+- Superseded by [ADR-0080](0080-history-summary-and-helper-jobs.md) for the compaction (trigger, kept turns, model, tag): with `ENABLE_HISTORY_SUMMARY` on (the default) the compaction does not run; it stays one release behind that flag.
 - See also: [ADR-0013](0013-pdfs-sent-as-page-images-and-text.md),
   [ADR-0016](0016-gemini-reads-page-images-by-uri.md)
 

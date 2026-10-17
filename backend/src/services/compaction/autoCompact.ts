@@ -24,6 +24,7 @@ import type { Database } from '../../db/client.js';
 import { attachments, conversationCompactions, messages, toolCalls, usageRecords } from '../../db/schema.js';
 import { EMPTY_USAGE, toolCallAsText, type Provider, type ProviderUsage, type ToolContent, type Turn } from '../../providers/types.js';
 import { nameForModel } from '../../providers/attachmentContent.js';
+import { NUMBERS } from '../../config/numbers.js';
 
 /** The summarization prompt (ADR-0019). */
 export const SUMMARY_PROMPT =
@@ -41,7 +42,7 @@ export const KEEP_TURNS = 2;
  *  message and its answer. */
 export const COMPACTION_WINDOW_RESERVE = 33_000;
 /** The lowest compaction trigger. */
-const MIN_TRIGGER = 50_000;
+const MIN_TRIGGER = NUMBERS.COMPACTION_MIN_TRIGGER_TOKENS.value; // N-16
 
 /**
  * Tokens of the previous request at which a chat compacts: as the conversation approaches the

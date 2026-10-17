@@ -40,6 +40,11 @@ import {
   readSheets,
   sheetPreviewSchema,
 } from './sheetPreview.js';
+import { uploadBodyLimit } from './bodyLimits.js';
+import { errorLogFields } from '../errorLog.js';
+import { logger } from '../logger.js';
+
+const log = logger.child({ module: 'files-route' });
 
 function isNativelyViewable(mimeType: string): boolean {
   return mimeType === 'application/pdf' || mimeType.startsWith('image/');
@@ -101,6 +106,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
   typed.post(
     '/files',
     {
+      bodyLimit: uploadBodyLimit(app.services.cfg) /* C4: multipart upload */,
       schema: {
         tags: ['projects'],
         summary: 'Upload a file to attach to a message',
@@ -214,6 +220,7 @@ export async function fileRoutes(app: AppInstance): Promise<void> {
   typed.put(
     '/files/:id/content',
     {
+      bodyLimit: uploadBodyLimit(app.services.cfg) /* C4: raw bytes; the stream parser is bounded by putStream, not this */,
       schema: {
         tags: ['projects'],
         summary: 'Receive the bytes of an upload (local storage only)',
@@ -650,7 +657,10 @@ async function discard(request: ServicesRequest, row: AttachmentRow): Promise<vo
   const derived = await derivedKeys(request.services.db, { attachmentIds: [row.id] });
   await request.services.db.delete(attachments).where(eq(attachments.id, row.id));
   await deleteObjects(request.services.storage, derived);
-  await request.services.storage.delete(row.storageKey).catch(() => undefined);
+  await request.services.storage.delete(row.storageKey).catch((err: unknown) => {
+    // A-23: the row is gone; the bytes are an orphan that costs storage, not data. Logged by id.
+    log.warn({ ...errorLogFields(err), attachmentId: row.id }, 'attachment bytes not deleted (orphan)');
+  });
 }
 
 /** The page's origin, passed to GCS so it answers that page's cross-origin upload requests. */
@@ -660,6 +670,7 @@ function browserOrigin(origin: string | undefined): string | undefined {
     const url = new URL(origin);
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : undefined;
   } catch {
+    // benign: an Origin that is not a URL gets no CORS origin for the bucket
     return undefined;
   }
 }
@@ -711,6 +722,7 @@ async function pdfPageCount(storage: AppInstance['services']['storage'], key: st
       const match = /^Pages:\s+(\d+)/m.exec(stdout);
       return match ? Number(match[1]) : null;
     } catch {
+      // benign: an unreadable PDF has no page count; the caller reads it as unknown
       return null;
     }
   });

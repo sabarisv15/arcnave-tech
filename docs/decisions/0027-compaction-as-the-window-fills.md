@@ -2,6 +2,7 @@
 
 - Status: accepted. Tested locally; not live.
 - Date: 2026-09-26
+- Superseded by [ADR-0080](0080-history-summary-and-helper-jobs.md) for the compaction (trigger, kept turns, model, tag): with `ENABLE_HISTORY_SUMMARY` on (the default) the compaction does not run; it stays one release behind that flag.
 - Supersedes: the trigger of [ADR-0019](0019-long-chats-follow-claude.md) (150,000 tokens,
   three quarters of the window).
 - Amended by [ADR-0047](0047-tools-and-skills-match-the-reference.md): a skill read before a compaction is one viewed at /skills/<name>/SKILL.md (load_skill is gone).

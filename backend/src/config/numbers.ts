@@ -124,6 +124,152 @@ export const NUMBERS = {
   // --- Outbound fetch: Stage 15 ER-4 -----------------------------------------------------------
   /** One user-URL fetch (safeFetch), redirects included. */
   FETCH_URL_TIMEOUT_MS: n(10_000, 'N-43', 'register: tools fetch_url 10 s'),
+
+  // --- P08: durable runs, one turn per chat (ADR-0078) --------------------------------------
+  /** A running turn's lease; another instance may take the turn over once it lapses. */
+  TURN_LEASE_MS: n(30_000, 'N-73', 'register: turn lease 30 s'),
+  /** How often the runner renews its lease. */
+  TURN_HEARTBEAT_MS: n(10_000, 'N-73', 'register: heartbeat 10 s'),
+  /** How often the runner reads `cancel_requested` (a Stop sent to another instance). */
+  TURN_CANCEL_CHECK_MS: n(2_000, 'N-73', 'register: runner idle cancel check 2 s'),
+  /** Named `ping` frame on every open stream. */
+  SSE_PING_MS: n(15_000, 'N-24', 'register: SSE ping interval 15 s (mandatory, LV-111)'),
+  /** A frame the socket has not taken within this long ends the connection. */
+  SSE_SEND_TIMEOUT_MS: n(15_000, 'N-73', 'register: SSE send timeout = N-24 15 s'),
+  /** An open stream re-checks its session and its chat this often. */
+  SSE_SESSION_RECHECK_MS: n(60_000, 'N-73', 'register: open-stream session re-check 60 s'),
+  /** A stream of a run held by another instance polls the stored row this often. */
+  SSE_RELAY_POLL_MS: n(250, 'N-73', 'register: Postgres stream-store relay poll 250 ms'),
+  /** SIGTERM: runs are stopped and settled inside this budget, under Cloud Run's 10 s. */
+  SHUTDOWN_DRAIN_MS: n(5_000, 'N-73', 'register (N-76): SIGTERM budget = N-73 5 s'),
+  /** The turn sweeper: expired leases, expired reservations, old idempotency keys. */
+  TURN_SWEEP_INTERVAL_MS: n(60_000, 'N-76', 'register: sweep tick 60 s'),
+  /** Rows per kind per turn sweep (the register's `app.chat_sweep` batch). */
+  SWEEP_BATCH: n(1_000, 'N-73', 'register: app.chat_sweep batch 1,000 rows per kind per call'),
+  /** An Idempotency-Key is honoured, then forgotten, after this long. */
+  IDEMPOTENCY_KEY_TTL_HOURS: n(24, 'N-34', 'register: idempotency keys 24 h'),
+  /** Every API statement. */
+  DB_STATEMENT_TIMEOUT_MS: n(5_000, 'N-45', 'register: statement timeout API 5 s'),
+  /** Sweeps, exports and file jobs (`SET LOCAL`). */
+  DB_LONG_STATEMENT_TIMEOUT_MS: n(30_000, 'N-45', 'register: statement timeout executor 30 s'),
+  DB_LOCK_TIMEOUT_MS: n(2_000, 'N-45', 'register: lock_timeout 2 s'),
+  DB_IDLE_IN_TRANSACTION_MS: n(30_000, 'N-45', 'register: idle_in_transaction 30 s'),
+  /** A pooled connection is closed and reopened after this long. */
+  DB_MAX_LIFETIME_S: n(1_800, 'N-45', 'register: pool_recycle 1,800 s'),
+  /** A whole settle transaction is retried at most this often on a serialization failure or deadlock. */
+  DB_TX_MAX_RETRIES: n(2, 'N-45', 'register: whole-tx retry ≤2'),
+
+  // --- P13: history budget, summary, title and router helpers (ADR-0080) --------------------
+  /** History window: the newest turns sent word for word. */
+  HISTORY_TURNS: n(6, 'N-16', 'register: keep last 6 turns (CXD-5)'),
+  /** The newest turns always sent, even past the budget (`over_budget` is then set). */
+  HISTORY_FLOOR_TURNS: n(2, 'N-75', 'register: HISTORY_FLOOR_TURNS 2'),
+  /** Input token budget of the Normal profile; the only profile until P10. */
+  INPUT_BUDGET_NORMAL: n(48_000, 'N-03', 'register: Fast 16k / Normal 48k / Deep 200k; CXD-6 default normal'),
+  /** The summary job runs when summary + uncovered turns pass this share of (N-03 − fixed part). */
+  SUMMARY_TRIGGER_RATIO: n(0.6, 'N-77', 'register: trigger 0.6 × (N-03 − fixed part)'),
+  SUMMARY_INPUT_MAX_TOKENS: n(30_000, 'N-77', 'register: SUMMARY_INPUT_MAX_TOKENS 30,000'),
+  SUMMARY_MAX_OUTPUT_TOKENS: n(1_200, 'N-77', 'register: SUMMARY_MAX_OUTPUT_TOKENS 1,200'),
+  SUMMARY_CALL_TIMEOUT_S: n(60, 'N-77', 'register: SUMMARY_CALL_TIMEOUT_S 60'),
+  SUMMARY_TEXT_MAX_CHARS: n(6_000, 'N-77', 'register: SUMMARY_TEXT_MAX_CHARS 6,000'),
+  /** Characters of the first user message, and of the first answer, given to the title job. */
+  TITLE_INPUT_CHARS: n(1_500, 'N-76', 'register: TITLE_INPUT_CHARS 1,500 each'),
+  TITLE_MAX_OUTPUT_TOKENS: n(40, 'N-76', 'register: TITLE_MAX_OUTPUT_TOKENS 40'),
+  TITLE_CALL_TIMEOUT_MS: n(20_000, 'N-76', 'register: title call timeout 20 s'),
+  /** A generated title is cut to this many code points, markup stripped. */
+  TITLE_MAX_CHARS: n(60, 'N-76', 'register: generated title cut to 60 characters'),
+  /** Router M2 shadow call: the rules default stands when it takes longer. */
+  ROUTER_TIMEOUT_MS: n(1_500, 'N-69', 'register: router timeout 1.5 s'),
+  ROUTER_MAX_TOKENS: n(1_024, 'N-74', 'register: router M2 max output 1,024'),
+  /** One provider count call, one request, no retry (in-turn history budget). */
+  HISTORY_COUNT_TIMEOUT_MS: n(1_000, 'N-75', 'register: COUNT_TIMEOUT_SECONDS 1 s'),
+  // --- P11: error matrix, breaker, fallback (ADR-0081) ------------------------------------
+  /** A model's breaker opens after this many counted failures inside the window. */
+  BREAKER_FAILURES: n(5, 'N-47', 'register: open after 5 failures / 30 s'),
+  BREAKER_WINDOW_MS: n(30_000, 'N-47', 'register: open after 5 failures / 30 s'),
+  /** …or when this share of the last BREAKER_MIN_CALLS outcomes failed. */
+  BREAKER_RATIO: n(0.5, 'N-47', 'register: or ≥50 % of 20 calls'),
+  BREAKER_MIN_CALLS: n(20, 'N-47', 'register: or ≥50 % of 20 calls'),
+  /** An open breaker admits one trial call after this long. */
+  BREAKER_HALF_OPEN_MS: n(30_000, 'N-47', 'register: half-open 30 s'),
+  /** At most this share of an instance's provider calls may be retries. */
+  RETRY_BUDGET_RATIO: n(0.1, 'N-47', 'register: retry budget ≤10 %'),
+  /** Tool timers (ER-4c); fetch_url is FETCH_URL_TIMEOUT_MS above, run_code is P18's. */
+  TOOL_TIMEOUT_WEB_SEARCH_MS: n(20_000, 'N-43', 'register: tools web_search 20 s'),
+  TOOL_TIMEOUT_FILE_SEARCH_MS: n(2_000, 'N-43', 'register: tools file_search 2 s'),
+  TOOL_TIMEOUT_MEMORY_MS: n(2_000, 'N-43', 'register: tools memory 2 s'),
+  // --- P21: the literals the numbers sweep found, wired at their current value (ADR-0082) --
+  // Every value here is the repo's, unchanged; where the register says otherwise, the source
+  // says both. Changing one is an owner decision (OQ-15), not a P21 change.
+  /** The longest prompt a generate request takes. */
+  PROMPT_MAX_CHARS: n(100_000, 'N-02', 'repo value; register says message size 32k chars (OQ-15)'),
+  /** The provider's server web_search tool (providers/anthropic.ts): searches one request may make. */
+  WEB_SEARCH_MAX_USES: n(5, 'N-07', 'repo value; register says search per turn Fast 1 / Normal 3 / Deep 8'),
+  /** Project files go into the prompt whole while their text totals at most this (ADR-0020). */
+  PROJECT_FULL_CONTEXT_MAX_CHARS: n(200_000, 'N-05', 'repo value (characters, ~50k tokens); register says whole-file limit 30k tokens'),
+  /** Earlier turns' inline image / PDF bytes per generate call (ADR-0019). */
+  HISTORY_MAX_ATTACHMENT_BYTES: n(12_000_000, 'N-13', 'repo value; register counts page images (Fast 3 / Normal 8 / Deep 20), not bytes'),
+  /** Up to this many pages a PDF is rendered as text and page images; past it, text only. */
+  PDF_VISUAL_MAX_PAGES: n(100, 'N-13', 'repo value; register says page images Fast 3 / Normal 8 / Deep 20'),
+  /** An image's longest side. */
+  IMAGE_MAX_DIMENSION_PX: n(8_000, 'N-10', 'repo value (ADR-0011); the register sets bytes only'),
+  /** Character chunking, used when a file has no provider token count (P12 sizes by tokens otherwise). */
+  CHUNK_TARGET_CHARS: n(1_400, 'N-14', 'repo value (characters); register says chunk ~800 tokens'),
+  CHUNK_OVERLAP_CHARS: n(180, 'N-14', 'repo value (characters, ~13 %); register says overlap ~15 %'),
+  /** Characters of the memory snapshot a conversation starts with. */
+  MEMORY_CONTEXT_MAX_CHARS: n(8_000, 'N-17', 'repo value; register says snapshot <= 1.5k tokens, prefetch <= 3k'),
+  /** One memory file's size cap. */
+  MEMORY_FILE_MAX_BYTES: n(16 * 1024, 'N-17', 'repo value (16 KiB); register says <= 3k tokens per doc'),
+  /** Memory files one listing returns. */
+  MEMORY_LIST_LIMIT: n(100, 'N-17', 'repo value; register says <= 40 docs per user'),
+  /** A memory item's content, characters (settings, import). */
+  MEMORY_ITEM_MAX_CHARS: n(20_000, 'N-17', 'repo value; register says <= 3k tokens per doc'),
+  /** Memories one import may add. */
+  MEMORY_IMPORT_MAX_ITEMS: n(500, 'N-17', 'repo value; register says <= 40 docs per user'),
+  /** Compaction (when ENABLE_CONTEXT_COMPACTION): previous-request tokens, used only when the window is unknown. */
+  COMPACTION_TRIGGER_TOKENS: n(150_000, 'N-16', 'repo value (ADR-0027); register says summary at ~60 % of history budget (N-77)'),
+  /** The lowest compaction trigger, whatever the window. */
+  COMPACTION_MIN_TRIGGER_TOKENS: n(50_000, 'N-16', 'repo value; register says summary at ~60 % of history budget'),
+  COMPACTION_TRIGGER_HEADROOM_TOKENS: n(10_000, 'N-16', 'repo value; register says summary at ~60 % of history budget'),
+  COMPACTION_TRIGGER_HEADROOM_RATIO: n(0.15, 'N-77', 'repo value; register says trigger 0.6 x budget'),
+  /** Sign-in, registration and password routes, per client address per minute. */
+  RATE_LIMIT_AUTH_PER_MINUTE: n(10, 'N-01', 'repo value; register (Stage 18) lists user 20 / company 300 / edge 600'),
+  /** Public share links, per client address per minute. */
+  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: n(60, 'N-01', 'repo value; register (Stage 18) lists user 20 / company 300 / edge 600'),
+  /** Opening a provider connection. */
+  PROVIDER_CONNECT_TIMEOUT_MS: n(10_000, 'N-43', 'repo value; register says WIF / cache admin timeouts 10 s (N-74)'),
+  /** How long a model's availability probe is trusted. */
+  MODEL_PROBE_TTL_SECONDS: n(300, 'N-74', 'repo value; no register row sets it'),
+  /** Concurrent run_python executions, across every instance (Postgres semaphore). */
+  MAX_CONCURRENT_RUN_PYTHON: n(20, 'N-08', 'repo value (global); register says ~5 parallel per company'),
+  /** Client-side deadline for one Cloud Run Job round trip (and the warm sandbox transfer budget). */
+  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: n(45_000, 'N-68', 'repo value; register says dispatch deadline 20 s start -> first heartbeat'),
+  /** Submitted code, bytes (a Cloud Run env value is at most 32,768 bytes). */
+  MAX_CODE_BYTES: n(20 * 1024, 'N-08', 'repo value; the register sets no code size'),
+  /** Slack on a sandbox claim's lease past the call it guards. */
+  SANDBOX_CLAIM_LEASE_BUFFER_MS: n(30_000, 'N-68', 'repo value; the register sets no claim slack'),
+  /** Warm sandbox: file transfer chunk, and the least time a transfer is given. */
+  WARM_TRANSFER_CHUNK_BYTES: n(16 * 1024 * 1024, 'N-08', 'repo value; register says files <= 30 MB x 10'),
+  WARM_TRANSFER_FLOOR_MS: n(60_000, 'N-68', 'repo value; register says execution 60 s Normal / 120 s Deep'),
+  /** User and project instructions, characters each. */
+  INSTRUCTIONS_MAX_CHARS: n(20_000, 'N-35', 'repo value; register says company 3,000 / project 5,000 / memory line 300 (OQ-15)'),
+  /** An artifact version's content, characters. */
+  ARTIFACT_MAX_CHARS: n(400_000, 'N-39', 'repo value; register says 5 MB / 20 versions / 50 per chat (OQ-15)'),
+  /** Stream events a run keeps for a reconnect; past it the client gets a `snapshot`. */
+  RUN_BUFFER_MAX_EVENTS: n(50_000, 'N-73', 'repo value; register says stream MAXLEN 10,000'),
+  /** A finished run stays replayable this long. */
+  RUN_FINISHED_RETENTION_MS: n(5 * 60_000, 'N-24', 'repo value (5 min); register says stream kept ~15 min after done'),
+  /** Sheet preview: rows, columns, and the largest workbook previewed. */
+  SHEET_PREVIEW_MAX_ROWS: n(200, 'N-41', 'repo value; register leaves preview rows provisional'),
+  SHEET_PREVIEW_MAX_COLUMNS: n(50, 'N-41', 'repo value; register leaves preview rows provisional'),
+  SHEET_PREVIEW_MAX_BYTES: n(25 * 1024 * 1024, 'N-41', 'repo value; register leaves the preview bounds provisional'),
+  /** List pages: default and largest page. */
+  LIST_PAGE_DEFAULT: n(30, 'N-73', 'register: list page 30'),
+  LIST_PAGE_MAX: n(100, 'N-73', 'repo value; register sets the default only'),
+  /** A chat title, characters. */
+  CHAT_TITLE_MAX_CHARS: n(200, 'N-73', 'register: title <= 200'),
+  /** web_fetch: characters of a page the model gets when it asks for no length. */
+  WEB_FETCH_DEFAULT_MAX_CHARS: n(10_000, 'N-09', 'repo value (characters); register says tool result ~8k tokens + pagination'),
 } as const satisfies Record<string, RegisteredNumber>;
 
 export type NumberKey = keyof typeof NUMBERS;

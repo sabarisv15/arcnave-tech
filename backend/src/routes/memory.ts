@@ -2,7 +2,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
-import { MemoryConcurrencyError, memoryService } from '../services/memory/memoryService.js';
+import { MemoryConcurrencyError, MemoryPrivacyError } from '../services/memory/memoryService.js';
 import type { MemoryItem } from '../db/schema.js';
 import type { AppInstance } from '../types.js';
 import { and, asc, eq, isNull } from 'drizzle-orm';
@@ -13,6 +13,8 @@ import {
   normalise,
   parseImportText,
 } from '../services/memory/memoryTransfer.js';
+import { uploadBodyLimit } from './bodyLimits.js';
+import { NUMBERS } from '../config/numbers.js';
 
 const memoryItemDto = z.object({
   id: z.string().uuid(),
@@ -78,7 +80,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
     },
     async (request) => {
       const user = currentUser(request);
-      const res = await memoryService.listMemories(user.id, {
+      const res = await request.services.memory.listMemories(user.id, {
         projectId: request.query.projectId,
         scope: request.query.scope,
         isStanding: request.query.isStanding,
@@ -116,7 +118,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
         summary: 'Add or replace a memory topic',
         body: z.object({
           key: z.string().trim().min(1).max(200),
-          content: z.string().trim().min(1).max(20_000),
+          content: z.string().trim().min(1).max(NUMBERS.MEMORY_ITEM_MAX_CHARS.value /* N-17 */),
           projectId: z.string().uuid().nullable().optional(),
         }),
         response: { 200: memoryItemDto },
@@ -126,7 +128,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
       const user = currentUser(request);
       const projectId = request.body.projectId ?? null;
       try {
-        const item = await memoryService.createMemory({
+        const item = await request.services.memory.createMemory({
           userId: user.id,
           scope: projectId ? 'project' : 'global',
           projectId,
@@ -151,7 +153,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
         body: z.object({
           expectedVersion: z.number().int().min(1),
           key: z.string().trim().min(1).max(200).optional(),
-          content: z.string().trim().min(1).max(20_000).optional(),
+          content: z.string().trim().min(1).max(NUMBERS.MEMORY_ITEM_MAX_CHARS.value /* N-17 */).optional(),
         }),
         response: { 200: memoryItemDto },
       },
@@ -159,7 +161,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
     async (request) => {
       const user = currentUser(request);
       try {
-        const item = await memoryService.updateMemory(user.id, request.params.id, request.body.expectedVersion, {
+        const item = await request.services.memory.updateMemory(user.id, request.params.id, request.body.expectedVersion, {
           key: request.body.key,
           content: request.body.content,
           summary: request.body.content?.slice(0, 150),
@@ -195,7 +197,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
     },
     async (request) => {
       const user = currentUser(request);
-      const deleted = await memoryService.forgetMemory(user.id, request.params.id);
+      const deleted = await request.services.memory.forgetMemory(user.id, request.params.id);
       if (!deleted) {
         throw new ApiError('not_found', { detail: `Memory item not found: ${request.params.id}` });
       }
@@ -221,7 +223,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
     },
     async (request) => {
       const user = currentUser(request);
-      const count = await memoryService.clearProjectMemories(user.id, request.params.projectId);
+      const count = await request.services.memory.clearProjectMemories(user.id, request.params.projectId);
       return { deleted: count };
     },
   );
@@ -241,7 +243,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
     },
     async (request) => {
       const user = currentUser(request);
-      const count = await memoryService.clearAllMemories(user.id);
+      const count = await request.services.memory.clearAllMemories(user.id);
       return { deleted: count };
     },
   );
@@ -250,7 +252,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
 
   const transferItem = z.object({
     key: z.string().trim().min(1).max(200),
-    content: z.string().trim().min(1).max(20_000),
+    content: z.string().trim().min(1).max(NUMBERS.MEMORY_ITEM_MAX_CHARS.value /* N-17 */),
     kind: z.enum(['preference', 'workflow', 'fact', 'constraint']).optional(),
     isStanding: z.boolean().optional(),
     projectId: z.string().uuid().nullable().optional(),
@@ -296,6 +298,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
   typed.post(
     '/memory/import',
     {
+      bodyLimit: uploadBodyLimit(app.services.cfg) /* C4: an export of 500 memories of 20,000 characters is larger than any computed bound under the pre-P21 limit, so it keeps that limit */,
       schema: {
         tags: ['memory'],
         summary: 'Add memories from an export, or from text with one memory per line',
@@ -349,7 +352,7 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
           continue;
         }
         try {
-          await memoryService.createMemory({
+          await request.services.memory.createMemory({
             userId: user.id,
             scope: projectId ? 'project' : 'global',
             projectId,
@@ -362,8 +365,10 @@ export async function memoryRoutes(app: AppInstance): Promise<void> {
           seenKeys.add(keyId);
           seenContent.add(content);
           added++;
-        } catch {
-          // Refused by the privacy check (a credential in the text): not stored, counted.
+        } catch (err) {
+          // Refused by the privacy check (a credential in the text): not stored, counted. Any other
+          // failure (the database) is the request's failure, not a skipped memory (A-23).
+          if (!(err instanceof MemoryPrivacyError)) throw err;
           skipped++;
         }
       }

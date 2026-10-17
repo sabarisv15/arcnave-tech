@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../config.js';
 import { AnthropicProvider } from './anthropic.js';
 import type { ToolCall, ToolExecutor, ToolResult } from './types.js';
-import type { GenerationRequest } from './types.js';
+import type { GenerationRequest, ProviderEvent } from './types.js';
 
 interface FakeStreamEvent {
   type: string;
@@ -243,6 +243,107 @@ describe('AnthropicProvider tool-calling loop', () => {
         // "total_input_tokens = cache_read_input_tokens + cache_creation_input_tokens + input_tokens"
         lastRequest: { inputTokens: 1080, outputTokens: 20 },
       },
+    });
+  });
+
+  it('P22: reports each request as its own call_usage, with its message id, before completed', async () => {
+    const client = new FakeAnthropicClient();
+    const toolRound = (id: string, msg: string, usage: Record<string, number>) =>
+      fakeMessageStream([], { id: msg, content: [{ type: 'tool_use', id, name: 'search_project_files', input: { query: 'q' } }], usage, stop_reason: 'tool_use' } as never);
+    client.responses = [
+      toolRound('t1', 'msg_1', { input_tokens: 900, cache_creation_input_tokens: 100, output_tokens: 5 }),
+      fakeMessageStream([], { id: 'msg_2', content: [{ type: 'text' }], usage: { input_tokens: 80, cache_read_input_tokens: 1000, output_tokens: 20 }, stop_reason: 'end_turn' } as never),
+    ];
+    const provider = new AnthropicProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: new ScriptedExecutor() })));
+    const calls = events.filter((e) => e.type === 'call_usage');
+    expect(calls.map((c) => ({ ordinal: c.ordinal, source: c.usageSource, finish: c.finishReason, ref: c.providerRef, usage: c.usage }))).toEqual([
+      {
+        ordinal: 0,
+        source: 'provider',
+        finish: 'tool_use',
+        ref: { type: 'message_id', value: 'msg_1' },
+        usage: { inputTokens: 900, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 100, exact: true, lastRequest: { inputTokens: 1000, outputTokens: 5 } },
+      },
+      {
+        ordinal: 1,
+        source: 'provider',
+        finish: 'end_turn',
+        ref: { type: 'message_id', value: 'msg_2' },
+        usage: { inputTokens: 80, outputTokens: 20, cacheReadTokens: 1000, cacheWriteTokens: 0, exact: true, lastRequest: { inputTokens: 1080, outputTokens: 20 } },
+      },
+    ]);
+    for (const c of calls) expect(c.durationMs).toBeGreaterThanOrEqual(0);
+    expect(events.findIndex((e) => e.type === 'call_usage')).toBeLessThan(events.findIndex((e) => e.type === 'completed'));
+  });
+
+  it('P22: a stop mid-request reports the provider partial, labelled provider_partial', async () => {
+    const client = new FakeAnthropicClient();
+    const controller = new AbortController();
+    const events: unknown[] = [
+      { type: 'message_start', message: { id: 'msg_stop', usage: { input_tokens: 400, output_tokens: 1 } } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Part' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ial' } },
+    ];
+    let i = 0;
+    client.responses = [
+      {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => {
+              // The user presses Stop while the second piece of text is on its way.
+              if (i === 2) controller.abort();
+              return Promise.resolve(i < events.length ? { value: events[i++]!, done: false } : { value: undefined, done: true });
+            },
+          };
+        },
+        finalMessage: () => Promise.reject(new Error('never read after a stop')),
+      } as never,
+    ];
+    const provider = new AnthropicProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const out = await collect(provider.stream(baseRequest({ signal: controller.signal })));
+    const call = out.find((e) => e.type === 'call_usage');
+    expect(call).toMatchObject({
+      ordinal: 0,
+      usageSource: 'provider_partial',
+      finishReason: 'cancelled',
+      providerRef: { type: 'message_id', value: 'msg_stop' },
+      usage: { inputTokens: 400, outputTokens: 1, exact: true },
+    });
+  });
+
+  it('P22: a stop the SDK raises as an error still reports the partial before the error', async () => {
+    const client = new FakeAnthropicClient();
+    const controller = new AbortController();
+    let i = 0;
+    client.responses = [
+      {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => {
+              i += 1;
+              if (i === 1) return Promise.resolve({ value: { type: 'message_start', message: { id: 'msg_x', usage: { input_tokens: 300, output_tokens: 1 } } }, done: false });
+              // The SDK aborts the HTTP request and throws, as APIUserAbortError does.
+              controller.abort();
+              return Promise.reject(Object.assign(new Error('Request was aborted.'), { name: 'APIUserAbortError' }));
+            },
+          };
+        },
+        finalMessage: () => Promise.reject(new Error('never read after a stop')),
+      } as never,
+    ];
+    const provider = new AnthropicProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const seen: ProviderEvent[] = [];
+    await expect(
+      (async () => {
+        for await (const e of provider.stream(baseRequest({ signal: controller.signal }))) seen.push(e);
+      })(),
+    ).rejects.toThrow();
+    expect(seen.find((e) => e.type === 'call_usage')).toMatchObject({
+      usageSource: 'provider_partial',
+      finishReason: 'cancelled',
+      providerRef: { type: 'message_id', value: 'msg_x' },
+      usage: { inputTokens: 300, outputTokens: 1, exact: true },
     });
   });
 

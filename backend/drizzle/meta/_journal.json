@@ -211,6 +211,34 @@
       "when": 1792300000000,
       "tag": "0029_files_ingest",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792400000000,
+      "tag": "0030_durable_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0031_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0032_history_summaries",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0033_fallback_and_refusal",
+      "breakpoints": true
     }
   ]
 }

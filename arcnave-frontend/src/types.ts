@@ -221,6 +221,15 @@ export interface Message {
   usage?: MessageUsage;
   /** The provider's stop reason as stored, e.g. "MAX_TOKENS" when the answer hit its limit. */
   finishReason?: string;
+  /**
+   * P11 (Stage 7 7.12): the model this answer was handed over from, and the machine-readable
+   * reason (`unavailable`, `timeout`, `quota`, `claude_limit`, `disabled`, …). Absent when the
+   * first model answered.
+   */
+  fallbackFrom?: string;
+  fallbackReason?: string;
+  /** The request id of a live run, shown small as the support code of a failure (ER-12a). */
+  requestId?: string;
   /** Other versions of an edited prompt (ADR-0038): `chatId` opens each one. */
   versions?: { index: number; chatIds: string[] };
 }
@@ -228,14 +237,18 @@ export interface Message {
 /**
  * Why a completed answer stopped early, or null when it ended normally. A cut-off answer is
  * shown as such, never as a finished one (Invariant 1). `partial`: the model failed after a tool
- * had already run, and the tool was not run again (ADR-0072).
+ * had already run, and the tool was not run again (ADR-0072). `interrupted`: the model failed
+ * after part of the answer was shown; that part is kept (ADR-0081).
  */
-export function cutOffReason(finishReason: string | undefined): "output_limit" | "tool_limit" | "partial" | null {
+export function cutOffReason(
+  finishReason: string | undefined,
+): "output_limit" | "tool_limit" | "partial" | "interrupted" | null {
   if (!finishReason) return null;
   const r = finishReason.toLowerCase();
   if (r === "max_tokens" || r === "length") return "output_limit";
   if (r === "tool_limit") return "tool_limit";
   if (r === "partial") return "partial";
+  if (r === "interrupted") return "interrupted";
   return null;
 }
 
@@ -452,6 +465,8 @@ export function toMessage(dto: MessageDto): Message {
     ...(dto.createdAt ? { createdAt: dto.createdAt } : {}),
     ...(dto.usage ? { usage: toUsage(dto.usage) } : {}),
     ...(dto.finishReason ? { finishReason: dto.finishReason } : {}),
+    ...(dto.fallbackFrom ? { fallbackFrom: dto.fallbackFrom } : {}),
+    ...(dto.fallbackReason ? { fallbackReason: dto.fallbackReason } : {}),
     ...(dto.versions && dto.versions.versions.length > 1
       ? { versions: { index: dto.versions.index, chatIds: dto.versions.versions.map((v) => v.chatId) } }
       : {}),

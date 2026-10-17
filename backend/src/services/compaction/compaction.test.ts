@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { compactionService } from './compactionService.js';
+import type { Database } from '../../db/client.js';
+import { CompactionService } from './compactionService.js';
+
+// The methods under test read no database.
+const compactionService = new CompactionService(null as unknown as Database);
 import { compactionSummarySchema, type CompactionSummary } from './types.js';
 
 describe('Phase 5.3 Conversation Compaction', () => {

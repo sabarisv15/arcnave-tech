@@ -1,12 +1,10 @@
 /**
  * The turn's context, from the tools it may use to the request it sends: routing and tools,
- * skills, the system instruction and its context events, effort, the budget reservation and its
- * release, the tool executors, the attachments, and the request. Cut from the turn generator
+ * skills, the system instruction and its context events, effort, the budget reservation, the tool executors, the attachments, and the request. Cut from the turn generator
  * unchanged (ADR-0073); `this` became `svc`, and what the later stages read is returned.
  *
  * It yields the context events (a project's files, read whole or searched), each saved as it goes.
- * The reservation's release is a closure over this function's `reservationHeld`: the stream calls
- * it, and so does `limitToModel` here when a model limit refuses the turn; it acts once.
+ * The turn's reservation is lowered here to the real output ceiling; the settle step ends it.
  */
 import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../../tools/catalog.js';
 import type { MessageSegment } from '../../db/schema.js';
@@ -33,6 +31,7 @@ import { persistEvent } from './persistence.js';
 import type { TurnServices } from './services.js';
 import { buildToolExecutors } from './toolset.js';
 import { neutraliseReservedTags } from '../prompt/sessionState.js';
+import { applyHistoryWindow } from '../summary/turnWindow.js';
 
 // The module tag the turn's log lines had before the split (ADR-0067).
 const log = logger.child({ module: 'generation' });
@@ -50,6 +49,12 @@ export interface TurnContextInput {
   workspace: WorkspaceFiles;
   timing: TurnTiming;
   turnLog: TurnLog;
+  /**
+   * P11 (ER-14b): a rebuild of the same turn for the next model of its fallback chain. The
+   * context events were sent and saved by the first build, so they are neither sent nor saved
+   * again; the request, the tools and the reservation are the new model's.
+   */
+  quiet?: boolean;
 }
 
 /** What the later stages of the turn read from its context. */
@@ -59,7 +64,6 @@ export interface TurnContext {
   loadedSkills: SkillDetail[];
   contextEvents: StreamEvent[];
   reasoningEffort: ReasoningEffort | undefined;
-  releaseReservation: () => Promise<void>;
   segments: MessageSegment[];
   pendingUiEvents: StreamEvent[];
 }
@@ -69,7 +73,8 @@ export async function* buildTurnContext(
   input: GenerateInput,
   turn: TurnContextInput,
 ): AsyncGenerator<StreamEvent, TurnContext> {
-  const { prefs, project, history, entry, grounded, compactedNow, latestCompaction, workspace, timing, turnLog } = turn;
+  const { prefs, project, entry, grounded, compactedNow, latestCompaction, workspace, timing, turnLog } = turn;
+  let { history } = turn;
   // --- tools this turn may use (ADR-0006, ADR-0047) ---------------------
   const codeEnabled = svc.cfg.ENABLE_RUN_PYTHON && svc.sandboxClient !== undefined;
   const webEnabled = Boolean(svc.cfg.ENABLE_WEB);
@@ -152,10 +157,24 @@ export async function* buildTurnContext(
     entry,
     reasoningEffort,
   );
-  for (const event of contextEvents) {
-    yield event;
-    await persistEvent(svc, input.messageId, event);
+  if (!turn.quiet) {
+    for (const event of contextEvents) {
+      yield event;
+      await persistEvent(svc, input.messageId, event);
+    }
   }
+
+  // P13 (ADR-0080): the history window (N-16, N-03, floor N-75) and the turn's stamps, now that the
+  // fixed part is known and before anything below reads the history.
+  history = await applyHistoryWindow(svc, input, {
+    entry,
+    history,
+    // The fixed part on both layouts: the stable text and the session state (ADR-0075).
+    systemInstruction: `${promptAssembly.stablePrefix.systemText}\n\n${promptAssembly.sessionState}`,
+    tools: availableTools,
+    promptVersion: promptAssembly.promptVersion,
+    turnLog,
+  });
 
   timing.mark('system_prompt');
   // The prompt version is a hash of the prompt files, never their text (Stage 17 NO_CONTENT).
@@ -166,20 +185,13 @@ export async function* buildTurnContext(
     parts: Object.entries(promptAssembly.blockSizes).map(([k, v]) => `${k} ${String(v)}`),
   });
 
-  // --- reserve budget ---------------------------------------------------
-  // The reservation is the worst case for this request; it is released as soon as the real
-  // numbers land, so a large ceiling does not lock out the rest of the day.
-  await svc.usage.reserve(input.userId, prefs, maxOutputTokens);
+  // --- budget -----------------------------------------------------------
+  // The turn's reservation was taken with its rows, before this request's model was known, at the
+  // default ceiling (ADR-0078). Now the real ceiling is known; the hold comes down to it. It stays
+  // held through the stream and the forced answer, and the settle transaction ends it.
+  const reservation = input.turn?.reservation ?? null;
+  if (reservation) await svc.usage.adjust(reservation, maxOutputTokens);
   turnLog.stage('budget', { maxOutputTokens, effortRequested: requestedEffort ?? null, effortUsed: reasoningEffort ?? null });
-  let reservationHeld = true;
-  const releaseReservation = async (): Promise<void> => {
-    if (!reservationHeld) return;
-    reservationHeld = false;
-    await svc.usage.release(input.userId, prefs, maxOutputTokens).catch((err: unknown) => {
-      log.error({ err, userId: input.userId }, 'failed to release budget reservation');
-    });
-  };
-
   // The answer in the order it happened: thinking, text and tool steps
   // interleaved. Kept on the message so a reload shows the same timeline.
   const segments: MessageSegment[] = [];
@@ -211,7 +223,7 @@ export async function* buildTurnContext(
     await hydrateHistoryAttachments(svc, normalised.history, input.prompt, entry.alias),
   );
   const sized = await applyManyImagesRule(svc.cfg, budgeted.current, budgeted.history);
-  const { current: wireAttachments, history: wireHistory } = await limitToModel(svc, entry.alias, sized.current, sized.history, releaseReservation);
+  const { current: wireAttachments, history: wireHistory } = await limitToModel(svc, entry.alias, sized.current, sized.history);
   timing.mark('attachments');
   {
     const all = [...wireAttachments, ...wireHistory.flatMap((t) => t.attachments ?? [])];
@@ -290,5 +302,5 @@ export async function* buildTurnContext(
     previousContextTokens,
   });
   turnLog.sent(request, skills.map((s) => s.name));
-  return { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents };
+  return { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, segments, pendingUiEvents };
 }

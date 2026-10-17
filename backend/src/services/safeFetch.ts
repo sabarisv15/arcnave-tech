@@ -181,6 +181,7 @@ function ipv6Groups(address: string): number[] | null {
   try {
     canonical = new URL(`http://[${address}]/`).hostname.slice(1, -1);
   } catch {
+    // benign: not an IPv6 literal: not a blocked address of that form
     return null;
   }
   const [head = '', tail] = canonical.split('::');

@@ -154,6 +154,18 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "A response is already running",
     detail: "Stop the current response before starting another.",
   },
+  interrupted: {
+    title: "This response was interrupted",
+    detail: "The server running it stopped before it finished. What was written so far is kept. You can retry.",
+  },
+  server_shutdown: {
+    title: "The server is restarting",
+    detail: "The server restarted while this response was running, or before it could start. Retry in a moment.",
+  },
+  unavailable: {
+    title: "The service is busy",
+    detail: "The request could not be completed in time. Try again in a few seconds.",
+  },
   no_active_run: {
     title: "No response is running here",
     detail: "The reply has finished or is running elsewhere. Reload the chat to see it.",
@@ -161,6 +173,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
   model_refused: {
     title: "The model declined this request",
     detail: "It stopped without answering. Rephrase the request or choose another model.",
+  },
+  response_blocked: {
+    title: "This answer was blocked",
+    detail: "The model’s safety filter stopped this answer. Rephrase the request; another model is not tried for it.",
   },
   provider_payload_limit: {
     title: "An attachment is too large for this model",
@@ -536,6 +552,9 @@ export interface MessageDto {
   effort?: string | null;
   providerModelId: string | null;
   finishReason: string | null;
+  /** P11: the model this answer was handed over from, and why (null = the first model). */
+  fallbackFrom?: string | null;
+  fallbackReason?: string | null;
   artifactId: string | null;
   searchEntryPoint: string | null;
   thinking?: string | null;
@@ -941,6 +960,11 @@ export const api = {
       post<void>("/auth/password", { currentPassword, newPassword }),
   },
 
+  /** P11 (ER-12b): the ops incident banner; null when there is none. No sign-in needed. */
+  status: {
+    get: () => get<{ incidentBanner: string | null }>("/status"),
+  },
+
   models: {
     list: (probe = false, chatId?: string) =>
       get<ModelsDto>("/models", { probe, ...(chatId ? { chatId } : {}) }),
@@ -978,6 +1002,8 @@ export const api = {
         throughMessageId ? { throughMessageId } : {},
       ),
     stop: (id: string) => post<{ stopped: boolean }>(`/chats/${id}/stop`),
+    /** Makes this version the one the conversation opens on, on the server (ADR-0079). */
+    activateVersion: (id: string) => request<void>("PUT", `/chats/${id}/active-version`),
     feedback: (id: string, messageId: string, feedback: "up" | "down" | null) =>
       post<void>(`/chats/${id}/messages/${messageId}/feedback`, { feedback }),
     /** A reply's turn log, as a text-file download (ADR-0050). */

@@ -19,9 +19,10 @@ import type { ObjectStorage } from './storage.js';
 import type { FileWarning } from '../db/schema.js';
 import type { FileErrorCode } from './attachments/fileErrors.js';
 import { nameForModel } from '../providers/attachmentContent.js';
+import { NUMBERS } from '../config/numbers.js';
 
-export const CHUNK_TARGET_CHARS = 1400;
-export const CHUNK_OVERLAP_CHARS = 180;
+export const CHUNK_TARGET_CHARS = NUMBERS.CHUNK_TARGET_CHARS.value; // N-14
+export const CHUNK_OVERLAP_CHARS = NUMBERS.CHUNK_OVERLAP_CHARS.value; // N-14
 /**
  * Chunks indexed per file: Stage 9 EMBED E4, "~2,000 chunks / file, no silent truncation".
  * No N-id. A file that reaches it is indexed up to here and carries a `chunk_cap` warning.
@@ -187,7 +188,7 @@ export async function extractSpreadsheet(data: Buffer, _filename?: string): Prom
   if (isZip) {
     try {
       const workbook = new ExcelJS.Workbook();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await workbook.xlsx.load(data as any);
       const sheets: string[] = [];
       for (const sheet of workbook.worksheets) {
@@ -199,6 +200,7 @@ export async function extractSpreadsheet(data: Buffer, _filename?: string): Prom
             try {
               val = String(cell.text ?? '').trim();
             } catch {
+              // benign: a cell whose text getter throws is read from its raw value
               val = String(cell.value ?? '').trim();
             }
             cells.push(val);
@@ -210,7 +212,7 @@ export async function extractSpreadsheet(data: Buffer, _filename?: string): Prom
       const text = sheets.join('\n\n');
       if (text.trim() !== '') return text;
     } catch {
-      // Fall through to SheetJS below
+      // benign: Fall through to SheetJS below
     }
   }
 
@@ -219,7 +221,7 @@ export async function extractSpreadsheet(data: Buffer, _filename?: string): Prom
     const text = extractFromSheetJs(data);
     if (text.trim() !== '') return text;
   } catch {
-    // Fall through to HTML table / CSV fallback
+    // benign: Fall through to HTML table / CSV fallback
   }
 
   // 3. Fallback for raw HTML table (common with portal exports like AICTE)
@@ -230,7 +232,7 @@ export async function extractSpreadsheet(data: Buffer, _filename?: string): Prom
       if (htmlText.trim() !== '') return htmlText;
     }
   } catch {
-    // Fall through
+    // benign: Fall through
   }
 
   // 4. Fallback for raw CSV/text disguised as spreadsheet
@@ -537,7 +539,7 @@ export async function projectFileTexts(
         out.push({ filename: f.filename, text: (await storage.get(f.markdownKey)).toString('utf8'), whole: true });
         continue;
       } catch {
-        // Its Markdown is gone: fall through to the chunks, which say whether they are whole.
+        // benign: Its Markdown is gone: fall through to the chunks, which say whether they are whole.
       }
     }
     const mine = rows.filter((r) => r.fileId === f.id);

@@ -73,13 +73,13 @@ export function validateOutputFilenames(names?: string[]): string[] {
 
 export function detectExpectedOutputFiles(code: string): string[] {
   const matches = new Set<string>();
-  const pattern1 = /output\/([a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+)/g;
+  const pattern1 = /output\/([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)/g;
   let m: RegExpExecArray | null;
   while ((m = pattern1.exec(code)) !== null) {
     if (m[1]) matches.add(m[1]);
   }
   const pattern2 =
-    /(?:savefig|to_csv|to_excel|to_json|open)\s*\(\s*['"](?:.*\/)?([a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+)['"]/g;
+    /(?:savefig|to_csv|to_excel|to_json|open)\s*\(\s*['"](?:.*\/)?([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)['"]/g;
   while ((m = pattern2.exec(code)) !== null) {
     if (m[1]) matches.add(m[1]);
   }
@@ -193,6 +193,7 @@ async function hasInputFiles(workspaceDir: string | undefined): Promise<boolean>
   const names = await fs.readdir(inputDir).catch((): string[] => []);
   for (const name of names) {
     // `stat`, as the staging loop uses: a link to a file is staged too.
+    // benign: a name that cannot be stat-ed is not a staged input
     const st = await fs.stat(path.join(inputDir, name)).catch(() => null);
     if (st?.isFile()) return true;
   }
@@ -295,7 +296,7 @@ export class CloudRunSandboxClient implements SandboxClient {
                     saEmail: this.deps.signingSaEmail,
                   });
                 } catch {
-                  // Fallback
+                  // benign: Fallback
                 }
               }
               stagedInputs.push({ name: safeName, stagingRef, url });
@@ -338,7 +339,7 @@ export class CloudRunSandboxClient implements SandboxClient {
             outputUrls[outName] = signedPutUrl;
           }
         } catch {
-          // Non-blocking
+          // benign: Non-blocking
         }
       }
     }
@@ -422,7 +423,7 @@ export class CloudRunSandboxClient implements SandboxClient {
             force: true,
           });
         } catch {
-          // Non-blocking cleanup
+          // benign: Non-blocking cleanup
         }
       }
     }
@@ -622,6 +623,7 @@ export class CloudRunSandboxClient implements SandboxClient {
         try {
           parsed = JSON.parse(line.slice(idx + RESULT_PREFIX.length)) as SandboxResultLine;
         } catch {
+          // benign: a log line that is not our result JSON is skipped
           continue;
         }
         if (parsed.executionId === executionId) return parsed;
@@ -653,6 +655,7 @@ export class CloudRunSandboxClient implements SandboxClient {
           signal,
         });
         if (!res.ok) {
+          // benign: an unreadable error body leaves the status, thrown just below
           const text = await res.text().catch(() => '');
           throw new ProviderError(`Sandbox API ${method} ${url} returned ${String(res.status)}: ${text}`, {
             code: 'provider_error',

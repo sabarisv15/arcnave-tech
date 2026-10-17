@@ -149,16 +149,39 @@ describe('GeminiProvider tool-calling loop', () => {
 
     // Each round resends the conversation: 3 requests of 1000, 1100, 1200 prompt tokens. Within a
     // response Gemini's counts are cumulative, so only a round's last value is its own.
-    expect(await run([[call('a'), usage(1000, 5), usage(1000, 10)], [call('b'), usage(1100, 10)], [{ text: 'done' }, usage(1200, 30)]])).toEqual({
+    expect(await run([[call('a'), usage(1000, 5), usage(1000, 10)], [call('b'), usage(1100, 10)], [{ text: 'done' }, usage(1200, 30), { candidates: [{ finishReason: 'STOP' }] }]])).toEqual({
+      // P11: a stream that ends with no finish reason is a failure (finish.ts); the fixture's
+      // answer round now ends as Gemini's does.
       type: 'completed',
-      finishReason: 'stop',
+      finishReason: 'STOP',
       usage: { inputTokens: 3300, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true, lastRequest: { inputTokens: 1200, outputTokens: 30 } },
     });
 
     // One round with no reported count: the turn's total is unknown, not the part that was.
-    expect(await run([[call('a')], [{ text: 'done' }, usage(1200, 30)]])).toMatchObject({
+    expect(await run([[call('a')], [{ text: 'done' }, usage(1200, 30), { candidates: [{ finishReason: 'STOP' }] }]])).toMatchObject({
       usage: { inputTokens: 0, outputTokens: 0, exact: false },
     });
+  });
+
+  it('P22: reports each request as its own call_usage, with its response id; a round with no count is none', async () => {
+    const call = (id: string): FakeChunk => ({ functionCalls: [{ id, name: 'search_project_files', args: { query: 'q' } }] });
+    const usage = (prompt: number, out: number, responseId: string): FakeChunk =>
+      ({ responseId, usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: out } }) as FakeChunk;
+    const client = new FakeGeminiClient();
+    client.responses = [
+      [call('a'), usage(1000, 5, 'r1'), usage(1000, 10, 'r1')],
+      [call('b')],
+      [{ text: 'done', candidates: [{ finishReason: 'STOP' }] } as FakeChunk, usage(1200, 30, 'r3')],
+    ].map(fakeStream);
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: new ScriptedExecutor() })));
+    const calls = events.filter((e) => e.type === 'call_usage');
+    expect(calls.map((c) => ({ ordinal: c.ordinal, source: c.usageSource, ref: c.providerRef?.value, inT: c.usage.inputTokens, outT: c.usage.outputTokens, exact: c.usage.exact }))).toEqual([
+      { ordinal: 0, source: 'provider', ref: 'r1', inT: 1000, outT: 10, exact: true },
+      { ordinal: 1, source: 'none', ref: undefined, inT: 0, outT: 0, exact: false },
+      { ordinal: 2, source: 'provider', ref: 'r3', inT: 1200, outT: 30, exact: true },
+    ]);
+    expect(calls[2]).toMatchObject({ finishReason: 'STOP' });
   });
 
   it('feeds a tool failure back to the model rather than throwing', async () => {
@@ -576,7 +599,7 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
       [[SEARCH_TOOL], undefined],
     ] as const) {
       const client = new FakeGeminiClient();
-      client.responses = [fakeStream([{ text: 'ok' }])];
+      client.responses = [fakeStream([{ text: 'ok', candidates: [{ finishReason: 'STOP' }] }])];
       const provider = new GeminiProvider(cfg, client as never);
       await collect(provider.stream(baseRequest({ tools: [...tools], toolExecutor: new ScriptedExecutor() })));
       expect(configOf(client.calls[0]).toolConfig?.functionCallingConfig).toEqual(expected);
@@ -593,7 +616,7 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
         part({ partialArgs: [{ jsonPath: '$.widget_code', stringValue: '</svg>' }], willContinue: true }),
         part({}),
       ]),
-      fakeStream([{ text: 'Here it is.' }]),
+      fakeStream([{ text: 'Here it is.', candidates: [{ finishReason: 'STOP' }] }]),
     ];
     const executor = new ScriptedExecutor();
     executor.results.set('show_widget', { toolCallId: 'v1', ok: true, content: [{ type: 'text', text: 'rendered' }] });
@@ -628,7 +651,7 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
     });
     client.responses = [
       fakeStream([{ functionCalls: [{ id: 'c1', name: 'search_project_files', args: { query: 'x' } }] }]),
-      fakeStream([{ text: 'done' }]),
+      fakeStream([{ text: 'done', candidates: [{ finishReason: 'STOP' }] }]),
     ];
     const executor = new ScriptedExecutor();
     const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
@@ -641,7 +664,7 @@ describe('GeminiProvider streamed function-call arguments (ADR-0037)', () => {
 
   it('can be switched off by configuration', async () => {
     const client = new FakeGeminiClient();
-    client.responses = [fakeStream([{ text: 'ok' }])];
+    client.responses = [fakeStream([{ text: 'ok', candidates: [{ finishReason: 'STOP' }] }])];
     const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test', GEMINI_STREAM_TOOL_ARGS: 'false' }), client as never);
     await collect(provider.stream(baseRequest({ tools: [SHOW_WIDGET], toolExecutor: new ScriptedExecutor() })));
     expect(configOf(client.calls[0]).toolConfig).toBeUndefined();

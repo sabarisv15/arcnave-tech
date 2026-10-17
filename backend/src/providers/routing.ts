@@ -7,8 +7,9 @@
  * Stage 7.9 capability rules (audio or video, PDFs over 600 pages, requests over 30 MB, the
  * Claude switch and budget) all send a turn to Gemini, which Auto already is.
  *
- * When Gemini cannot take the turn, Auto answers nothing rather than substituting a Claude model
- * the user did not choose (Invariant 1): the caller raises `no_model_available`.
+ * When Gemini cannot take the turn, Auto never substitutes silently (Invariant 1): `routeAuto`
+ * returns null, and the caller goes down Gemini's fallback chain with a visible label (P11,
+ * OQ-02 A, ADR-0081), or raises `no_model_available` when no model of the chain can answer.
  *
  * Pure: no IO, no configuration, so every rule is tested exhaustively.
  */

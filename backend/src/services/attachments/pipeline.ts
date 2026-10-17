@@ -50,8 +50,10 @@ export const FILE_LIMITS = {
   /** N-10: docs ≤1,000 pages. */
   pdfMaxPages: NUMBERS.PDF_MAX_PAGES.value,
   /** Up to this many pages a PDF is rendered as text and page images; beyond it, text only. */
-  pdfVisualMaxPages: 100,
-  imageMaxDimension: 8000,
+  /** N-13. */
+  pdfVisualMaxPages: NUMBERS.PDF_VISUAL_MAX_PAGES.value,
+  /** N-10. */
+  imageMaxDimension: NUMBERS.IMAGE_MAX_DIMENSION_PX.value,
   /** N-10: images ≤20 MB. */
   imageMaxBytes: NUMBERS.UPLOAD_IMAGE_MAX_BYTES.value,
 } as const;
@@ -256,6 +258,7 @@ async function readPdf(input: PipelineInput): Promise<Outcome> {
     const { stdout } = await runTool('pdftotext', ['-enc', 'UTF-8', pdfPath, '-'], { timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
     texts = stdout.split('\f').slice(0, pageCount).map((t) => t.trim());
   } catch {
+    // benign: the user sees the text_partial warning pushed here
     warnings.push(warning('text_partial', 'The text layer of this PDF could not be read; its pages are still shown as images.'));
   }
   while (texts.length < pageCount) texts.push('');
@@ -334,6 +337,7 @@ async function pagesWithImages(pdfPath: string): Promise<Set<number> | null> {
     }
     return pages;
   } catch {
+    // benign: no image list means no scanned-page detection; pages are still read
     return null;
   }
 }

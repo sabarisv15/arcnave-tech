@@ -46,6 +46,9 @@ import {
   paginationQuery,
   uuidParam,
 } from './helpers.js';
+import { NUMBERS } from '../config/numbers.js';
+import { uploadBodyLimit } from './bodyLimits.js';
+import { errorLogFields } from '../errorLog.js';
 
 /* -------------------------------------------------------------------------- shapes */
 
@@ -189,7 +192,7 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
         body: z.object({
           title: z.string().trim().min(1).max(200),
           description: z.string().max(2000).default(''),
-          instructions: z.string().max(20_000).default(''),
+          instructions: z.string().max(NUMBERS.INSTRUCTIONS_MAX_CHARS.value /* N-35 */).default(''),
         }),
         response: { 201: projectSchema },
       },
@@ -274,7 +277,7 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
         body: z.object({
           title: z.string().trim().min(1).max(200).optional(),
           description: z.string().max(2000).optional(),
-          instructions: z.string().max(20_000).optional(),
+          instructions: z.string().max(NUMBERS.INSTRUCTIONS_MAX_CHARS.value /* N-35 */).optional(),
           pinned: z.boolean().optional(),
           version: z.number().int().optional(),
         }),
@@ -385,6 +388,7 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
   typed.post(
     '/projects/:id/files',
     {
+      bodyLimit: uploadBodyLimit(app.services.cfg) /* C4: multipart upload */,
       schema: {
         tags: ['projects'],
         summary: 'Upload a file into a project and index it',
@@ -436,6 +440,7 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
   typed.put(
     '/projects/:id/files/:fileId',
     {
+      bodyLimit: uploadBodyLimit(app.services.cfg) /* C4: multipart upload */,
       schema: {
         tags: ['projects'],
         summary: 'Replace a project file with a new version',
@@ -460,7 +465,12 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
         .returning();
       // The old bytes go unless a picked chat attachment still reads them (D1 #17); its chunks
       // and derivative are replaced by the job when the new version is read.
-      if (!(await storageKeyInUse(db, file.storageKey))) await storage.delete(file.storageKey).catch(() => undefined);
+      if (!(await storageKeyInUse(db, file.storageKey))) {
+        await storage.delete(file.storageKey).catch((err: unknown) => {
+          // A-23: an orphan costs storage, not data; logged by id.
+          request.log.warn({ ...errorLogFields(err), projectFileId: file.id }, 'replaced project file bytes not deleted (orphan)');
+        });
+      }
       await files.enqueueProjectFile(updated!);
       return reply.status(202).send(toFileDto((await loadProjectFile(request, project.id, file.id))));
     },

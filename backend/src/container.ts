@@ -5,6 +5,9 @@
  * rather than importing singletons into each route is what lets a test swap the database or
  * a provider without monkey-patching module state.
  */
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
+
 import type { Config } from './config.js';
 import type { Database } from './db/client.js';
 import { getDb } from './db/client.js';
@@ -23,6 +26,9 @@ import type { ObjectStorage } from './services/storage.js';
 import { buildStorage } from './services/storage.js';
 import { SkillService } from './services/skills.js';
 import { UsageService } from './services/usage.js';
+import { PricingService } from './services/pricing.js';
+import { LedgerService } from './services/ledger.js';
+import { DeletionLedger } from './services/deletionLedger.js';
 import { ExecutionRuntime } from './tools/execution/executionRuntime.js';
 import { ProcessSandboxClient } from './tools/sandbox/processSandboxClient.js';
 import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
@@ -38,6 +44,11 @@ import { GcsModelInputStore, type ModelInputStore } from './services/attachments
 import { Storage as GcsClient } from '@google-cloud/storage';
 import { logger } from './logger.js';
 import { FileService, type WorkerOptions } from './services/attachments/fileJobs.js';
+import { HelperJobs } from './services/helpers/helperJobs.js';
+import { ProviderGateway } from './providers/gateway.js';
+import { MemoryService } from './services/memory/memoryService.js';
+import { CompactionService } from './services/compaction/compactionService.js';
+import { ChatSearch } from './services/memory/chatSearch.js';
 
 const log = logger.child({ module: 'container' });
 
@@ -61,22 +72,38 @@ export interface Services {
    * one with a `describeMedia` implementation on Vertex today. See ADR-0004, items 3 and 5.
    */
   visionProvider: Provider;
-  /**
-   * Active generation runs, keyed by chat id.
-   *
-   * Lets `POST /chats/:id/stop` abort a stream that a different HTTP connection is driving,
-   * and lets a second `generate` on the same chat be rejected instead of interleaving output.
-   * In-process by design: a multi-instance deployment needs a shared signal (Redis pub/sub)
-   * before horizontal scaling, which is recorded as a known limitation.
-   */
-  activeRuns: Map<string, AbortController>;
-  /** Each chat's current run and its buffered events, so a client can reattach after its
-   *  connection drops. See `services/runHub.ts`. */
+  /** Each chat's current run on this instance and its buffered events, so a client can reattach
+   *  after its connection drops; a cache of the `turns` rows (ADR-0078). See `services/runHub.ts`.
+   *  One run per chat is the database's rule (`uq_turns_running_chat`), not this map's, and a Stop
+   *  reaches a run on any instance through `turns.cancel_requested`. */
   runHub: RunHub;
+  /** This process, as the owner of the turn leases it holds. */
+  instanceId: string;
+  /** Set by `drain()` on SIGTERM: a new generate is refused with 503 `server_shutdown`. */
+  lifecycle: { draining: boolean };
   /** The warm sandbox, when it is the engine: `index.ts` checkpoints its idle workspaces. */
   warmSandbox: WarmSandboxClient | null;
   /** The file pipeline: job queue, worker and in-request reading (ADR-0062). */
   files: FileService;
+  // --- P22 (ADR-0079)
+  /** Prices a call from the price book (or the env JSON, `PRICE_SOURCE`). */
+  pricing: PricingService;
+  /** The model-call ledger (`model_calls`), written in each turn's settle. */
+  ledger: LedgerService;
+  /** Deletion records in object storage, outside the database (Stage 5 P11). */
+  deletionLedger: DeletionLedger;
+
+  /** P13 (ADR-0080): the helper jobs (title, summary, router shadow), run in the background. */
+  helperJobs: HelperJobs;
+  /** P11 (ADR-0081): the provider gateway (retries, breaker, kill switch, fallback chain). */
+  gateway: ProviderGateway;
+  // --- P21 (ADR-0082, A-16): stores that used to be module singletons on `getDb()`.
+  /** Memory items and memory files (ADR-0047). */
+  memory: MemoryService;
+  /** Conversation compaction rows (ADR-0019). */
+  compaction: CompactionService;
+  /** conversation_search / read_conversation / recent_chats. */
+  chatSearch: ChatSearch;
 }
 
 export interface BuildOptions {
@@ -107,13 +134,20 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     google: new GeminiProvider(cfg),
     anthropic: new AnthropicProvider(cfg),
   };
+  // The Gemini slot does OCR, transcription and the Gemini token count (ADR-0004); the Claude
+  // slot its own count. Both are required: a missing one is a wiring bug, said at boot.
+  const google = providers.google;
+  const anthropic = providers.anthropic;
+  if (!google || !anthropic) throw new Error('buildServices: both provider slots (google, anthropic) are required.');
 
   const registry = new ModelRegistry(cfg, providers);
-  const usage = new UsageService(db, cfg);
+  const pricing = new PricingService(cfg);
+  const ledger = new LedgerService(pricing);
+  const usage = new UsageService(db, cfg, pricing, ledger);
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = cfg.isProduction;
   let rawSandboxClient = options.sandboxClient;
   // G20: one sandbox, built when any of its three grants is on. Each grant is enforced by the
   // runtime, so building it for pdftoppm never exposes run_python.
@@ -233,6 +267,10 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
 
   const modelInputs =
     options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined);
+  const helperJobs = new HelperJobs({ db, cfg, registry, ledger, log: logger.child({ module: 'helpers' }) });
+  // P11 (ADR-0081): retries, breaker, kill switch and the fallback chain, one per instance.
+  const gateway = new ProviderGateway(cfg);
+  const stores = { memory: new MemoryService(db), compaction: new CompactionService(db), chatSearch: new ChatSearch(db) };
   const generation = new GenerationService(
     db,
     cfg,
@@ -245,6 +283,9 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     capabilities,
     executionRuntime,
     modelInputs,
+    helperJobs,
+    gateway,
+    stores,
   );
 
   return {
@@ -260,23 +301,30 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     storage,
     retriever,
     executionRuntime,
-    visionProvider: providers.google!,
-    activeRuns: new Map(),
-    runHub: new RunHub(),
+    visionProvider: google,
+    runHub: new RunHub(cfg.RUN_BUFFER_MAX_EVENTS, cfg.RUN_BUFFER_MAX_BYTES),
+    instanceId: `${hostname().slice(0, 40)}:${String(process.pid)}:${randomUUID().slice(0, 8)}`,
+    lifecycle: { draining: false },
     warmSandbox: rawSandboxClient instanceof WarmSandboxClient ? rawSandboxClient : null,
+    helperJobs,
     files: new FileService(
       {
         db,
         storage,
         cfg,
-        visionProvider: providers.google!,
+        visionProvider: google,
         // Stage 9 TOKENS: each family's own count API (Gemini countTokens, Claude count_tokens).
-        tokenCounters: { gemini: providers.google!, claude: providers.anthropic! },
+        tokenCounters: { gemini: google, claude: anthropic },
         ...(modelInputs ? { modelInputs } : {}),
         log: logger.child({ module: 'files' }),
       },
       options.fileWorker,
     ),
+    pricing,
+    ledger,
+    deletionLedger: new DeletionLedger(storage, cfg.DELETION_LEDGER_PREFIX),
+    gateway,
+    ...stores,
   };
 }
 

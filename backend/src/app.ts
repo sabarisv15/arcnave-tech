@@ -40,9 +40,27 @@ import { skillRoutes } from './routes/skills.js';
 import { styleRoutes } from './routes/styles.js';
 import { shareRoutes } from './routes/share.js';
 import { accountRoutes } from './routes/account.js';
+import { statusRoutes } from './routes/status.js';
 import { usageRoutes } from './routes/usage.js';
 import { errorLogFields } from './errorLog.js';
+import { sqlState } from './services/turn/turnStore.js';
 import type { AppInstance } from './types.js';
+import { NUMBERS } from './config/numbers.js';
+
+/**
+ * SQLSTATEs that mean the database could not serve the request in time, not that the request
+ * was wrong: a statement timeout (57014, `statement_timeout`, N-45), a lock wait timeout (55P03,
+ * `lock_timeout`), no free connection (53300), and a serialization failure or a deadlock
+ * (40001 / 40P01) that its transaction's own retries did not get past (review R3).
+ */
+export const DB_UNAVAILABLE_CODES = new Set(['57014', '55P03', '53300', '40001', '40P01']);
+/** Ours: the Retry-After of that 503. */
+export const DB_RETRY_AFTER_S = 5;
+
+export function dbUnavailable(error: unknown): boolean {
+  const state = sqlState(error);
+  return state !== undefined && DB_UNAVAILABLE_CODES.has(state);
+}
 
 export interface CreateAppOptions extends BuildOptions {
   services?: Services;
@@ -67,9 +85,10 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     // is what makes `request.log` real: it binds the request id automatically, so every line
     // a handler or the error handler writes is correlated without passing the id around.
     loggerInstance: logger,
-    // Uploads are additionally capped per-file by @fastify/multipart; this is the hard
-    // transport ceiling, with headroom for multipart framing.
-    bodyLimit: cfg.MAX_UPLOAD_BYTES + 1024 * 1024,
+    // C4 (P21): 1 MiB for every route that sets no limit of its own; uploads and the JSON routes
+    // whose schema admits more set theirs (routes/bodyLimits.ts). Multipart files are also capped
+    // per file by @fastify/multipart below.
+    bodyLimit: cfg.API_BODY_LIMIT_BYTES,
     // request.ip is the client, not the platform's front end, and a client-written
     // X-Forwarded-For entry cannot choose it (ADR-0065).
     trustProxy: trustProxyHops(cfg.TRUST_PROXY_HOPS),
@@ -89,7 +108,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     // Required for the session cookie to travel on cross-origin XHR from the Vite dev server.
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Request-ID', 'Idempotency-Key', 'If-Match'],
+    allowedHeaders: ['Content-Type', 'X-Request-ID', 'Idempotency-Key', 'If-Match', 'Last-Event-ID'],
     exposedHeaders: ['X-Request-ID'],
     maxAge: 600,
   });
@@ -112,7 +131,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
   });
 
   await app.register(multipart, {
-    limits: { fileSize: cfg.MAX_UPLOAD_BYTES, files: 10, fields: 20 },
+    limits: { fileSize: cfg.MAX_UPLOAD_BYTES, files: NUMBERS.FILES_PER_MESSAGE.value /* N-10 */, fields: 20 },
   });
 
   await app.register(contextPlugin, { services });
@@ -167,6 +186,14 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
         },
       });
       return reply.status(apiError.status).send(apiError.toBody(requestId));
+    }
+
+    // Stage 15 ER-6a (N-45): the database said "too slow" or "too busy". A typed 503 the client
+    // retries after 5 s, not a 500 (`dbUnavailable`).
+    if (dbUnavailable(error)) {
+      request.log.warn({ ...errorLogFields(error), requestId, route: request.routeOptions.url }, 'database unavailable');
+      const apiError = new ApiError('unavailable');
+      return reply.status(503).header('Retry-After', String(DB_RETRY_AFTER_S)).send(apiError.toBody(requestId));
     }
 
     const statusCode = (error as { statusCode?: number }).statusCode;
@@ -225,6 +252,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       await scope.register(styleRoutes);
       await scope.register(shareRoutes);
       await scope.register(accountRoutes);
+      await scope.register(statusRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );

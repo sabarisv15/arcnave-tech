@@ -11,14 +11,16 @@
  *    decide" races: two concurrent requests both read headroom only one of them has.
  *    Reservation takes a row lock on the counter, so concurrent requests serialise on it.
  */
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 
 import type { Config } from '../config.js';
 import type { Database, Transaction } from '../db/client.js';
-import { usageCounters, usageRecords } from '../db/schema.js';
+import { budgetReservations, usageCounters, usageRecords, type BudgetReservation } from '../db/schema.js';
 import { ApiError } from '../errors.js';
-import type { ProviderUsage } from '../providers/types.js';
-import { totalTokens } from '../providers/types.js';
+import type { CallUsage, ProviderUsage } from '../providers/types.js';
+import { totalTokens, usageFromCalls } from '../providers/types.js';
+import { LedgerService, turnTotals } from './ledger.js';
+import { PricingService } from './pricing.js';
 
 export type PeriodKind = 'day' | 'month';
 
@@ -36,6 +38,7 @@ function isValidZone(name: string): boolean {
     new Intl.DateTimeFormat('en-US', { timeZone: name });
     return true;
   } catch {
+    // benign: an unknown time zone is invalid
     return false;
   }
 }
@@ -108,26 +111,19 @@ export function nextReset(now: Date, timezone: string): { nextDay: Date; nextMon
 /* -------------------------------------------------------------------------- cost */
 
 /**
- * USD cost, or null when no verified pricing row exists for this model.
+ * USD cost, or null when no verified price exists for this model at `at`.
  *
  * Null rather than 0 matters: the UI must distinguish "this cost nothing" from "we have no
- * price for this model". Usage with `exact: false` is never priced.
+ * price for this model". Usage with `exact: false` is never priced. The price comes from the
+ * source `PRICE_SOURCE` names (P22: the price book by default, `services/pricing.ts`).
  */
 export function computeCost(
   cfg: Config,
   providerModelId: string,
   usage: ProviderUsage,
+  at: Date = new Date(),
 ): number | null {
-  const row = cfg.PRICING_TABLE[providerModelId];
-  if (!row || !usage.exact) return null;
-  const perMillion = 1_000_000;
-  const cost =
-    (usage.inputTokens * row.input +
-      usage.outputTokens * row.output +
-      usage.cacheReadTokens * row.cacheRead +
-      usage.cacheWriteTokens * row.cacheWrite) /
-    perMillion;
-  return Math.round(cost * 1e6) / 1e6;
+  return new PricingService(cfg).price(providerModelId, usage, at).costUsd;
 }
 
 /**
@@ -184,13 +180,54 @@ function pct(used: number, limit: number | null): number | null {
   return Math.round((used / limit) * 1000) / 10;
 }
 
+/* -------------------------------------------------------------------------- reservations */
+
+/** Who holds a reservation: a chat turn, or a utility call outside one (styles from samples). */
+export type ReservationOwner = 'turn' | 'utility';
+
+/** A held reservation, as its holder carries it until it is settled or released. */
+export interface ReservationRef {
+  id: string;
+  userId: string;
+  /** Tokens held now (lowered by `adjust`). */
+  tokens: number;
+  dayStart: Date | null;
+  monthStart: Date | null;
+}
+
+export function reservationRef(row: BudgetReservation): ReservationRef {
+  return { id: row.id, userId: row.userId, tokens: row.tokens, dayStart: row.dayStart, monthStart: row.monthStart };
+}
+
 /* -------------------------------------------------------------------------- service */
 
+/** P22 OD-8: the turn's clocks, null where not measured. */
+export interface TurnClocks {
+  providerTtftMs: number | null;
+  firstVisibleMs: number | null;
+}
+
 export class UsageService {
+  readonly pricing: PricingService;
+  readonly ledger: LedgerService;
+
   constructor(
     private readonly db: Database,
     private readonly cfg: Config,
-  ) {}
+    pricing?: PricingService,
+    ledger?: LedgerService,
+  ) {
+    this.pricing = pricing ?? new PricingService(cfg);
+    this.ledger = ledger ?? new LedgerService(this.pricing);
+  }
+
+  /**
+   * P22: a turn's dollar cost from its calls, the figure its usage row stores: each call priced
+   * at its own time, summed; null when any call is unpriced (Invariant 2).
+   */
+  turnCost(calls: readonly CallUsage[], startedAt: Date): number | null {
+    return turnTotals(this.ledger.priceCalls(calls, startedAt)).costUsd;
+  }
 
   /**
    * Fetch-or-create the counter row and hold a write lock on it.
@@ -249,15 +286,25 @@ export class UsageService {
   }
 
   /**
-   * Block before calling the provider if the budget is already spent.
+   * Block before calling the provider if the budget is already spent, and hold the worst case.
    *
-   * `reservation` is not an accounting figure. It is the configured output ceiling — the most
-   * this request could cost — held against the counter until `record` replaces it with the
-   * provider's real numbers. It is never written to a usage record or shown as a measurement.
+   * `tokens` is not an accounting figure. It is the configured output ceiling — the most this
+   * request could cost — held against the counter until the reservation is settled (with the
+   * provider's real numbers, `record`) or given back (`release`). It is never written to a usage
+   * record or shown as a measurement. The hold is a `budget_reservations` row with an owner (a
+   * turn, or a utility call) and an expiry, so one nobody settles is given back by the sweeper
+   * (A-05, A-06). Inside `tx` when given: the turn's reservation lands with the turn's rows, or
+   * not at all.
    */
-  async reserve(userId: string, prefs: BudgetPrefs, reservation: number): Promise<void> {
-    const now = new Date();
-    await this.db.transaction(async (tx) => {
+  async reserve(
+    userId: string,
+    prefs: BudgetPrefs,
+    tokens: number,
+    opts: { owner: ReservationOwner; expiresAt: Date; turnId?: string; tx?: Transaction },
+  ): Promise<ReservationRef> {
+    const run = async (tx: Transaction): Promise<ReservationRef> => {
+      const now = new Date();
+      const held: { dayStart: Date | null; monthStart: Date | null } = { dayStart: null, monthStart: null };
       for (const [kind, periodStart, limit] of this.budgetPairs(prefs, now)) {
         if (!limit) continue;
         const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
@@ -267,108 +314,251 @@ export class UsageService {
         }
         await tx
           .update(usageCounters)
-          .set({ tokensReserved: sql`${usageCounters.tokensReserved} + ${reservation}` })
+          .set({ tokensReserved: sql`${usageCounters.tokensReserved} + ${tokens}` })
           .where(eq(usageCounters.id, counter.id));
+        if (kind === 'day') held.dayStart = periodStart;
+        else held.monthStart = periodStart;
       }
-    });
+      const [row] = await tx
+        .insert(budgetReservations)
+        .values({
+          userId,
+          turnId: opts.turnId ?? null,
+          owner: opts.owner,
+          tokens,
+          dayStart: held.dayStart,
+          monthStart: held.monthStart,
+          expiresAt: opts.expiresAt,
+        })
+        .returning({ id: budgetReservations.id });
+      return { id: row!.id, userId, tokens, ...held };
+    };
+    return opts.tx ? run(opts.tx) : this.db.transaction(run);
   }
 
-  /** Give back a reservation. Always paired with `reserve` in a finally block. */
-  async release(userId: string, prefs: BudgetPrefs, reservation: number): Promise<void> {
-    const now = new Date();
+  /**
+   * Lower a held reservation to what the request will really ask for (never raise it: a raise
+   * would need a budget check the hold already passed). The turn reserves the default ceiling
+   * before its model is known; the context build knows the real one.
+   */
+  async adjust(ref: ReservationRef, tokens: number): Promise<void> {
+    if (tokens >= ref.tokens) return;
+    const delta = ref.tokens - tokens;
     await this.db.transaction(async (tx) => {
-      for (const [kind, periodStart, limit] of this.budgetPairs(prefs, now)) {
-        if (!limit) continue;
-        const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
-        await tx
-          .update(usageCounters)
-          .set({
-            tokensReserved: sql`greatest(0, ${usageCounters.tokensReserved} - ${reservation})`,
-          })
-          .where(eq(usageCounters.id, counter.id));
-      }
+      const [moved] = await tx
+        .update(budgetReservations)
+        .set({ tokens })
+        .where(and(eq(budgetReservations.id, ref.id), eq(budgetReservations.status, 'held')))
+        .returning({ id: budgetReservations.id });
+      if (!moved) return;
+      await this.giveBack(tx, ref, delta);
     });
+    ref.tokens = tokens;
+  }
+
+  /**
+   * End a reservation: `settled` when the call's usage was recorded (the caller's `record` in the
+   * same transaction), `released` when nothing was billed, `expired` when nobody settled it in
+   * time. Gives the held tokens back to the periods they were taken from. Acts once: a second
+   * call finds the row no longer `held`.
+   */
+  async release(
+    ref: ReservationRef,
+    opts: {
+      status?: 'settled' | 'released' | 'expired';
+      tx?: Transaction;
+      /** P22: the usage row a `settled` hold was settled against, and its price version. */
+      settledUsageRecordId?: string | null;
+      priceVersion?: string | null;
+    } = {},
+  ): Promise<void> {
+    const run = async (tx: Transaction): Promise<void> => {
+      const [row] = await tx
+        .update(budgetReservations)
+        .set({
+          status: opts.status ?? 'released',
+          endedAt: new Date(),
+          ...(opts.settledUsageRecordId !== undefined ? { settledUsageRecordId: opts.settledUsageRecordId } : {}),
+          ...(opts.priceVersion !== undefined ? { priceVersion: opts.priceVersion } : {}),
+        })
+        .where(and(eq(budgetReservations.id, ref.id), eq(budgetReservations.status, 'held')))
+        .returning({ tokens: budgetReservations.tokens });
+      if (!row) return;
+      await this.giveBack(tx, ref, row.tokens);
+    };
+    await (opts.tx ? run(opts.tx) : this.db.transaction(run));
+  }
+
+  /** Every held reservation past its expiry, given back and marked `expired` (the sweeper). */
+  async expireReservations(tx: Transaction, now: Date, limit: number): Promise<number> {
+    const due = await tx
+      .select()
+      .from(budgetReservations)
+      .where(and(eq(budgetReservations.status, 'held'), lt(budgetReservations.expiresAt, now)))
+      .orderBy(asc(budgetReservations.expiresAt))
+      .limit(limit)
+      .for('update', { skipLocked: true });
+    for (const r of due) await this.release(reservationRef(r), { status: 'expired', tx });
+    return due.length;
+  }
+
+  private async giveBack(tx: Transaction, ref: Pick<ReservationRef, 'userId' | 'dayStart' | 'monthStart'>, tokens: number): Promise<void> {
+    for (const [kind, periodStart] of [
+      ['day', ref.dayStart],
+      ['month', ref.monthStart],
+    ] as Array<[PeriodKind, Date | null]>) {
+      if (!periodStart || tokens <= 0) continue;
+      await tx
+        .update(usageCounters)
+        .set({ tokensReserved: sql`greatest(0, ${usageCounters.tokensReserved} - ${tokens})` })
+        .where(
+          and(
+            eq(usageCounters.userId, ref.userId),
+            eq(usageCounters.periodKind, kind),
+            eq(usageCounters.periodStart, periodStart),
+          ),
+        );
+    }
   }
 
   private async commitTokens(
+    tx: Transaction,
     userId: string,
     prefs: BudgetPrefs,
     tokens: number,
     at: Date,
   ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      const { dayStart, monthStart } = periodBounds(at, prefs.timezone);
-      for (const [kind, periodStart] of [
-        ['day', dayStart],
-        ['month', monthStart],
-      ] as Array<[PeriodKind, Date]>) {
-        const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
-        await tx
-          .update(usageCounters)
-          .set({ tokensUsed: sql`${usageCounters.tokensUsed} + ${tokens}` })
-          .where(eq(usageCounters.id, counter.id));
-      }
-    });
+    const { dayStart, monthStart } = periodBounds(at, prefs.timezone);
+    for (const [kind, periodStart] of [
+      ['day', dayStart],
+      ['month', monthStart],
+    ] as Array<[PeriodKind, Date]>) {
+      const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
+      await tx
+        .update(usageCounters)
+        .set({ tokensUsed: sql`${usageCounters.tokensUsed} + ${tokens}` })
+        .where(eq(usageCounters.id, counter.id));
+    }
   }
 
   /**
-   * Persist one generation attempt.
+   * Persist one generation attempt: the usage row, then the tokens committed to the counters.
    *
    * Called for completions, cancellations, and errors alike: a cancelled request that already
-   * burned input tokens must still show them, or the usage row understates real spend.
+   * burned input tokens must still show them, or the usage row understates real spend. Inside
+   * `tx` when given (the turn's settle transaction), so the row and the counters land with the
+   * message, or neither does.
    */
-  async record(input: {
-    userId: string;
-    prefs: BudgetPrefs;
-    requestId: string;
-    chatId: string | null;
-    messageId: string | null;
-    projectId: string | null;
-    modelAlias: string;
-    provider: string;
-    providerModelId: string;
-    usage: ProviderUsage;
-    startedAt: Date;
-    status: 'complete' | 'cancelled' | 'error' | 'blocked';
-    finishReason?: string | null;
-    errorCode?: string | null;
-  }): Promise<void> {
+  async record(
+    input: {
+      userId: string;
+      prefs: BudgetPrefs;
+      requestId: string;
+      chatId: string | null;
+      messageId: string | null;
+      projectId: string | null;
+      modelAlias: string;
+      provider: string;
+      providerModelId: string;
+      usage: ProviderUsage;
+      startedAt: Date;
+      status: 'complete' | 'cancelled' | 'error' | 'blocked';
+      finishReason?: string | null;
+      errorCode?: string | null;
+      /**
+       * P22 (E19): the turn's model calls. When given, they go to the ledger and the row's
+       * counts and cost are their sum (`usage` is ignored); without them the row is one call's
+       * worth of `usage`, priced as one call.
+       */
+      calls?: readonly CallUsage[];
+      /** P22 (`model_calls.turn_id`): the turn the calls belong to. */
+      turnId?: string | null;
+      clocks?: TurnClocks;
+      /** P11 (AL-2): a refusal's or a block's category. */
+      refusalCategory?: string | null;
+    },
+    tx?: Transaction,
+  ): Promise<{ usageRecordId: string; priceVersion: string | null }> {
     const completedAt = new Date();
-    const total = totalTokens(input.usage);
+    const calls = input.calls ?? null;
+    const usage = calls ? usageFromCalls(calls) : input.usage;
+    const total = totalTokens(usage);
+    // The budget counter's figure (enforcement), apart from the row's (display): the tokens of
+    // every call whose counts the provider reported. One call without counts makes the row
+    // exact:false with zeros (Invariant 3), but the calls that did report were billed, and a
+    // retried or hopped turn that committed 0 would let a turn spend past the budget while a
+    // provider is failing (review R2). A call without counts adds nothing: it is never charged
+    // as an exact zero, and it is not estimated (Invariant 3; its price needs a billing source).
+    const budgetTokens = calls ? calls.reduce((n, c) => n + (c.usage.exact ? totalTokens(c.usage) : 0), 0) : total;
+    // Output tokens per second of generation, over the calls that were timed: their output over
+    // their time after the first event. A call with no clock adds neither.
+    const timed = (calls ?? []).filter((c) => c.durationMs !== undefined);
+    const genMs = timed.reduce((n, c) => n + Math.max(0, c.durationMs! - (c.ttftMs ?? 0)), 0);
+    const timedOut = timed.reduce((n, c) => n + c.usage.outputTokens, 0);
+    const outputTps = usage.exact && genMs > 0 ? Math.round((timedOut / (genMs / 1000)) * 100) / 100 : null;
 
-    const costUsd = computeCost(this.cfg, input.providerModelId, input.usage);
+    const run = async (t: Transaction): Promise<{ usageRecordId: string; priceVersion: string | null }> => {
+      // Priced first, so the turn row is the calls' sum (the ledger rows are written after it,
+      // naming it). Without calls the single price is the row's own.
+      const priced = calls ? this.ledger.priceCalls(calls, input.startedAt) : null;
+      const totals = priced ? turnTotals(priced) : this.pricing.price(input.providerModelId, usage, input.startedAt);
+      const costUsd = totals.costUsd;
+      const [inserted] = await t.insert(usageRecords).values({
+        userId: input.userId,
+        requestId: input.requestId,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        projectId: input.projectId,
+        modelAlias: input.modelAlias,
+        provider: input.provider,
+        providerModelId: input.providerModelId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens: total,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        tokensExact: usage.exact,
+        contextTokens: usage.exact && usage.lastRequest
+          ? usage.lastRequest.inputTokens + usage.lastRequest.outputTokens
+          : null,
+        startedAt: input.startedAt,
+        completedAt,
+        latencyMs: completedAt.getTime() - input.startedAt.getTime(),
+        finishReason: input.finishReason ?? null,
+        status: input.status,
+        errorCode: input.errorCode ?? null,
+        refusalCategory: input.refusalCategory?.slice(0, 32) ?? null,
+        costUsd,
+        costInr: usdToInr(this.cfg, costUsd),
+        priceVersion: totals.priceVersion,
+        providerTtftMs: input.clocks?.providerTtftMs ?? null,
+        firstVisibleMs: input.clocks?.firstVisibleMs ?? null,
+        turnTotalMs: completedAt.getTime() - input.startedAt.getTime(),
+        outputTps,
+      }).returning({ id: usageRecords.id });
 
-    await this.db.insert(usageRecords).values({
-      userId: input.userId,
-      requestId: input.requestId,
-      chatId: input.chatId,
-      messageId: input.messageId,
-      projectId: input.projectId,
-      modelAlias: input.modelAlias,
-      provider: input.provider,
-      providerModelId: input.providerModelId,
-      inputTokens: input.usage.inputTokens,
-      outputTokens: input.usage.outputTokens,
-      totalTokens: total,
-      cacheReadTokens: input.usage.cacheReadTokens,
-      cacheWriteTokens: input.usage.cacheWriteTokens,
-      tokensExact: input.usage.exact,
-      contextTokens: input.usage.exact && input.usage.lastRequest
-        ? input.usage.lastRequest.inputTokens + input.usage.lastRequest.outputTokens
-        : null,
-      startedAt: input.startedAt,
-      completedAt,
-      latencyMs: completedAt.getTime() - input.startedAt.getTime(),
-      finishReason: input.finishReason ?? null,
-      status: input.status,
-      errorCode: input.errorCode ?? null,
-      costUsd,
-      costInr: usdToInr(this.cfg, costUsd),
-    });
+      if (priced && priced.length > 0) {
+        await this.ledger.recordCalls(
+          t,
+          {
+            usageRecordId: inserted!.id,
+            turnId: input.turnId ?? null,
+            userId: input.userId,
+            chatId: input.chatId,
+            messageId: input.messageId,
+            provider: input.provider,
+            startedAt: input.startedAt,
+          },
+          priced,
+        );
+      }
 
-    if (total > 0) {
-      await this.commitTokens(input.userId, input.prefs, total, completedAt);
-    }
+      if (budgetTokens > 0) {
+        await this.commitTokens(t, input.userId, input.prefs, budgetTokens, completedAt);
+      }
+      return { usageRecordId: inserted!.id, priceVersion: totals.priceVersion };
+    };
+    return tx ? run(tx) : this.db.transaction(run);
   }
 
   /* ------------------------------------------------------------------ queries */
@@ -497,7 +687,7 @@ export class UsageService {
         dailyResetsAt: nextDay.toISOString(),
         monthlyResetsAt: nextMonth.toISOString(),
       },
-      pricingConfigured: Object.keys(this.cfg.PRICING_TABLE).length > 0,
+      pricingConfigured: this.pricing.configured(),
     };
   }
 

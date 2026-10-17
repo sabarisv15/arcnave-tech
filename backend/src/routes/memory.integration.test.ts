@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getSql } from '../db/client.js';
-import { memoryService, MemoryConcurrencyError } from '../services/memory/memoryService.js';
+import { MemoryConcurrencyError, type MemoryService } from '../services/memory/memoryService.js';
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { ChatToolExecutor } from '../tools/chatExecutor.js';
 import type { TestContext, TestUser } from '../test/harness.js';
@@ -12,6 +12,8 @@ import { createTestApp, signUp, promptOf } from '../test/harness.js';
 let ctx: TestContext;
 let user: TestUser;
 let otherUser: TestUser;
+/** The app's own store (A-16: no module singleton). */
+let memoryService: MemoryService;
 
 beforeAll(async () => {
   ctx = await createTestApp({
@@ -20,6 +22,7 @@ beforeAll(async () => {
   });
   user = await signUp(ctx);
   otherUser = await signUp(ctx);
+  memoryService = ctx.app.services.memory;
 });
 
 afterAll(async () => {
@@ -272,7 +275,7 @@ describe('Phase 5.2 Memory Integration & Tools', () => {
     await say(current, 'KVB again here');
 
     const run = async (projectId: string | null, chatId: string) => {
-      const exec = new ChatToolExecutor(u.id, projectId, chatId);
+      const exec = new ChatToolExecutor(ctx.app.services.chatSearch, u.id, projectId, chatId);
       const res = await exec.execute({ id: 's', name: 'conversation_search', input: { query: 'kvb debits' } }, new AbortController().signal);
       expect(res.ok).toBe(true);
       return ((res.content[0] as { data: { results: { chatId: string; excerpt: string }[] } }).data.results);
@@ -295,7 +298,7 @@ describe('Phase 5.2 Memory Integration & Tools', () => {
     await ctx.app.inject({ method: 'POST', url: `/v1/chats/${first}/generate`, headers: h, payload: { prompt: 'Federal bank had 277 entries' } });
     const second = await chatIn('Second');
     await ctx.app.inject({ method: 'POST', url: `/v1/chats/${second}/generate`, headers: h, payload: { prompt: 'hello there' } });
-    const exec = new ChatToolExecutor(u.id, null, second);
+    const exec = new ChatToolExecutor(ctx.app.services.chatSearch, u.id, null, second);
     const signal = new AbortController().signal;
 
     const hit = await exec.execute({ id: 's', name: 'conversation_search', input: { query: 'federal entries' } }, signal);
@@ -311,7 +314,7 @@ describe('Phase 5.2 Memory Integration & Tools', () => {
     expect(turns[0]!.role).toBe('user');
     expect(turns[0]!.text).toContain('277');
 
-    const foreign = new ChatToolExecutor(otherUser.id, null, null);
+    const foreign = new ChatToolExecutor(ctx.app.services.chatSearch, otherUser.id, null, null);
     const denied = await foreign.execute({ id: 'r', name: 'read_conversation', input: { conversation_id: first } }, signal);
     expect(denied.ok).toBe(false);
 

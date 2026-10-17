@@ -59,7 +59,7 @@ export function Splash({ variant, ready = false, onDone }: SplashProps) {
       ready ? SKIP_MS : SPLASH_MS[variant],
     );
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deliberately keyed on ready and variant only (no react-hooks lint plugin is installed; P21).
   }, [ready, variant]);
 
   return (

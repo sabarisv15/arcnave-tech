@@ -13,8 +13,6 @@ import { getModelCapability } from '../../providers/capabilitiesTable.js';
 import { assemblePrompt, type ListedSkill } from '../promptCache/promptAssembly.js';
 import { profileForEffort, projectKnowledgeBlock } from '../prompt/sessionState.js';
 import type { PromptAssembly } from '../promptCache/types.js';
-import { memoryService } from '../memory/memoryService.js';
-import { compactionService } from '../compaction/compactionService.js';
 import type { SkillDetail } from '../skills.js';
 import { formatContext, formatWholeFiles, projectFileTexts } from '../retrieval.js';
 import { resolveStyle } from '../styles.js';
@@ -51,8 +49,10 @@ export async function buildSkillsContext(
     for (const s of svc.skills!.listSkills(activeToolNames).filter((x) => x.missingTools.length === 0)) {
       skills.push({ name: s.name, version: s.version, description: s.description, path: `${SKILLS_ROOT}/${s.name}/SKILL.md` });
     }
-    const reinjected = latestCompaction
-      ? await skillsLoadedThrough(svc, input.chatId, latestCompaction.throughSeq)
+    // The turns a compaction or a history summary (ADR-0080) stands in for: their skill reads come back.
+    const coveredThrough = latestCompaction?.throughSeq ?? input.historySummary?.coversUptoSeq;
+    const reinjected = coveredThrough !== undefined
+      ? await skillsLoadedThrough(svc, input.chatId, coveredThrough)
       : [];
     for (const skillName of reinjected) {
       const detail = svc.skills!.getSkill(skillName);
@@ -121,15 +121,18 @@ export async function buildSystemInstruction(
   // when memory is on (ME-1). The same text from turn to turn, so the session state stays put.
   const memory =
     svc.cfg.ENABLE_MEMORY && declared.has('memory_read')
-      ? await memoryService.memorySnapshot(input.userId, project?.id ?? null, svc.cfg.MEMORY_CONTEXT_MAX_CHARS)
+      ? await svc.memory.memorySnapshot(input.userId, project?.id ?? null, svc.cfg.MEMORY_CONTEXT_MAX_CHARS)
       : undefined;
 
   // 2. Conversation compaction summary: per-turn state (doc-sync 2026-10-14).
-  let summary: { throughSeq: number; text: string } | undefined;
-  if (svc.cfg.ENABLE_CONTEXT_COMPACTION) {
-    const latestCompaction = await compactionService.getLatestCompaction(input.chatId, svc.db);
+  let summary: { throughSeq: number; text: string; version?: number } | undefined;
+  // P13 (ADR-0080): the history summary the turn read in prepareTurn, with its version.
+  if (input.historySummary) {
+    summary = { throughSeq: input.historySummary.coversUptoSeq, text: input.historySummary.text, version: input.historySummary.summaryVersion };
+  } else if (svc.cfg.ENABLE_CONTEXT_COMPACTION) {
+    const latestCompaction = await svc.compaction.getLatestCompaction(input.chatId);
     if (latestCompaction) {
-      const text = compactionService.formatCompactionBody(latestCompaction);
+      const text = svc.compaction.formatCompactionBody(latestCompaction);
       if (text) summary = { throughSeq: latestCompaction.throughSeq, text };
     }
   }

@@ -8,10 +8,12 @@ import {
   CutShortNote,
   DroppedNote,
   FailureCard,
+  IncidentBanner,
   InlineEdit,
   ModelLabel,
   StoppedNote,
   failureView,
+  switchLabel,
 } from "./ChatStates";
 import { errorCopy } from "./api";
 
@@ -209,5 +211,92 @@ describe("edit in place", () => {
   it("cannot send an empty message", () => {
     render(<InlineEdit initial="   " onSend={() => undefined} onCancel={() => undefined} />);
     expect(host.querySelectorAll("button")[1]!.disabled).toBe(true);
+  });
+});
+
+describe("P11: fallback label, support code, cut-short answers, incident banner (ADR-0081)", () => {
+  it("labels an answer another model gave, from the stored reason code", () => {
+    render(
+      <ModelLabel modelAlias="Sonnet 5.5" effort={undefined} fallbackFrom="Gemini 3.8 Flash" fallbackReason="unavailable" />,
+    );
+    expect(host.textContent).toBe("Sonnet 5.5 · Answered by Sonnet 5.5 because Gemini 3.8 Flash was unavailable");
+    expect(host.querySelector(".cs-switch")!.getAttribute("data-reason")).toBe("unavailable");
+    expect(switchLabel("Gemini 3.8 Flash", "Opus 5.5", "claude_limit")).toBe(
+      "Answered by Gemini 3.8 Flash because Opus 5.5’s account limit was reached",
+    );
+    expect(switchLabel("Gemini 3.8 Flash", "Sonnet 5.5", "disabled")).toBe(
+      "Answered by Gemini 3.8 Flash because Sonnet 5.5 is switched off",
+    );
+    // Every other reason (timeout, quota, config, credentials, breaker_open) reads as unavailable.
+    for (const reason of ["timeout", "quota", "config", "credentials", "breaker_open", undefined])
+      expect(switchLabel("Sonnet 5.5", "Gemini 3.8 Flash", reason)).toBe(
+        "Answered by Sonnet 5.5 because Gemini 3.8 Flash was unavailable",
+      );
+  });
+
+  it("shows no label when the first model answered", () => {
+    render(<ModelLabel modelAlias="Gemini 3.8 Flash" effort={undefined} />);
+    expect(host.querySelector(".cs-switch")).toBeNull();
+  });
+
+  it("an interrupted answer keeps its part and offers Continue", () => {
+    const onContinue = vi.fn();
+    render(<CutShortNote finishReason="interrupted" onContinue={onContinue} />);
+    const note = host.querySelector(".cs-cut")!;
+    expect(note.getAttribute("data-reason")).toBe("interrupted");
+    expect(note.textContent).toContain("This answer was cut short by an error. The part above is kept.");
+    expect(buttons()).toEqual(["Continue"]);
+    act(() => host.querySelector("button")!.click());
+    expect(onContinue).toHaveBeenCalledOnce();
+  });
+
+  it("shows the support code small, outside the sentence", () => {
+    render(<FailureCard code="provider_error" onRetry={() => undefined} supportCode="req-1234" />);
+    const code = host.querySelector(".cs-support")!;
+    expect(code.tagName).toBe("SMALL");
+    expect(code.textContent).toBe("Support code: req-1234");
+    expect(host.querySelector(".cs-text b")!.textContent).not.toContain("req-1234");
+  });
+
+  it("draws a safety block as information, like a refusal", () => {
+    expect(failureView("response_blocked").tone).toBe("info");
+    expect(failureView("response_blocked").title).toBe(errorCopy["response_blocked"]!.title);
+  });
+
+  // Every code a turn can end with after the gateway (the matrix's final codes, M-01 … M-30).
+  it.each([
+    "provider_error",
+    "provider_timeout",
+    "provider_limit",
+    "provider_quota_unavailable",
+    "provider_payload_limit",
+    "model_unavailable",
+    "no_model_available",
+    "context_overflow",
+    "model_refused",
+    "response_blocked",
+    "empty_response",
+    "turn_deadline_exceeded",
+    "partial_after_tool_run",
+    "interrupted",
+    "server_shutdown",
+  ])("has copy for %s", (code) => {
+    expect(errorCopy).toHaveProperty(code);
+    expect(failureView(code).title).not.toBe("That did not work");
+  });
+
+  it("shows the ops incident banner, and nothing when there is none or it cannot be read", async () => {
+    await act(async () => {
+      root.render(<IncidentBanner load={() => Promise.resolve({ incidentBanner: "Some answers are slow right now." })} />);
+    });
+    expect(host.querySelector(".cs-incident")!.textContent).toBe("Some answers are slow right now.");
+    await act(async () => {
+      root.render(<IncidentBanner load={() => Promise.resolve({ incidentBanner: null })} />);
+    });
+    expect(host.querySelector(".cs-incident")).toBeNull();
+    await act(async () => {
+      root.render(<IncidentBanner load={() => Promise.reject(new Error("offline"))} />);
+    });
+    expect(host.querySelector(".cs-incident")).toBeNull();
   });
 });

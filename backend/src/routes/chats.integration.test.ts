@@ -98,7 +98,7 @@ async function transcript(chatId: string, headers = auth()): Promise<Transcript>
 /* -------------------------------------------------------------------------- happy path */
 
 describe('streaming generation', () => {
-  it('streams start, deltas, and done, in that order', async () => {
+  it('streams ack, start, deltas, and done, in that order', async () => {
     const chatId = await newChat();
     const { statusCode, body } = await generate(chatId);
 
@@ -106,16 +106,17 @@ describe('streaming generation', () => {
     const frames = parseSse(body);
     const events = frames.map((f) => f.event);
 
-    expect(events[0]).toBe('start');
+    // The ack comes first: the turn and both rows exist before the model is asked (ADR-0078).
+    expect(events[0]).toBe('ack');
+    expect(events[1]).toBe('start');
     expect(events.at(-1)).toBe('done');
     expect(events).toContain('delta');
     expect(sseText(frames)).toBe('Hello, world.');
   });
 
   it('sends CORS headers on the SSE response for an allowed origin', async () => {
-    // The SSE handler writes its response headers via `reply.raw.writeHead`, bypassing
-    // Fastify's reply pipeline entirely — which is where `@fastify/cors` normally injects
-    // these. A regression here is invisible whenever frontend and API are same-origin, and a
+    // The SSE handler writes its response head itself (`reply.raw.writeHead` after a hijack), so
+    // what `@fastify/cors` set on the reply reaches it only through `reply.getHeaders()`. A regression here is invisible whenever frontend and API are same-origin, and a
     // hard failure (browser blocks the response before any event body is read) the moment
     // they are not. See mistakes.md.
     const chatId = await newChat();
@@ -128,6 +129,33 @@ describe('streaming generation', () => {
 
     expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173');
     expect(response.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('P21 A-26: the SSE head carries the plugins\' CORS and security headers, on generate and on reattach', async () => {
+    // The stream writes its own head after reply.hijack(); what @fastify/cors and the security
+    // plugin set in their hooks must still be on it, with no CORS code in the stream itself.
+    const chatId = await newChat();
+    const origin = 'http://localhost:5173';
+    const live = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/chats/${chatId}/generate`,
+      headers: { ...auth(), origin },
+      payload: { prompt: 'What is in the notes?' },
+    });
+    const again = await ctx.app.inject({ method: 'GET', url: `/v1/chats/${chatId}/stream`, headers: { ...auth(), origin } });
+    for (const response of [live, again]) {
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('text/event-stream; charset=utf-8');
+      expect(response.headers['access-control-allow-origin']).toBe(origin);
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
+      expect(response.headers['access-control-expose-headers']).toBe('X-Request-ID');
+      expect(String(response.headers['vary'])).toMatch(/Origin/);
+      expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect(response.headers['x-frame-options']).toBe('DENY');
+      expect(response.headers['strict-transport-security']).toMatch(/max-age=/);
+      expect(response.headers['referrer-policy']).toBe('no-referrer');
+      expect(response.headers['x-request-id']).toBeTruthy();
+    }
   });
 
   it('omits the CORS origin header for an origin that is not allow-listed', async () => {
@@ -564,12 +592,14 @@ describe('budget enforcement', () => {
     expect(parseSse(first.body).at(-1)!.event).toBe('done');
 
     const callsBefore = ctx.provider.seen.length;
+    const before = (await transcript(chatId, headers)).messages.length;
     const second = await generate(chatId, { prompt: 'again' }, headers);
 
-    expect(parseSse(second.body).at(-1)).toMatchObject({
-      event: 'error',
-      data: { code: 'budget_exceeded' },
-    });
+    // Refused before anything is saved (ADR-0078): an HTTP status, not an error frame after a
+    // user message was already written.
+    expect(second.statusCode).toBe(402);
+    expect((JSON.parse(second.body) as { error: { code: string } }).error.code).toBe('budget_exceeded');
+    expect((await transcript(chatId, headers)).messages).toHaveLength(before);
     // The point of reserving rather than checking afterwards: no provider call was made.
     expect(ctx.provider.seen.length).toBe(callsBefore);
   });
@@ -605,9 +635,16 @@ describe('budget enforcement', () => {
 /* -------------------------------------------------------------------------- retry & branch */
 
 describe('retry and branch', () => {
-  it('reuses the assistant row on retry instead of appending a new pair', async () => {
+  // P22 (ADR-0079): a finished answer is kept and its regenerate runs in a new version
+  // (regenerateVersions.integration.test.ts); a failed one is still retried in place.
+  it('reuses a failed assistant row on retry instead of appending a new pair', async () => {
     const chatId = await newChat();
-    await generate(chatId);
+    ctx.provider.streamError = new Error('boom');
+    try {
+      await generate(chatId);
+    } finally {
+      ctx.provider.streamError = null;
+    }
 
     const before = await transcript(chatId);
     const assistantId = before.messages.find((m) => m.role === 'assistant')!.id;

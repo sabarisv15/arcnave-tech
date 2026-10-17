@@ -148,6 +148,7 @@ export async function resolveArtifactImage(source: string): Promise<ArtifactImag
         };
       }
     } catch {
+      // benign: an image whose size cannot be read is left out of the document
       return null;
     }
   }

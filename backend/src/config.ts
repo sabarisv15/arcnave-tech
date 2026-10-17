@@ -82,6 +82,12 @@ const envSchema = z.object({
   SESSION_COOKIE_NAME: z.string().default('arcnave_session'),
   /** N-49 (repo value, absolute session lifetime). */
   SESSION_TTL_HOURS: int(NUMBERS.SESSION_TTL_HOURS.value),
+  /** Ours (P21, A-25): a session's `last_seen_at` is written only when it is older than this, so a
+   *  signed-in request reads the session without a write. Nothing reads the column more finely. */
+  SESSION_LAST_SEEN_WRITE_MS: int(15 * 60 * 1000),
+  /** Ours (P21, C4): the body limit of every route that sets none. Upload routes and the few JSON
+   *  routes whose schema admits more set their own (app.ts `bodyLimits`). */
+  API_BODY_LIMIT_BYTES: int(1024 * 1024),
   /** Only set true behind HTTPS; a Secure cookie is silently dropped over plain HTTP. */
   SESSION_COOKIE_SECURE: bool(false),
   /** Signs the cookie so tampering is detectable. Required in production. */
@@ -130,10 +136,12 @@ const envSchema = z.object({
   MODEL_SONNET: modelId('claude-sonnet-5-5'),
   MODEL_OPUS: modelId('claude-opus-5-5'),
 
-  MODEL_PROBE_TTL_SECONDS: int(300),
+  /** N-74 (repo value). */
+  MODEL_PROBE_TTL_SECONDS: int(NUMBERS.MODEL_PROBE_TTL_SECONDS.value),
   /** N-43 (repo value, ADR-0024/0054): one provider request, stream included; no first-token cutoff. */
   PROVIDER_TIMEOUT_MS: int(NUMBERS.PROVIDER_TIMEOUT_MS.value),
-  PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
+  /** N-43 (repo value). */
+  PROVIDER_CONNECT_TIMEOUT_MS: int(NUMBERS.PROVIDER_CONNECT_TIMEOUT_MS.value),
   /** N-42: retries before the first token (Stage 15 ER-2). The SDKs' own retries stay 0. */
   PROVIDER_MAX_RETRIES: int(NUMBERS.PROVIDER_MAX_RETRIES.value),
   /** N-42: backoff base; attempt k waits a full-jitter random part of base·2^(k-1), capped. */
@@ -146,6 +154,49 @@ const envSchema = z.object({
    *  3600 s) so a slow turn ends with a typed error, not a severed connection. */
   /** N-43 (repo value; register says turn 10 min). */
   TURN_DEADLINE_MS: int(NUMBERS.TURN_DEADLINE_MS.value),
+
+  // --- Durable turns (P08, ADR-0078) --------------------------------------
+  /** N-73: a running turn's lease; another instance takes the turn over once it lapses. */
+  TURN_LEASE_MS: int(NUMBERS.TURN_LEASE_MS.value),
+  /** N-73: lease renewal. */
+  TURN_HEARTBEAT_MS: int(NUMBERS.TURN_HEARTBEAT_MS.value),
+  /** N-73: how often a runner reads the turn's cancel flag. */
+  TURN_CANCEL_CHECK_MS: int(NUMBERS.TURN_CANCEL_CHECK_MS.value),
+  /** Ours (no N-id): the answer so far is written to the message row at most this often. */
+  TURN_FLUSH_MS: int(1_000),
+  /** N-76: the turn sweeper's tick. 0 turns the periodic sweep off (the boot sweep still runs). */
+  TURN_SWEEP_INTERVAL_MS: int(NUMBERS.TURN_SWEEP_INTERVAL_MS.value),
+  /** N-34: idempotency keys are deleted after this many hours. */
+  IDEMPOTENCY_KEY_TTL_HOURS: int(NUMBERS.IDEMPOTENCY_KEY_TTL_HOURS.value),
+  /** N-24: the named `ping` frame. */
+  SSE_PING_MS: int(NUMBERS.SSE_PING_MS.value),
+  /** N-73: a frame the socket has not taken by then ends the connection. */
+  SSE_SEND_TIMEOUT_MS: int(NUMBERS.SSE_SEND_TIMEOUT_MS.value),
+  /** N-73: session and chat re-check on an open stream. */
+  SSE_SESSION_RECHECK_MS: int(NUMBERS.SSE_SESSION_RECHECK_MS.value),
+  /** N-73: poll of the stored row for a run held by another instance. */
+  SSE_RELAY_POLL_MS: int(NUMBERS.SSE_RELAY_POLL_MS.value),
+  /** N-73: SIGTERM drain budget. */
+  SHUTDOWN_DRAIN_MS: int(NUMBERS.SHUTDOWN_DRAIN_MS.value),
+  /** Ours: the process exits by force this long after SIGTERM, inside Cloud Run's 10 s. */
+  SHUTDOWN_HARD_EXIT_MS: int(9_000),
+  /** N-45: API statement timeout. */
+  DB_STATEMENT_TIMEOUT_MS: int(NUMBERS.DB_STATEMENT_TIMEOUT_MS.value),
+  /** N-45: sweeps, exports and file jobs (`SET LOCAL`). */
+  DB_LONG_STATEMENT_TIMEOUT_MS: int(NUMBERS.DB_LONG_STATEMENT_TIMEOUT_MS.value),
+  /** N-45. */
+  DB_LOCK_TIMEOUT_MS: int(NUMBERS.DB_LOCK_TIMEOUT_MS.value),
+  /** N-45. */
+  DB_IDLE_IN_TRANSACTION_MS: int(NUMBERS.DB_IDLE_IN_TRANSACTION_MS.value),
+  /** N-45: pool recycle. */
+  DB_MAX_LIFETIME_S: int(NUMBERS.DB_MAX_LIFETIME_S.value),
+  /** N-73 (repo value): stream events a run keeps for a reconnect; past it the client is sent a `snapshot`. */
+  RUN_BUFFER_MAX_EVENTS: int(NUMBERS.RUN_BUFFER_MAX_EVENTS.value),
+  /** Ours (P21, A-26): serialised bytes of events a run keeps; past it the head drops (a reconnect from
+   *  before it gets a `snapshot`). Bounds one run's memory however large its frames. */
+  RUN_BUFFER_MAX_BYTES: int(64 * 1024 * 1024),
+  /** N-45: whole-transaction retries of the settle on 40001 / 40P01. */
+  DB_TX_MAX_RETRIES: int(NUMBERS.DB_TX_MAX_RETRIES.value),
 
   // --- Generation limits --------------------------------------------------
   // 64,000 for agentic work (128,000 at xhigh or max effort). A turn
@@ -162,12 +213,14 @@ const envSchema = z.object({
    *  characters; past it, the model searches them with search_project_files (ADR-0020).
    *  This one is ArcNave's: about 50,000 tokens, a fraction of every configured model's
    *  1M-token window, so the conversation keeps its room. */
-  PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
+  /** N-05 (repo value). */
+  PROJECT_FULL_CONTEXT_MAX_CHARS: int(NUMBERS.PROJECT_FULL_CONTEXT_MAX_CHARS.value),
   /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
    *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
    *  of the current turn never does. The Anthropic adapter (verified request limit) and Gemini PDFs sent by
    *  gs:// URI are not held to it (ADR-0019). */
-  HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
+  /** N-13 (repo value). */
+  HISTORY_MAX_ATTACHMENT_BYTES: int(NUMBERS.HISTORY_MAX_ATTACHMENT_BYTES.value),
 
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),
@@ -253,7 +306,8 @@ const envSchema = z.object({
   /** Raw UTF-8 byte ceiling on submitted code, enforced client-side before any network call.
    *  Cloud Run caps a single env-var value at 32,768 bytes and base64 expands by ~33%, so the
    *  real ceiling is ~24.5 KiB; this stays comfortably under that. */
-  MAX_CODE_BYTES: int(20 * 1024),
+  /** N-08 (repo value). */
+  MAX_CODE_BYTES: int(NUMBERS.MAX_CODE_BYTES.value),
   /** In-container deadline (passed as RUN_PYTHON_CODE_TIMEOUT_MS) bounding only the user's
    *  Python subprocess — never reused as the client-side orchestration deadline below. */
   /** N-08 (repo value). */
@@ -261,7 +315,8 @@ const envSchema = z.object({
   /** Client-side deadline covering the entire jobs:run -> Operation -> Execution -> Cloud
    *  Logging round trip. Must stay comfortably larger than RUN_PYTHON_CODE_TIMEOUT_MS plus
    *  realistic Cloud Run scheduling and Cloud Logging indexing lag. */
-  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: int(45_000),
+  /** N-68 (repo value). */
+  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: int(NUMBERS.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS.value),
   /** Streaming-capture cap enforced by the in-container runner as it reads each pipe — not a
    *  post-hoc slice, so an unbounded print loop can't OOM the container before this applies. */
   MAX_STDOUT_BYTES: int(64 * 1024),
@@ -276,12 +331,14 @@ const envSchema = z.object({
    *  Postgres (tools/sandbox/semaphore.ts), not per-instance, since the service autoscales.
    *  Chosen well under the project's Cloud Run quotas (RunningExecutionsPerProject: 1000;
    *  JobRunPerMinutePerProjectRegion: 180 — the latter is the binding one at this default). */
-  MAX_CONCURRENT_RUN_PYTHON: int(20),
+  /** N-08 (repo value). */
+  MAX_CONCURRENT_RUN_PYTHON: int(NUMBERS.MAX_CONCURRENT_RUN_PYTHON.value),
   /** Extra time added on top of RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS before a claim's lease
    *  expires and it stops counting against the cap. Must be positive slack, not a separate
    *  guess — an unreleased claim from a real still-running call must never be reaped as
    *  abandoned while it's genuinely in flight. */
-  SANDBOX_CLAIM_LEASE_BUFFER_MS: int(30_000),
+  /** N-68 (repo value). */
+  SANDBOX_CLAIM_LEASE_BUFFER_MS: int(NUMBERS.SANDBOX_CLAIM_LEASE_BUFFER_MS.value),
 
   // --- Skills System (Item 11) -------------------------------------------
   /** Master gate for the skills registry, progressive disclosure, and skill tools. */
@@ -298,17 +355,21 @@ const envSchema = z.object({
   /** Background conservative distillation of durable user-stated facts. */
   /** Maximum total characters allocated to standing context memories. */
   /** Characters of memory topics a conversation starts with; the rest stay searchable. */
-  MEMORY_CONTEXT_MAX_CHARS: int(8000),
+  /** N-17 (repo value). */
+  MEMORY_CONTEXT_MAX_CHARS: int(NUMBERS.MEMORY_CONTEXT_MAX_CHARS.value),
 
   /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
   ENABLE_CONTEXT_COMPACTION: bool(true),
   /** Tokens of the previous request at which a chat compacts, used only when the model's window
    *  is unknown; otherwise compaction runs as the window fills (ADR-0027). */
-  COMPACTION_TRIGGER_TOKENS: int(150_000),
+  /** N-16 (repo value). */
+  COMPACTION_TRIGGER_TOKENS: int(NUMBERS.COMPACTION_TRIGGER_TOKENS.value),
   /** Headroom threshold in tokens below which compaction triggers. */
-  COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),
+  /** N-16 (repo value). */
+  COMPACTION_TRIGGER_HEADROOM_TOKENS: int(NUMBERS.COMPACTION_TRIGGER_HEADROOM_TOKENS.value),
   /** Headroom ratio (remaining context / total context window) below which compaction triggers. */
-  COMPACTION_TRIGGER_HEADROOM_RATIO: z.coerce.number().min(0.01).max(0.99).default(0.15),
+  /** N-77 (repo value). */
+  COMPACTION_TRIGGER_HEADROOM_RATIO: z.coerce.number().min(0.01).max(0.99).default(NUMBERS.COMPACTION_TRIGGER_HEADROOM_RATIO.value),
 
   // --- Phase 6: Generative UI & Phase 7: Analytics ------------------------
   /** Master gate for structured Generative UI (render_ui tool). */
@@ -454,9 +515,9 @@ const envSchema = z.object({
   RATE_LIMIT_GENERATE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_GENERATE_PER_MINUTE.value),
   /** N-01 (repo value). */
   RATE_LIMIT_WRITE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_WRITE_PER_MINUTE.value),
-  RATE_LIMIT_AUTH_PER_MINUTE: int(10),
+  RATE_LIMIT_AUTH_PER_MINUTE: int(NUMBERS.RATE_LIMIT_AUTH_PER_MINUTE.value), // N-01 (repo value)
   /** Anonymous reads of shared links, per IP (ADR-0039). */
-  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: int(60),
+  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE.value), // N-01 (repo value)
 
   // --- Pricing ------------------------------------------------------------
   /**
@@ -548,6 +609,86 @@ const envSchema = z.object({
   SAFE_FETCH_GROUNDING_MAX_REDIRECTS: int(8),
   /** One TCP connect attempt before safeFetch tries the host's next checked address (ours). */
   SAFE_FETCH_CONNECT_TIMEOUT_MS: int(3_000),
+
+  // --- P22: data model and the ledger (ADR-0079) ---------------------------
+  /**
+   * Where a call's price comes from (Stage 18 CD-1, N-36). `book`: the effective-dated rows in
+   * `config/priceBook.ts`, mirrored into `price_table` at boot. `env`: `PRICING_TABLE` above,
+   * kept until the owner retires it ("env JSON stays until the switch").
+   */
+  PRICE_SOURCE: z.enum(['book', 'env']).default('book'),
+  /**
+   * Object-storage prefix the deletion ledger is written under (Stage 5 P11, G4; N-34 keeps it a
+   * year by a bucket lifecycle rule, which is infrastructure). At least 5 characters, so it can
+   * never be a 4-hex owner shard: `storage.deleteOwned` reaches only `<shard>/…`.
+   */
+  DELETION_LEDGER_PREFIX: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{4,40}$/, 'DELETION_LEDGER_PREFIX: lowercase letters, digits and "-", 5 to 41 characters')
+    .default('deletion-ledger'),
+
+  // --- P13: history budget, summary, title and router helpers (ADR-0080) --------------------
+  /**
+   * The helper model (title, summary and router shadow jobs): Claude Haiku 5.5 on the first-party
+   * Claude API (owner decision, ADR-0080). A helper row is never a chat model: it is not listed in
+   * /models, never picked by Auto, and never a fallback. Empty turns the helper jobs off; unset
+   * without ANTHROPIC_API_KEY they are skipped with `helper_unavailable` (Invariant 1).
+   */
+  MODEL_HAIKU: modelId('claude-haiku-5-5'),
+  /**
+   * The rolling history summary (Stage 6 CXD-5, N-77) and the N-03 input budget for history.
+   * On by default: the stage's pick is to re-point the old compaction to this summary and retire
+   * the compaction after the switch. With it on, ENABLE_CONTEXT_COMPACTION defaults to false.
+   */
+  ENABLE_HISTORY_SUMMARY: bool(true),
+  /**
+   * Ours, pending the owner (ADR-0080): a turn older than the newest N-16 turns is dropped only
+   * once a summary covers it. False is the stage rule (newest 6 turns only, the rest unsent).
+   */
+  HISTORY_KEEP_UNCOVERED: bool(true),
+  /**
+   * Router M2 in shadow mode (Stage 7 RT-2, N-69): one helper classify call per turn, never
+   * awaited before generation and never changing the route; one coded log line. Off by default
+   * (the stage ships it off until the intent list exists).
+   */
+  ROUTER_SHADOW: bool(false),
+  // --- P11: error matrix, breaker, fallback (ADR-0081) -----------------------------------
+  /** N-47: a model's breaker opens after this many failures in BREAKER_WINDOW_MS. */
+  BREAKER_FAILURES: int(NUMBERS.BREAKER_FAILURES.value),
+  /** N-47. */
+  BREAKER_WINDOW_MS: int(NUMBERS.BREAKER_WINDOW_MS.value),
+  /** N-47: or this share of the last BREAKER_MIN_CALLS calls failed. */
+  BREAKER_RATIO: positiveNumber(NUMBERS.BREAKER_RATIO.value),
+  /** N-47. */
+  BREAKER_MIN_CALLS: int(NUMBERS.BREAKER_MIN_CALLS.value),
+  /** N-47: an open breaker admits one trial call after this long. */
+  BREAKER_HALF_OPEN_MS: int(NUMBERS.BREAKER_HALF_OPEN_MS.value),
+  /** N-47: at most this share of an instance's provider calls are retries. */
+  RETRY_BUDGET_RATIO: positiveNumber(NUMBERS.RETRY_BUDGET_RATIO.value),
+  /** Retries always allowed per window whatever the ratio (ours, no N-id; owner to confirm). */
+  RETRY_BUDGET_MIN_RESERVE: int(2),
+  /** N-43: tool timers (ER-4c). */
+  TOOL_TIMEOUT_WEB_SEARCH_MS: int(NUMBERS.TOOL_TIMEOUT_WEB_SEARCH_MS.value),
+  TOOL_TIMEOUT_FILE_SEARCH_MS: int(NUMBERS.TOOL_TIMEOUT_FILE_SEARCH_MS.value),
+  TOOL_TIMEOUT_MEMORY_MS: int(NUMBERS.TOOL_TIMEOUT_MEMORY_MS.value),
+  /**
+   * Kill switch (ER-13): model aliases or provider model ids that are never called, whatever
+   * the breaker says. A turn that picked one goes down its fallback chain with the label
+   * `disabled`. Comma-separated; empty = none.
+   */
+  MODELS_DISABLED: csv([]),
+  /**
+   * The ops incident banner (ER-12b): text written by ops, shown to every user, served by
+   * GET /v1/status. Unset = no banner. Never user, file or model text.
+   */
+  INCIDENT_BANNER: optionalStr,
+  /**
+   * E18 token bucket per model, calls per minute. Unset = off: the register has no capacity for
+   * it (OWNER ITEM, ADR-0081).
+   */
+  PROVIDER_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().optional().catch(undefined),
+  /** OQ-02 A: a failed model hands the turn to the next of its chain, labelled. Off = no hop. */
+  FALLBACK_ENABLED: bool(true),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -595,6 +736,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
 
   return {
     ...env,
+    // P13 (ADR-0080, OQ-09 / CXD-5): the history summary replaces the compaction; the two never
+    // run together. ENABLE_HISTORY_SUMMARY=false brings the compaction back per its own flag.
+    ENABLE_CONTEXT_COMPACTION: env.ENABLE_HISTORY_SUMMARY ? false : env.ENABLE_CONTEXT_COMPACTION,
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
     vertexConfigured: Boolean(env.GOOGLE_CLOUD_PROJECT),

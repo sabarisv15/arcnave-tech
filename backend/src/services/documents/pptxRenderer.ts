@@ -11,7 +11,7 @@ import type { SlideItem, SlidesSpec } from './types.js';
 
 export async function renderSlides(spec: SlidesSpec): Promise<Buffer> {
   const PptxGen = (pptxgen as unknown as { default?: unknown }).default || pptxgen;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const pres: any = new (PptxGen as any)();
 
   pres.layout = 'LAYOUT_16x9';

@@ -1,0 +1,1 @@
+Your previous response was interrupted. It ended with the text inside <previous_response>. Continue from exactly where it stopped: do not repeat any of it, do not start again, and do not mention the interruption.

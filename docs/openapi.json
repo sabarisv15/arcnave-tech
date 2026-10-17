@@ -1050,6 +1050,14 @@
                             "nullable": true,
                             "type": "string"
                           },
+                          "fallbackFrom": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "fallbackReason": {
+                            "nullable": true,
+                            "type": "string"
+                          },
                           "artifactId": {
                             "nullable": true,
                             "type": "string"
@@ -1437,6 +1445,8 @@
                           "effort",
                           "providerModelId",
                           "finishReason",
+                          "fallbackFrom",
+                          "fallbackReason",
                           "artifactId",
                           "searchEntryPoint",
                           "thinking",
@@ -1707,6 +1717,43 @@
         }
       }
     },
+    "/chats/{id}/active-version": {
+      "put": {
+        "summary": "Make this version the one the conversation opens on (ADR-0079)",
+        "tags": [
+          "chats"
+        ],
+        "description": "Stores the choice on the server: `GET /chats` lists this version for the conversation until another is chosen or a generate runs in another one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/chats/{id}/branch": {
       "post": {
         "summary": "Copy a chat: up to a message, or as a new version of an edited prompt",
@@ -1808,7 +1855,7 @@
         "tags": [
           "chats"
         ],
-        "description": "Returns text/event-stream. Frames: start, research, delta, sources, tool_use, tool_result, done, error. Each frame carries an SSE `id`. Disconnecting does not cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop.",
+        "description": "Returns text/event-stream. Frames: ack (first: the turn and message ids), start, research, delta, sources, tool_use, tool_result, done, error; a named ping every 15 s. Each run frame carries an SSE `id`. Disconnecting does not cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop. Refused before anything is saved: 402 `budget_exceeded`, 400 `model_unavailable` for a named model this deployment cannot serve, 409 `run_in_progress`, 503 `server_shutdown`. An `Idempotency-Key` already used with the same body reattaches to that turn; with another body, 409 `idempotency_conflict`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1886,6 +1933,16 @@
             "in": "path",
             "name": "id",
             "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false
           }
         ],
         "responses": {
@@ -1901,7 +1958,7 @@
         "tags": [
           "chats"
         ],
-        "description": "Replays the run's frames after `after` (the SSE `id` of the last frame received; omit for all), then streams live frames until the run ends. 404 `no_active_run` when this instance holds no run for the chat: read the chat for the persisted reply.",
+        "description": "Replays the run's frames after the client's position (`Last-Event-ID`, which wins, or `after`: the SSE `id` of the last frame received; omit for all), then streams live frames until the run ends. When this instance does not hold the run (another instance runs it, or it ended), or no longer holds the frames asked for, a `snapshot` frame carries the stored reply, repeated as it changes until the turn ends. 404 `no_active_run` when the chat has never had a turn.",
         "parameters": [
           {
             "schema": {
@@ -1938,6 +1995,7 @@
         "tags": [
           "chats"
         ],
+        "description": "Sets the turn's cancel flag, which the instance running it reads within 2 s; a run on this instance stops at once.",
         "parameters": [
           {
             "schema": {
@@ -8976,6 +9034,36 @@
                   "enum": [
                     null
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "summary": "Service status: the ops incident banner, when one is set (ER-12b).",
+        "tags": [
+          "ops"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incidentBanner": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "incidentBanner"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }

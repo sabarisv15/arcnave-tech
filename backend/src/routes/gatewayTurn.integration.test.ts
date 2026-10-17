@@ -10,7 +10,7 @@
  */
 import { ApiError as GeminiApiError } from '@google/genai';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { messages, toolCalls } from '../db/schema.js';
 import { classifyGeminiError } from '../providers/gemini.js';
@@ -19,6 +19,7 @@ import { ProviderError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp } from '../test/harness.js';
 import { AskUserInputExecutor } from '../tools/optionsExecutor.js';
+import { CUT_MARKERS } from '../services/history/failedExchanges.js';
 
 /**
  * A provider whose next attempts are scripted as functions: each one gets the request (so it can
@@ -88,6 +89,12 @@ async function lastAssistant(chatId: string) {
 
 describe('history is sized by the resolved model, never Auto (D2 X-2)', () => {
   it('Auto with 600k characters of tool results keeps the earliest turn', async () => {
+    // The character backstop is what D2 X-2 is about; with a count, the N-03 input budget would
+    // drop the oldest turns first (ADR-0080, historySummary.integration.test.ts). No count here.
+    provider.tokenCount = null;
+    onTestFinished(() => {
+      provider.tokenCount = (text) => Math.ceil(text.length / 4);
+    });
     const { send } = await newChat();
     provider.script = plain('first answer');
     await send('EARLIEST question');
@@ -132,7 +139,8 @@ describe('failed, refused and empty exchanges are left out of the history (D2 X-
     provider.script = plain('ok');
     await send('next');
     const history = provider.seen.at(-1)!.history.map((t) => `${t.role}:${t.text}`);
-    expect(history).toEqual(['user:GOOD question', 'assistant:good answer', 'user:STOPPED question', 'assistant:half an ans']);
+    // P11 (ADR-0081): the stopped answer carries its cut marker, so it is not read as finished.
+    expect(history).toEqual(['user:GOOD question', 'assistant:good answer', 'user:STOPPED question', `assistant:half an ans\n\n${CUT_MARKERS.stopped}`]);
     expect(JSON.stringify(provider.seen.at(-1)!.history)).not.toContain('[Response stopped]');
   });
 });
@@ -202,6 +210,7 @@ describe('the retry gate counts tool and thinking events (Stage 15 ER-2b)', () =
 
   it('a transient failure before any step is still retried', async () => {
     provider.attempts = [
+      // eslint-disable-next-line require-yield -- a stream that fails before its first event
       async function* () {
         throw new ProviderError('busy', { retryable: true, statusCode: 503 });
       },
@@ -236,18 +245,22 @@ describe('Gemini errors through the gateway (Stage 15 ER-2e, ER-2g)', () => {
   const geminiError = (status: number, message: string, statusText: string) =>
     classifyGeminiError(new GeminiApiError({ message: JSON.stringify({ error: { code: status, message, status: statusText } }), status }), 'fake-flash', 'global');
 
-  it('retries a 502 (PROVIDER_MAX_RETRIES times) and never a quota-0 429', async () => {
+  // P11 (ADR-0081): after its retries the turn moves to the next model of the chain (7.12), with
+  // its own retries, labelled. This file's one fake serves both slots, so both models fail alike.
+  it('retries a 502 (PROVIDER_MAX_RETRIES times) and never a quota-0 429, on each model of the chain', async () => {
     const { send } = await newChat();
     let before = provider.seen.length;
     provider.streamError = geminiError(502, 'Bad Gateway', 'UNAVAILABLE');
     let frames = await send('one');
-    expect(provider.seen.length - before).toBe(1 + ctx.cfg.PROVIDER_MAX_RETRIES);
+    expect(provider.seen.length - before).toBe(2 * (1 + ctx.cfg.PROVIDER_MAX_RETRIES));
+    expect(frames.find((f) => f.event === 'model_switch')?.data).toMatchObject({ from: 'Gemini 3.8 Flash', to: 'Sonnet 5.5', reason: 'unavailable' });
     expect(frames.find((f) => f.event === 'error')?.data).toMatchObject({ code: 'provider_error' });
 
     before = provider.seen.length;
     provider.streamError = geminiError(429, '* Quota exceeded for metric: m, limit: 0, model: gemini-3.8-flash', 'RESOURCE_EXHAUSTED');
     frames = await send('two');
-    expect(provider.seen.length - before).toBe(1);
+    expect(provider.seen.length - before).toBe(2);
+    expect(frames.find((f) => f.event === 'model_switch')?.data).toMatchObject({ reason: 'quota' });
     expect(frames.find((f) => f.event === 'error')?.data).toMatchObject({ code: 'provider_quota_unavailable' });
   });
 });

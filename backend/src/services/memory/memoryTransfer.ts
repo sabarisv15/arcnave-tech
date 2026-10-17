@@ -7,10 +7,11 @@
  * statement; nothing is inferred from it.
  */
 import type { MemoryKind } from './types.js';
+import { NUMBERS } from '../../config/numbers.js';
 
 export const MEMORY_EXPORT_VERSION = 1;
 /** One import is at most this many memories; a longer paste is refused, not cut. */
-export const MAX_IMPORT_ITEMS = 500;
+export const MAX_IMPORT_ITEMS = NUMBERS.MEMORY_IMPORT_MAX_ITEMS.value; // N-17
 const MAX_KEY = 200;
 const KEY_WORDS = 8;
 

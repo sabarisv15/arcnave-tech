@@ -37,7 +37,7 @@ function findAvailableFontFile(paths: string[]): Buffer | null {
         return fs.readFileSync(p);
       }
     } catch {
-      // Continue to next path
+      // benign: Continue to next path
     }
   }
   return null;
@@ -60,6 +60,7 @@ export async function renderPdf(spec: DocumentSpec): Promise<Buffer> {
       font = await pdfDoc.embedFont(fontBytes, { subset: true });
       hasUnicodeFont = true;
     } catch {
+      // benign: no Unicode font: the standard font is used and hasUnicodeFont stays false
       font = null;
     }
   }
@@ -68,6 +69,7 @@ export async function renderPdf(spec: DocumentSpec): Promise<Buffer> {
     try {
       boldFont = await pdfDoc.embedFont(boldBytes, { subset: true });
     } catch {
+      // benign: no bold font: bold text uses the regular font
       boldFont = null;
     }
   }
@@ -99,6 +101,7 @@ export async function renderPdf(spec: DocumentSpec): Promise<Buffer> {
       .replace(/[\u201C\u201D]/g, '"')
       .replace(/[\u2013\u2014]/g, '-')
       .replace(/\u2026/g, '...')
+      // eslint-disable-next-line no-control-regex -- the class is "not ASCII", for the standard PDF font
       .replace(/[^\x00-\x7F]/g, '?');
   };
 
@@ -125,7 +128,7 @@ export async function renderPdf(spec: DocumentSpec): Promise<Buffer> {
           currentLine = word;
         }
       } catch {
-        // In case of width measurement anomaly, wrap by character count
+        // benign: In case of width measurement anomaly, wrap by character count
         if (candidate.length > 60) {
           if (currentLine) lines.push(currentLine);
           currentLine = word;
@@ -197,7 +200,7 @@ export async function renderPdf(spec: DocumentSpec): Promise<Buffer> {
           });
           y -= h + 16;
         } catch {
-          // If image embedding encounters format incompatibility, render text placeholder
+          // benign: If image embedding encounters format incompatibility, render text placeholder
           currentPage.drawText(`[Image: ${block.alt}]`, {
             x: margin,
             y,

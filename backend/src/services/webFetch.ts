@@ -6,6 +6,7 @@
  * deadline. This file only turns the page into text.
  */
 import { safeFetch, type Resolver, type Transport } from './safeFetch.js';
+import { NUMBERS } from '../config/numbers.js';
 
 export interface WebFetchResult {
   url: string;
@@ -28,7 +29,7 @@ export class WebFetchService {
 
   async fetchPage(
     rawUrl: string,
-    maxChars: number = 10_000,
+    maxChars: number = NUMBERS.WEB_FETCH_DEFAULT_MAX_CHARS.value, // N-09
     signal?: AbortSignal,
   ): Promise<WebFetchResult> {
     const response = await safeFetch(rawUrl, {

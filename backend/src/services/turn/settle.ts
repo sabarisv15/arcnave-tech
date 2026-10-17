@@ -1,7 +1,8 @@
 /**
- * The turn's settle step: the message row, the turn log's outcome, the usage record, then the
- * debug trace and `done` for a complete turn. Cut from the turn generator unchanged (ADR-0073):
- * `this` became `svc`, the turn's locals arrive in `turn`, and its state in `state`.
+ * The turn's settle step: one transaction for the message row, its sources, the usage record, the
+ * reservation and the turn's state (ADR-0078), then the turn log's outcome, then the debug trace and
+ * `done` for a complete turn. Cut from the turn generator (ADR-0073): `this` became `svc`, the
+ * turn's locals arrive in `turn`, and its state in `state`.
  */
 import { logger } from '../../logger.js';
 import type { ModelEntry } from '../../providers/registry.js';
@@ -10,9 +11,9 @@ import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
 import type { SkillDetail } from '../skills.js';
 import type { TurnLog } from '../turnLog.js';
 import { usdToInr } from '../usage.js';
-import { type StreamEvent, computeCostFor, toUsageDto } from './events.js';
+import { type StreamEvent, toUsageDto } from './events.js';
 import type { GenerateInput, PreferencesRow } from './input.js';
-import { finalise } from './persistence.js';
+import { endStateFor, settleTurn as settleTurnRows } from './turnStore.js';
 import type { TurnServices } from './services.js';
 import type { TurnLogOutcome, TurnState } from './turnState.js';
 
@@ -42,42 +43,73 @@ export async function* settleTurn(
   const { entry, prefs, text, reasoningEffort, turnLog, logOutcome, startedAt, allowedTools, loadedSkills } = turn;
   const questions: string[] = [];
 
-  await finalise(svc, input, {
-    text,
-    thinking: state.collectedThinking.join(''),
-    segments: state.segments,
-    sources: state.collectedSources,
-    searchEntryPoint: state.searchEntryPoint,
-    status: state.status === 'cancelled' ? 'stopped' : state.status === 'error' ? 'error' : 'complete',
-    errorCode: state.errorCode,
-    finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
+  const status = state.status === 'cancelled' ? 'stopped' : state.status === 'error' ? 'error' : 'complete';
+  const finishReason = state.status === 'cancelled' ? 'cancelled' : state.finishReason;
+  // One transaction, in the fixed order (ADR-0078): the turn locked and fenced, the row, its
+  // sources, the usage row and the counters, the reservation, the turn's state, the chat.
+  await settleTurnRows(
+    svc,
+    { userId: input.userId, chatId: input.chatId, messageId: input.messageId, requestId: input.requestId, projectId: input.projectId },
+    input.turn,
+    {
+      message: {
+        kind: 'final',
+        text,
+        thinking: state.collectedThinking.join(''),
+        segments: state.segments,
+        sources: state.collectedSources,
+        searchEntryPoint: state.searchEntryPoint,
+        status,
+        errorCode: state.errorCode,
+        finishReason,
+        model: { alias: entry.alias, provider: entry.provider, providerModelId: entry.providerModelId ?? null },
+        mode: input.mode,
+        questions,
+        ...(reasoningEffort ? { effort: reasoningEffort } : {}),
+        ...(state.fallback ? { fallback: state.fallback } : {}),
+      },
+      usage: {
+        prefs,
+        modelAlias: entry.alias,
+        provider: entry.provider,
+        providerModelId: entry.providerModelId!,
+        usage: state.usage,
+        startedAt,
+        status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
+        finishReason,
+        calls: state.calls,
+        clocks: state.clocks,
+      },
+      end: endStateFor(status, state.errorCode),
+      // An answer kept after a failure (ER-2b / ER-3c) ends as what cut it: `partial_after_tool_run`
+      // or `interrupted` (P11).
+      finishCode:
+        state.status === 'complete'
+          ? state.endedPartial
+            ? state.finishReason === 'interrupted'
+              ? 'interrupted'
+              : 'partial_after_tool_run'
+            : state.finishReason
+          : (state.errorCode ?? finishReason),
+    },
+  );
+
+  // P13 (ADR-0080): the title and summary jobs start once the settle committed. Never awaited and
+  // never failing the turn; each job reads the stored rows, not this turn's memory.
+  svc.helperJobs?.afterSettle({
+    userId: input.userId,
+    chatId: input.chatId,
+    messageId: input.messageId,
+    status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
     entry,
-    mode: input.mode,
-    questions,
-    effort: reasoningEffort,
   });
 
   turnLog.stage('saved', { status: state.status, textCharacters: text.length, segments: state.segments.length });
   Object.assign(logOutcome, {
     status: state.status === 'cancelled' ? 'stopped' : state.status,
-    finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
+    finishReason,
     errorCode: state.errorCode,
     usage: state.usage,
-  });
-  await svc.usage.record({
-    userId: input.userId,
-    prefs,
-    requestId: input.requestId,
-    chatId: input.chatId,
-    messageId: input.messageId,
-    projectId: input.projectId,
-    modelAlias: entry.alias,
-    provider: entry.provider,
-    providerModelId: entry.providerModelId!,
-    usage: state.usage,
-    startedAt,
-    status: state.status === 'cancelled' ? 'cancelled' : state.status === 'error' ? 'error' : 'complete',
-    finishReason: state.status === 'cancelled' ? 'cancelled' : state.finishReason,
   });
 
   // A cancelled run has no terminal `done`: the client already knows it stopped, and
@@ -91,14 +123,16 @@ export async function* settleTurn(
     log.info({ debugTrace }, 'Runtime debug trace');
     yield { type: 'debug', trace: debugTrace };
 
-    const costUsd = computeCostFor(svc.cfg, entry.providerModelId!, state.usage);
+    // The usage row's own figure: the calls priced one by one (P22, ADR-0079).
+    const costUsd = svc.usage.turnCost(state.calls, startedAt);
     yield {
       type: 'done',
       questions,
       usage: toUsageDto(state.usage, costUsd, usdToInr(svc.cfg, costUsd)),
       finishReason: state.finishReason,
       ...(reasoningEffort ? { effort: reasoningEffort } : {}),
-      ...(state.endedPartial ? { partial: true as const, errorCode: 'partial_after_tool_run' as const } : {}),
+      ...(state.endedPartial ? { partial: true as const, errorCode: state.errorCode ?? 'partial_after_tool_run' } : {}),
+      ...(state.fallback ? { fallback: state.fallback } : {}),
     };
   }
 }

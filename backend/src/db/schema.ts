@@ -11,6 +11,8 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   bigint,
+  numeric,
+  primaryKey,
   boolean,
   check,
   doublePrecision,
@@ -25,6 +27,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { NUMBERS } from '../config/numbers.js';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 
@@ -103,7 +106,7 @@ export const preferences = pgTable(
     styleId: varchar('style_id', { length: 64 }).notNull().default('normal'),
 
     // Usage & limits
-    maxOutputTokens: integer('max_output_tokens').notNull().default(64000),
+    maxOutputTokens: integer('max_output_tokens').notNull().default(NUMBERS.DEFAULT_MAX_OUTPUT_TOKENS.value), // N-74
     dailyTokenBudget: integer('daily_token_budget'),
     monthlyTokenBudget: integer('monthly_token_budget'),
     warnThresholdPct: integer('warn_threshold_pct').notNull().default(80),
@@ -268,11 +271,16 @@ export const chats = pgTable(
     parentChatId: uuid('parent_chat_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
     rootChatId: uuid('root_chat_id'),
     forkSeq: integer('fork_seq'),
+    /** P22 (ADR-0079): on the family's root, the version the user chose last; the list shows it. Not a foreign key (a purge never splits the family). */
+    activeChatId: uuid('active_chat_id'),
+    /** P13 (ADR-0080): who named the chat: default | prompt | generated | user. A user rename wins. */
+    titleSource: varchar('title_source', { length: 16 }).notNull().default('default'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
+    check('ck_chats_title_source', sql`${t.titleSource} in ('default', 'prompt', 'generated', 'user')`),
     index('ix_chats_user_updated').on(t.userId, t.updatedAt),
     index('ix_chats_project').on(t.projectId),
     index('ix_chats_root').on(t.rootChatId),
@@ -321,12 +329,31 @@ export const messages = pgTable(
     /** The answer's thinking, text and tool steps in the order they happened. Null for answers
      *  stored before it existed; the client then shows them grouped. */
     segments: jsonb('segments').$type<MessageSegment[]>(),
+    // P13 turn stamps (Stage 6 STAMPS, ADR-0080), on the assistant row; ids and counts only.
+    historyTurns: integer('history_turns'),
+    historyDroppedTurns: integer('history_dropped_turns'),
+    ctxTokens: integer('ctx_tokens'),
+    /** Ours: the fixed part (system instruction + tool declarations) of `ctx_tokens`, read by the summary trigger. */
+    ctxFixedTokens: integer('ctx_fixed_tokens'),
+    /** provider | none */
+    ctxCountSource: varchar('ctx_count_source', { length: 16 }),
+    overBudget: boolean('over_budget'),
+    summaryVersion: integer('summary_version'),
+    promptVersion: varchar('prompt_version', { length: 64 }),
+    /** Null until the registry is versioned (P10). */
+    registryVersion: varchar('registry_version', { length: 32 }),
+    /** P11 (7.12, ADR-0081): the model the turn moved away from; null = the first model answered. */
+    fallbackFrom: varchar('fallback_from', { length: 64 }),
+    /** P11: why (`providers/failures.ts` FALLBACK_REASONS). */
+    fallbackReason: varchar('fallback_reason', { length: 32 }),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('uq_message_seq').on(t.chatId, t.seq),
     index('ix_messages_chat').on(t.chatId),
+    // P08: the sweeper finds rows still `generating` past the turn deadline without a table scan.
+    index('ix_messages_generating').on(t.createdAt).where(sql`${t.status} = 'generating'`),
     check('ck_message_role', sql`${t.role} in ('user','assistant')`),
     check('ck_message_feedback', sql`${t.feedback} is null or ${t.feedback} in ('up','down')`),
     check(
@@ -825,6 +852,8 @@ export const usageRecords = pgTable(
     /** complete | cancelled | error | blocked */
     status: varchar('status', { length: 16 }).notNull().default('complete'),
     errorCode: varchar('error_code', { length: 48 }),
+    /** P11 (AL-2): a refusal's category (Claude) or a block's reason (Gemini); null otherwise. */
+    refusalCategory: varchar('refusal_category', { length: 32 }),
 
     /** Null unless a verified pricing entry exists. Null != 0. */
     costUsd: doublePrecision('cost_usd'),
@@ -834,6 +863,16 @@ export const usageRecords = pgTable(
      * rate is unknown; they are not back-filled with today's). Null != 0.
      */
     costInr: doublePrecision('cost_inr'),
+    /** P22: the price-book rate set the cost was taken from (`model_calls` has one per call). */
+    priceVersion: varchar('price_version', { length: 64 }),
+    /** P22 OD-8 clocks, null when not measured (never 0 for "unknown"): request sent → first stream event. */
+    providerTtftMs: integer('provider_ttft_ms'),
+    /** P22 OD-8: turn start → first answer text sent to the client. */
+    firstVisibleMs: integer('first_visible_ms'),
+    /** P22 OD-8: turn start → settle. */
+    turnTotalMs: integer('turn_total_ms'),
+    /** P22 OD-8: output tokens per second of generation; null unless the counts are exact. */
+    outputTps: doublePrecision('output_tps'),
   },
   (t) => [
     index('ix_usage_user_started').on(t.userId, t.startedAt),
@@ -1165,3 +1204,245 @@ export type SandboxWorkspace = typeof sandboxWorkspaces.$inferSelect;
 export type Style = typeof styles.$inferSelect;
 export type NewStyle = typeof styles.$inferInsert;
 
+
+// --- P08: durable runs, one turn per chat (ADR-0078) ---------------------------------------
+
+/**
+ * What a turn was started with: ids and enums only, never the prompt or any other text
+ * (Stage 17 NO_CONTENT). The prompt is the user message's own row. Enough to run the turn again
+ * from its id (`loadTurnInput`), the seam for an executor that is not the request's process.
+ */
+export interface TurnParams {
+  mode: 'chat' | 'search' | 'research';
+  modelAlias: string;
+  attachmentIds: string[];
+  codeExecution: boolean;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** A preset key or a custom style's id. */
+  styleId?: string;
+  clientPlatform?: 'mobile' | 'desktop';
+  projectId: string | null;
+  /** The model that answered, written when the turn's `start` is sent; the sweeper bills it. */
+  resolved?: { alias: string; provider: string; providerModelId: string };
+}
+
+/**
+ * One turn of a chat: a user message and the assistant row that answers it (or a regenerated
+ * answer). At most one turn per chat is queued or running (`uq_turns_running_chat`). The runner
+ * holds a lease it renews; every write it makes is fenced on `fencing_token`, which a takeover
+ * (the sweeper) increments, so a runner that lost its lease cannot write after the takeover.
+ */
+export const turns = pgTable(
+  'turns',
+  {
+    id: id(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    userMessageId: uuid('user_message_id').references(() => messages.id, { onDelete: 'set null' }),
+    assistantMessageId: uuid('assistant_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    /** send | regenerate */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    /** queued | running | done | cancelled | failed | interrupted */
+    state: varchar('state', { length: 16 }).notNull().default('queued'),
+    /** How the turn ended, as a stable code (`stop`, `cancelled`, an error code, `interrupted`). */
+    finishCode: varchar('finish_code', { length: 48 }),
+    requestId: varchar('request_id', { length: 64 }).notNull(),
+    params: jsonb('params').$type<TurnParams>().notNull(),
+    fencingToken: integer('fencing_token').notNull().default(1),
+    leaseOwner: varchar('lease_owner', { length: 64 }),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    cancelRequested: boolean('cancel_requested').notNull().default(false),
+    deadline: timestamp('deadline', { withTimezone: true }).notNull(),
+    /** The stream event index the stored message row covers (the `snapshot` frame's id). */
+    lastSeq: integer('last_seq').notNull().default(-1),
+    createdAt: createdAt(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('uq_turns_running_chat').on(t.chatId).where(sql`${t.state} in ('queued', 'running')`),
+    index('ix_turns_lease').on(t.leaseExpiresAt).where(sql`${t.state} in ('queued', 'running')`),
+    index('ix_turns_chat_created').on(t.chatId, t.createdAt),
+    index('ix_turns_assistant').on(t.assistantMessageId),
+    check('ck_turns_kind', sql`${t.kind} in ('send', 'regenerate')`),
+    check('ck_turns_state', sql`${t.state} in ('queued', 'running', 'done', 'cancelled', 'failed', 'interrupted')`),
+  ],
+);
+
+/**
+ * A budget reservation with an owner and an expiry (A-05, A-06): the worst-case output held
+ * against the user's day and month counters while a call runs. The periods are stored, so the
+ * hold is given back to the counters it was taken from even when a turn crosses midnight. A hold
+ * nobody settles (a crashed instance) expires, and the sweeper gives it back.
+ */
+export const budgetReservations = pgTable(
+  'budget_reservations',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    turnId: uuid('turn_id').references(() => turns.id, { onDelete: 'set null' }),
+    /** turn | utility (a call outside a turn, e.g. a style generated from samples) */
+    owner: varchar('owner', { length: 16 }).notNull(),
+    tokens: integer('tokens').notNull(),
+    /** The counter periods held against; null where that period had no limit. */
+    dayStart: timestamp('day_start', { withTimezone: true }),
+    monthStart: timestamp('month_start', { withTimezone: true }),
+    /** held | settled | released | expired */
+    status: varchar('status', { length: 16 }).notNull().default('held'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    /** P22: the usage row this hold was settled against (status `settled`). */
+    settledUsageRecordId: uuid('settled_usage_record_id').references(() => usageRecords.id, { onDelete: 'set null' }),
+    /** P22: the price-book rate set of that usage row. */
+    priceVersion: varchar('price_version', { length: 64 }),
+  },
+  (t) => [
+    index('ix_reservations_held').on(t.expiresAt).where(sql`${t.status} = 'held'`),
+    index('ix_reservations_turn').on(t.turnId),
+    check('ck_reservations_owner', sql`${t.owner} in ('turn', 'utility')`),
+    check('ck_reservations_status', sql`${t.status} in ('held', 'settled', 'released', 'expired')`),
+  ],
+);
+
+export type TurnRow = typeof turns.$inferSelect;
+export type BudgetReservation = typeof budgetReservations.$inferSelect;
+
+// --- P22: data model and the ledger (ADR-0079) ---------------------------------------------
+
+/**
+ * The price book in the database (Stage 5 TF, Stage 18 CD-1): the rows of `config/priceBook.ts`,
+ * upserted at boot. Effective-dated; no two rows of one model, token type and tier overlap in
+ * time (`price_table_no_overlap` trigger, migration 0031). Money as `numeric`, not a double.
+ */
+export const priceTable = pgTable(
+  'price_table',
+  {
+    id: id(),
+    providerModelId: varchar('provider_model_id', { length: 128 }).notNull(),
+    /** input | output | cache_read | cache_write_5m */
+    tokenType: varchar('token_type', { length: 16 }).notNull(),
+    trafficTier: varchar('traffic_tier', { length: 16 }).notNull().default('standard'),
+    usdPerMtok: numeric('usd_per_mtok', { precision: 12, scale: 6 }).notNull(),
+    effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull(),
+    effectiveTo: timestamp('effective_to', { withTimezone: true }),
+    priceVersion: varchar('price_version', { length: 64 }).notNull(),
+    source: text('source').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('uq_price_row').on(t.providerModelId, t.tokenType, t.trafficTier, t.effectiveFrom),
+    check('ck_price_token_type', sql`${t.tokenType} in ('input', 'output', 'cache_read', 'cache_write_5m')`),
+    check('ck_price_dates', sql`${t.effectiveTo} is null or ${t.effectiveTo} > ${t.effectiveFrom}`),
+    check('ck_price_nonnegative', sql`${t.usdPerMtok} >= 0`),
+  ],
+);
+
+/**
+ * One row per model call (Stage 4 E19, Stage 17 OD-13, Stage 5 TF): the ledger. A turn's
+ * `usage_records` row is the sum of its calls. Partitioned by month on `started_at` (with a
+ * DEFAULT partition) in the hand-edited migration 0031; `ensureLedgerPartitions` creates this
+ * and next month's. Ids, codes and counts only: no text (Stage 17 NO_CONTENT).
+ */
+export const modelCalls = pgTable(
+  'model_calls',
+  {
+    id: uuid('id').notNull().defaultRandom(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    usageRecordId: uuid('usage_record_id').references(() => usageRecords.id, { onDelete: 'set null' }),
+    turnId: uuid('turn_id').references(() => turns.id, { onDelete: 'set null' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    chatId: uuid('chat_id').references(() => chats.id, { onDelete: 'set null' }),
+    messageId: uuid('message_id').references(() => messages.id, { onDelete: 'set null' }),
+    ordinal: integer('ordinal').notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    /** answer | forced_answer | title | style | summary | router */
+    role: varchar('role', { length: 16 }).notNull(),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    providerModelId: varchar('provider_model_id', { length: 128 }).notNull(),
+    /** message_id | response_id | request_id; null when the provider gave none. */
+    providerRefType: varchar('provider_ref_type', { length: 16 }),
+    providerRef: varchar('provider_ref', { length: 128 }),
+    finishReason: varchar('finish_reason', { length: 48 }),
+    /** ok | partial (stopped mid-request) | no_usage | error (the request failed) */
+    outcome: varchar('outcome', { length: 16 }).notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    tokensExact: boolean('tokens_exact').notNull().default(false),
+    /** provider | provider_partial | none (no `estimated`: Invariant 3). */
+    usageSource: varchar('usage_source', { length: 16 }).notNull(),
+    trafficTier: varchar('traffic_tier', { length: 16 }).notNull().default('standard'),
+    priceVersion: varchar('price_version', { length: 64 }),
+    /** Null when the call has no verified price. Null != 0. */
+    costUsd: doublePrecision('cost_usd'),
+    costInr: doublePrecision('cost_inr'),
+    /** The rate `cost_inr` was taken at (N-37), null when there is no cost. */
+    fxInrPerUsd: doublePrecision('fx_inr_per_usd'),
+    providerTtftMs: integer('provider_ttft_ms'),
+    durationMs: integer('duration_ms'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id, t.startedAt] }),
+    index('ix_model_calls_usage').on(t.usageRecordId),
+    index('ix_model_calls_user_started').on(t.userId, t.startedAt),
+    check('ck_model_calls_role', sql`${t.role} in ('answer', 'forced_answer', 'title', 'style', 'summary', 'router')`),
+    check('ck_model_calls_source', sql`${t.usageSource} in ('provider', 'provider_partial', 'none')`),
+    check('ck_model_calls_outcome', sql`${t.outcome} in ('ok', 'partial', 'no_usage', 'error')`),
+  ],
+);
+
+export type ModelCallRow = typeof modelCalls.$inferSelect;
+export type PriceTableRow = typeof priceTable.$inferSelect;
+
+// --- P13: history summaries (ADR-0080) ------------------------------------------------------
+
+/**
+ * A rolling summary of a chat's earlier turns (Stage 6 CXD-5, N-77). It stands in for every
+ * message up to and including `covers_upto_message_id`, and is used only while that message is
+ * in this chat, below the current user message, and still exists (the FK cascades). A branch
+ * copies the summaries whose covered message it keeps. Text only, at most N-77 6,000 characters.
+ */
+export const summaries = pgTable(
+  'summaries',
+  {
+    id: id(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    coversUptoMessageId: uuid('covers_upto_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    coversUptoSeq: integer('covers_upto_seq').notNull(),
+    summaryVersion: integer('summary_version').notNull(),
+    text: text('text').notNull(),
+    /** The provider model id that wrote it. */
+    model: varchar('model', { length: 128 }).notNull(),
+    /** ready | discarded */
+    status: varchar('status', { length: 16 }).notNull().default('ready'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('uq_summaries_chat_covers').on(t.chatId, t.coversUptoMessageId),
+    uniqueIndex('uq_summaries_chat_version').on(t.chatId, t.summaryVersion),
+    index('ix_summaries_chat_seq').on(t.chatId, t.coversUptoSeq),
+    check('ck_summaries_status', sql`${t.status} in ('ready', 'discarded')`),
+    // N-77; raw, so the generated DDL stays the literal migration 0032 wrote.
+    check('ck_summaries_text_len', sql`char_length(${t.text}) <= ${sql.raw(String(NUMBERS.SUMMARY_TEXT_MAX_CHARS.value))}`),
+  ],
+);
+
+export type SummaryRow = typeof summaries.$inferSelect;

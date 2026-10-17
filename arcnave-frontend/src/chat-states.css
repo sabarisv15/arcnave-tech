@@ -140,6 +140,26 @@
   font-weight: 600;
 }
 
+/* P11 (ADR-0081): the switch label after the model name, the support code under a failure, and
+   the ops incident banner above the chat. Tokens only; no new colour. */
+.cs-switch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-support {
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: 11px;
+  user-select: all;
+}
+
+.cs-incident {
+  margin: 8px 16px 0;
+}
+
 /* ------------------------------------------------------------------ edit in place (S6 `.edbox`) */
 
 .cs-edit {
@@ -481,6 +501,23 @@
   font-size: 13.5px;
   font-weight: 500;
   gap: 10px;
+}
+
+/* P08: the stream dropped and is reconnecting (ADR-0078); Retry skips the wait. */
+.reconnect-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 8px;
+  padding: 8px 14px;
+  border-radius: 14px 4px 14px 4px;
+  background: var(--color-raised);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.reconnect-banner button {
+  margin-left: auto;
 }
 
 /* S6 `.dialog` */

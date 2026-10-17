@@ -12,7 +12,8 @@
  *
  * Three models (ADR-0055): Gemini 3.8 Flash on Vertex, Claude Sonnet 5.5 and Opus 5.5 on the
  * first-party Claude API (ADR-0054). An alias's status comes only from configuration, probes and
- * real request outcomes; no alias is switched off by code.
+ * real request outcomes; no alias is switched off by code. One more row, Claude Haiku 5.5, is a
+ * helper (ADR-0080): background jobs only, kept out of every chat path.
  */
 import type { Config } from '../config.js';
 import type { Provider } from './types.js';
@@ -32,7 +33,15 @@ export interface ModelEntry {
   supportsGrounding: boolean;
   supportsVision: boolean;
   contextWindow: number | null;
+  /**
+   * `helper` rows serve background jobs only (title, summary, router shadow; ADR-0080): never in
+   * `/models`, never picked by Auto, never a chat alias, never a fallback. Absent means `chat`.
+   */
+  role?: 'chat' | 'helper';
 }
+
+/** The helper model's alias (ADR-0080). */
+export const HELPER_ALIAS = 'Haiku 5.5';
 
 export type UnavailableReason =
   | 'ok'
@@ -40,6 +49,8 @@ export type UnavailableReason =
   | 'vertex_not_configured'
   | 'anthropic_not_configured'
   | 'probe_failed'
+  /** P11 (ER-13): named in MODELS_DISABLED, the kill switch. */
+  | 'disabled'
   | 'unknown';
 
 export interface ModelStatus {
@@ -87,11 +98,25 @@ export function buildEntries(cfg: Config): ModelEntry[] {
       supportsVision: true,
       contextWindow: 1_000_000,
     },
+    {
+      alias: HELPER_ALIAS,
+      description: 'Background jobs only: titles, summaries, router shadow',
+      provider: 'anthropic',
+      tier: 'economy',
+      providerModelId: cfg.MODEL_HAIKU,
+      location: 'global',
+      supportsGrounding: false,
+      supportsVision: false,
+      contextWindow: 1_000_000,
+      role: 'helper',
+    },
   ];
 }
 
 export class ModelRegistry {
   private readonly entries: Map<string, ModelEntry>;
+  /** Helper rows, kept apart so no chat path (aliases, statuses, Auto) ever sees them. */
+  private readonly helpers: Map<string, ModelEntry>;
   private readonly statuses = new Map<string, ModelStatus>();
   private readonly inflight = new Map<string, Promise<ModelStatus>>();
 
@@ -99,8 +124,47 @@ export class ModelRegistry {
     private readonly cfg: Config,
     private readonly providers: Partial<Record<ModelEntry['provider'], Provider>>,
   ) {
-    this.entries = new Map(buildEntries(cfg).map((e) => [e.alias, e]));
+    const all = buildEntries(cfg);
+    this.entries = new Map(all.filter((e) => (e.role ?? 'chat') === 'chat').map((e) => [e.alias, e]));
+    this.helpers = new Map(all.filter((e) => e.role === 'helper').map((e) => [e.alias, e]));
   }
+
+  /** A helper row by alias; never a chat model (ADR-0080). */
+  helperEntry(alias: string = HELPER_ALIAS): ModelEntry | undefined {
+    return this.helpers.get(alias);
+  }
+
+  /**
+   * Whether a helper can be called now, without a network call: its key, its id, its adapter,
+   * and the last real call's outcome (a model-not-found or a rejected key keeps it unavailable
+   * for the probe TTL). No probe: a helper job is skipped, never retried on another model.
+   */
+  helperStatus(alias: string = HELPER_ALIAS): ModelStatus | undefined {
+    const entry = this.helpers.get(alias);
+    if (!entry) return undefined;
+    const fixed = this.staticStatus(entry);
+    if (fixed) return fixed;
+    const last = this.helperOutcomes.get(alias);
+    if (last && !last.available && last.checkedAt !== null && Date.now() - last.checkedAt < this.cfg.MODEL_PROBE_TTL_SECONDS * 1000) {
+      return last;
+    }
+    return { entry, available: true, reason: 'ok', detail: '', checkedAt: last?.checkedAt ?? null };
+  }
+
+  /** What a real helper call just showed: `available: false` only for a model or key failure. */
+  recordHelperOutcome(alias: string, outcome: { available: true } | { available: false; detail: string }): void {
+    const entry = this.helpers.get(alias);
+    if (!entry) return;
+    this.helperOutcomes.set(alias, {
+      entry,
+      available: outcome.available,
+      reason: outcome.available ? 'ok' : 'probe_failed',
+      detail: outcome.available ? '' : outcome.detail,
+      checkedAt: Date.now(),
+    });
+  }
+
+  private readonly helperOutcomes = new Map<string, ModelStatus>();
 
   get aliases(): string[] {
     return [...this.entries.keys()];
@@ -116,6 +180,17 @@ export class ModelRegistry {
 
   /** Statuses knowable without a network call. */
   private staticStatus(entry: ModelEntry): ModelStatus | null {
+    // P11: the kill switch wins over everything else; the turn goes down the chain, labelled.
+    const disabled = new Set(this.cfg.MODELS_DISABLED.map((d) => d.trim().toLowerCase()));
+    if (disabled.has(entry.alias.toLowerCase()) || (entry.providerModelId && disabled.has(entry.providerModelId.toLowerCase()))) {
+      return {
+        entry,
+        available: false,
+        reason: 'disabled',
+        detail: 'Switched off by the operator (MODELS_DISABLED).',
+        checkedAt: null,
+      };
+    }
     if (entry.provider === 'google' && !this.cfg.vertexConfigured) {
       return {
         entry,

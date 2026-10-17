@@ -24,6 +24,7 @@ import { turnLogs } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
 import type { ModelRegistry } from '../providers/registry.js';
+import { ProviderGateway } from '../providers/gateway.js';
 import type { ModelInputStore } from './attachments/modelInputStore.js';
 import { TurnLog } from './turnLog.js';
 import { buildCapabilityRegistry } from '../capabilities/factory.js';
@@ -36,20 +37,41 @@ import type { ObjectStorage } from './storage.js';
 import type { Retriever } from './retrieval.js';
 import type { UsageService } from './usage.js';
 import type { TurnServices } from './turn/services.js';
+import type { HelperJobs } from './helpers/helperJobs.js';
 import type { StreamEvent } from './turn/events.js';
 import type { GenerateInput } from './turn/input.js';
-import { createTurnState, type TurnLogOutcome } from './turn/turnState.js';
+import { createTurnState, type TurnLogOutcome, type TurnState } from './turn/turnState.js';
+import { logEvent } from '../observability/logEvent.js';
 import { settleTurn } from './turn/settle.js';
 import { forcedAnswer } from './turn/forcedAnswer.js';
-import { streamAndCollect } from './turn/streamAndCollect.js';
+import { streamAndCollect, type TurnHop } from './turn/streamAndCollect.js';
+import { loadHistory } from './turn/context.js';
 import { buildTurnContext } from './turn/turnContext.js';
 import { compactStage, prepareTurn } from './turn/prepareTurn.js';
+import { MemoryService } from './memory/memoryService.js';
+import { CompactionService } from './compaction/compactionService.js';
+import { ChatSearch } from './memory/chatSearch.js';
+
+/** The database-backed stores a turn reads (A-16): the container builds them once. */
+export interface TurnStores {
+  memory: MemoryService;
+  compaction: CompactionService;
+  chatSearch: ChatSearch;
+}
 
 const log = logger.child({ module: 'generation' });
 
+/** Runs a stage generator whose events are not sent (a quiet rebuild) and returns its result. */
+async function drain<T>(gen: AsyncGenerator<unknown, T>): Promise<T> {
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) return step.value;
+  }
+}
+
 // Every name this module exported before the split is still exported from it (ADR-0067).
 export type { ModelInfo, PresentedFileDto, SourceDto, StreamEvent, UsageDto } from './turn/events.js';
-export { computeCostFor, presentedFiles, toSourceDto, toUsageDto } from './turn/events.js';
+export { presentedFiles, toSourceDto, toUsageDto } from './turn/events.js';
 export type { AgentLoopInput, GenerateInput, PreferencesRow } from './turn/input.js';
 export { readOfficeFilesWithCode } from './turn/contextAttachments.js';
 export {
@@ -84,6 +106,12 @@ export class GenerationService {
     executionRuntime?: ExecutionRuntime,
     /** Where Gemini reads page images from instead of the request (ADR-0016); unset, inline. */
     private readonly modelInputs?: ModelInputStore,
+    /** P13 (ADR-0080): the helper jobs (title, summary, router shadow). */
+    helperJobs?: HelperJobs,
+    /** P11 (ADR-0081): one per instance (the container's); a script gets its own. */
+    gateway?: ProviderGateway,
+    /** P21 (A-16): the container's; built on `db` when a script constructs this service alone. */
+    stores?: TurnStores,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
@@ -99,6 +127,11 @@ export class GenerationService {
       capabilities: this.capabilities,
       executionRuntime: this.executionRuntime,
       modelInputs,
+      helperJobs,
+      gateway: gateway ?? new ProviderGateway(cfg),
+      memory: stores?.memory ?? new MemoryService(db),
+      compaction: stores?.compaction ?? new CompactionService(db),
+      chatSearch: stores?.chatSearch ?? new ChatSearch(db),
     };
   }
 
@@ -118,8 +151,10 @@ export class GenerationService {
     if (input.signal.aborted) onUserAbort();
     else input.signal.addEventListener('abort', onUserAbort, { once: true });
     const timer = setTimeout(() => deadline.abort(new ApiError('turn_deadline_exceeded')), this.cfg.TURN_DEADLINE_MS);
+    // ER-4f: the gateway starts no retry and no hop past this instant.
+    const deadlineAt = Date.now() + this.cfg.TURN_DEADLINE_MS;
     try {
-      yield* this.runTurn({ ...input, signal: deadline.signal });
+      yield* this.runTurn({ ...input, signal: deadline.signal, deadlineAt });
     } finally {
       clearTimeout(timer);
       input.signal.removeEventListener('abort', onUserAbort);
@@ -143,6 +178,8 @@ export class GenerationService {
     const logOutcome: TurnLogOutcome = {
       status: 'unfinished',
     };
+    // P22: read by the turn's coded log line once the turn has ended.
+    let finished: { state: TurnState; entry: { alias: string; provider: string; providerModelId?: string | undefined } } | undefined;
 
     try {
       // Attachments are not copied into the workspace up front. A tool that needs one names its
@@ -159,6 +196,10 @@ export class GenerationService {
         requestId: input.requestId,
         model: modelInfo,
       };
+      // P11 (K-15): the model asked for was unavailable; the label goes out at once.
+      if (prepared.switched) {
+        yield { type: 'model_switch', from: prepared.switched.from, to: entry.alias, reason: prepared.switched.reason };
+      }
 
       const { compactedNow, latestCompaction, history } = yield* compactStage(this.svc, input, {
         prefs,
@@ -170,7 +211,7 @@ export class GenerationService {
         turnLog,
       });
 
-      const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents } =
+      const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, segments, pendingUiEvents } =
         yield* buildTurnContext(this.svc, input, {
           prefs,
           project,
@@ -185,6 +226,49 @@ export class GenerationService {
         });
 
       const state = createTurnState(segments, contextEvents.length);
+      finished = { state, entry };
+      if (prepared.switched) state.fallback = { from: prepared.switched.from, reason: prepared.switched.reason };
+      // P11 (7.12, ER-14b): the turn rebuilt for the next model of its chain, quietly (its context
+      // events were already sent); the history is read again for that model's window.
+      const turnInput = input;
+      const hop: TurnHop = {
+        needs: prepared.needs,
+        entries: await this.svc.registry.availableEntries({ probe: 'never' }),
+        canServe: (e) => {
+          const p = this.svc.registry.providerFor(e);
+          if (!p) return false;
+          if (turnInput.mode !== 'chat' && !(e.supportsGrounding && p.supportsGrounding())) return false;
+          if (turnInput.codeExecution && !(p.supportsCodeExecution?.() ?? false)) return false;
+          return true;
+        },
+        build: async (next) => {
+          const nextProvider = this.svc.registry.providerFor(next);
+          if (!nextProvider) return null;
+          const { turns: nextHistory } = await loadHistory(this.svc, turnInput.chatId, turnInput.messageId, latestCompaction?.throughSeq, next.alias);
+          const nextGrounded = next.supportsGrounding && nextProvider.supportsGrounding() && (turnInput.mode !== 'chat' || Boolean(this.cfg.ENABLE_WEB));
+          const built = await drain(
+            buildTurnContext(this.svc, turnInput, {
+              prefs,
+              project,
+              history: nextHistory,
+              entry: next,
+              grounded: nextGrounded,
+              compactedNow,
+              latestCompaction,
+              workspace,
+              timing,
+              turnLog,
+              quiet: true,
+            }),
+          );
+          return {
+            target: { entry: next, provider: nextProvider, request: built.request },
+            reasoningEffort: built.reasoningEffort,
+            pendingUiEvents: built.pendingUiEvents,
+            segments: built.segments,
+          };
+        },
+      };
       const addSegment = (type: 'thinking' | 'text', text: string) => {
         const last = state.segments.at(-1);
         if (last && last.type === type) last.text += text;
@@ -201,9 +285,9 @@ export class GenerationService {
           timing,
           turnLog,
           logOutcome,
-          releaseReservation,
           addSegment,
           pendingUiEvents,
+          hop,
         })
       ) {
         return;
@@ -211,14 +295,20 @@ export class GenerationService {
 
       // --- persist ----------------------------------------------------------
       let text = state.collectedText.join('');
+      // After a hop the forced answer and the settle are the serving model's.
+      const served = state.served ?? { entry, provider, request, reasoningEffort };
 
-      text = yield* forcedAnswer(state, { request, provider, turnLog, addSegment }, text);
+      text = yield* forcedAnswer(
+        state,
+        { request: served.request, provider: served.provider, entry: served.entry, gateway: this.svc.gateway, signal: input.signal, ...(input.deadlineAt !== undefined ? { deadlineAt: input.deadlineAt } : {}), turnLog, addSegment },
+        text,
+      );
 
       yield* settleTurn(this.svc, input, state, {
-        entry,
+        entry: served.entry,
         prefs,
         text,
-        reasoningEffort,
+        reasoningEffort: served.reasoningEffort,
         turnLog,
         logOutcome,
         startedAt,
@@ -233,7 +323,33 @@ export class GenerationService {
       throw err;
     } finally {
       timing.mark('stream_and_persist');
-      log.info({ chatId: input.chatId, messageId: input.messageId, ...timing.summary() }, 'turn timing');
+      // LG-3 / OD-8 (P22): one coded, allowlisted line per turn, replacing "turn timing".
+      const summary = timing.summary();
+      const usage = finished?.state.usage;
+      logEvent(log, 'chat_turn_finished', {
+        ...summary,
+        turnId: input.turn?.turnId,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        requestId: input.requestId,
+        status: logOutcome.status,
+        finishReason: logOutcome.finishReason ?? null,
+        errorCode: logOutcome.errorCode ?? null,
+        // After a hop, the model that answered (P11).
+        modelAlias: (finished?.state.served?.entry ?? finished?.entry)?.alias,
+        provider: (finished?.state.served?.entry ?? finished?.entry)?.provider,
+        providerModelId: (finished?.state.served?.entry ?? finished?.entry)?.providerModelId,
+        callCount: finished?.state.calls.length ?? 0,
+        tokensExact: usage?.exact ?? false,
+        inputTokens: usage?.inputTokens,
+        outputTokens: usage?.outputTokens,
+        cacheReadTokens: usage?.cacheReadTokens,
+        cacheWriteTokens: usage?.cacheWriteTokens,
+        costUsd: finished ? this.svc.usage.turnCost(finished.state.calls, startedAt) : null,
+        providerTtftMs: finished?.state.clocks.providerTtftMs ?? null,
+        firstVisibleMs: finished?.state.clocks.firstVisibleMs ?? null,
+        turnTotalMs: summary.totalMs,
+      });
       {
         turnLog.finish({ ...logOutcome, timing: timing.summary() });
         const markdown = turnLog.markdown();

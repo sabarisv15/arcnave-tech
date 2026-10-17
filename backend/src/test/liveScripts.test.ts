@@ -1,5 +1,5 @@
 /**
- * The live scripts under src/scripts (tech-p03, X-6): each is repaired, listed as stale in
+ * The live scripts under scripts/live (moved out of src/ by P21, A-19; tech-p03, X-6): each is repaired, listed as stale in
  * DEFERRED.md with its reason, or recorded as unverified. A new script must be classified here, so
  * a script cannot go stale unrecorded. Nothing is run: these scripts spend provider quota.
  */
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BACKEND_DIR } from '../../evals/prompt-kit/kit.js';
 
-const DIR = join(BACKEND_DIR, 'src', 'scripts');
+const DIR = join(BACKEND_DIR, 'scripts', 'live');
 const DEFERRED = readFileSync(join(BACKEND_DIR, '..', 'docs', 'ops', 'audit', 'DEFERRED.md'), 'utf8');
 
 const REPAIRED = [

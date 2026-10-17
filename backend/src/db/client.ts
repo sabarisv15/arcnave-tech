@@ -5,10 +5,11 @@
  * created lazily so importing this module (which route files do) never opens a socket —
  * which is what lets unit tests import handlers without a database.
  */
+import { sql as sqlTag } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-import { config } from '../config.js';
+import { config, type Config } from '../config.js';
 import * as schema from './schema.js';
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
@@ -29,6 +30,34 @@ export type DbLike = Database | Transaction;
 let sql: postgres.Sql | undefined;
 let db: Database | undefined;
 
+/**
+ * The session settings every pooled connection starts with (Stage 15 ER-6a, N-45): a statement,
+ * a lock wait and an idle transaction are each bounded, and a connection is recycled, so one slow
+ * query or a forgotten transaction cannot hold the pool or a row lock for minutes. Shared with
+ * the test harness, so the suite runs under the limits production has. Work that is allowed to
+ * take longer (sweeps, exports, file jobs) raises its own with `SET LOCAL` (`withLongStatements`).
+ */
+export function pgOptions(cfg: Pick<Config, 'DB_STATEMENT_TIMEOUT_MS' | 'DB_LOCK_TIMEOUT_MS' | 'DB_IDLE_IN_TRANSACTION_MS' | 'DB_MAX_LIFETIME_S'>): {
+  connection: Record<string, string>;
+  max_lifetime: number;
+} {
+  return {
+    connection: {
+      application_name: 'arcnave-backend',
+      statement_timeout: String(cfg.DB_STATEMENT_TIMEOUT_MS),
+      lock_timeout: String(cfg.DB_LOCK_TIMEOUT_MS),
+      idle_in_transaction_session_timeout: String(cfg.DB_IDLE_IN_TRANSACTION_MS),
+    },
+    max_lifetime: cfg.DB_MAX_LIFETIME_S,
+  };
+}
+
+/** Raises this transaction's statement timeout to N-45's executor value (sweeps, exports, file jobs). */
+export async function withLongStatements(tx: { execute: Transaction['execute'] }, cfg: Pick<Config, 'DB_LONG_STATEMENT_TIMEOUT_MS'>): Promise<void> {
+  // SET LOCAL takes no bind parameter; the value is an integer from config, never user input.
+  await tx.execute(sqlTag.raw(`set local statement_timeout = ${String(Math.trunc(cfg.DB_LONG_STATEMENT_TIMEOUT_MS))}`));
+}
+
 export function getSql(): postgres.Sql {
   if (!sql) {
     const cfg = config();
@@ -38,7 +67,7 @@ export function getSql(): postgres.Sql {
       // but it returns `bigint` columns as strings. We use `integer` everywhere, so no
       // custom type parsers are needed.
       onnotice: () => {},
-      connection: { application_name: 'arcnave-backend' },
+      ...pgOptions(cfg),
       // A Cloud SQL Unix socket has to be the `host` option, not part of DATABASE_URL: see
       // the comment on DB_SOCKET_PATH in config.ts.
       ...(cfg.DB_SOCKET_PATH ? { host: cfg.DB_SOCKET_PATH } : {}),
@@ -78,6 +107,7 @@ export async function pingDb(): Promise<boolean> {
     await getSql()`select 1`;
     return true;
   } catch {
+    // benign: the readiness probe answers "not ready"; /readyz reports it
     return false;
   }
 }

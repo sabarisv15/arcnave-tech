@@ -60,6 +60,7 @@ export async function countTokens(text: string | null, chars: number, counters: 
         const r = await provider.countTokens(text, AbortSignal.timeout(COUNT_TIMEOUT_MS));
         out[family] = { tokens: r.tokens, exact: true, model: r.model };
       } catch {
+        // benign: no count is recorded as reason "unavailable" (exact: false), never estimated
         out[family] = { tokens: null, exact: false, model: '', reason: 'unavailable' };
       }
     }),
@@ -269,6 +270,7 @@ export function retrievalWarning(plan: ChunkPlan | null): FileWarning[] {
 
 /** Deletes objects nothing points at any more, quietly: an orphan costs storage, not data. */
 export async function deleteObjects(storage: ObjectStorage, keys: string[]): Promise<void> {
+  // benign: an orphan costs storage, not data
   for (const k of keys) await storage.delete(k).catch(() => undefined);
 }
 

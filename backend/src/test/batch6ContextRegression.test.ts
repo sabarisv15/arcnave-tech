@@ -369,7 +369,7 @@ describe('Batch 6: Context Architecture & Production Regression Suite', () => {
       }
 
       // Case 1: Error before any token emitted -> Retried!
-      let retryHappened = false;
+      const retryHappened = false;
       try {
         await runStreamSimulation({ emitBeforeError: false, errorType: 'overflow' });
       } catch (e: any) {

@@ -37,6 +37,7 @@ async function loadManifest(workspace: WorkspaceFiles): Promise<ArtifactManifest
     const raw = await fs.readFile(manifestPath, 'utf8');
     return JSON.parse(raw);
   } catch {
+    // benign: no manifest yet: no artifacts
     return { artifacts: {} };
   }
 }

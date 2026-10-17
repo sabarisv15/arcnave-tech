@@ -44,6 +44,7 @@ import {
   CutShortNote,
   DroppedNote,
   FailureCard,
+  IncidentBanner,
   InlineEdit,
   ModelLabel,
   StoppedNote,
@@ -285,6 +286,7 @@ function Shell() {
         </Dialog.Portal>
       </Dialog.Root>
       <main className="an-sheet" id="main-content">
+        <IncidentBanner />
         <header
           className={`an-topbar ${activeChat ? "an-topbar-chat" : "an-topbar-idle"}`}
         >
@@ -564,7 +566,7 @@ function useMessageUsage(chatId: string | undefined, activeRun: string | null) {
 
 function Conversation() {
   const { id } = useParams();
-  const { chats, messages, transcript, openChat, activeRun, send, versionAnchor } =
+  const { chats, messages, transcript, openChat, activeRun, runningChats, reconnecting, reconnect, send, versionAnchor } =
     useWorkspace();
   const chat = chats.find((c) => c.id === id);
   const state = id ? transcript[id] : undefined;
@@ -575,7 +577,7 @@ function Conversation() {
     messageList = useRef<HTMLDivElement>(null),
     activeTurn = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
-  const isRunning = activeRun === id;
+  const isRunning = !!id && (runningChats ?? (activeRun ? [activeRun] : [])).includes(id);
   const activeUserId = isRunning
     ? [...history].reverse().find((message) => message.role === "user")?.id
     : undefined;
@@ -586,7 +588,7 @@ function Conversation() {
   useLayoutEffect(() => {
     // After a version switch the prompt stays where it was on screen (ADR-0038).
     if (versionAnchor && versionAnchor.chatId === id) {
-      const row = scroll.current?.querySelector(`.user-message[data-seq="${versionAnchor.seq}"]`);
+      const row = scroll.current?.querySelector(`[data-seq="${versionAnchor.seq}"]`);
       if (row && scroll.current) {
         scroll.current.scrollTop += row.getBoundingClientRect().top - versionAnchor.offset;
         const el = scroll.current;
@@ -708,11 +710,20 @@ function Conversation() {
           <ArrowDown size={17} />
         </button>
       )}
+      {id && reconnecting?.[id] && (
+        <div className="reconnect-banner" role="status">
+          <Loader2 size={14} className="spin" />
+          Reconnecting…
+          <button type="button" onClick={() => reconnect(id)}>
+            Retry
+          </button>
+        </div>
+      )}
       <div className="conversation-composer">
         {!isRunning && extractAskUserInput(last) && (
           <QuestionOptions
             data={extractAskUserInput(last)!}
-            disabled={!!activeRun}
+            disabled={isRunning}
             onSubmit={(replyText) =>
               void send(
                 replyText,
@@ -861,6 +872,7 @@ function MessageView({
     toast,
     retry,
     activeRun,
+    runningChats,
     branch,
     switchVersion,
     setEdit,
@@ -872,6 +884,8 @@ function MessageView({
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const pending = m.id.startsWith("pending-");
+  // Only a run in this chat holds its actions back (one controller per chat, ADR-0078).
+  const chatRunning = (runningChats ?? (activeRun ? [activeRun] : [])).includes(chatId);
   const loading = m.status === "submitting" || m.status === "generating";
   // R14: the seal stamps "Done" when a reply this tab was watching finishes, then steps aside.
   const wasLoading = useRef(loading);
@@ -923,7 +937,7 @@ function MessageView({
     const target = m.versions?.chatIds[index];
     if (!target) return;
     // Hold the prompt where it is on screen, so the switch reads as the text changing in place.
-    const row = document.querySelector(`.user-message[data-seq="${m.seq}"]`);
+    const row = document.querySelector(`[data-seq="${m.seq}"]`);
     switchVersion(chatId, target, m.seq, row ? row.getBoundingClientRect().top : 0);
   };
 
@@ -955,7 +969,7 @@ function MessageView({
           </IconButton>
           <IconButton
             label="Edit prompt"
-            disabled={!!activeRun || pending}
+            disabled={chatRunning || pending}
             onClick={() => setEdit({ chatId, messageId: m.id, text: m.text })}
           >
             <Pencil size={14} />
@@ -964,7 +978,7 @@ function MessageView({
             <div className="version-switcher cs-vers" role="group" aria-label="Versions of this prompt">
               <IconButton
                 label="Previous version"
-                disabled={!!activeRun || m.versions.index === 0}
+                disabled={chatRunning || m.versions.index === 0}
                 onClick={() => showVersion(m.versions!.index - 1)}
               >
                 <ChevronLeft size={14} />
@@ -974,7 +988,7 @@ function MessageView({
               </span>
               <IconButton
                 label="Next version"
-                disabled={!!activeRun || m.versions.index === m.versions.chatIds.length - 1}
+                disabled={chatRunning || m.versions.index === m.versions.chatIds.length - 1}
                 onClick={() => showVersion(m.versions!.index + 1)}
               >
                 <ChevronRight size={14} />
@@ -990,6 +1004,7 @@ function MessageView({
     <article
       className={`assistant-message ${loading ? "is-generating" : ""}`}
       aria-label="ArcNave response"
+      data-seq={m.seq}
     >
       {m.mode !== "chat" && (
         <div className="response-meta">
@@ -1105,27 +1120,28 @@ function MessageView({
           <StoppedNote
             onContinue={continueAnswer}
             onRegenerate={() => retry(chatId, m.id)}
-            disabled={!!activeRun || pending}
+            disabled={chatRunning || pending}
           />
         )}
         {m.status === "complete" && (
           <CutShortNote
             finishReason={m.finishReason}
             onContinue={continueAnswer}
-            disabled={!!activeRun}
+            disabled={chatRunning}
           />
         )}
       </div>
       {failure && m.error === "network" && m.text.trim() ? (
-        <DroppedNote onContinue={continueAnswer} disabled={!!activeRun || pending} />
+        <DroppedNote onContinue={continueAnswer} disabled={chatRunning || pending} />
       ) : failure ? (
         <FailureCard
           code={m.error}
           title={m.errorTitle}
           detail={m.errorDetail}
           onRetry={() => retry(chatId, m.id)}
-          retryDisabled={!!activeRun || pending}
+          retryDisabled={chatRunning || pending}
           onOpenLimits={() => navigate("/settings?section=usage")}
+          supportCode={m.requestId ?? m.id.slice(0, 8)}
         />
       ) : null}
       {m.sources && m.sources.length > 0 && (
@@ -1193,11 +1209,33 @@ function MessageView({
           </IconButton>
           <IconButton
             label="Regenerate response"
-            disabled={!!activeRun}
+            disabled={chatRunning}
             onClick={() => retry(chatId, m.id)}
           >
             <RotateCcw size={15} />
           </IconButton>
+          {m.versions && (
+            // A regenerated answer keeps the earlier one as a version (ADR-0079): `< i / n >`.
+            <div className="version-switcher cs-vers" role="group" aria-label="Versions of this response">
+              <IconButton
+                label="Previous response"
+                disabled={chatRunning || m.versions.index === 0}
+                onClick={() => showVersion(m.versions!.index - 1)}
+              >
+                <ChevronLeft size={14} />
+              </IconButton>
+              <span className="version-count" aria-live="polite">
+                {m.versions.index + 1} / {m.versions.chatIds.length}
+              </span>
+              <IconButton
+                label="Next response"
+                disabled={chatRunning || m.versions.index === m.versions.chatIds.length - 1}
+                onClick={() => showVersion(m.versions!.index + 1)}
+              >
+                <ChevronRight size={14} />
+              </IconButton>
+            </div>
+          )}
           <IconButton
             label="Helpful response"
             className={m.feedback === "up" ? "feedback-selected" : ""}
@@ -1248,7 +1286,7 @@ function MessageView({
             ]}
           />
           {copied && <span className="copy-label">Copied</span>}
-          <ModelLabel modelAlias={m.modelAlias} effort={m.effort} />
+          <ModelLabel modelAlias={m.modelAlias} effort={m.effort} fallbackFrom={m.fallbackFrom} fallbackReason={m.fallbackReason} />
         </div>
       )}
       {!loading && !m.text && !pending && (m.status === "error" || m.status === "stopped") && (

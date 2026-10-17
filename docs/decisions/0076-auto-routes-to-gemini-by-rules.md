@@ -8,6 +8,10 @@
   table and the user's routing preference). ADR-0002's registry decisions and
   [ADR-0031](0031-model-capability-at-arcnave-level.md) decision 4 (one model per chat under Auto)
   stand.
+- Superseded in part by [ADR-0081](0081-error-matrix-and-labelled-fallback.md): when Gemini cannot
+  take an Auto turn, the turn goes to Sonnet 5.5 with a visible label instead of
+  `no_model_available`, and a picked model that is unavailable goes down its own fallback chain
+  with a label instead of silently through Auto (OQ-02 A, K-15).
 - Models used: Opus 5.5.
 
 ## Stage decision applied
