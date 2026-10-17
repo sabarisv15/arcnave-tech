@@ -506,3 +506,15 @@ Opened (not fixed in P08):
 - The forced answer still bypasses the retry wrapper. P11 (wave 2).
 - A durable `turn_stream_events` table for cross-instance replay of every frame: deferred; a `snapshot` frame from the stored row is used instead.
 
+## tech-p05 wave 2 — P22, P13, P11 (2026-10-17, ADR-0079 / 0080 / 0081)
+
+Closed (the original lines above stay as the record): E19, OD-13 capture, TF (price table, ledger, reservation rows), F4b, P5, P11 deletion ledger, LG-1 / LG-3 (shadow), OD-8 stored (P22); CXD-5, CXD-6 (Normal), HIST-WINDOW, STAMPS, REC text, HP-TITLE, RT-2 shadow (P13); "the forced answer bypasses the retry wrapper", "a stop / deadline during the forced answer saved as `empty_response`", "a stopped answer goes back unmarked" (tech-p03), tech-p07 "silent fallback of a manual pick" (K-15) (P11); "wire P13 helper calls and P11 attempts to `recordCalls`", "`attempt` numbering from the gateway" (merge).
+
+Opened (not fixed in wave 2):
+- **Owner call:** a turn with a retried request now shows no counts and no cost (`exact:false`, cost null), because the failed request has no provider usage (Invariant 3). Counting a request rejected before its stream as exact zero needs a billing source.
+- P22b: UUIDv7 + `updated_at`, TB1 columns + paging, TB8 feedback table, F4c, F8b, OD-15b telemetry, V-20 / V-21 (moved out of this run in the wave plan).
+- Regenerate into a version: `POST /stop` from a tab still on the old chat does not stop the run; rows in the tab keep the old chat's ids until the end-of-run reload.
+- Haiku 5.5 > 100K-token price tier has no row (helper inputs are capped at 30k); typed error for account delete when the deletion ledger is down.
+- Fast / Deep profiles (P10); router intent enum (owner); N-75 estimator (OQ-08); REC wiring (P11 / P15); delete the compaction code one release after the switch; a durable queue for helper jobs (N-76 worker).
+- ER-3 continuation attempt after text (Turn Executor); audio retry still immediate; research progress events not withdrawn after a hop; Gemini INVALID_ARGUMENT re-open sends a request with no ledger row; the cumulative AL-1 figure on `completed` / `partialUsage` is unread and can go; a pre-0030 `tokens_reserved` value has no reservation row and is released only when its period rolls over.
+

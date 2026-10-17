@@ -524,19 +524,6 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** In Chromium against the local stack, `.ui-visual iframe` has `offsetHeight`
   equal to the height its document reports (571 for 571 in the ADR-0036 check).
 
-### 2026-09-27 — A correlated subquery in a select list compared a column with itself
-
-- **Symptom:** Every chat's `lastSeq` came back as -1, so no prompt had versions, though the
-  chats plainly had messages.
-- **Cause:** Inside `db.select({ ... })`, drizzle renders a `${table.column}` in a `sql` field
-  unqualified (`"id"`, not `"chats"."id"`). In `(select max(seq) from messages where chat_id =
-  ${chats.id})`, the bare `"id"` resolved to the inner table's own `messages.id`. The same
-  interpolation in a `where` clause is qualified, which is why it looked safe.
-- **Rule:** **In a `sql` expression used as a select field, never interpolate a column of the
-  outer query into a subquery.** Alias the inner table and write the outer column out in full
-  (`"chats"."id"`).
-- **Verify:** `chatVersions.integration.test.ts` fails when the subquery compares the wrong id.
-
 ### 2026-09-28 — A forced answer was told to use results its request did not carry
 
 - **Symptom:** Live (turn 531d000c): a 26-call loop ended at the tool-step limit with no text.
@@ -814,6 +801,24 @@ failure mode of this pattern, not a sign it is working.
 - **Verify:** run the two files with the host clock shifted (a `--import` preload that offsets
   `Date`, `HOST_SHIFT_DAYS=0` and `=4`, Saturday and Wednesday): both 37/37; with the
   `freezeSnapshotClock()` call removed both fail 29.
+
+### 2026-10-17 — A merged migration was silently not applied: a parallel writer had migrated the shared test database past it
+
+- **Symptom:** After merging P13 into a branch that already had P22, `historySummary` failed with
+  500s (`chats.title_source` missing) although `_journal.json` listed 0032 and global setup had run
+  the migrator. `drizzle.__drizzle_migrations` had 33 rows ending at `when` 1792700000000 — P11's
+  0033, from another worktree.
+- **Cause:** drizzle's Postgres migrator applies only migrations whose `when` (folderMillis) is above
+  the newest one recorded; it does not compare by name. One wave-2 writer ran against the default
+  `arcnave_test` instead of its own database, applying 0030 + 0031-from-its-tree + 0033. Every later
+  0032 was "older" and was skipped without an error.
+- **Rule:** **Parallel writers never share a migrated database:** every writer gets its own
+  `TEST_DATABASE_URL`, and the orchestrator drops `arcnave_test` before the first gate after a merge.
+  Migrations merge in `when` order (0030 < 0031 < 0032 < 0033), and any database that ever saw a
+  branch's migrations is rebuilt, never reused. Production is safe only because migrations reach it
+  in merge order; never deploy a branch whose journal `when` is below one already applied.
+- **Verify:** `psql … -Atc "select count(*), max(created_at) from drizzle.__drizzle_migrations"` equals
+  the journal's entry count and last `when`; `src/db/journal.test.ts` orders the journal.
 
 ## Convention and sources
 
@@ -1517,3 +1522,18 @@ practice, not canon.
   fresh object per render (`useSession: () => ({ user: {...} })`) made a provider's `[user]` effect
   reload forever and `act` hang until the test timeout. Rule: a hook mock returns one stable object.
   Verify: `arcnave-frontend/src/workspace.test.tsx` finishes in under 1 s. **40 entries.**
+- **2026-10-17 (tech-p05 wave 2)** — Added "A merged migration was silently not applied". Retired
+  "A correlated subquery in a select list compared a column with itself" (2026-09-27):
+  `chatVersions.integration.test.ts` fails when the subquery compares the wrong id (criterion 1);
+  its rule stays here: alias the outer table in a correlated subquery. Changelog-only lessons of the
+  wave (no headings, at the cap): (P22) a brief summed a turn's counts when one call had none —
+  Invariant 3 says exact:false with zeros; when a brief and an invariant disagree the invariant wins
+  and the ADR records it (`ledger.integration.test.ts`). (P13) a second `createTestApp` re-pointed the
+  process-wide `setDb`; a test that opens a second app restores `setDb(main.db, main.sql)` on close
+  (`toolHistory.integration.test.ts`). (P11) per-instance limiters (retry budget, breaker) shared by
+  tests on one app cut attempts by coincidence — give them test-wide values in the harness and unit
+  tests with an injected clock; settle a timeout result before aborting the tool; build scripted
+  fixtures per run (`errorMatrix.test.ts`, `dispatchingExecutor.test.ts`). (merge) two packages each
+  built a per-request usage record and counted earlier rounds twice — one source per request, and a
+  failed request carries its own counts (`ProviderError.failedRequestUsage`,
+  `fallback.integration.test.ts`). **40 entries.**
