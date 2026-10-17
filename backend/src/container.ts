@@ -5,6 +5,9 @@
  * rather than importing singletons into each route is what lets a test swap the database or
  * a provider without monkey-patching module state.
  */
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
+
 import type { Config } from './config.js';
 import type { Database } from './db/client.js';
 import { getDb } from './db/client.js';
@@ -61,18 +64,15 @@ export interface Services {
    * one with a `describeMedia` implementation on Vertex today. See ADR-0004, items 3 and 5.
    */
   visionProvider: Provider;
-  /**
-   * Active generation runs, keyed by chat id.
-   *
-   * Lets `POST /chats/:id/stop` abort a stream that a different HTTP connection is driving,
-   * and lets a second `generate` on the same chat be rejected instead of interleaving output.
-   * In-process by design: a multi-instance deployment needs a shared signal (Redis pub/sub)
-   * before horizontal scaling, which is recorded as a known limitation.
-   */
-  activeRuns: Map<string, AbortController>;
-  /** Each chat's current run and its buffered events, so a client can reattach after its
-   *  connection drops. See `services/runHub.ts`. */
+  /** Each chat's current run on this instance and its buffered events, so a client can reattach
+   *  after its connection drops; a cache of the `turns` rows (ADR-0078). See `services/runHub.ts`.
+   *  One run per chat is the database's rule (`uq_turns_running_chat`), not this map's, and a Stop
+   *  reaches a run on any instance through `turns.cancel_requested`. */
   runHub: RunHub;
+  /** This process, as the owner of the turn leases it holds. */
+  instanceId: string;
+  /** Set by `drain()` on SIGTERM: a new generate is refused with 503 `server_shutdown`. */
+  lifecycle: { draining: boolean };
   /** The warm sandbox, when it is the engine: `index.ts` checkpoints its idle workspaces. */
   warmSandbox: WarmSandboxClient | null;
   /** The file pipeline: job queue, worker and in-request reading (ADR-0062). */
@@ -261,8 +261,9 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     retriever,
     executionRuntime,
     visionProvider: providers.google!,
-    activeRuns: new Map(),
-    runHub: new RunHub(),
+    runHub: new RunHub(cfg.RUN_BUFFER_MAX_EVENTS),
+    instanceId: `${hostname().slice(0, 40)}:${String(process.pid)}:${randomUUID().slice(0, 8)}`,
+    lifecycle: { draining: false },
     warmSandbox: rawSandboxClient instanceof WarmSandboxClient ? rawSandboxClient : null,
     files: new FileService(
       {

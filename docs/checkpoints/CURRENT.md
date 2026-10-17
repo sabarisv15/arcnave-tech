@@ -1,5 +1,14 @@
 # ArcNave — current checkpoint
 
+> **2026-10-17: tech-p05 wave 1 done — P08 durable runs, one turn per chat. Branch `build/turn-jobs` (from `origin/main` @ `65abe65`, PR #47 merged = deployed v3 prompts); not merged, not deployed. Waves 2 (P22, P13, P11) and 3 (P21) open.**
+> - Plan: [`p05-wave-plan.md`](../ops/p05-wave-plan.md) (migrations 0030-0033, ADRs 0078-0082, shared-file rules). Record: [ADR-0078](../decisions/0078-durable-turns.md); evidence: [`p08-result.md`](../ops/p08-result.md); live: [`p08-live-checklist.md`](../ops/p08-live-checklist.md).
+> - `turns` table + one queued/running turn per chat (partial unique index), DB lease + fencing + cancel flag (`activeRuns` gone), one settle transaction, `budget_reservations` with owner and expiry, sweeper (`interrupted`, text kept, `exact:false`, `costUsd` null), SIGTERM drain, `Idempotency-Key`, precheck as HTTP 402 / 400 before rows, SSE `ack` / `snapshot` / `ping` / `Last-Event-ID`, N-45 DB timeouts, frontend jitter reconnect + a controller per chat. Migration 0030.
+> - Tests: backend 148 files / 1,662 passed / 23 skipped (was 146 / 1,643 / 23); frontend 45 / 428 (was 44 / 422). Characterization snapshots re-recorded on purpose (ack frame, settle order), each diff listed in the result file.
+> - Split out: A-21, A-22, durable `turn_stream_events`. Models: Opus 5.5 (orchestrator, 5 read-only planners, 1 writer).
+> - Next: "continue wave 2" — P22, P13, P11 in parallel worktrees from this head, briefs per the wave plan.
+
+> **2026-10-17: tech-ops.3e — PR #47 (`build/prompt-v3` + main's composer) merged to `main` as `65abe65` (merge = deploy, owner-approved in the task); a test-only clock fix (`6ca1d4b`) made the characterization snapshots weekday-independent. Rollback target revision `00176-s68`.**
+
 > **2026-10-16: tech-p07 — Stage 6 v3 system prompts replace the legacy builder (P07), and Auto routes to Gemini by Stage 7 rules (P10). Branch `build/prompt-v3` (from `origin/main` @ `7cd294b`, P03 merged); not merged, not deployed, not run live.**
 > - Record: [ADR-0075](../decisions/0075-v3-prompts-replace-the-legacy-builder.md) (prompt), [ADR-0076](../decisions/0076-auto-routes-to-gemini-by-rules.md) (routing); evidence: [`docs/ops/p07-result.md`](../ops/p07-result.md); owner live steps: [`docs/ops/p07-live-checklist.md`](../ops/p07-live-checklist.md).
 > - `backend/prompts/system/v3/{claude,gemini}.md` = the renderings' code blocks + a whole-token tool-name map (drift test, byte for byte); a transitional product-tools appendix (ours) for tools with no stage equivalent; Stage 6 layout (Claude: system = stable + session state, per-turn first in the user turn; Gemini: system = stable only, session + per-turn lead the turn); escaping; `promptVersion` on every turn. Legacy builder deleted. Frontend renders `\( \)` / `\[ \]`.

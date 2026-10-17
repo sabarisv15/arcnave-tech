@@ -98,7 +98,7 @@ async function transcript(chatId: string, headers = auth()): Promise<Transcript>
 /* -------------------------------------------------------------------------- happy path */
 
 describe('streaming generation', () => {
-  it('streams start, deltas, and done, in that order', async () => {
+  it('streams ack, start, deltas, and done, in that order', async () => {
     const chatId = await newChat();
     const { statusCode, body } = await generate(chatId);
 
@@ -106,7 +106,9 @@ describe('streaming generation', () => {
     const frames = parseSse(body);
     const events = frames.map((f) => f.event);
 
-    expect(events[0]).toBe('start');
+    // The ack comes first: the turn and both rows exist before the model is asked (ADR-0078).
+    expect(events[0]).toBe('ack');
+    expect(events[1]).toBe('start');
     expect(events.at(-1)).toBe('done');
     expect(events).toContain('delta');
     expect(sseText(frames)).toBe('Hello, world.');
@@ -564,12 +566,14 @@ describe('budget enforcement', () => {
     expect(parseSse(first.body).at(-1)!.event).toBe('done');
 
     const callsBefore = ctx.provider.seen.length;
+    const before = (await transcript(chatId, headers)).messages.length;
     const second = await generate(chatId, { prompt: 'again' }, headers);
 
-    expect(parseSse(second.body).at(-1)).toMatchObject({
-      event: 'error',
-      data: { code: 'budget_exceeded' },
-    });
+    // Refused before anything is saved (ADR-0078): an HTTP status, not an error frame after a
+    // user message was already written.
+    expect(second.statusCode).toBe(402);
+    expect((JSON.parse(second.body) as { error: { code: string } }).error.code).toBe('budget_exceeded');
+    expect((await transcript(chatId, headers)).messages).toHaveLength(before);
     // The point of reserving rather than checking afterwards: no provider call was made.
     expect(ctx.provider.seen.length).toBe(callsBefore);
   });

@@ -17,6 +17,12 @@ import type { RuntimeDebugTrace } from '../routing/turnRouter.js';
  * metadata a real backend has to report.
  */
 export type StreamEvent =
+  /**
+   * The first frame of every run (Stage 3 1.8, ADR-0078): the turn and both rows exist, so a
+   * client that loses the connection now can reattach to this turn, and a retried send with the
+   * same Idempotency-Key gets the same ids.
+   */
+  | { type: 'ack'; turnId: string; messageId: string; userMessageId: string | null }
   | { type: 'start'; messageId: string; chatId: string; requestId: string; model: ModelInfo }
   | { type: 'research'; event: { stage: string; label: string; detail: string; at: string } }
   | { type: 'delta'; text: string }

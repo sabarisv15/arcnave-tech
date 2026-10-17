@@ -16,7 +16,7 @@
  */
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
-import type { Database } from '../db/client.js';
+import { type Database, withLongStatements } from '../db/client.js';
 import { attachments, chats, fileDerivatives, messages, sandboxWorkspaces, accountExports } from '../db/schema.js';
 import { storageKeyInUse } from './attachments/references.js';
 import { deleteCheckpoint } from '../tools/sandbox/workspaceState.js';
@@ -31,6 +31,8 @@ export interface RetentionPolicy {
   chatPurgeAfterDays: number;
   unsentUploadTtlHours: number;
   sandboxStateDays: number;
+  /** N-45 executor statement timeout for the sweep's transaction (`SET LOCAL`); unset keeps the pool's. */
+  statementTimeoutMs?: number;
 }
 
 export interface SweepResult {
@@ -49,6 +51,7 @@ export async function sweepRetention(
   log: { warn: (obj: object, msg: string) => void } = console,
 ): Promise<SweepResult> {
   return db.transaction(async (tx) => {
+    if (policy.statementTimeoutMs) await withLongStatements(tx, { DB_LONG_STATEMENT_TIMEOUT_MS: policy.statementTimeoutMs });
     const [lock] = (await tx.execute(
       sql`select pg_try_advisory_xact_lock(${RETENTION_LOCK_KEY}) as ok`,
     )) as unknown as Array<{ ok: boolean }>;

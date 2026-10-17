@@ -4,6 +4,16 @@
  */
 import type { AttachmentBlock, AttachmentRef, Mode, ReasoningEffort } from '../../providers/types.js';
 import type { ManifestFile } from '../attachments/manifest.js';
+import type { TurnBinding } from './turnStore.js';
+
+/**
+ * What a run reports while it streams (ADR-0078): the answer so far, written to the message row at
+ * most every TURN_FLUSH_MS, fenced on the turn's token. The route supplies it; without one (a
+ * script driving the service directly) nothing is flushed.
+ */
+export interface TurnCheckpoint {
+  flush(answer: { text: string; thinking: string; segments: unknown[] }, force?: boolean): Promise<void>;
+}
 
 /** What AgentLoop receives: the turn with its attachments already hydrated for the provider. */
 export type AgentLoopInput = Omit<GenerateInput, 'attachments'> & {
@@ -33,6 +43,9 @@ export interface GenerateInput {
   /** The device the request came from, so visuals are sized for it (ADR-0049). */
   clientPlatform?: 'mobile' | 'desktop';
   signal: AbortSignal;
+  /** The durable turn this run writes for (ADR-0078). Absent for a script calling the service. */
+  turn?: TurnBinding;
+  checkpoint?: TurnCheckpoint;
 }
 
 export interface PreferencesRow {

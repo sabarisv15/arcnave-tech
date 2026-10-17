@@ -327,6 +327,8 @@ export const messages = pgTable(
   (t) => [
     uniqueIndex('uq_message_seq').on(t.chatId, t.seq),
     index('ix_messages_chat').on(t.chatId),
+    // P08: the sweeper finds rows still `generating` past the turn deadline without a table scan.
+    index('ix_messages_generating').on(t.createdAt).where(sql`${t.status} = 'generating'`),
     check('ck_message_role', sql`${t.role} in ('user','assistant')`),
     check('ck_message_feedback', sql`${t.feedback} is null or ${t.feedback} in ('up','down')`),
     check(
@@ -1165,3 +1167,110 @@ export type SandboxWorkspace = typeof sandboxWorkspaces.$inferSelect;
 export type Style = typeof styles.$inferSelect;
 export type NewStyle = typeof styles.$inferInsert;
 
+
+// --- P08: durable runs, one turn per chat (ADR-0078) ---------------------------------------
+
+/**
+ * What a turn was started with: ids and enums only, never the prompt or any other text
+ * (Stage 17 NO_CONTENT). The prompt is the user message's own row. Enough to run the turn again
+ * from its id (`loadTurnInput`), the seam for an executor that is not the request's process.
+ */
+export interface TurnParams {
+  mode: 'chat' | 'search' | 'research';
+  modelAlias: string;
+  attachmentIds: string[];
+  codeExecution: boolean;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** A preset key or a custom style's id. */
+  styleId?: string;
+  clientPlatform?: 'mobile' | 'desktop';
+  projectId: string | null;
+  /** The model that answered, written when the turn's `start` is sent; the sweeper bills it. */
+  resolved?: { alias: string; provider: string; providerModelId: string };
+}
+
+/**
+ * One turn of a chat: a user message and the assistant row that answers it (or a regenerated
+ * answer). At most one turn per chat is queued or running (`uq_turns_running_chat`). The runner
+ * holds a lease it renews; every write it makes is fenced on `fencing_token`, which a takeover
+ * (the sweeper) increments, so a runner that lost its lease cannot write after the takeover.
+ */
+export const turns = pgTable(
+  'turns',
+  {
+    id: id(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    userMessageId: uuid('user_message_id').references(() => messages.id, { onDelete: 'set null' }),
+    assistantMessageId: uuid('assistant_message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    /** send | regenerate */
+    kind: varchar('kind', { length: 16 }).notNull(),
+    /** queued | running | done | cancelled | failed | interrupted */
+    state: varchar('state', { length: 16 }).notNull().default('queued'),
+    /** How the turn ended, as a stable code (`stop`, `cancelled`, an error code, `interrupted`). */
+    finishCode: varchar('finish_code', { length: 48 }),
+    requestId: varchar('request_id', { length: 64 }).notNull(),
+    params: jsonb('params').$type<TurnParams>().notNull(),
+    fencingToken: integer('fencing_token').notNull().default(1),
+    leaseOwner: varchar('lease_owner', { length: 64 }),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    cancelRequested: boolean('cancel_requested').notNull().default(false),
+    deadline: timestamp('deadline', { withTimezone: true }).notNull(),
+    /** The stream event index the stored message row covers (the `snapshot` frame's id). */
+    lastSeq: integer('last_seq').notNull().default(-1),
+    createdAt: createdAt(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('uq_turns_running_chat').on(t.chatId).where(sql`${t.state} in ('queued', 'running')`),
+    index('ix_turns_lease').on(t.leaseExpiresAt).where(sql`${t.state} in ('queued', 'running')`),
+    index('ix_turns_chat_created').on(t.chatId, t.createdAt),
+    index('ix_turns_assistant').on(t.assistantMessageId),
+    check('ck_turns_kind', sql`${t.kind} in ('send', 'regenerate')`),
+    check('ck_turns_state', sql`${t.state} in ('queued', 'running', 'done', 'cancelled', 'failed', 'interrupted')`),
+  ],
+);
+
+/**
+ * A budget reservation with an owner and an expiry (A-05, A-06): the worst-case output held
+ * against the user's day and month counters while a call runs. The periods are stored, so the
+ * hold is given back to the counters it was taken from even when a turn crosses midnight. A hold
+ * nobody settles (a crashed instance) expires, and the sweeper gives it back.
+ */
+export const budgetReservations = pgTable(
+  'budget_reservations',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    turnId: uuid('turn_id').references(() => turns.id, { onDelete: 'set null' }),
+    /** turn | utility (a call outside a turn, e.g. a style generated from samples) */
+    owner: varchar('owner', { length: 16 }).notNull(),
+    tokens: integer('tokens').notNull(),
+    /** The counter periods held against; null where that period had no limit. */
+    dayStart: timestamp('day_start', { withTimezone: true }),
+    monthStart: timestamp('month_start', { withTimezone: true }),
+    /** held | settled | released | expired */
+    status: varchar('status', { length: 16 }).notNull().default('held'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('ix_reservations_held').on(t.expiresAt).where(sql`${t.status} = 'held'`),
+    index('ix_reservations_turn').on(t.turnId),
+    check('ck_reservations_owner', sql`${t.owner} in ('turn', 'utility')`),
+    check('ck_reservations_status', sql`${t.status} in ('held', 'settled', 'released', 'expired')`),
+  ],
+);
+
+export type TurnRow = typeof turns.$inferSelect;
+export type BudgetReservation = typeof budgetReservations.$inferSelect;

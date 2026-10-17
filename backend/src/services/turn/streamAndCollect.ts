@@ -3,10 +3,10 @@
  * the stream's failure (partial after a tool ran, a stop, or an error that settles the turn
  * here). Cut from the turn generator unchanged (ADR-0073); `this` became `svc`.
  *
- * Returns true when the turn ended here (the error branch saved the row, recorded usage and
- * yielded `error`): the caller returns at once, so its outer `finally` (timing, turn log,
- * workspace cleanup) still runs exactly once. The reservation is released in this function's
- * `finally`, before that, as it was in the turn generator.
+ * Returns true when the turn ended here (the error branch settled the turn in one transaction
+ * and yielded `error`): the caller returns at once, so its outer `finally` (timing, turn log,
+ * workspace cleanup) still runs exactly once. The reservation stays held after a normal end, through
+ * the forced answer, until the settle step ends it (ADR-0078).
  */
 import { VISUAL_MAX_HTML_BYTES } from '../ui/validator.js';
 import { logger } from '../../logger.js';
@@ -16,8 +16,9 @@ import type { TurnLog } from '../turnLog.js';
 import { StreamTimeSplit, type TurnTiming } from '../turnTiming.js';
 import { type StreamEvent, presentedFiles, toSourceDto, toUsageDto } from './events.js';
 import type { GenerateInput, PreferencesRow } from './input.js';
-import { finalise, persistEvent, persistToolCall } from './persistence.js';
-import { FailedAfterToolRun, isTurnDeadline, mapProviderError, refusalError, streamWithRetry, visualDrafts } from './providerLoop.js';
+import { persistEvent, persistToolCall } from './persistence.js';
+import { FailedAfterToolRun, isTypedStop, mapProviderError, refusalError, streamWithRetry, visualDrafts } from './providerLoop.js';
+import { endStateFor, settleTurn } from './turnStore.js';
 import type { TurnServices } from './services.js';
 import type { TurnLogOutcome, TurnState } from './turnState.js';
 
@@ -35,8 +36,6 @@ export interface StreamInput {
   timing: TurnTiming;
   turnLog: TurnLog;
   logOutcome: TurnLogOutcome;
-  /** Called here once the stream ends, whatever happened; it acts only the first time. */
-  releaseReservation: () => Promise<void>;
   addSegment: (type: 'thinking' | 'text', text: string) => void;
   /** Visuals a tool showed, sent after its tool result. */
   pendingUiEvents: StreamEvent[];
@@ -48,7 +47,11 @@ export async function* streamAndCollect(
   state: TurnState,
   turn: StreamInput,
 ): AsyncGenerator<StreamEvent, boolean> {
-  const { provider, request, entry, prefs, reasoningEffort, startedAt, timing, turnLog, logOutcome, releaseReservation, addSegment, pendingUiEvents } = turn;
+  const { provider, request, entry, prefs, reasoningEffort, startedAt, timing, turnLog, logOutcome, addSegment, pendingUiEvents } = turn;
+  // The answer so far, to the message row (throttled, fenced): a run that dies keeps it.
+  const checkpoint = async (): Promise<void> => {
+    await input.checkpoint?.flush({ text: state.collectedText.join(''), thinking: state.collectedThinking.join(''), segments: state.segments });
+  };
   try {
     const stream = streamWithRetry(svc, provider.stream.bind(provider), request);
     timing.mark('before_provider');
@@ -74,6 +77,7 @@ export async function* streamAndCollect(
           addSegment('text', safe);
           turnLog.text(safe);
           if (safe) yield { type: 'delta', text: safe };
+          await checkpoint();
           break;
         }
 
@@ -82,6 +86,7 @@ export async function* streamAndCollect(
           state.collectedThinking.push(event.text);
           addSegment('thinking', event.text);
           yield { type: 'thinking', text: event.text };
+          await checkpoint();
           break;
 
         case 'sources': {
@@ -164,6 +169,7 @@ export async function* streamAndCollect(
           while (pendingUiEvents.length > 0) {
             yield pendingUiEvents.shift()!;
           }
+          await checkpoint();
           break;
         }
 
@@ -206,7 +212,8 @@ export async function* streamAndCollect(
     if (err instanceof ModelNotFoundError) {
       svc.registry.recordOutcome(entry.alias, { available: false, detail: err.message });
     }
-    const deadlineHit = isTurnDeadline(input.signal.reason);
+    // A typed stop (the deadline, a shutdown, a lost lease) is an error with its code, not a cancel.
+    const deadlineHit = isTypedStop(input.signal.reason);
     if (err instanceof FailedAfterToolRun && !deadlineHit && !input.signal.aborted) {
       // The answer so far, the tool calls already stored, and a typed code: never a second run
       // of a tool, never a failure presented as a finished answer (done carries `partial`).
@@ -232,35 +239,41 @@ export async function* streamAndCollect(
       turnLog.fail(err);
       turnLog.stage('provider failed', { code: mapped.code, deadline: deadlineHit, toolCalls: state.toolsCalled.length });
       log.error({ err, chatId: input.chatId, requestId: input.requestId }, 'generation failed');
-      await finalise(svc, input, {
-        text: state.collectedText.join(''),
-        thinking: state.collectedThinking.join(''),
-        segments: state.segments,
-        sources: state.collectedSources,
-        searchEntryPoint: state.searchEntryPoint,
-        status: 'error',
-        errorCode: mapped.code,
-        finishReason: null,
-        entry,
-        mode: input.mode,
-        effort: reasoningEffort,
-      });
-      await releaseReservation();
-      await svc.usage.record({
-        userId: input.userId,
-        prefs,
-        requestId: input.requestId,
-        chatId: input.chatId,
-        messageId: input.messageId,
-        projectId: input.projectId,
-        modelAlias: entry.alias,
-        provider: entry.provider,
-        providerModelId: entry.providerModelId!,
-        usage: state.usage,
-        startedAt,
-        status: 'error',
-        errorCode: mapped.code,
-      });
+      // One transaction: the row, its sources, the usage row, the counters, the reservation and
+      // the turn's state (ADR-0078).
+      await settleTurn(
+        svc,
+        { userId: input.userId, chatId: input.chatId, messageId: input.messageId, requestId: input.requestId, projectId: input.projectId },
+        input.turn,
+        {
+          message: {
+            kind: 'final',
+            text: state.collectedText.join(''),
+            thinking: state.collectedThinking.join(''),
+            segments: state.segments,
+            sources: state.collectedSources,
+            searchEntryPoint: state.searchEntryPoint,
+            status: 'error',
+            errorCode: mapped.code,
+            finishReason: null,
+            model: { alias: entry.alias, provider: entry.provider, providerModelId: entry.providerModelId ?? null },
+            mode: input.mode,
+            ...(reasoningEffort ? { effort: reasoningEffort } : {}),
+          },
+          usage: {
+            prefs,
+            modelAlias: entry.alias,
+            provider: entry.provider,
+            providerModelId: entry.providerModelId!,
+            usage: state.usage,
+            startedAt,
+            status: 'error',
+            errorCode: mapped.code,
+          },
+          end: endStateFor('error', mapped.code),
+          finishCode: mapped.code,
+        },
+      );
       Object.assign(logOutcome, { status: 'error', errorCode: mapped.code, usage: state.usage });
       yield {
         type: 'error',
@@ -271,8 +284,6 @@ export async function* streamAndCollect(
       };
       return true;
     }
-  } finally {
-    await releaseReservation();
   }
   return false;
 }

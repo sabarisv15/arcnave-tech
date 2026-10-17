@@ -265,6 +265,7 @@ export default function Composer({
     updatePreferences,
     send,
     activeRun,
+    runningChats,
     stop,
     toast,
     edit,
@@ -373,8 +374,10 @@ export default function Composer({
     }
   }, [text, compact, inlineReply]);
 
-  const busy = !!activeRun;
-  const ownRun = activeRun === chatId;
+  // A run in another chat does not block this one (one controller per chat, ADR-0078); a
+  // composer with no chat yet starts a new one, which nothing is running in.
+  const ownRun = chatId ? (runningChats ?? (activeRun ? [activeRun] : [])).includes(chatId) : false;
+  const busy = ownRun;
   const grounded = models?.capabilities.groundedSearch ?? true;
   const followUpSuggestion = useMemo(() => {
     if (!chatId) return "";
@@ -744,7 +747,7 @@ export default function Composer({
     <button
       className="send-button"
       aria-label="Stop response"
-      onClick={stop}
+      onClick={() => stop(chatId)}
     >
       <Square size={13} fill="currentColor" />
     </button>

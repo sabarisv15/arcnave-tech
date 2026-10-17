@@ -1,12 +1,10 @@
 /**
  * The turn's context, from the tools it may use to the request it sends: routing and tools,
- * skills, the system instruction and its context events, effort, the budget reservation and its
- * release, the tool executors, the attachments, and the request. Cut from the turn generator
+ * skills, the system instruction and its context events, effort, the budget reservation, the tool executors, the attachments, and the request. Cut from the turn generator
  * unchanged (ADR-0073); `this` became `svc`, and what the later stages read is returned.
  *
  * It yields the context events (a project's files, read whole or searched), each saved as it goes.
- * The reservation's release is a closure over this function's `reservationHeld`: the stream calls
- * it, and so does `limitToModel` here when a model limit refuses the turn; it acts once.
+ * The turn's reservation is lowered here to the real output ceiling; the settle step ends it.
  */
 import { sandboxReadsOfficeFiles, usesWarmSandbox } from '../../tools/catalog.js';
 import type { MessageSegment } from '../../db/schema.js';
@@ -59,7 +57,6 @@ export interface TurnContext {
   loadedSkills: SkillDetail[];
   contextEvents: StreamEvent[];
   reasoningEffort: ReasoningEffort | undefined;
-  releaseReservation: () => Promise<void>;
   segments: MessageSegment[];
   pendingUiEvents: StreamEvent[];
 }
@@ -166,20 +163,13 @@ export async function* buildTurnContext(
     parts: Object.entries(promptAssembly.blockSizes).map(([k, v]) => `${k} ${String(v)}`),
   });
 
-  // --- reserve budget ---------------------------------------------------
-  // The reservation is the worst case for this request; it is released as soon as the real
-  // numbers land, so a large ceiling does not lock out the rest of the day.
-  await svc.usage.reserve(input.userId, prefs, maxOutputTokens);
+  // --- budget -----------------------------------------------------------
+  // The turn's reservation was taken with its rows, before this request's model was known, at the
+  // default ceiling (ADR-0078). Now the real ceiling is known; the hold comes down to it. It stays
+  // held through the stream and the forced answer, and the settle transaction ends it.
+  const reservation = input.turn?.reservation ?? null;
+  if (reservation) await svc.usage.adjust(reservation, maxOutputTokens);
   turnLog.stage('budget', { maxOutputTokens, effortRequested: requestedEffort ?? null, effortUsed: reasoningEffort ?? null });
-  let reservationHeld = true;
-  const releaseReservation = async (): Promise<void> => {
-    if (!reservationHeld) return;
-    reservationHeld = false;
-    await svc.usage.release(input.userId, prefs, maxOutputTokens).catch((err: unknown) => {
-      log.error({ err, userId: input.userId }, 'failed to release budget reservation');
-    });
-  };
-
   // The answer in the order it happened: thinking, text and tool steps
   // interleaved. Kept on the message so a reload shows the same timeline.
   const segments: MessageSegment[] = [];
@@ -211,7 +201,7 @@ export async function* buildTurnContext(
     await hydrateHistoryAttachments(svc, normalised.history, input.prompt, entry.alias),
   );
   const sized = await applyManyImagesRule(svc.cfg, budgeted.current, budgeted.history);
-  const { current: wireAttachments, history: wireHistory } = await limitToModel(svc, entry.alias, sized.current, sized.history, releaseReservation);
+  const { current: wireAttachments, history: wireHistory } = await limitToModel(svc, entry.alias, sized.current, sized.history);
   timing.mark('attachments');
   {
     const all = [...wireAttachments, ...wireHistory.flatMap((t) => t.attachments ?? [])];
@@ -290,5 +280,5 @@ export async function* buildTurnContext(
     previousContextTokens,
   });
   turnLog.sent(request, skills.map((s) => s.name));
-  return { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents };
+  return { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, segments, pendingUiEvents };
 }

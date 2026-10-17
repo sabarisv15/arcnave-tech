@@ -87,8 +87,14 @@ interface Context {
   setSettings: (value: boolean) => void;
   search: boolean;
   setSearch: (value: boolean) => void;
-  /** The chat id of the run this tab is streaming, or null. */
+  /** The chat id of the run this tab started last and is still streaming, or null. */
   activeRun: string | null;
+  /** Every chat this tab is streaming a reply for: one controller each (RG6, ADR-0078). */
+  runningChats: string[];
+  /** Chats whose stream dropped and is reconnecting (N-46 backoff). */
+  reconnecting: Record<string, boolean>;
+  /** Reattach to a chat's reply now, without waiting for the next backoff step. */
+  reconnect: (chatId: string) => void;
   openChat: (id: string) => void;
   send: (
     text: string,
@@ -99,7 +105,8 @@ interface Context {
     artifact?: boolean,
   ) => void;
   retry: (chatId: string, messageId: string) => void;
-  stop: () => void;
+  /** Stops the reply in `chatId`; without one, the open chat's (else the last started). */
+  stop: (chatId?: unknown) => void;
   feedback: (
     chatId: string,
     messageId: string,
@@ -191,6 +198,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [settings, setSettings] = useState(false),
     [search, setSearch] = useState(false),
     [activeRun, setActiveRun] = useState<string | null>(null),
+    [runningChats, setRunningChats] = useState<string[]>([]),
+    [reconnecting, setReconnecting] = useState<Record<string, boolean>>({}),
     [edit, setEdit] = useState<Context["edit"]>(null),
     [quote, setQuote] = useState<Context["quote"]>(null),
     [artifactUpdateEvent, setArtifactUpdateEvent] = useState<Context["artifactUpdateEvent"]>(null);
@@ -206,7 +215,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setQuote((q) => (q?.chatId && !location.pathname.startsWith(`/chat/${q.chatId}`) ? null : q));
   }, [location.pathname]);
 
-  const controller = useRef<AbortController | null>(null);
+  /** One controller per chat (RG6): Stop on one chat never touches another chat's run. */
+  const controllers = useRef(new Map<string, AbortController>());
+  /** Per running chat: ends its current reconnect wait now (the banner's Retry). */
+  const wakers = useRef(new Map<string, () => void>());
   /** Set once `run` exists, so a transcript load can reattach to a reply still running. */
   const attachRef = useRef<((chatId: string, messageId: string) => void) | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -306,7 +318,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(
     () => () => {
-      controller.current?.abort();
+      for (const ac of controllers.current.values()) ac.abort();
       clearTimeout(toastTimer.current);
     },
     [],
@@ -355,7 +367,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const running = settled
           ? undefined
           : mapped.find((m) => m.role === "assistant" && m.status === "generating");
-        if (running && !controller.current) attachRef.current?.(id, running.id);
+        if (running && !controllers.current.has(id)) attachRef.current?.(id, running.id);
 
         // Read again shortly so the persisted text and usage replace what this tab inferred.
         // Bounded: if the server never settles the row, the local terminal status stands
@@ -382,11 +394,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const openChat = useCallback(
     (id: string) => {
       // A chat already streaming in this tab holds newer state than the server has written.
-      if (controller.current && activeRun === id) return;
+      if (controllers.current.has(id)) return;
       if (transcript[id] === "ready" || transcript[id] === "loading") return;
       void loadTranscript(id);
     },
-    [loadTranscript, transcript, activeRun],
+    [loadTranscript, transcript],
   );
 
   const patchMessage = useCallback(
@@ -440,8 +452,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       const ac = new AbortController();
-      controller.current = ac;
+      controllers.current.set(chatId, ac);
       setActiveRun(chatId);
+      setRunningChats((list) => (list.includes(chatId) ? list : [...list, chatId]));
+      let wakeNow: (() => void) | undefined;
+      const wake = (): Promise<void> => new Promise<void>((resolve) => (wakeNow = resolve));
+      wakers.current.set(chatId, () => wakeNow?.());
+      /** Ends this run's hold on the chat, once, and only if no newer run replaced it. */
+      const release = (): void => {
+        if (controllers.current.get(chatId) !== ac) return;
+        controllers.current.delete(chatId);
+        wakers.current.delete(chatId);
+        setRunningChats((list) => list.filter((c) => c !== chatId));
+        setReconnecting((r) => ({ ...r, [chatId]: false }));
+        setActiveRun((current) => (current === chatId ? ([...controllers.current.keys()].at(-1) ?? null) : current));
+      };
       let assistantId = options.placeholderId;
       let text = "";
       let completed = false;
@@ -463,7 +488,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }));
       }
       const source = options.attachTo
-        ? attach(chatId, ac.signal)
+        ? attach(chatId, ac.signal, { wake })
         : generate(
             chatId,
             {
@@ -478,10 +503,44 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 : {}),
             },
             ac.signal,
+            // One key per send, reused by the adapter if the POST fails on the network (ER-10c).
+            { idempotencyKey: crypto.randomUUID(), wake },
           );
 
       try {
         for await (const event of source) {
+          if (event.type === "reconnecting") {
+            setReconnecting((r) => ({ ...r, [chatId]: true }));
+            continue;
+          }
+          if (event.type === "reconnected") {
+            setReconnecting((r) => ({ ...r, [chatId]: false }));
+            continue;
+          }
+          if (event.type === "ack" && event.messageId !== assistantId) {
+            // The turn exists: adopt the server's id now, before the model answers (ADR-0078).
+            const adopt = adoptServerId(assistantId, event.messageId, { status: "generating" });
+            setMessages((all) => ({ ...all, [chatId]: adopt(all[chatId] ?? []) }));
+            assistantId = event.messageId;
+          }
+          if (event.type === "snapshot" && event.message) {
+            // The stored reply stands in for frames this tab cannot get (another server, or a gap
+            // past the server's buffer): it replaces the row as a whole.
+            const stored = toMessage(event.message);
+            const from = assistantId;
+            setMessages((all) => ({
+              ...all,
+              [chatId]: (all[chatId] ?? []).map((m) => (m.id === from || m.id === stored.id ? stored : m)),
+            }));
+            assistantId = stored.id;
+            text = stored.text;
+            if (stored.status === "complete") {
+              completed = true;
+              outcome = "complete";
+            } else if (stored.status === "error" || stored.status === "stopped") {
+              outcome = stored.status;
+            }
+          }
           if (event.type === "start") {
             // The server owns the message id. Adopt it now so feedback and retry address the
             // real row rather than a placeholder that only exists in this tab.
@@ -657,12 +716,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         if (error instanceof ApiError && error.code === "no_active_run") {
-          // The run is not on this server (finished, or on another instance). The persisted
-          // row is the truth; poll it while it still says generating.
-          if (controller.current === ac) {
-            controller.current = null;
-            setActiveRun(null);
-          }
+          // The chat has no turn the server knows of. The persisted row is the truth; poll it
+          // while it still says generating.
+          release();
           pollInstead = true;
         } else if (ac.signal.aborted) {
           outcome = "stopped";
@@ -688,10 +744,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           }));
         }
       } finally {
-        if (controller.current === ac) {
-          controller.current = null;
-          setActiveRun(null);
-        }
+        release();
       }
       if (pollInstead) {
         pollGenerating(chatId, assistantId);
@@ -802,7 +855,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const send: Context["send"] = useCallback(
     (text, mode, files, chatId, projectId, artifact = false) => {
-      if (controller.current) {
+      if (chatId && controllers.current.has(chatId)) {
         toast("Stop the current response before starting another.");
         return;
       }
@@ -858,7 +911,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const retry: Context["retry"] = useCallback(
     (chatId, messageId) => {
-      if (controller.current) {
+      if (controllers.current.has(chatId)) {
         toast("Stop the current response first.");
         return;
       }
@@ -893,12 +946,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [messages, patchMessage, run, toast],
   );
 
-  const stop = useCallback(() => {
-    const chatId = activeRun;
-    controller.current?.abort();
-    // A run started in another tab has no socket here to close, so ask the server directly.
-    if (chatId) void api.chats.stop(chatId).catch(() => {});
-  }, [activeRun]);
+  const stop = useCallback(
+    (target?: unknown) => {
+      // Called with a chat id, or bare (an onClick passes its event): then the open chat's run.
+      const open = /^\/chat\/([^/]+)/.exec(location.pathname)?.[1];
+      const chatId = typeof target === "string" ? target : open ?? activeRun;
+      if (!chatId) return;
+      controllers.current.get(chatId)?.abort();
+      // The server stops the run on whichever instance holds it (a run started in another tab
+      // has no socket here to close at all).
+      void api.chats.stop(chatId).catch(() => {});
+    },
+    [activeRun, location.pathname],
+  );
+
+  /** Reattach now: the Retry on the "Reconnecting…" banner, and a tab back in the foreground. */
+  const reconnect = useCallback(
+    (chatId: string) => {
+      const wakeRun = wakers.current.get(chatId);
+      if (wakeRun) wakeRun();
+      else void loadTranscript(chatId);
+    },
+    [loadTranscript],
+  );
+
+  // A tab back in the foreground re-reads every chat it shows as generating with no stream of
+  // its own, and reattaches to the ones still running (Stage 5 F3b).
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState !== "visible") return;
+      for (const [chatId, list] of Object.entries(messagesRef.current)) {
+        const generating = list.some((m) => m.role === "assistant" && m.status === "generating");
+        if (generating && !controllers.current.has(chatId)) void loadTranscript(chatId);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadTranscript]);
 
   /* ------------------------------------------------------------------ chat actions */
 
@@ -972,7 +1058,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const deleteChat: Context["deleteChat"] = useCallback(
     (id) => {
-      if (activeRun === id) controller.current?.abort();
+      controllers.current.get(id)?.abort();
       void api.chats
         .remove(id)
         .then(() => {
@@ -994,7 +1080,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           report(error, "The conversation could not be deleted."),
         );
     },
-    [activeRun, navigate, toast, report],
+    [navigate, toast, report],
   );
 
   const branch: Context["branch"] = useCallback(
@@ -1017,7 +1103,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [versionAnchor, setVersionAnchor] = useState<Context["versionAnchor"]>(null);
   const switchVersion: Context["switchVersion"] = useCallback(
     (fromChatId, toChatId, seq, offset) => {
-      if (controller.current) {
+      if (controllers.current.has(fromChatId)) {
         toast("Stop the current response first.");
         return;
       }
@@ -1160,6 +1246,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       search,
       setSearch,
       activeRun,
+      runningChats,
+      reconnecting,
+      reconnect,
       openChat,
       send,
       retry,
@@ -1202,6 +1291,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       settings,
       search,
       activeRun,
+      runningChats,
+      reconnecting,
+      reconnect,
       openChat,
       send,
       retry,

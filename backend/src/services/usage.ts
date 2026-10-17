@@ -11,11 +11,11 @@
  *    decide" races: two concurrent requests both read headroom only one of them has.
  *    Reservation takes a row lock on the counter, so concurrent requests serialise on it.
  */
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 
 import type { Config } from '../config.js';
 import type { Database, Transaction } from '../db/client.js';
-import { usageCounters, usageRecords } from '../db/schema.js';
+import { budgetReservations, usageCounters, usageRecords, type BudgetReservation } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { ProviderUsage } from '../providers/types.js';
 import { totalTokens } from '../providers/types.js';
@@ -184,6 +184,25 @@ function pct(used: number, limit: number | null): number | null {
   return Math.round((used / limit) * 1000) / 10;
 }
 
+/* -------------------------------------------------------------------------- reservations */
+
+/** Who holds a reservation: a chat turn, or a utility call outside one (styles from samples). */
+export type ReservationOwner = 'turn' | 'utility';
+
+/** A held reservation, as its holder carries it until it is settled or released. */
+export interface ReservationRef {
+  id: string;
+  userId: string;
+  /** Tokens held now (lowered by `adjust`). */
+  tokens: number;
+  dayStart: Date | null;
+  monthStart: Date | null;
+}
+
+export function reservationRef(row: BudgetReservation): ReservationRef {
+  return { id: row.id, userId: row.userId, tokens: row.tokens, dayStart: row.dayStart, monthStart: row.monthStart };
+}
+
 /* -------------------------------------------------------------------------- service */
 
 export class UsageService {
@@ -249,15 +268,25 @@ export class UsageService {
   }
 
   /**
-   * Block before calling the provider if the budget is already spent.
+   * Block before calling the provider if the budget is already spent, and hold the worst case.
    *
-   * `reservation` is not an accounting figure. It is the configured output ceiling — the most
-   * this request could cost — held against the counter until `record` replaces it with the
-   * provider's real numbers. It is never written to a usage record or shown as a measurement.
+   * `tokens` is not an accounting figure. It is the configured output ceiling — the most this
+   * request could cost — held against the counter until the reservation is settled (with the
+   * provider's real numbers, `record`) or given back (`release`). It is never written to a usage
+   * record or shown as a measurement. The hold is a `budget_reservations` row with an owner (a
+   * turn, or a utility call) and an expiry, so one nobody settles is given back by the sweeper
+   * (A-05, A-06). Inside `tx` when given: the turn's reservation lands with the turn's rows, or
+   * not at all.
    */
-  async reserve(userId: string, prefs: BudgetPrefs, reservation: number): Promise<void> {
-    const now = new Date();
-    await this.db.transaction(async (tx) => {
+  async reserve(
+    userId: string,
+    prefs: BudgetPrefs,
+    tokens: number,
+    opts: { owner: ReservationOwner; expiresAt: Date; turnId?: string; tx?: Transaction },
+  ): Promise<ReservationRef> {
+    const run = async (tx: Transaction): Promise<ReservationRef> => {
+      const now = new Date();
+      const held: { dayStart: Date | null; monthStart: Date | null } = { dayStart: null, monthStart: null };
       for (const [kind, periodStart, limit] of this.budgetPairs(prefs, now)) {
         if (!limit) continue;
         const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
@@ -267,108 +296,185 @@ export class UsageService {
         }
         await tx
           .update(usageCounters)
-          .set({ tokensReserved: sql`${usageCounters.tokensReserved} + ${reservation}` })
+          .set({ tokensReserved: sql`${usageCounters.tokensReserved} + ${tokens}` })
           .where(eq(usageCounters.id, counter.id));
+        if (kind === 'day') held.dayStart = periodStart;
+        else held.monthStart = periodStart;
       }
-    });
+      const [row] = await tx
+        .insert(budgetReservations)
+        .values({
+          userId,
+          turnId: opts.turnId ?? null,
+          owner: opts.owner,
+          tokens,
+          dayStart: held.dayStart,
+          monthStart: held.monthStart,
+          expiresAt: opts.expiresAt,
+        })
+        .returning({ id: budgetReservations.id });
+      return { id: row!.id, userId, tokens, ...held };
+    };
+    return opts.tx ? run(opts.tx) : this.db.transaction(run);
   }
 
-  /** Give back a reservation. Always paired with `reserve` in a finally block. */
-  async release(userId: string, prefs: BudgetPrefs, reservation: number): Promise<void> {
-    const now = new Date();
+  /**
+   * Lower a held reservation to what the request will really ask for (never raise it: a raise
+   * would need a budget check the hold already passed). The turn reserves the default ceiling
+   * before its model is known; the context build knows the real one.
+   */
+  async adjust(ref: ReservationRef, tokens: number): Promise<void> {
+    if (tokens >= ref.tokens) return;
+    const delta = ref.tokens - tokens;
     await this.db.transaction(async (tx) => {
-      for (const [kind, periodStart, limit] of this.budgetPairs(prefs, now)) {
-        if (!limit) continue;
-        const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
-        await tx
-          .update(usageCounters)
-          .set({
-            tokensReserved: sql`greatest(0, ${usageCounters.tokensReserved} - ${reservation})`,
-          })
-          .where(eq(usageCounters.id, counter.id));
-      }
+      const [moved] = await tx
+        .update(budgetReservations)
+        .set({ tokens })
+        .where(and(eq(budgetReservations.id, ref.id), eq(budgetReservations.status, 'held')))
+        .returning({ id: budgetReservations.id });
+      if (!moved) return;
+      await this.giveBack(tx, ref, delta);
     });
+    ref.tokens = tokens;
+  }
+
+  /**
+   * End a reservation: `settled` when the call's usage was recorded (the caller's `record` in the
+   * same transaction), `released` when nothing was billed, `expired` when nobody settled it in
+   * time. Gives the held tokens back to the periods they were taken from. Acts once: a second
+   * call finds the row no longer `held`.
+   */
+  async release(ref: ReservationRef, opts: { status?: 'settled' | 'released' | 'expired'; tx?: Transaction } = {}): Promise<void> {
+    const run = async (tx: Transaction): Promise<void> => {
+      const [row] = await tx
+        .update(budgetReservations)
+        .set({ status: opts.status ?? 'released', endedAt: new Date() })
+        .where(and(eq(budgetReservations.id, ref.id), eq(budgetReservations.status, 'held')))
+        .returning({ tokens: budgetReservations.tokens });
+      if (!row) return;
+      await this.giveBack(tx, ref, row.tokens);
+    };
+    await (opts.tx ? run(opts.tx) : this.db.transaction(run));
+  }
+
+  /** Every held reservation past its expiry, given back and marked `expired` (the sweeper). */
+  async expireReservations(tx: Transaction, now: Date, limit: number): Promise<number> {
+    const due = await tx
+      .select()
+      .from(budgetReservations)
+      .where(and(eq(budgetReservations.status, 'held'), lt(budgetReservations.expiresAt, now)))
+      .orderBy(asc(budgetReservations.expiresAt))
+      .limit(limit)
+      .for('update', { skipLocked: true });
+    for (const r of due) await this.release(reservationRef(r), { status: 'expired', tx });
+    return due.length;
+  }
+
+  private async giveBack(tx: Transaction, ref: Pick<ReservationRef, 'userId' | 'dayStart' | 'monthStart'>, tokens: number): Promise<void> {
+    for (const [kind, periodStart] of [
+      ['day', ref.dayStart],
+      ['month', ref.monthStart],
+    ] as Array<[PeriodKind, Date | null]>) {
+      if (!periodStart || tokens <= 0) continue;
+      await tx
+        .update(usageCounters)
+        .set({ tokensReserved: sql`greatest(0, ${usageCounters.tokensReserved} - ${tokens})` })
+        .where(
+          and(
+            eq(usageCounters.userId, ref.userId),
+            eq(usageCounters.periodKind, kind),
+            eq(usageCounters.periodStart, periodStart),
+          ),
+        );
+    }
   }
 
   private async commitTokens(
+    tx: Transaction,
     userId: string,
     prefs: BudgetPrefs,
     tokens: number,
     at: Date,
   ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      const { dayStart, monthStart } = periodBounds(at, prefs.timezone);
-      for (const [kind, periodStart] of [
-        ['day', dayStart],
-        ['month', monthStart],
-      ] as Array<[PeriodKind, Date]>) {
-        const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
-        await tx
-          .update(usageCounters)
-          .set({ tokensUsed: sql`${usageCounters.tokensUsed} + ${tokens}` })
-          .where(eq(usageCounters.id, counter.id));
-      }
-    });
+    const { dayStart, monthStart } = periodBounds(at, prefs.timezone);
+    for (const [kind, periodStart] of [
+      ['day', dayStart],
+      ['month', monthStart],
+    ] as Array<[PeriodKind, Date]>) {
+      const counter = await this.counterForUpdate(tx, userId, kind, periodStart);
+      await tx
+        .update(usageCounters)
+        .set({ tokensUsed: sql`${usageCounters.tokensUsed} + ${tokens}` })
+        .where(eq(usageCounters.id, counter.id));
+    }
   }
 
   /**
-   * Persist one generation attempt.
+   * Persist one generation attempt: the usage row, then the tokens committed to the counters.
    *
    * Called for completions, cancellations, and errors alike: a cancelled request that already
-   * burned input tokens must still show them, or the usage row understates real spend.
+   * burned input tokens must still show them, or the usage row understates real spend. Inside
+   * `tx` when given (the turn's settle transaction), so the row and the counters land with the
+   * message, or neither does.
    */
-  async record(input: {
-    userId: string;
-    prefs: BudgetPrefs;
-    requestId: string;
-    chatId: string | null;
-    messageId: string | null;
-    projectId: string | null;
-    modelAlias: string;
-    provider: string;
-    providerModelId: string;
-    usage: ProviderUsage;
-    startedAt: Date;
-    status: 'complete' | 'cancelled' | 'error' | 'blocked';
-    finishReason?: string | null;
-    errorCode?: string | null;
-  }): Promise<void> {
+  async record(
+    input: {
+      userId: string;
+      prefs: BudgetPrefs;
+      requestId: string;
+      chatId: string | null;
+      messageId: string | null;
+      projectId: string | null;
+      modelAlias: string;
+      provider: string;
+      providerModelId: string;
+      usage: ProviderUsage;
+      startedAt: Date;
+      status: 'complete' | 'cancelled' | 'error' | 'blocked';
+      finishReason?: string | null;
+      errorCode?: string | null;
+    },
+    tx?: Transaction,
+  ): Promise<void> {
     const completedAt = new Date();
     const total = totalTokens(input.usage);
 
     const costUsd = computeCost(this.cfg, input.providerModelId, input.usage);
 
-    await this.db.insert(usageRecords).values({
-      userId: input.userId,
-      requestId: input.requestId,
-      chatId: input.chatId,
-      messageId: input.messageId,
-      projectId: input.projectId,
-      modelAlias: input.modelAlias,
-      provider: input.provider,
-      providerModelId: input.providerModelId,
-      inputTokens: input.usage.inputTokens,
-      outputTokens: input.usage.outputTokens,
-      totalTokens: total,
-      cacheReadTokens: input.usage.cacheReadTokens,
-      cacheWriteTokens: input.usage.cacheWriteTokens,
-      tokensExact: input.usage.exact,
-      contextTokens: input.usage.exact && input.usage.lastRequest
-        ? input.usage.lastRequest.inputTokens + input.usage.lastRequest.outputTokens
-        : null,
-      startedAt: input.startedAt,
-      completedAt,
-      latencyMs: completedAt.getTime() - input.startedAt.getTime(),
-      finishReason: input.finishReason ?? null,
-      status: input.status,
-      errorCode: input.errorCode ?? null,
-      costUsd,
-      costInr: usdToInr(this.cfg, costUsd),
-    });
+    const run = async (t: Transaction): Promise<void> => {
+      await t.insert(usageRecords).values({
+        userId: input.userId,
+        requestId: input.requestId,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        projectId: input.projectId,
+        modelAlias: input.modelAlias,
+        provider: input.provider,
+        providerModelId: input.providerModelId,
+        inputTokens: input.usage.inputTokens,
+        outputTokens: input.usage.outputTokens,
+        totalTokens: total,
+        cacheReadTokens: input.usage.cacheReadTokens,
+        cacheWriteTokens: input.usage.cacheWriteTokens,
+        tokensExact: input.usage.exact,
+        contextTokens: input.usage.exact && input.usage.lastRequest
+          ? input.usage.lastRequest.inputTokens + input.usage.lastRequest.outputTokens
+          : null,
+        startedAt: input.startedAt,
+        completedAt,
+        latencyMs: completedAt.getTime() - input.startedAt.getTime(),
+        finishReason: input.finishReason ?? null,
+        status: input.status,
+        errorCode: input.errorCode ?? null,
+        costUsd,
+        costInr: usdToInr(this.cfg, costUsd),
+      });
 
-    if (total > 0) {
-      await this.commitTokens(input.userId, input.prefs, total, completedAt);
-    }
+      if (total > 0) {
+        await this.commitTokens(t, input.userId, input.prefs, total, completedAt);
+      }
+    };
+    await (tx ? run(tx) : this.db.transaction(run));
   }
 
   /* ------------------------------------------------------------------ queries */

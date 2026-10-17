@@ -145,6 +145,27 @@ export const ERROR_CATALOG = {
     title: 'A response is already running',
     detail: 'Stop the current response before starting another.',
   },
+  /**
+   * P08 (ADR-0078): the instance running this reply stopped before it finished (its lease lapsed);
+   * the text written so far is kept on the message.
+   */
+  interrupted: {
+    status: 503,
+    title: 'This response was interrupted',
+    detail: 'The server running it stopped before it finished. What was written so far is kept. You can retry.',
+  },
+  /** P08: the server is restarting; a new reply is refused, and a running one is stopped and saved. */
+  server_shutdown: {
+    status: 503,
+    title: 'The server is restarting',
+    detail: 'The server restarted while this response was running, or before it could start. Retry in a moment.',
+  },
+  /** P08 (Stage 15 ER-6a): the database timed out or is out of connections; retried by the client. */
+  unavailable: {
+    status: 503,
+    title: 'The service is busy',
+    detail: 'The request could not be completed in time. Try again in a few seconds.',
+  },
   no_active_run: {
     status: 404,
     title: 'No response is running here',

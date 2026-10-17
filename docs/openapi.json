@@ -1808,7 +1808,7 @@
         "tags": [
           "chats"
         ],
-        "description": "Returns text/event-stream. Frames: start, research, delta, sources, tool_use, tool_result, done, error. Each frame carries an SSE `id`. Disconnecting does not cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop.",
+        "description": "Returns text/event-stream. Frames: ack (first: the turn and message ids), start, research, delta, sources, tool_use, tool_result, done, error; a named ping every 15 s. Each run frame carries an SSE `id`. Disconnecting does not cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop. Refused before anything is saved: 402 `budget_exceeded`, 400 `model_unavailable` for a named model this deployment cannot serve, 409 `run_in_progress`, 503 `server_shutdown`. An `Idempotency-Key` already used with the same body reattaches to that turn; with another body, 409 `idempotency_conflict`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1886,6 +1886,16 @@
             "in": "path",
             "name": "id",
             "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false
           }
         ],
         "responses": {
@@ -1901,7 +1911,7 @@
         "tags": [
           "chats"
         ],
-        "description": "Replays the run's frames after `after` (the SSE `id` of the last frame received; omit for all), then streams live frames until the run ends. 404 `no_active_run` when this instance holds no run for the chat: read the chat for the persisted reply.",
+        "description": "Replays the run's frames after the client's position (`Last-Event-ID`, which wins, or `after`: the SSE `id` of the last frame received; omit for all), then streams live frames until the run ends. When this instance does not hold the run (another instance runs it, or it ended), or no longer holds the frames asked for, a `snapshot` frame carries the stored reply, repeated as it changes until the turn ends. 404 `no_active_run` when the chat has never had a turn.",
         "parameters": [
           {
             "schema": {
@@ -1938,6 +1948,7 @@
         "tags": [
           "chats"
         ],
+        "description": "Sets the turn's cancel flag, which the instance running it reads within 2 s; a run on this instance stops at once.",
         "parameters": [
           {
             "schema": {

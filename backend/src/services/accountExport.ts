@@ -8,7 +8,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
-import type { Database } from '../db/client.js';
+import type { DbLike } from '../db/client.js';
 import {
   artifacts,
   artifactVersions,
@@ -44,7 +44,7 @@ conversations.json  every conversation with its messages, citations and tool ste
 artifacts/          every version of every artifact: .md for text, the file itself for exports
 `;
 
-export async function buildAccountExport(db: Database, storage: ObjectStorage, userId: string): Promise<Uint8Array> {
+export async function buildAccountExport(db: DbLike, storage: ObjectStorage, userId: string): Promise<Uint8Array> {
   const files: Record<string, Uint8Array> = { 'README.txt': strToU8(README) };
 
   const [user] = await db

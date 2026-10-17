@@ -47,7 +47,7 @@ function instrument(ctx: TestContext): string[] {
   vi.spyOn(ledger, 'reserve').mockImplementation(async (...args: Parameters<typeof reserve>) => {
     effects.push('usage.reserve');
     try {
-      await reserve(...args);
+      return await reserve(...args);
     } catch (err) {
       effects.push(`usage.reserve threw ${(err as { code?: string }).code ?? 'unknown'}`);
       throw err;
@@ -492,7 +492,8 @@ describe('turn characterization paths', () => {
       const chatId = await newChat(o);
       const first = await generate(o, chatId, { prompt: 'Spend the budget.' });
       const second = await generate(o, chatId, { prompt: 'One more.' });
-      expect(second.frames.at(-1)).toMatchObject({ event: 'error', data: { code: 'budget_exceeded' } });
+      // P08 (ADR-0078): refused before any row is written, as HTTP 402, not as an error frame.
+      expect(second).toMatchObject({ statusCode: 402, body: { error: { code: 'budget_exceeded' } } });
       const counters = await s.ctx.db
         .select({ periodKind: usageCounters.periodKind, tokensUsed: usageCounters.tokensUsed, tokensReserved: usageCounters.tokensReserved })
         .from(usageCounters)

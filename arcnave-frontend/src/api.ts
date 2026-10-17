@@ -154,6 +154,18 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "A response is already running",
     detail: "Stop the current response before starting another.",
   },
+  interrupted: {
+    title: "This response was interrupted",
+    detail: "The server running it stopped before it finished. What was written so far is kept. You can retry.",
+  },
+  server_shutdown: {
+    title: "The server is restarting",
+    detail: "The server restarted while this response was running, or before it could start. Retry in a moment.",
+  },
+  unavailable: {
+    title: "The service is busy",
+    detail: "The request could not be completed in time. Try again in a few seconds.",
+  },
   no_active_run: {
     title: "No response is running here",
     detail: "The reply has finished or is running elsewhere. Reload the chat to see it.",

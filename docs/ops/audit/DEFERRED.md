@@ -491,3 +491,18 @@ left. The prompt gaps the offline gates found are in `backend/evals/prompt-kit/o
 - **Judge verdicts are report-only.** No calibration of the judge against human grades exists; until it does, a judge pass/fail gates nothing. Calibration set and agreement figure: not started.
 - **Kit cases the deployed request cannot express** (company tier, per-format switch, pending operations, effort profile as prompt text): run approximately live and fail their offline requirement as listed gaps. Closing them is P07/P10 (and Phase 5 for the company tier).
 - **No token-count budget.** Size budgets are in characters; provider-reported tokens need a live call. `eval:prompt` and `measureTokens` record the provider counts when run.
+
+## tech-p05 wave 1 — P08 durable runs (2026-10-17, ADR-0078)
+
+Closed by P08 (the original lines above stay as the record):
+- CR2 `appendTurn` read `max(seq)` without a lock: the chat row is now locked for every send.
+- Part C "a foreign `attachmentId` is skipped": now 404 `not_found`; "`loadTurnAttachments` has no ORDER BY": ordered by `array_position`.
+- Review gate 0 "reservation kept on a throw between reserve and stream": the reservation has an owner and an expiry and settles in one transaction.
+- Scenario (L) "a failure after `start` writes no usage row": an `exact:false` usage row is written.
+
+Opened (not fixed in P08):
+- A-21 advisory locks for the retention sweep and sandbox checkpoints; A-22 lost updates outside the turn (memory, password, PATCH, file delete). A small follow-up task.
+- The `queued` turn state exists but nothing enters it until an out-of-process executor (Cloud Tasks, Phase 5).
+- The forced answer still bypasses the retry wrapper. P11 (wave 2).
+- A durable `turn_stream_events` table for cross-instance replay of every frame: deferred; a `snapshot` frame from the stored row is used instead.
+

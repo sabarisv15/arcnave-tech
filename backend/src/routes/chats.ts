@@ -5,10 +5,12 @@
  *
  * - **A run outlives its connection.** The run publishes to `services.runHub`; the connection
  *   that started it and any that reattach (`GET /chats/:id/stream`) are subscribers. Only
- *   `POST /chats/:id/stop` (via `services.activeRuns`), shutdown, or the turn deadline abort it.
- * - **The assistant row exists before streaming starts.** A reload mid-stream must find a
- *   message to show, not a gap; the row is created first and filled in as events arrive.
- * - **One run per chat.** A second generate on a busy chat is refused rather than interleaved.
+ *   `POST /chats/:id/stop` (the turn's cancel flag, seen by whichever instance runs it), a chat
+ *   delete, shutdown, or the turn deadline stop it.
+ * - **The assistant row exists before streaming starts**, bound to a durable turn (ADR-0078). A
+ *   reload mid-stream finds a message to show, filled in as the run flushes it.
+ * - **One run per chat.** A second generate on a busy chat is refused with 409 rather than
+ *   interleaved, on every instance (the turns table's partial unique index).
  */
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -26,6 +28,9 @@ import {
   researchEvents,
   toolCalls as toolCallsTable,
   turnLogs,
+  idempotencyKeys,
+  turns,
+  type TurnRow,
 } from '../db/schema.js';
 import { ApiError, notFound } from '../errors.js';
 import { currentUser, requireAuth } from '../plugins/context.js';
@@ -33,13 +38,17 @@ import { AUTO_ALIAS } from '../providers/registry.js';
 import type { DbLike } from '../db/client.js';
 import { versionsAt, type MessageVersions } from '../services/chatVersions.js';
 import { NUMBERS } from '../config/numbers.js';
-import type { Run } from '../services/runHub.js';
-import { loadChat, loadTurnAttachments, markTurnFailed, startTurn } from '../services/turn/turnStart.js';
+import { launchTurn } from '../services/turn/launch.js';
+import { precheckTurn } from '../services/turn/turnGate.js';
+import { GENERATE_ENDPOINT, loadChat, sendFingerprint, startTurn, type StartTurnBody } from '../services/turn/turnStart.js';
+import { latestTurnOfChat, requestCancel } from '../services/turn/turnStore.js';
+import { resumeFrom, SseConnection, streamLive, streamStored, type SnapshotFrame } from './turnStream.js';
 import type { AppInstance } from '../types.js';
 import {
   assertVersion,
   decodeCursor,
   encodeCursor,
+  idempotencyHeader,
   iso,
   paginationQuery,
   uuidParam,
@@ -426,7 +435,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { db, activeRuns } = request.services;
+      const { db, runHub } = request.services;
       const chat = await loadChat(request, request.params.id);
       // A conversation is deleted with all its versions (ADR-0038), as one row in the list is
       // one conversation.
@@ -441,8 +450,10 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
             or(eq(chats.id, familyId), eq(chats.rootChatId, familyId)),
           ),
         );
-      // Stop any run first, so it does not keep writing to a chat the user just deleted.
-      for (const member of family) activeRuns.get(member.id)?.abort();
+      // Stop any run first, so it does not keep writing to a chat the user just deleted: the flag
+      // reaches a run on any instance (ADR-0078); the local abort ends one here at once.
+      await requestCancel(db, family.map((m) => m.id));
+      for (const member of family) runHub.active(member.id)?.controller.abort();
       await db
         .update(chats)
         .set({ deletedAt: new Date() })
@@ -534,10 +545,15 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         tags: ['chats'],
         summary: 'Stream an assistant reply over SSE',
         description:
-          'Returns text/event-stream. Frames: start, research, delta, sources, tool_use, ' +
-          'tool_result, done, error. Each frame carries an SSE `id`. Disconnecting does not ' +
-          'cancel the run: reattach with GET /chats/:id/stream, cancel with POST /stop.',
+          'Returns text/event-stream. Frames: ack (first: the turn and message ids), start, research, ' +
+          'delta, sources, tool_use, tool_result, done, error; a named ping every 15 s. Each run frame ' +
+          'carries an SSE `id`. Disconnecting does not cancel the run: reattach with GET ' +
+          '/chats/:id/stream, cancel with POST /stop. Refused before anything is saved: 402 ' +
+          '`budget_exceeded`, 400 `model_unavailable` for a named model this deployment cannot serve, ' +
+          '409 `run_in_progress`, 503 `server_shutdown`. An `Idempotency-Key` already used with the ' +
+          'same body reattaches to that turn; with another body, 409 `idempotency_conflict`.',
         params: uuidParam,
+        headers: idempotencyHeader.passthrough(),
         body: z.object({
           prompt: z.string().min(1).max(100_000),
           mode: modeSchema.default('chat'),
@@ -561,65 +577,40 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = currentUser(request);
-      const { db, generation, activeRuns, runHub } = request.services;
+      const { services } = request;
+      // SIGTERM: runs here are being stopped and saved; a new one would be cut off (ADR-0078).
+      if (services.lifecycle.draining) throw new ApiError('server_shutdown');
       const chat = await loadChat(request, request.params.id);
+      const key = request.headers['idempotency-key'];
+      const body = request.body;
 
-      const { prompt, mode, model, attachmentIds, retryMessageId, codeExecution, effort, styleId } =
-        request.body;
+      // A send retried with its key reattaches before any other check: it was accepted once.
+      if (key) {
+        const replay = await services.db.transaction((tx) => peekIdempotent(tx, user.id, key, chat.id, body));
+        if (replay) return reattach(request, reply, chat.id, replay.turnId);
+      }
 
-      // --- one run per chat; create or reuse the assistant row (turn service, ADR-0067) ---
-      const assistantMessageId = await startTurn(request, chat.id, user.id, { prompt, mode, attachmentIds, retryMessageId });
+      // --- refused before anything is written (Stage 3 1.6) -------------------------
+      const { prefs, reserveTokens } = await precheckTurn(services, user.id, body.model);
+
+      // --- one turn per chat; the rows, the turn, its reservation and key (ADR-0078) ---
+      const started = await startTurn(request, chat.id, user.id, body, {
+        requestId: request.id,
+        projectId: chat.projectId,
+        clientPlatform: clientPlatform(request.headers),
+        prefs,
+        reserveTokens,
+        instanceId: services.instanceId,
+        idempotencyKey: key,
+      });
+      if (started.replayed) return reattach(request, reply, chat.id, started.turnId);
 
       // --- the run lives on its own; this connection is only its first subscriber ------
       // Closing the socket does not stop the run (a sleeping tab or a dropped mobile network
       // would otherwise throw away minutes of tool work). Stop is explicit: POST /stop.
-      const controller = new AbortController();
-      activeRuns.set(chat.id, controller);
-      const run = runHub.start(chat.id, user.id, assistantMessageId, controller);
-
-      void (async () => {
-        try {
-          const turnAttachments = await loadTurnAttachments(db, user.id, attachmentIds);
-          for await (const event of generation.run({
-            userId: user.id,
-            requestId: request.id,
-            chatId: chat.id,
-            messageId: assistantMessageId,
-            prompt,
-            mode,
-            modelAlias: model,
-            projectId: chat.projectId,
-            hasAttachments: attachmentIds.length > 0,
-            attachments: turnAttachments,
-            codeExecution,
-            effort,
-            styleId,
-            clientPlatform: clientPlatform(request.headers),
-            signal: controller.signal,
-          })) {
-            run.publish(event);
-          }
-        } catch (err) {
-          // The response is already committed as 200/event-stream, so an error cannot become a
-          // status code here. It is delivered as a typed frame the client already handles.
-          const body =
-            err instanceof ApiError
-              ? { code: err.code, title: err.title, detail: err.detail }
-              : { code: 'internal_error', title: 'Something went wrong', detail: 'The response could not finish.' };
-          if (!(err instanceof ApiError)) {
-            request.log.error({ err }, 'generation failed');
-          }
-
-          await markTurnFailed(db, assistantMessageId, mode, body.code, request.log);
-
-          run.publish({ type: 'error', ...body });
-        } finally {
-          if (activeRuns.get(chat.id) === controller) activeRuns.delete(chat.id);
-          runHub.finish(run);
-        }
-      })();
-
-      await streamRun(request, reply, run, -1);
+      const run = launchTurn(services, started, { userId: user.id, chatId: chat.id, requestId: request.id, prefs });
+      const conn = new SseConnection(request, reply, { userId: user.id, chatId: chat.id });
+      await streamLive(conn, run, -1, () => snapshotOfTurnId(request, started.turnId));
       return reply;
     },
   );
@@ -633,22 +624,21 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         tags: ['chats'],
         summary: "Reattach to this chat's running (or just finished) reply over SSE",
         description:
-          'Replays the run\'s frames after `after` (the SSE `id` of the last frame received; ' +
-          'omit for all), then streams live frames until the run ends. 404 `no_active_run` ' +
-          'when this instance holds no run for the chat: read the chat for the persisted reply.',
+          'Replays the run\'s frames after the client\'s position (`Last-Event-ID`, which wins, or ' +
+          '`after`: the SSE `id` of the last frame received; omit for all), then streams live frames ' +
+          'until the run ends. When this instance does not hold the run (another instance runs it, ' +
+          'or it ended), or no longer holds the frames asked for, a `snapshot` frame carries the ' +
+          'stored reply, repeated as it changes until the turn ends. 404 `no_active_run` when the ' +
+          'chat has never had a turn.',
         params: uuidParam,
         querystring: z.object({ after: z.coerce.number().int().min(-1).default(-1) }),
       },
     },
     async (request, reply) => {
-      const { runHub } = request.services;
       const chat = await loadChat(request, request.params.id);
-      const run = runHub.latest(chat.id);
-      if (!run || run.userId !== currentUser(request).id) throw new ApiError('no_active_run');
-      if (!(await streamRun(request, reply, run, request.query.after))) {
-        throw new ApiError('no_active_run');
-      }
-      return reply;
+      const turn = await latestTurnOfChat(request.services.db, chat.id);
+      if (!turn) throw new ApiError('no_active_run');
+      return reattach(request, reply, chat.id, turn.id, request.query.after);
     },
   );
 
@@ -660,16 +650,18 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       schema: {
         tags: ['chats'],
         summary: 'Cancel the run in progress on this chat',
+        description: 'Sets the turn\'s cancel flag, which the instance running it reads within 2 s; a run on this instance stops at once.',
         params: uuidParam,
         response: { 200: z.object({ stopped: z.boolean() }) },
       },
     },
     async (request) => {
-      const { activeRuns } = request.services;
+      const { db, runHub } = request.services;
       const chat = await loadChat(request, request.params.id);
-      const controller = activeRuns.get(chat.id);
-      controller?.abort();
-      return { stopped: Boolean(controller) };
+      const flagged = await requestCancel(db, [chat.id]);
+      const local = runHub.active(chat.id);
+      local?.controller.abort();
+      return { stopped: flagged.length > 0 || Boolean(local) };
     },
   );
 
@@ -738,60 +730,55 @@ type ChatRow = typeof chats.$inferSelect;
 type MessageRow = typeof messages.$inferSelect;
 
 /**
- * Writes one run's frames to this connection: the buffered ones after `after`, then live ones
- * until the run ends or this client goes away. Leaving never stops the run. Resolves false,
- * before writing anything, when the frames after `after` are no longer buffered.
+ * Streams a turn to this connection from wherever it is: the hub when this instance holds the run
+ * (and it is this turn's), the stored row otherwise (`routes/turnStream.ts`).
  */
-async function streamRun(
+async function reattach(
   request: FastifyRequest,
   reply: FastifyReply,
-  run: Run,
-  after: number,
-): Promise<boolean> {
-  if (!run.canReplayFrom(after)) return false;
-  const { cfg } = request.services;
-  const origin = request.headers.origin;
-  const corsHeaders: Record<string, string> =
-    origin && cfg.CORS_ORIGINS.includes(origin)
-      ? {
-          'Access-Control-Allow-Origin': origin,
-          'Access-Control-Allow-Credentials': 'true',
-          Vary: 'Origin',
-        }
-      : {};
+  chatId: string,
+  turnId: string,
+  after?: number,
+): Promise<FastifyReply> {
+  const user = currentUser(request);
+  const from = resumeFrom(request, after);
+  const run = request.services.runHub.latest(chatId);
+  const conn = new SseConnection(request, reply, { userId: user.id, chatId });
+  if (run && run.userId === user.id && run.turnId === turnId) {
+    await streamLive(conn, run, from, () => snapshotOfTurnId(request, turnId));
+  } else {
+    await streamStored(conn, request, turnId, (turn) => snapshotOfTurn(request, turn));
+  }
+  return reply;
+}
 
-  reply.raw.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-    'X-Request-ID': request.id,
-    ...corsHeaders,
-  });
+/** The stored assistant row of a turn, as a `snapshot` frame (`id:` = the index it covers). */
+async function snapshotOfTurn(request: FastifyRequest, turn: TurnRow): Promise<SnapshotFrame> {
+  const [message] = await loadMessages(request, turn.chatId, turn.assistantMessageId);
+  return { type: 'snapshot', turnId: turn.id, state: turn.state, seq: turn.lastSeq, message: message ?? null };
+}
 
-  await new Promise<void>((resolve) => {
-    let unsubscribe: (() => void) | null = null;
-    const heartbeat = setInterval(() => {
-      if (!reply.raw.writableEnded) reply.raw.write(': heartbeat\n\n');
-    }, 15_000);
-    const end = (): void => {
-      clearInterval(heartbeat);
-      request.raw.off('close', end);
-      unsubscribe?.();
-      if (!reply.raw.writableEnded) reply.raw.end();
-      resolve();
-    };
-    request.raw.on('close', end);
-    unsubscribe = run.subscribe(
-      after,
-      (event, index) => {
-        if (reply.raw.writableEnded) return;
-        reply.raw.write(`id: ${String(index)}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-      },
-      end,
-    );
-  });
-  return true;
+async function snapshotOfTurnId(request: FastifyRequest, turnId: string): Promise<SnapshotFrame | null> {
+  const [turn] = await request.services.db.select().from(turns).where(eq(turns.id, turnId)).limit(1);
+  return turn ? snapshotOfTurn(request, turn) : null;
+}
+
+/** The turn a key names when it was used with this chat and body; 409 for another body. */
+async function peekIdempotent(
+  tx: DbLike,
+  userId: string,
+  key: string,
+  chatId: string,
+  body: StartTurnBody,
+): Promise<{ turnId: string } | null> {
+  const [row] = await tx
+    .select({ requestFingerprint: idempotencyKeys.requestFingerprint, responseJson: idempotencyKeys.responseJson })
+    .from(idempotencyKeys)
+    .where(and(eq(idempotencyKeys.userId, userId), eq(idempotencyKeys.key, key), eq(idempotencyKeys.endpoint, GENERATE_ENDPOINT)))
+    .limit(1);
+  if (!row) return null;
+  if (row.requestFingerprint !== sendFingerprint(chatId, body)) throw new ApiError('idempotency_conflict');
+  return row.responseJson as { turnId: string };
 }
 
 /**
@@ -846,12 +833,14 @@ async function assertProject(
 async function loadMessages(
   request: { services: AppInstance['services'] },
   chatId: string,
+  /** One message only (a `snapshot` frame). */
+  messageId?: string,
 ): Promise<MessageDto[]> {
   const { db } = request.services;
   const rows = await db
     .select()
     .from(messages)
-    .where(eq(messages.chatId, chatId))
+    .where(messageId ? and(eq(messages.chatId, chatId), eq(messages.id, messageId)) : eq(messages.chatId, chatId))
     .orderBy(asc(messages.seq));
   if (rows.length === 0) return [];
 

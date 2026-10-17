@@ -25,7 +25,7 @@ import type { Config } from '../config.js';
 import type { BuildOptions } from '../container.js';
 import { loadConfig } from '../config.js';
 import type { Database } from '../db/client.js';
-import { setDb } from '../db/client.js';
+import { pgOptions, setDb } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import type {
   AttachmentBlock,
@@ -184,6 +184,8 @@ export function sleep(ms: number): Promise<void> {
 export interface TestContext {
   app: AppInstance;
   db: Database;
+  /** The app's own pool: a test can end it to play an instance that died. */
+  sql: postgres.Sql;
   cfg: Config;
   provider: FakeProvider;
   /** Where the local object storage wrote its files, so a test can inspect or assert on it. */
@@ -239,7 +241,9 @@ export async function createTestApp(
   const storageRoot = await mkdtemp(join(tmpdir(), 'arcnave-test-'));
   const cfg = loadConfig({ ...baseEnv(), STORAGE_LOCAL_PATH: storageRoot, ...env });
 
-  const sql = postgres(cfg.DATABASE_URL, { max: 4, onnotice: () => {} });
+  // The pool's session limits are production's (N-45), so a statement or lock wait that would time
+  // out in production times out here too.
+  const sql = postgres(cfg.DATABASE_URL, { max: 4, onnotice: () => {}, ...pgOptions(cfg) });
   const db = drizzle(sql, { schema, casing: 'snake_case' });
   // `/readyz` and anything else reaching for the process-wide handle must find this one, not
   // open a second pool against the development database.
@@ -258,12 +262,13 @@ export async function createTestApp(
   return {
     app,
     db,
+    sql,
     cfg,
     provider,
     storageRoot,
     close: async () => {
       await app.close();
-      await sql.end({ timeout: 5 });
+      await sql.end({ timeout: 5 }).catch(() => undefined);
       await rm(storageRoot, { recursive: true, force: true });
     },
   };
@@ -351,14 +356,17 @@ export interface SseFrame {
   data: Record<string, unknown>;
 }
 
-/** Parse an `event:`/`data:` stream into frames, ignoring comment-only heartbeats. */
+/**
+ * Parse an `event:`/`data:` stream into frames, ignoring the named `ping` keep-alive (N-24): it is
+ * a transport frame, not part of the run, and when one lands depends on the clock.
+ */
 export function parseSse(body: string): SseFrame[] {
   const frames: SseFrame[] = [];
   for (const block of body.split('\n\n')) {
     const lines = block.split('\n');
     const event = lines.find((l) => l.startsWith('event: '))?.slice(7);
     const data = lines.find((l) => l.startsWith('data: '))?.slice(6);
-    if (!event || !data) continue;
+    if (!event || !data || event === 'ping') continue;
     frames.push({ event, data: JSON.parse(data) as Record<string, unknown> });
   }
   return frames;

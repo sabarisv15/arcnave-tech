@@ -21,7 +21,7 @@ import { logger } from '../../logger.js';
 // The module tag the turn's log lines had before the split (ADR-0067).
 const log = logger.child({ module: 'generation' });
 
-export async function loadPreferences(svc: TurnServices, userId: string): Promise<PreferencesRow> {
+export async function loadPreferences(svc: Pick<TurnServices, 'db'>, userId: string): Promise<PreferencesRow> {
   const [row] = await svc.db
     .select({
       instructions: preferencesTable.instructions,

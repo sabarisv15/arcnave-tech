@@ -7,13 +7,15 @@
  * buffer; the connection that started it, and any later one that reconnects, are subscribers.
  * Only an explicit stop (or shutdown, or the turn deadline) aborts a run.
  *
- * In-process by design, like `activeRuns` before it: a reconnect that lands on another instance
- * finds nothing here and the client falls back to reading the persisted message.
+ * A cache of the durable turn (ADR-0078), not its record: the `turns` row is the truth, and a
+ * reconnect that lands on another instance (or reaches past what this buffer still holds) is sent
+ * the stored row as a `snapshot` instead. The hub also keeps each run's promise, so a shutdown can
+ * wait for the runs it stopped to settle (`services/shutdown.ts`).
  */
 import type { StreamEvent } from './generation.js';
 
-/** Events kept per run. Past it, a reconnect from before the dropped part cannot replay and is
- *  told so; the persisted message still carries the final answer. */
+/** Events kept per run by default (RUN_BUFFER_MAX_EVENTS). Past it, a reconnect from before the
+ *  dropped part is sent the stored row as a `snapshot` (ADR-0078). */
 const MAX_BUFFERED_EVENTS = 50_000;
 /** How long a finished run stays replayable, so a client that reconnects just after the end
  *  still receives the final `done`/`error` frame instead of a 404. */
@@ -28,13 +30,27 @@ export class Run {
   private readonly listeners = new Set<RunListener>();
   private readonly endListeners = new Set<() => void>();
   finished = false;
+  /** The run itself; resolves once it has settled (or failed to). Set by whoever starts the run. */
+  done: Promise<void> = Promise.resolve();
 
   constructor(
     readonly chatId: string,
     readonly userId: string,
     readonly messageId: string,
     readonly controller: AbortController,
+    readonly turnId: string | null = null,
+    private readonly maxBuffered = MAX_BUFFERED_EVENTS,
   ) {}
+
+  /** The index of the last event published, -1 before the first. */
+  get lastIndex(): number {
+    return this.length - 1;
+  }
+
+  /** The oldest index still buffered. */
+  get firstBuffered(): number {
+    return this.offset;
+  }
 
   /** Total events published, including any dropped from the head. */
   get length(): number {
@@ -45,7 +61,7 @@ export class Run {
     if (this.finished) return;
     const index = this.length;
     this.events.push(event);
-    if (this.events.length > MAX_BUFFERED_EVENTS) {
+    if (this.events.length > this.maxBuffered) {
       this.events.shift();
       this.offset += 1;
     }
@@ -90,6 +106,8 @@ export class RunHub {
   private readonly runs = new Map<string, Run>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
+  constructor(private readonly maxBuffered = MAX_BUFFERED_EVENTS) {}
+
   /** The run still working on this chat, if any. A finished, retained run is not active. */
   active(chatId: string): Run | undefined {
     const run = this.runs.get(chatId);
@@ -101,11 +119,11 @@ export class RunHub {
     return this.runs.get(chatId);
   }
 
-  start(chatId: string, userId: string, messageId: string, controller: AbortController): Run {
+  start(chatId: string, userId: string, messageId: string, controller: AbortController, turnId: string | null = null): Run {
     const previous = this.timers.get(chatId);
     if (previous) clearTimeout(previous);
     this.timers.delete(chatId);
-    const run = new Run(chatId, userId, messageId, controller);
+    const run = new Run(chatId, userId, messageId, controller, turnId, this.maxBuffered);
     this.runs.set(chatId, run);
     return run;
   }
@@ -120,7 +138,15 @@ export class RunHub {
     this.timers.set(run.chatId, timer);
   }
 
-  abortAll(): void {
-    for (const run of this.runs.values()) if (!run.finished) run.controller.abort();
+  /** Every run still working on this instance. */
+  activeRuns(): Run[] {
+    return [...this.runs.values()].filter((r) => !r.finished);
+  }
+
+  /** Stops every run here with `reason`, and resolves when each has settled. */
+  async abortAll(reason?: unknown): Promise<void> {
+    const runs = this.activeRuns();
+    for (const run of runs) run.controller.abort(reason);
+    await Promise.allSettled(runs.map((r) => r.done));
   }
 }

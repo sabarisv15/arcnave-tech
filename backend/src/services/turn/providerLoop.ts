@@ -200,6 +200,14 @@ export function isTurnDeadline(reason: unknown): reason is ApiError {
   return reason instanceof ApiError && reason.code === 'turn_deadline_exceeded';
 }
 
+/**
+ * An abort with a typed reason: the turn deadline, a server shutdown, or a lost lease (ADR-0078).
+ * Such a turn ends as an error with that code, never as a user's Stop.
+ */
+export function isTypedStop(reason: unknown): reason is ApiError {
+  return reason instanceof ApiError && (reason.code === 'turn_deadline_exceeded' || reason.code === 'server_shutdown' || reason.code === 'interrupted');
+}
+
 export function mapProviderError(err: unknown): { code: string; title: string; detail: string } {
   if (err instanceof ModelNotFoundError) {
     return {

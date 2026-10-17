@@ -1513,3 +1513,7 @@ practice, not canon.
   Retired "The system prompt named tools the turn could not use" (2026-09-26):
   `src/routes/promptToolParity.integration.test.ts` makes it fail the suite (criterion 1); its rule
   stays here: guidance that names a tool goes in only when the turn allows that tool. **40 entries.**
+- **2026-10-17 (tech-p05 P08)** — No new heading (at the cap). A mocked React hook that returned a
+  fresh object per render (`useSession: () => ({ user: {...} })`) made a provider's `[user]` effect
+  reload forever and `act` hang until the test timeout. Rule: a hook mock returns one stable object.
+  Verify: `arcnave-frontend/src/workspace.test.tsx` finishes in under 1 s. **40 entries.**

@@ -198,8 +198,12 @@ export async function styleRoutes(app: AppInstance): Promise<void> {
         timezone: prefsRow?.timezone ?? 'UTC',
       };
 
-      const reservation = 2048;
-      await usage.reserve(user.id, budgetPrefs, reservation);
+      // A utility call, not a turn: the hold has its own owner, and expires with the turn
+      // deadline if nothing settles it (ADR-0078).
+      const reservation = await usage.reserve(user.id, budgetPrefs, 2048, {
+        owner: 'utility',
+        expiresAt: new Date(Date.now() + request.services.cfg.TURN_DEADLINE_MS + request.services.cfg.TURN_LEASE_MS),
+      });
 
       const startedAt = new Date();
       let usageResult: ProviderUsage = { ...EMPTY_USAGE };
@@ -219,7 +223,7 @@ export async function styleRoutes(app: AppInstance): Promise<void> {
         errorCode = err instanceof ApiError ? err.code : 'internal_error';
         throw err;
       } finally {
-        await usage.release(user.id, budgetPrefs, reservation).catch(() => {});
+        await usage.release(reservation).catch(() => {});
         await usage.record({
           userId: user.id,
           prefs: budgetPrefs,

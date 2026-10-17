@@ -124,6 +124,38 @@ export const NUMBERS = {
   // --- Outbound fetch: Stage 15 ER-4 -----------------------------------------------------------
   /** One user-URL fetch (safeFetch), redirects included. */
   FETCH_URL_TIMEOUT_MS: n(10_000, 'N-43', 'register: tools fetch_url 10 s'),
+
+  // --- P08: durable runs, one turn per chat (ADR-0078) --------------------------------------
+  /** A running turn's lease; another instance may take the turn over once it lapses. */
+  TURN_LEASE_MS: n(30_000, 'N-73', 'register: turn lease 30 s'),
+  /** How often the runner renews its lease. */
+  TURN_HEARTBEAT_MS: n(10_000, 'N-73', 'register: heartbeat 10 s'),
+  /** How often the runner reads `cancel_requested` (a Stop sent to another instance). */
+  TURN_CANCEL_CHECK_MS: n(2_000, 'N-73', 'register: runner idle cancel check 2 s'),
+  /** Named `ping` frame on every open stream. */
+  SSE_PING_MS: n(15_000, 'N-24', 'register: SSE ping interval 15 s (mandatory, LV-111)'),
+  /** A frame the socket has not taken within this long ends the connection. */
+  SSE_SEND_TIMEOUT_MS: n(15_000, 'N-73', 'register: SSE send timeout = N-24 15 s'),
+  /** An open stream re-checks its session and its chat this often. */
+  SSE_SESSION_RECHECK_MS: n(60_000, 'N-73', 'register: open-stream session re-check 60 s'),
+  /** A stream of a run held by another instance polls the stored row this often. */
+  SSE_RELAY_POLL_MS: n(250, 'N-73', 'register: Postgres stream-store relay poll 250 ms'),
+  /** SIGTERM: runs are stopped and settled inside this budget, under Cloud Run's 10 s. */
+  SHUTDOWN_DRAIN_MS: n(5_000, 'N-73', 'register (N-76): SIGTERM budget = N-73 5 s'),
+  /** The turn sweeper: expired leases, expired reservations, old idempotency keys. */
+  TURN_SWEEP_INTERVAL_MS: n(60_000, 'N-76', 'register: sweep tick 60 s'),
+  /** An Idempotency-Key is honoured, then forgotten, after this long. */
+  IDEMPOTENCY_KEY_TTL_HOURS: n(24, 'N-34', 'register: idempotency keys 24 h'),
+  /** Every API statement. */
+  DB_STATEMENT_TIMEOUT_MS: n(5_000, 'N-45', 'register: statement timeout API 5 s'),
+  /** Sweeps, exports and file jobs (`SET LOCAL`). */
+  DB_LONG_STATEMENT_TIMEOUT_MS: n(30_000, 'N-45', 'register: statement timeout executor 30 s'),
+  DB_LOCK_TIMEOUT_MS: n(2_000, 'N-45', 'register: lock_timeout 2 s'),
+  DB_IDLE_IN_TRANSACTION_MS: n(30_000, 'N-45', 'register: idle_in_transaction 30 s'),
+  /** A pooled connection is closed and reopened after this long. */
+  DB_MAX_LIFETIME_S: n(1_800, 'N-45', 'register: pool_recycle 1,800 s'),
+  /** A whole settle transaction is retried at most this often on a serialization failure or deadlock. */
+  DB_TX_MAX_RETRIES: n(2, 'N-45', 'register: whole-tx retry ≤2'),
 } as const satisfies Record<string, RegisteredNumber>;
 
 export type NumberKey = keyof typeof NUMBERS;

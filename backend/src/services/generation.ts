@@ -170,7 +170,7 @@ export class GenerationService {
         turnLog,
       });
 
-      const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, releaseReservation, segments, pendingUiEvents } =
+      const { request, routingDecision, loadedSkills, contextEvents, reasoningEffort, segments, pendingUiEvents } =
         yield* buildTurnContext(this.svc, input, {
           prefs,
           project,
@@ -201,7 +201,6 @@ export class GenerationService {
           timing,
           turnLog,
           logOutcome,
-          releaseReservation,
           addSegment,
           pendingUiEvents,
         })

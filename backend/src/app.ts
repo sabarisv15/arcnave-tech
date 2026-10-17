@@ -42,7 +42,22 @@ import { shareRoutes } from './routes/share.js';
 import { accountRoutes } from './routes/account.js';
 import { usageRoutes } from './routes/usage.js';
 import { errorLogFields } from './errorLog.js';
+import { sqlState } from './services/turn/turnStore.js';
 import type { AppInstance } from './types.js';
+
+/**
+ * SQLSTATEs that mean the database could not serve the request in time, not that the request
+ * was wrong: a statement timeout (57014, `statement_timeout`, N-45), a lock wait timeout (55P03,
+ * `lock_timeout`) and no free connection (53300).
+ */
+export const DB_UNAVAILABLE_CODES = new Set(['57014', '55P03', '53300']);
+/** Ours: the Retry-After of that 503. */
+export const DB_RETRY_AFTER_S = 5;
+
+export function dbUnavailable(error: unknown): boolean {
+  const state = sqlState(error);
+  return state !== undefined && DB_UNAVAILABLE_CODES.has(state);
+}
 
 export interface CreateAppOptions extends BuildOptions {
   services?: Services;
@@ -89,7 +104,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     // Required for the session cookie to travel on cross-origin XHR from the Vite dev server.
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Request-ID', 'Idempotency-Key', 'If-Match'],
+    allowedHeaders: ['Content-Type', 'X-Request-ID', 'Idempotency-Key', 'If-Match', 'Last-Event-ID'],
     exposedHeaders: ['X-Request-ID'],
     maxAge: 600,
   });
@@ -167,6 +182,14 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
         },
       });
       return reply.status(apiError.status).send(apiError.toBody(requestId));
+    }
+
+    // Stage 15 ER-6a (N-45): the database said "too slow" or "too busy". A typed 503 the client
+    // retries after 5 s, not a 500 (`dbUnavailable`).
+    if (dbUnavailable(error)) {
+      request.log.warn({ ...errorLogFields(error), requestId, route: request.routeOptions.url }, 'database unavailable');
+      const apiError = new ApiError('unavailable');
+      return reply.status(503).header('Retry-After', String(DB_RETRY_AFTER_S)).send(apiError.toBody(requestId));
     }
 
     const statusCode = (error as { statusCode?: number }).statusCode;

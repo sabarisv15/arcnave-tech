@@ -147,6 +147,46 @@ const envSchema = z.object({
   /** N-43 (repo value; register says turn 10 min). */
   TURN_DEADLINE_MS: int(NUMBERS.TURN_DEADLINE_MS.value),
 
+  // --- Durable turns (P08, ADR-0078) --------------------------------------
+  /** N-73: a running turn's lease; another instance takes the turn over once it lapses. */
+  TURN_LEASE_MS: int(NUMBERS.TURN_LEASE_MS.value),
+  /** N-73: lease renewal. */
+  TURN_HEARTBEAT_MS: int(NUMBERS.TURN_HEARTBEAT_MS.value),
+  /** N-73: how often a runner reads the turn's cancel flag. */
+  TURN_CANCEL_CHECK_MS: int(NUMBERS.TURN_CANCEL_CHECK_MS.value),
+  /** Ours (no N-id): the answer so far is written to the message row at most this often. */
+  TURN_FLUSH_MS: int(1_000),
+  /** N-76: the turn sweeper's tick. 0 turns the periodic sweep off (the boot sweep still runs). */
+  TURN_SWEEP_INTERVAL_MS: int(NUMBERS.TURN_SWEEP_INTERVAL_MS.value),
+  /** N-34: idempotency keys are deleted after this many hours. */
+  IDEMPOTENCY_KEY_TTL_HOURS: int(NUMBERS.IDEMPOTENCY_KEY_TTL_HOURS.value),
+  /** N-24: the named `ping` frame. */
+  SSE_PING_MS: int(NUMBERS.SSE_PING_MS.value),
+  /** N-73: a frame the socket has not taken by then ends the connection. */
+  SSE_SEND_TIMEOUT_MS: int(NUMBERS.SSE_SEND_TIMEOUT_MS.value),
+  /** N-73: session and chat re-check on an open stream. */
+  SSE_SESSION_RECHECK_MS: int(NUMBERS.SSE_SESSION_RECHECK_MS.value),
+  /** N-73: poll of the stored row for a run held by another instance. */
+  SSE_RELAY_POLL_MS: int(NUMBERS.SSE_RELAY_POLL_MS.value),
+  /** N-73: SIGTERM drain budget. */
+  SHUTDOWN_DRAIN_MS: int(NUMBERS.SHUTDOWN_DRAIN_MS.value),
+  /** Ours: the process exits by force this long after SIGTERM, inside Cloud Run's 10 s. */
+  SHUTDOWN_HARD_EXIT_MS: int(9_000),
+  /** N-45: API statement timeout. */
+  DB_STATEMENT_TIMEOUT_MS: int(NUMBERS.DB_STATEMENT_TIMEOUT_MS.value),
+  /** N-45: sweeps, exports and file jobs (`SET LOCAL`). */
+  DB_LONG_STATEMENT_TIMEOUT_MS: int(NUMBERS.DB_LONG_STATEMENT_TIMEOUT_MS.value),
+  /** N-45. */
+  DB_LOCK_TIMEOUT_MS: int(NUMBERS.DB_LOCK_TIMEOUT_MS.value),
+  /** N-45. */
+  DB_IDLE_IN_TRANSACTION_MS: int(NUMBERS.DB_IDLE_IN_TRANSACTION_MS.value),
+  /** N-45: pool recycle. */
+  DB_MAX_LIFETIME_S: int(NUMBERS.DB_MAX_LIFETIME_S.value),
+  /** Ours: stream events a run keeps for a reconnect; past it the client is sent a `snapshot`. */
+  RUN_BUFFER_MAX_EVENTS: int(50_000),
+  /** N-45: whole-transaction retries of the settle on 40001 / 40P01. */
+  DB_TX_MAX_RETRIES: int(NUMBERS.DB_TX_MAX_RETRIES.value),
+
   // --- Generation limits --------------------------------------------------
   // 64,000 for agentic work (128,000 at xhigh or max effort). A turn
   // never asks for more than its model's own maximum (capabilitiesTable maxOutputTokens).
