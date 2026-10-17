@@ -40,6 +40,7 @@ import { skillRoutes } from './routes/skills.js';
 import { styleRoutes } from './routes/styles.js';
 import { shareRoutes } from './routes/share.js';
 import { accountRoutes } from './routes/account.js';
+import { statusRoutes } from './routes/status.js';
 import { usageRoutes } from './routes/usage.js';
 import { errorLogFields } from './errorLog.js';
 import { sqlState } from './services/turn/turnStore.js';
@@ -248,6 +249,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
       await scope.register(styleRoutes);
       await scope.register(shareRoutes);
       await scope.register(accountRoutes);
+      await scope.register(statusRoutes);
     },
     { prefix: cfg.API_PREFIX },
   );

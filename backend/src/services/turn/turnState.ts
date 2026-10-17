@@ -5,7 +5,8 @@
  * (ADR-0073). Its fields were `runTurn`'s locals, with the same initial values.
  */
 import type { MessageSegment } from '../../db/schema.js';
-import { type CallRole, type CallUsage, type HistoryToolCall, type ProviderEvent, type ProviderSource, type ProviderUsage, EMPTY_USAGE, usageFromCalls } from '../../providers/types.js';
+import type { ModelEntry } from '../../providers/registry.js';
+import { type CallUsage, type GenerationRequest, type HistoryToolCall, type Provider, type ProviderSource, type ProviderUsage, type ReasoningEffort, EMPTY_USAGE } from '../../providers/types.js';
 import { AnswerProtocolGuard } from '../answerProtocolGuard.js';
 
 /** What the turn log's outcome records; filled as the turn ends, written by the outer finally. */
@@ -47,10 +48,23 @@ export interface TurnState {
   turnCalls: HistoryToolCall[];
   /** Characters of each visual draft already sent, by draft id. */
   draftSent: Map<string, number>;
-  /** P22 (E19): every model call of the turn, in order; `usage` is their sum. */
+  /**
+   * P22 (E19): every model call of the turn, in order; `usage` is their sum. Written by the
+   * provider gateway (P11): one row per provider request, failed attempts and both models of a
+   * hop included, each with its attempt number and model (P22 + P11 merge).
+   */
   calls: CallUsage[];
   /** P22 OD-8: request sent → first stream event, and turn start → first answer text sent. */
   clocks: { providerTtftMs: number | null; firstVisibleMs: number | null };
+  /**
+   * P11 (7.12, ADR-0081): the model that answers after the turn moved down its fallback chain,
+   * with the request rebuilt for it; null while the first model serves.
+   */
+  served: { entry: ModelEntry; provider: Provider; request: GenerationRequest; reasoningEffort: ReasoningEffort | undefined } | null;
+  /** P11: the labelled switch, stored on the message (`fallback_from`, `fallback_reason`). */
+  fallback: { from: string; reason: string } | null;
+  /** P11 (AL-2): the refusal or block category, for the usage row. */
+  refusalCategory: string | null;
 }
 
 export function createTurnState(segments: MessageSegment[], eventOrdinal: number): TurnState {
@@ -74,59 +88,8 @@ export function createTurnState(segments: MessageSegment[], eventOrdinal: number
     draftSent: new Map<string, number>(),
     calls: [],
     clocks: { providerTtftMs: null, firstVisibleMs: null },
+    served: null,
+    fallback: null,
+    refusalCategory: null,
   };
-}
-
-/* -------------------------------------------------------------------------- P22: calls */
-
-type CallUsageEvent = Extract<ProviderEvent, { type: 'call_usage' }>;
-
-/** Adds one provider request to the turn's calls and makes the turn's usage their sum (E19). */
-export function addCall(state: TurnState, event: CallUsageEvent, role: CallRole, providerModelId: string, at: Date): void {
-  state.calls.push({
-    ordinal: state.calls.length + 1,
-    // P11 numbers the gateway's attempts; a failed attempt reports no call, so this is the one that answered.
-    attempt: 1,
-    role,
-    providerModelId,
-    usage: event.usage,
-    usageSource: event.usageSource,
-    finishReason: event.finishReason,
-    ...(event.providerRef ? { providerRef: event.providerRef } : {}),
-    ...(event.ttftMs !== undefined ? { ttftMs: event.ttftMs } : {}),
-    ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
-    startedAt: new Date(at.getTime() - (event.durationMs ?? 0)),
-  });
-  state.usage = usageFromCalls(state.calls);
-}
-
-/**
- * A stream's `completed` with no `call_usage` before it (a provider that reports only the
- * whole call): the call is that total, as one request. Its counts are the provider's own.
- */
-export function addCallFromCompleted(state: TurnState, usage: ProviderUsage, finishReason: string, role: CallRole, providerModelId: string): void {
-  state.calls.push({
-    ordinal: state.calls.length + 1,
-    attempt: 1,
-    role,
-    providerModelId,
-    usage,
-    usageSource: usage.exact ? 'provider' : 'none',
-    finishReason,
-  });
-  state.usage = usageFromCalls(state.calls);
-}
-
-/** A request that failed: it was sent, and nothing says what it used (`none`, zeros, no price). */
-export function addFailedCall(state: TurnState, role: CallRole, providerModelId: string): void {
-  state.calls.push({
-    ordinal: state.calls.length + 1,
-    attempt: 1,
-    role,
-    providerModelId,
-    usage: EMPTY_USAGE,
-    usageSource: 'none',
-    finishReason: 'error',
-  });
-  state.usage = usageFromCalls(state.calls);
 }

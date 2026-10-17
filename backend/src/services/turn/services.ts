@@ -6,6 +6,7 @@
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
 import type { ModelRegistry } from '../../providers/registry.js';
+import type { ProviderGateway } from '../../providers/gateway.js';
 import type { ModelInputStore } from '../attachments/modelInputStore.js';
 import type { CapabilityRegistry } from '../../capabilities/registry.js';
 import type { ExecutionRuntime } from '../../tools/execution/executionRuntime.js';
@@ -30,4 +31,6 @@ export interface TurnServices {
   readonly modelInputs: ModelInputStore | undefined;
   /** P13 (ADR-0080): the title / summary jobs after the settle, the router shadow. */
   readonly helperJobs?: HelperJobs | undefined;
+  /** P11 (ADR-0081): every model call goes through it (retries, breaker, fallback chain). */
+  readonly gateway: ProviderGateway;
 }

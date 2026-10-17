@@ -51,6 +51,8 @@ export interface GenerateInput {
    * history, the rendered summary and the stamps describe the same row. Null: none applies.
    */
   historySummary?: import('../summary/summaryStore.js').ActiveSummary | null;
+  /** P11 (ER-4f): epoch ms of the turn's deadline; past it no retry and no hop starts. */
+  deadlineAt?: number;
 }
 
 export interface PreferencesRow {

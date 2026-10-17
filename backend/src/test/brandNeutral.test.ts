@@ -18,7 +18,8 @@ const NOT_LAUNCHED = /\.test\.|[\\/]test[\\/]|backend[\\/]src[\\/]scripts[\\/]/;
 /** Wording that describes ArcNave by another assistant's behaviour or product. */
 const REFERENCE = /\bas Claude\b|\blike Claude\b|Claude(?:'s)? (?:app|docs|harness|container|containers|memory|settings|menu|export|Code|is the reference)|claude\.ai|Claude-(?:style|inspired)|Claude Fable|Opus 5\.5/i;
 
-const PROVIDER_FILES = ['anthropic.ts', 'registry.ts', 'capabilitiesTable.ts'];
+// fallback.ts (P11, ADR-0081): the Stage 7 7.12 chain is a table of the same model aliases as the registry.
+const PROVIDER_FILES = ['anthropic.ts', 'registry.ts', 'capabilitiesTable.ts', 'fallback.ts'];
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

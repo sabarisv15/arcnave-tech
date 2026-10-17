@@ -20,7 +20,7 @@
  * after a stop, ...), so a scenario cannot pass by drifting away from the path it names.
  * The proof that each fails when its branch is broken is in `docs/ops/p05-result.md`.
  */
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { messages, messageSources, turnLogs, usageCounters } from '../db/schema.js';
@@ -429,7 +429,9 @@ describe('turn characterization paths', () => {
     expect(snap).toMatchSnapshot();
   });
 
-  it('(8d) a stop during the forced answer: the request ends, empty_response', async () => {
+  // P11 (ADR-0081, DEFERRED tech-p05): a Stop during the forced answer is a Stop, saved
+  // `stopped`, no longer `empty_response`. Changed deliberately; the old snapshot is retired.
+  it('(8d) a stop during the forced answer: the request ends, saved as stopped', async () => {
     const snap = await scenario(s, async () => {
       const chatId = await newChat(s);
       s.provider.attempts = [
@@ -441,7 +443,10 @@ describe('turn characterization paths', () => {
         },
       ];
       const res = await generate(s, chatId, { prompt: 'Work it out.' });
-      expect(res.frames.at(-1)).toMatchObject({ event: 'error', data: { code: 'empty_response' } });
+      expect(res.frames.map((f) => f.event)).not.toContain('error');
+      expect(res.frames.map((f) => f.event)).not.toContain('done');
+      const [row] = await s.ctx.db.select({ status: messages.status }).from(messages).where(and(eq(messages.chatId, chatId), eq(messages.role, 'assistant')));
+      expect(row?.status).toBe('stopped');
       return { chatId, responses: [res] };
     });
     expect(snap).toMatchSnapshot();

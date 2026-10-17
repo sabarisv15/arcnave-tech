@@ -19,6 +19,7 @@ import { ProviderError } from '../providers/types.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, FakeProvider, multipart, parseSse, signUp } from '../test/harness.js';
 import { AskUserInputExecutor } from '../tools/optionsExecutor.js';
+import { CUT_MARKERS } from '../services/history/failedExchanges.js';
 
 /**
  * A provider whose next attempts are scripted as functions: each one gets the request (so it can
@@ -138,7 +139,8 @@ describe('failed, refused and empty exchanges are left out of the history (D2 X-
     provider.script = plain('ok');
     await send('next');
     const history = provider.seen.at(-1)!.history.map((t) => `${t.role}:${t.text}`);
-    expect(history).toEqual(['user:GOOD question', 'assistant:good answer', 'user:STOPPED question', 'assistant:half an ans']);
+    // P11 (ADR-0081): the stopped answer carries its cut marker, so it is not read as finished.
+    expect(history).toEqual(['user:GOOD question', 'assistant:good answer', 'user:STOPPED question', `assistant:half an ans\n\n${CUT_MARKERS.stopped}`]);
     expect(JSON.stringify(provider.seen.at(-1)!.history)).not.toContain('[Response stopped]');
   });
 });
@@ -242,18 +244,22 @@ describe('Gemini errors through the gateway (Stage 15 ER-2e, ER-2g)', () => {
   const geminiError = (status: number, message: string, statusText: string) =>
     classifyGeminiError(new GeminiApiError({ message: JSON.stringify({ error: { code: status, message, status: statusText } }), status }), 'fake-flash', 'global');
 
-  it('retries a 502 (PROVIDER_MAX_RETRIES times) and never a quota-0 429', async () => {
+  // P11 (ADR-0081): after its retries the turn moves to the next model of the chain (7.12), with
+  // its own retries, labelled. This file's one fake serves both slots, so both models fail alike.
+  it('retries a 502 (PROVIDER_MAX_RETRIES times) and never a quota-0 429, on each model of the chain', async () => {
     const { send } = await newChat();
     let before = provider.seen.length;
     provider.streamError = geminiError(502, 'Bad Gateway', 'UNAVAILABLE');
     let frames = await send('one');
-    expect(provider.seen.length - before).toBe(1 + ctx.cfg.PROVIDER_MAX_RETRIES);
+    expect(provider.seen.length - before).toBe(2 * (1 + ctx.cfg.PROVIDER_MAX_RETRIES));
+    expect(frames.find((f) => f.event === 'model_switch')?.data).toMatchObject({ from: 'Gemini 3.8 Flash', to: 'Sonnet 5.5', reason: 'unavailable' });
     expect(frames.find((f) => f.event === 'error')?.data).toMatchObject({ code: 'provider_error' });
 
     before = provider.seen.length;
     provider.streamError = geminiError(429, '* Quota exceeded for metric: m, limit: 0, model: gemini-3.8-flash', 'RESOURCE_EXHAUSTED');
     frames = await send('two');
-    expect(provider.seen.length - before).toBe(1);
+    expect(provider.seen.length - before).toBe(2);
+    expect(frames.find((f) => f.event === 'model_switch')?.data).toMatchObject({ reason: 'quota' });
     expect(frames.find((f) => f.event === 'error')?.data).toMatchObject({ code: 'provider_quota_unavailable' });
   });
 });

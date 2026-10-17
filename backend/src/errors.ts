@@ -214,6 +214,16 @@ export const ERROR_CATALOG = {
     title: 'The model declined this request',
     detail: 'The model stopped and declined to answer. Rephrase the request or choose another model.',
   },
+  /**
+   * P11 (Stage 15 ER-2f / ER-3d, Stage 16 SD-9): the provider's safety filter blocked the answer
+   * or the prompt (Gemini SAFETY, PROHIBITED_CONTENT, SPII, BLOCKLIST, RECITATION, MODEL_ARMOR,
+   * a prompt block). Never retried, never answered by another model (ADR-0081).
+   */
+  response_blocked: {
+    status: 422,
+    title: 'This answer was blocked',
+    detail: 'The model’s safety filter stopped this answer. Rephrase the request; another model is not tried for it.',
+  },
   provider_payload_limit: {
     status: 400,
     title: 'Attachment exceeds model limits',

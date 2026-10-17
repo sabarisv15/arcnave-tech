@@ -49,6 +49,12 @@ export interface TurnContextInput {
   workspace: WorkspaceFiles;
   timing: TurnTiming;
   turnLog: TurnLog;
+  /**
+   * P11 (ER-14b): a rebuild of the same turn for the next model of its fallback chain. The
+   * context events were sent and saved by the first build, so they are neither sent nor saved
+   * again; the request, the tools and the reservation are the new model's.
+   */
+  quiet?: boolean;
 }
 
 /** What the later stages of the turn read from its context. */
@@ -151,9 +157,11 @@ export async function* buildTurnContext(
     entry,
     reasoningEffort,
   );
-  for (const event of contextEvents) {
-    yield event;
-    await persistEvent(svc, input.messageId, event);
+  if (!turn.quiet) {
+    for (const event of contextEvents) {
+      yield event;
+      await persistEvent(svc, input.messageId, event);
+    }
   }
 
   // P13 (ADR-0080): the history window (N-16, N-03, floor N-75) and the turn's stamps, now that the

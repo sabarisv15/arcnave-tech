@@ -174,6 +174,10 @@ export const errorCopy: Record<string, { title: string; detail: string }> = {
     title: "The model declined this request",
     detail: "It stopped without answering. Rephrase the request or choose another model.",
   },
+  response_blocked: {
+    title: "This answer was blocked",
+    detail: "The model’s safety filter stopped this answer. Rephrase the request; another model is not tried for it.",
+  },
   provider_payload_limit: {
     title: "An attachment is too large for this model",
     detail:
@@ -548,6 +552,9 @@ export interface MessageDto {
   effort?: string | null;
   providerModelId: string | null;
   finishReason: string | null;
+  /** P11: the model this answer was handed over from, and why (null = the first model). */
+  fallbackFrom?: string | null;
+  fallbackReason?: string | null;
   artifactId: string | null;
   searchEntryPoint: string | null;
   thinking?: string | null;
@@ -951,6 +958,11 @@ export const api = {
     logout: () => post<void>("/auth/logout"),
     changePassword: (currentPassword: string, newPassword: string) =>
       post<void>("/auth/password", { currentPassword, newPassword }),
+  },
+
+  /** P11 (ER-12b): the ops incident banner; null when there is none. No sign-in needed. */
+  status: {
+    get: () => get<{ incidentBanner: string | null }>("/status"),
   },
 
   models: {

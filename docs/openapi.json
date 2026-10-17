@@ -1050,6 +1050,14 @@
                             "nullable": true,
                             "type": "string"
                           },
+                          "fallbackFrom": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "fallbackReason": {
+                            "nullable": true,
+                            "type": "string"
+                          },
                           "artifactId": {
                             "nullable": true,
                             "type": "string"
@@ -1437,6 +1445,8 @@
                           "effort",
                           "providerModelId",
                           "finishReason",
+                          "fallbackFrom",
+                          "fallbackReason",
                           "artifactId",
                           "searchEntryPoint",
                           "thinking",
@@ -9024,6 +9034,36 @@
                   "enum": [
                     null
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "summary": "Service status: the ops incident banner, when one is set (ER-12b).",
+        "tags": [
+          "ops"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incidentBanner": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "incidentBanner"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }

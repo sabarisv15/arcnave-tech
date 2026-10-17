@@ -140,6 +140,26 @@
   font-weight: 600;
 }
 
+/* P11 (ADR-0081): the switch label after the model name, the support code under a failure, and
+   the ops incident banner above the chat. Tokens only; no new colour. */
+.cs-switch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-support {
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: 11px;
+  user-select: all;
+}
+
+.cs-incident {
+  margin: 8px 16px 0;
+}
+
 /* ------------------------------------------------------------------ edit in place (S6 `.edbox`) */
 
 .cs-edit {

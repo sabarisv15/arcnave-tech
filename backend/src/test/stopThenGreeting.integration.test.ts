@@ -4,9 +4,9 @@
  * The user asks for a long essay, stops it part-way, then sends "hai". Live, Gemini 3.8 Flash
  * was observed continuing the essay. This test does not judge the model; it proves what the
  * request carries, through the real history loader and the real stop route, with a fake
- * provider: the stopped partial answer IS in the next request's history, as an ordinary
- * assistant turn, and nothing in it says the answer was stopped. That is the measurement P07
- * starts from; the history loader and the prompt are not changed here.
+ * provider. Until P11 the stopped partial went back as an ordinary assistant turn with nothing
+ * saying it was stopped; P11 (ADR-0081, ours) adds a cut marker after its text, so the model is
+ * told the answer did not finish. Updated deliberately: the history assertion flipped.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -14,6 +14,7 @@ import { messages } from '../db/schema.js';
 import { asc, eq } from 'drizzle-orm';
 import { loadExtraCases } from '../../evals/prompt-kit/kit.js';
 import { createTestApp, signUp } from './harness.js';
+import { CUT_MARKERS } from '../services/history/failedExchanges.js';
 import { answer, AttemptsProvider, generate, newChat, type Session } from './turnSnapshot.js';
 
 describe('stop_then_greeting: a stopped partial answer in the next request', () => {
@@ -28,7 +29,7 @@ describe('stop_then_greeting: a stopped partial answer in the next request', () 
     await s.ctx.close();
   });
 
-  it('keeps the stopped partial in history, unmarked, and sends "hai" as the prompt', async () => {
+  it('keeps the stopped partial in history with its cut marker, and sends "hai" as the prompt', async () => {
     const extra = loadExtraCases().find((c) => c.id === 'stop_then_greeting')!;
     const [ask, partialTurn] = extra.history!;
     const partial = partialTurn!.text;
@@ -61,9 +62,9 @@ describe('stop_then_greeting: a stopped partial answer in the next request', () 
     expect(request.prompt).toBe('hai');
     expect(request.history.map((t) => t.role)).toEqual(['user', 'assistant']);
     expect(request.history[0]!.text).toBe(ask!.text);
-    // The stopped partial reaches the model word for word, as if it were a finished answer.
-    expect(request.history[1]!.text).toBe(partial);
-    expect(request.history[1]!.text).not.toMatch(/stopped|cut|interrupted|\[/i);
+    // The stopped partial reaches the model word for word, then the marker that says it was stopped.
+    expect(request.history[1]!.text).toBe(`${partial}\n\n${CUT_MARKERS.stopped}`);
+    expect(request.history[1]!.text.startsWith(partial)).toBe(true);
     // Nothing in the system instruction tells the model about an unfinished earlier answer.
     expect(request.systemInstruction).not.toMatch(/was stopped|unfinished earlier|stopped by the user/i);
   });

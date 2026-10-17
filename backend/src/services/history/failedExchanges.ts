@@ -12,6 +12,11 @@
  *   written, a search was made), and without them a later turn would redo the work;
  * - the question of a left-out exchange stays when it carried files: a file cannot be attached
  *   again (`file_already_attached`), so a later "try again" sees it only through this history.
+ *
+ * P11 (ours, ADR-0081): an answer that was kept although it did not finish (stopped by the user,
+ * cut by a failure after text, ended after a tool run) goes back with a short note after its text,
+ * so the model does not read it as a finished answer and carry it on (DEFERRED P07/P11, live:
+ * Gemini continued a stopped essay after "hai").
  */
 import type { HistoryToolCall } from '../../providers/types.js';
 
@@ -21,6 +26,22 @@ export interface StoredMessage {
   text: string;
   seq: number;
   status: string;
+  /** The stored finish reason, when the loader read it (P11: the cut marker). */
+  finishReason?: string | null;
+}
+
+/** The note after an unfinished answer's text. Model-facing; no product or provider name. */
+export const CUT_MARKERS = {
+  stopped: '[This answer was stopped by the user before it was finished.]',
+  cut: '[This answer was cut short before it was finished.]',
+} as const;
+
+/** An assistant row's text as history: an unfinished answer gets its cut marker. */
+export function historyText(row: StoredMessage): string {
+  if (row.role !== 'assistant' || row.text.trim() === '') return row.text;
+  if (row.status === 'stopped') return `${row.text}\n\n${CUT_MARKERS.stopped}`;
+  if (row.finishReason === 'interrupted' || row.finishReason === 'partial') return `${row.text}\n\n${CUT_MARKERS.cut}`;
+  return row.text;
 }
 
 /** True when an assistant message cannot go back to the model as an answer. */

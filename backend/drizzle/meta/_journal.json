@@ -232,6 +232,13 @@
       "when": 1792600000000,
       "tag": "0032_history_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0033_fallback_and_refusal",
+      "breakpoints": true
     }
   ]
 }

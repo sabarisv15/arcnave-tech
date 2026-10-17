@@ -341,6 +341,10 @@ export const messages = pgTable(
     promptVersion: varchar('prompt_version', { length: 64 }),
     /** Null until the registry is versioned (P10). */
     registryVersion: varchar('registry_version', { length: 32 }),
+    /** P11 (7.12, ADR-0081): the model the turn moved away from; null = the first model answered. */
+    fallbackFrom: varchar('fallback_from', { length: 64 }),
+    /** P11: why (`providers/failures.ts` FALLBACK_REASONS). */
+    fallbackReason: varchar('fallback_reason', { length: 32 }),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
@@ -847,6 +851,8 @@ export const usageRecords = pgTable(
     /** complete | cancelled | error | blocked */
     status: varchar('status', { length: 16 }).notNull().default('complete'),
     errorCode: varchar('error_code', { length: 48 }),
+    /** P11 (AL-2): a refusal's category (Claude) or a block's reason (Gemini); null otherwise. */
+    refusalCategory: varchar('refusal_category', { length: 32 }),
 
     /** Null unless a verified pricing entry exists. Null != 0. */
     costUsd: doublePrecision('cost_usd'),

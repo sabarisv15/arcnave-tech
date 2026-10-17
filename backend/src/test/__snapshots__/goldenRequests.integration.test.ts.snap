@@ -65,6 +65,24 @@ exports[`golden requests: what each provider is sent > 1 plain chat, no tools ·
           "timeout": 600000,
         },
         "maxOutputTokens": 64000,
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+        ],
         "systemInstruction": "<text 60420d0ff23a6744 (16943 chars)>",
         "thinkingConfig": {
           "includeThoughts": true,
@@ -216,6 +234,24 @@ exports[`golden requests: what each provider is sent > 2 PDF attached, a questio
           "timeout": 600000,
         },
         "maxOutputTokens": 64000,
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+        ],
         "systemInstruction": "<text 7e5fdecb9b9832ef (34041 chars)>",
         "thinkingConfig": {
           "includeThoughts": true,
@@ -377,6 +413,24 @@ exports[`golden requests: what each provider is sent > 3 web search on · gemini
           "timeout": 600000,
         },
         "maxOutputTokens": 64000,
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+        ],
         "systemInstruction": "<text 7e5fdecb9b9832ef (34041 chars)>",
         "thinkingConfig": {
           "includeThoughts": true,
@@ -513,6 +567,24 @@ exports[`golden requests: what each provider is sent > 4 project chat with instr
           "timeout": 600000,
         },
         "maxOutputTokens": 64000,
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+        ],
         "systemInstruction": "<text 9603e29842e26798 (34591 chars)>",
         "thinkingConfig": {
           "includeThoughts": true,
@@ -645,6 +717,24 @@ exports[`golden requests: what each provider is sent > 5 code run and file creat
           "timeout": 600000,
         },
         "maxOutputTokens": 64000,
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+          },
+        ],
         "systemInstruction": "<text 7e5fdecb9b9832ef (34041 chars)>",
         "thinkingConfig": {
           "includeThoughts": true,

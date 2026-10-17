@@ -473,6 +473,8 @@ export class UsageService {
       /** P22 (`model_calls.turn_id`): the turn the calls belong to. */
       turnId?: string | null;
       clocks?: TurnClocks;
+      /** P11 (AL-2): a refusal's or a block's category. */
+      refusalCategory?: string | null;
     },
     tx?: Transaction,
   ): Promise<{ usageRecordId: string; priceVersion: string | null }> {
@@ -517,6 +519,7 @@ export class UsageService {
         finishReason: input.finishReason ?? null,
         status: input.status,
         errorCode: input.errorCode ?? null,
+        refusalCategory: input.refusalCategory?.slice(0, 32) ?? null,
         costUsd,
         costInr: usdToInr(this.cfg, costUsd),
         priceVersion: totals.priceVersion,

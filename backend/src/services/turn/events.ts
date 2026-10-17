@@ -60,10 +60,21 @@ export type StreamEvent =
       usage: UsageDto;
       finishReason: string;
       effort?: ReasoningEffort;
-      /** ER-2b: the model failed after a tool ran; the turn ended with what it had (ADR-0072). */
+      /**
+       * The answer stopped early and was kept: the model failed after a tool ran (ER-2b,
+       * `partial_after_tool_run`, ADR-0072) or after text was shown (ER-3c, finish
+       * `interrupted`, `errorCode` the cause; ADR-0081).
+       */
       partial?: true;
-      errorCode?: 'partial_after_tool_run';
+      errorCode?: string;
+      /** P11 (7.12, OQ-02 A): the turn was answered by another model than the first; the label. */
+      fallback?: { from: string; reason: string };
     }
+  /**
+   * P11 (7.12, ADR-0081): the turn moved to the next model of its chain before anything was
+   * shown. The client labels the answer "Answered by `to` because `from` was unavailable".
+   */
+  | { type: 'model_switch'; from: string; to: string; reason: string }
   | { type: 'error'; code: string; title: string; detail: string; usage?: UsageDto };
 
 export interface PresentedFileDto {

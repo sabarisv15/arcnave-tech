@@ -45,6 +45,7 @@ import { Storage as GcsClient } from '@google-cloud/storage';
 import { logger } from './logger.js';
 import { FileService, type WorkerOptions } from './services/attachments/fileJobs.js';
 import { HelperJobs } from './services/helpers/helperJobs.js';
+import { ProviderGateway } from './providers/gateway.js';
 
 const log = logger.child({ module: 'container' });
 
@@ -91,6 +92,8 @@ export interface Services {
 
   /** P13 (ADR-0080): the helper jobs (title, summary, router shadow), run in the background. */
   helperJobs: HelperJobs;
+  /** P11 (ADR-0081): the provider gateway (retries, breaker, kill switch, fallback chain). */
+  gateway: ProviderGateway;
 }
 
 export interface BuildOptions {
@@ -250,6 +253,8 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const modelInputs =
     options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined);
   const helperJobs = new HelperJobs({ db, cfg, registry, ledger, log: logger.child({ module: 'helpers' }) });
+  // P11 (ADR-0081): retries, breaker, kill switch and the fallback chain, one per instance.
+  const gateway = new ProviderGateway(cfg);
   const generation = new GenerationService(
     db,
     cfg,
@@ -263,6 +268,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     executionRuntime,
     modelInputs,
     helperJobs,
+    gateway,
   );
 
   return {
@@ -300,6 +306,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     pricing,
     ledger,
     deletionLedger: new DeletionLedger(storage, cfg.DELETION_LEDGER_PREFIX),
+    gateway,
   };
 }
 
