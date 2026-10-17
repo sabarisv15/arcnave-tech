@@ -518,3 +518,9 @@ Opened (not fixed in wave 2):
 - Fast / Deep profiles (P10); router intent enum (owner); N-75 estimator (OQ-08); REC wiring (P11 / P15); delete the compaction code one release after the switch; a durable queue for helper jobs (N-76 worker).
 - ER-3 continuation attempt after text (Turn Executor); audio retry still immediate; research progress events not withdrawn after a hop; Gemini INVALID_ARGUMENT re-open sends a request with no ledger row; the cumulative AL-1 figure on `completed` / `partialUsage` is unread and can go; a pre-0030 `tokens_reserved` value has no reservation row and is released only when its period rolls over.
 
+## tech-p05 wave 3 — P21 (2026-10-17, ADR-0082)
+
+Closed: A-16, S21-10 / A-17 wiring (values unchanged), A-19, A-23, A-25, A-26, C4, B2 contract test, VS-33. The A1 identifier lines above that name `backend/src/scripts/` now apply to `backend/scripts/live/` (same 11 files, outside the image).
+
+Opened: OQ-15 values (N-01, N-02, N-33, N-35, N-39, turn deadline; N-06 / N-74 without P10) — owner; OQ-29 OpenAPI type generator — owner; OQ-13(b) renderers vs skills — owner; default-off flags (listed in ADR-0082) — owner; S21-02 `CLAUDE.md` text proposed in ADR-0082, not written — owner; lint warnings to burn down (backend 145, frontend 18); six allowlisted `process.env` reads; `checkPrivacy` takes ~0.6 s on a 20,000-character single-token string (a pathological memory import can run for minutes, pre-existing); SSE responses now carry the rate-limit headers.
+
