@@ -351,7 +351,43 @@ export interface GenerationRequest {
  * `retryable` drives the backoff policy; `code` is mapped onto an API error code by the
  * service, so provider-specific vocabulary stops at this boundary.
  */
-export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit' | 'provider_quota_unavailable';
+export type ProviderErrorCode = 'provider_error' | 'provider_timeout' | 'model_unavailable' | 'context_overflow' | 'provider_limit' | 'provider_quota_unavailable' | 'provider_payload_limit' | 'response_blocked';
+
+/**
+ * P11 (Stage 15 ER-2f/g/h, ADR-0081): the closed set of failure kinds. The kind, not the HTTP
+ * status, decides retry, fallback and the breaker (`providers/failures.ts` holds the table).
+ */
+export type FailureKind =
+  | 'transient'
+  | 'timeout'
+  | 'quota'
+  | 'config'
+  | 'credentials'
+  | 'claude_limit'
+  | 'request_rejected'
+  | 'blocked'
+  | 'context_overflow'
+  | 'cancelled';
+
+/** The kind an error with no explicit one gets, from its code and retry flag (older call sites). */
+function defaultKind(code: ProviderErrorCode, retryable: boolean): FailureKind {
+  switch (code) {
+    case 'context_overflow':
+      return 'context_overflow';
+    case 'provider_limit':
+      return 'claude_limit';
+    case 'provider_quota_unavailable':
+      return 'quota';
+    case 'model_unavailable':
+      return 'config';
+    case 'response_blocked':
+      return 'blocked';
+    case 'provider_timeout':
+      return retryable ? 'timeout' : 'request_rejected';
+    default:
+      return retryable ? 'transient' : 'request_rejected';
+  }
+}
 
 export class ProviderError extends Error {
   readonly retryable: boolean;
@@ -359,6 +395,17 @@ export class ProviderError extends Error {
   readonly statusCode: number | undefined;
   /** The provider's own Retry-After, in ms, when it sent one (Stage 15 ER-2 honours it ≤ N-42). */
   readonly retryAfterMs: number | undefined;
+  /** P11: what kind of failure this is (ER-2f/g/h); the gateway's retry, fallback and breaker read it. */
+  readonly kind: FailureKind;
+  /**
+   * P11 (AL-1): what the provider reported before the failure, from its last cumulative usage.
+   * Undefined when the request failed before a response stream opened (nothing was billed);
+   * zeros with `exact: false` when the stream opened but reported nothing. The gateway sums it
+   * over the attempts, so it is writable there.
+   */
+  partialUsage: ProviderUsage | undefined;
+  /** P11 (AL-2): the block or refusal category, for `blocked` (e.g. Gemini `SAFETY`). */
+  readonly refusalCategory: string | undefined;
 
   constructor(
     message: string,
@@ -367,14 +414,20 @@ export class ProviderError extends Error {
       code?: ProviderErrorCode;
       statusCode?: number;
       retryAfterMs?: number;
+      kind?: FailureKind;
+      partialUsage?: ProviderUsage;
+      refusalCategory?: string;
     } = {},
   ) {
     super(message);
     this.name = 'ProviderError';
-    this.retryable = options.retryable ?? false;
     this.code = options.code ?? 'provider_error';
+    this.retryable = options.retryable ?? (options.kind === 'transient' || options.kind === 'timeout');
+    this.kind = options.kind ?? defaultKind(this.code, this.retryable);
     this.statusCode = options.statusCode;
     this.retryAfterMs = options.retryAfterMs;
+    this.partialUsage = options.partialUsage;
+    this.refusalCategory = options.refusalCategory;
   }
 }
 

@@ -588,6 +588,44 @@ const envSchema = z.object({
   SAFE_FETCH_GROUNDING_MAX_REDIRECTS: int(8),
   /** One TCP connect attempt before safeFetch tries the host's next checked address (ours). */
   SAFE_FETCH_CONNECT_TIMEOUT_MS: int(3_000),
+
+  // --- P11: error matrix, breaker, fallback (ADR-0081) -----------------------------------
+  /** N-47: a model's breaker opens after this many failures in BREAKER_WINDOW_MS. */
+  BREAKER_FAILURES: int(NUMBERS.BREAKER_FAILURES.value),
+  /** N-47. */
+  BREAKER_WINDOW_MS: int(NUMBERS.BREAKER_WINDOW_MS.value),
+  /** N-47: or this share of the last BREAKER_MIN_CALLS calls failed. */
+  BREAKER_RATIO: positiveNumber(NUMBERS.BREAKER_RATIO.value),
+  /** N-47. */
+  BREAKER_MIN_CALLS: int(NUMBERS.BREAKER_MIN_CALLS.value),
+  /** N-47: an open breaker admits one trial call after this long. */
+  BREAKER_HALF_OPEN_MS: int(NUMBERS.BREAKER_HALF_OPEN_MS.value),
+  /** N-47: at most this share of an instance's provider calls are retries. */
+  RETRY_BUDGET_RATIO: positiveNumber(NUMBERS.RETRY_BUDGET_RATIO.value),
+  /** Retries always allowed per window whatever the ratio (ours, no N-id; owner to confirm). */
+  RETRY_BUDGET_MIN_RESERVE: int(2),
+  /** N-43: tool timers (ER-4c). */
+  TOOL_TIMEOUT_WEB_SEARCH_MS: int(NUMBERS.TOOL_TIMEOUT_WEB_SEARCH_MS.value),
+  TOOL_TIMEOUT_FILE_SEARCH_MS: int(NUMBERS.TOOL_TIMEOUT_FILE_SEARCH_MS.value),
+  TOOL_TIMEOUT_MEMORY_MS: int(NUMBERS.TOOL_TIMEOUT_MEMORY_MS.value),
+  /**
+   * Kill switch (ER-13): model aliases or provider model ids that are never called, whatever
+   * the breaker says. A turn that picked one goes down its fallback chain with the label
+   * `disabled`. Comma-separated; empty = none.
+   */
+  MODELS_DISABLED: csv([]),
+  /**
+   * The ops incident banner (ER-12b): text written by ops, shown to every user, served by
+   * GET /v1/status. Unset = no banner. Never user, file or model text.
+   */
+  INCIDENT_BANNER: optionalStr,
+  /**
+   * E18 token bucket per model, calls per minute. Unset = off: the register has no capacity for
+   * it (OWNER ITEM, ADR-0081).
+   */
+  PROVIDER_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().optional().catch(undefined),
+  /** OQ-02 A: a failed model hands the turn to the next of its chain, labelled. Off = no hop. */
+  FALLBACK_ENABLED: bool(true),
 });
 
 export type Env = z.infer<typeof envSchema>;

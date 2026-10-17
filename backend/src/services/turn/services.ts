@@ -6,6 +6,7 @@
 import type { Config } from '../../config.js';
 import type { Database } from '../../db/client.js';
 import type { ModelRegistry } from '../../providers/registry.js';
+import type { ProviderGateway } from '../../providers/gateway.js';
 import type { ModelInputStore } from '../attachments/modelInputStore.js';
 import type { CapabilityRegistry } from '../../capabilities/registry.js';
 import type { ExecutionRuntime } from '../../tools/execution/executionRuntime.js';
@@ -27,4 +28,6 @@ export interface TurnServices {
   readonly capabilities: CapabilityRegistry;
   readonly executionRuntime: ExecutionRuntime;
   readonly modelInputs: ModelInputStore | undefined;
+  /** P11 (ADR-0081): every model call goes through it (retries, breaker, fallback chain). */
+  readonly gateway: ProviderGateway;
 }

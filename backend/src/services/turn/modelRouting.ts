@@ -2,12 +2,16 @@
  * Routing: which model answers the turn. A named model is used when it can do what the turn
  * needs; `Auto` keeps the chat's model, else routes to Gemini 3.8 Flash (Stage 7 RT-1,
  * ADR-0076). The user's routing preference is not an input any more: Auto is rules only.
+ * When the model asked for (or Auto's) is unavailable, the turn starts on the next model of its
+ * fallback chain, labelled (P11, K-15, ADR-0081).
  */
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { messages } from '../../db/schema.js';
 import { ApiError } from '../../errors.js';
 import { type ModelEntry, AUTO_ALIAS } from '../../providers/registry.js';
-import { type RoutingDecision, routeAuto } from '../../providers/routing.js';
+import { AUTO_PROVIDER, type RoutingDecision, routeAuto } from '../../providers/routing.js';
+import type { FallbackReason } from '../../providers/failures.js';
+import { nextInChain } from '../../providers/fallback.js';
 import type { TurnServices } from './services.js';
 import type { GenerateInput } from './input.js';
 import { logger } from '../../logger.js';
@@ -34,12 +38,39 @@ export async function chatModelAlias(svc: TurnServices, chatId: string, currentM
   return row?.alias ?? null;
 }
 
+/** The model a turn starts on, and the labelled switch when it is not the one asked for (K-15). */
+export interface ResolvedModel {
+  entry: ModelEntry;
+  routing: RoutingDecision | null;
+  /** P11 (7.12, OQ-02 A): the asked-for model was unavailable; the turn starts down its chain. */
+  switched?: { from: string; reason: FallbackReason };
+}
+
+/** The next model of `origin`'s chain that is configured, admitted and can do what the turn needs. */
+function chainFrom(
+  svc: TurnServices,
+  origin: string,
+  available: ModelEntry[],
+  needs: { vision: boolean; grounding: boolean },
+): ModelEntry | null {
+  if (!svc.cfg.FALLBACK_ENABLED) return null;
+  return nextInChain({
+    origin,
+    tried: new Set([origin]),
+    skipProviders: new Set(),
+    needs,
+    entries: available,
+    admissible: (e) => svc.gateway.breaker.wouldAdmit(e.alias, e.providerModelId).ok,
+  });
+}
+
 export async function resolveModel(
   svc: TurnServices,
   input: GenerateInput,
   requiresGrounding: boolean,
   requiresVision: boolean,
-): Promise<{ entry: ModelEntry; routing: RoutingDecision | null }> {
+): Promise<ResolvedModel> {
+  const needs = { vision: requiresVision, grounding: requiresGrounding };
   if (input.modelAlias !== AUTO_ALIAS) {
     const status = await svc.registry.status(input.modelAlias, { probe: 'never' });
     if (status && status.available) {
@@ -53,10 +84,18 @@ export async function resolveModel(
       }
       return { entry: status.entry, routing: null };
     }
-    // A substitution with a log line only: no fallback reason or label reaches the answer yet
-    // (Invariant 1 gap, DEFERRED to P11, ADR-0076). It goes through Auto below, so the chat's
-    // earlier model may be kept, which can be another Claude model.
-    log.info({ requested: input.modelAlias }, 'Requested model is disabled or unavailable; answering through Auto');
+    // K-15 (P11, ADR-0081): a picked model that is switched off or known to be unavailable goes
+    // down its own fallback chain, with a label on the answer; never silently through Auto.
+    const reason: FallbackReason = status?.reason === 'disabled' ? 'disabled' : 'unavailable';
+    const next = chainFrom(svc, input.modelAlias, await svc.registry.availableEntries({ probe: 'never' }), needs);
+    if (next) {
+      log.warn({ code: 'model_fallback', from: input.modelAlias, to: next.alias, reason }, 'requested model unavailable; next model of its chain, labelled');
+      return { entry: next, routing: null, switched: { from: input.modelAlias, reason } };
+    }
+    throw new ApiError('model_unavailable', {
+      detail: `"${input.modelAlias}" is not available right now, and no other model can take this turn. Choose another model, or try again later.`,
+      meta: { alias: input.modelAlias, reason: status?.reason ?? 'unknown' },
+    });
   }
 
   const available = await svc.registry.availableEntries({ probe: 'never' });
@@ -79,13 +118,22 @@ export async function resolveModel(
   }
   const decision = routeAuto({ requiresVision, requiresGrounding }, available);
   if (!decision) {
-    // A new Auto decision is Gemini or nothing: routeAuto never picks a Claude model in its place
-    // (Invariant 1). The user can pick one by name.
+    // Auto's model (Gemini) cannot take the turn. P11 (7.12, OQ-02 A): its chain answers, and the
+    // answer says so; Auto never substitutes silently (Invariant 1).
+    const gemini = svc.registry.aliases.map((a) => svc.registry.entry(a)!).find((e) => e.provider === AUTO_PROVIDER);
+    const next = gemini ? chainFrom(svc, gemini.alias, available, needs) : null;
+    if (gemini && next) {
+      const status = await svc.registry.status(gemini.alias, { probe: 'never' });
+      const reason: FallbackReason = status?.reason === 'disabled' ? 'disabled' : 'unavailable';
+      log.warn({ code: 'model_fallback', from: gemini.alias, to: next.alias, reason }, "Auto's model unavailable; next model of its chain, labelled");
+      return {
+        entry: next,
+        routing: { alias: next.alias, entry: next, rule: 'auto_fallback', considered: [gemini.alias, next.alias] },
+        switched: { from: gemini.alias, reason },
+      };
+    }
     throw new ApiError('no_model_available', {
-      detail:
-        input.modelAlias === AUTO_ALIAS
-          ? 'Auto answers with Gemini 3.8 Flash, which is not available right now. Pick a model by name.'
-          : `"${input.modelAlias}" is not available, and Auto's model (Gemini 3.8 Flash) is not available either.`,
+      detail: 'Auto answers with Gemini 3.8 Flash, which is not available right now, and no other model can take this turn. Pick a model by name.',
       meta: { alias: input.modelAlias, reason: 'auto_model_unavailable' },
     });
   }

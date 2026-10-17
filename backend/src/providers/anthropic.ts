@@ -1,9 +1,9 @@
 /**
  * Claude through the first-party Claude API, via `@anthropic-ai/sdk` (ADR-0054).
  *
- * The client is built with the SDK's retries off: the only retry is the app's own, in
- * `streamWithRetry`, per the Stage 15 matrix (ER-1, ER-2), so attempts, backoff and usage stay
- * in one place. The API key comes from the environment and is never logged.
+ * The client is built with the SDK's retries off: the only retry is the app's own, in the
+ * gateway (`providers/gateway.ts`), per the Stage 15 matrix (ER-1, ER-2), so attempts, backoff
+ * and usage stay in one place. The API key comes from the environment and is never logged.
  */
 import { neutraliseReservedTags } from '../services/prompt/reservedTags.js';
 import Anthropic, { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/sdk';
@@ -22,14 +22,42 @@ import type {
 import { addRequestUsage, EMPTY_USAGE, isAbort, replayNatively, toolCallAsText, ModelNotFoundError, primaryToolContent, ProviderError, toolImages } from './types.js';
 import { callFingerprint, duplicateFailedCallResult, hasTerminalToolCall, isLastRound, resolveMaxRounds } from './toolLoopPolicy.js';
 import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } from './attachmentContent.js';
+import { normalisedFinish } from './finish.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
 /**
  * Stage 15 ER-2: transient before the first token. 529 is the API's `overloaded_error`
- * (Claude docs, Errors). A 429 that is a spend limit is not transient; `classifyStatus` says so.
+ * (Claude docs, Errors). A 429 that is a spend limit is not transient; `classifyAnthropicError`
+ * says so.
  */
 const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
+
+/**
+ * A mid-stream `error` event carries no HTTP status, only its error type (the SDK raises it as an
+ * `APIError` with `status` undefined and `type` set). Each type is classified as the status the
+ * Claude docs give it (Errors: "HTTP errors"); an unknown type is transient (Stage 21 doc-sync
+ * 2026-10-12: "an unknown type is transient").
+ */
+const ERROR_TYPE_STATUS: Readonly<Record<string, number>> = {
+  invalid_request_error: 400,
+  authentication_error: 401,
+  billing_error: 402,
+  permission_error: 403,
+  not_found_error: 404,
+  request_too_large: 413,
+  rate_limit_error: 429,
+  api_error: 500,
+  timeout_error: 504,
+  overloaded_error: 529,
+};
+
+/** AL-5: the thinking-block 400s a stripped re-send repairs (Stage 15 EH24 / F31). */
+export function isThinkingSignature400(err: unknown): boolean {
+  if (statusOf(err) !== 400) return false;
+  const text = err instanceof Error ? err.message : String(err);
+  return /invalid.{0,40}signature|bound to a different conversation/i.test(text);
+}
 
 /**
  * The tool version string is part of the API contract, not a date to be freshened casually.
@@ -53,6 +81,20 @@ export function createAnthropicClient(cfg: Config): Anthropic {
     // N-43 (repo value, ADR-0024): one request, stream included.
     timeout: cfg.PROVIDER_TIMEOUT_MS,
   });
+}
+
+/** Whether any assistant turn of the request carries a thinking block. */
+function hasThinking(messages: Anthropic.MessageParam[]): boolean {
+  return messages.some((m) => m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b) => b.type === 'thinking' || b.type === 'redacted_thinking'));
+}
+
+/** The request with every thinking block left out (AL-5 repair). */
+export function withoutThinking(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  return messages.map((m) =>
+    m.role === 'assistant' && Array.isArray(m.content)
+      ? { ...m, content: m.content.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking') }
+      : m,
+  );
 }
 
 /** How often a call's partial input is parsed and reported while it streams (ADR-0037). */
@@ -121,29 +163,67 @@ function retryAfterMs(err: unknown): number | undefined {
   return undefined;
 }
 
-/** The typed error a failed Claude call becomes, classified per the Stage 15 matrix. */
-export function classifyAnthropicError(err: unknown, modelId: string): ProviderError {
-  const status = statusOf(err);
-  if (status === 404) return new ModelNotFoundError(modelId, 'global');
+/** The typed error a failed Claude call becomes, classified per the Stage 15 matrix (ER-2f/g/h). */
+export function classifyAnthropicError(err: unknown, modelId: string, partialUsage?: ProviderUsage): ProviderError {
+  const httpStatus = statusOf(err);
+  const type = err instanceof APIError && typeof err.type === 'string' ? err.type : undefined;
+  const midStream = httpStatus === undefined && type !== undefined;
+  const status = httpStatus ?? (type !== undefined ? ERROR_TYPE_STATUS[type] : undefined);
+  const usage = partialUsage !== undefined ? { partialUsage } : {};
+  if (status === 404) {
+    const missing = new ModelNotFoundError(modelId, 'global');
+    missing.partialUsage = partialUsage;
+    return missing;
+  }
   if (isAccountLimit(err, status)) {
     return new ProviderError(`Claude account limit reached: ${String(err)}`, {
       code: 'provider_limit',
+      kind: 'claude_limit',
       retryable: false,
       ...(status !== undefined ? { statusCode: status } : {}),
+      ...usage,
     });
   }
-  if (status === 401 || status === 403) {
-    return new ProviderError(`Claude rejected the credentials or permissions: ${String(err)}`, {
+  if (status === 401) {
+    // M-09: the account's credentials; every Claude row is skipped for the turn.
+    return new ProviderError(`Claude rejected the credentials: ${String(err)}`, {
       code: 'model_unavailable',
+      kind: 'credentials',
       retryable: false,
       statusCode: status,
+      ...usage,
     });
   }
+  if (status === 403) {
+    return new ProviderError(`Claude refused this model for the account: ${String(err)}`, {
+      code: 'model_unavailable',
+      kind: 'config',
+      retryable: false,
+      statusCode: status,
+      ...usage,
+    });
+  }
+  if (status === 413) {
+    return new ProviderError(`Claude request too large: ${String(err)}`, {
+      code: 'provider_payload_limit',
+      kind: 'request_rejected',
+      retryable: false,
+      statusCode: status,
+      ...usage,
+    });
+  }
+  if (midStream && status === undefined) {
+    // An error type this table does not know: transient (doc-sync 2026-10-12).
+    return new ProviderError(`Claude stream error of an unknown type: ${String(err)}`, { kind: 'transient', ...usage });
+  }
   const after = retryAfterMs(err);
+  const retryable = status !== undefined && RETRYABLE_STATUS.has(status);
   return new ProviderError(`Claude request failed: ${String(err)}`, {
-    retryable: status !== undefined && RETRYABLE_STATUS.has(status),
+    retryable,
+    kind: retryable ? 'transient' : 'request_rejected',
     ...(status !== undefined ? { statusCode: status } : {}),
     ...(after !== undefined ? { retryAfterMs: after } : {}),
+    ...usage,
   });
 }
 
@@ -453,6 +533,11 @@ export class AnthropicProvider implements Provider {
     ];
 
     const failedToolCalls = new Set<string>();
+    // The round in flight, for the usage a failure reports (AL-1) and the AL-5 repair.
+    let roundUsage = EMPTY_USAGE;
+    let roundOpened = false;
+    let roundYielded = false;
+    let thinkingRepaired = false;
 
     try {
       roundLoop: for (let round = 0; round < maxRounds; round += 1) {
@@ -502,76 +587,99 @@ export class AnthropicProvider implements Provider {
         const toolChoice: Anthropic.ToolChoice | undefined =
           roundTools.length === 0 ? undefined : isFinalRound ? { type: 'none' } : currentUseTools ? { type: 'auto' } : undefined;
 
-        const stream = this.getClient().messages.stream(
-          {
-            model: request.providerModelId,
-            max_tokens: request.maxOutputTokens,
-            // Claude 5 models think adaptively whether or not this is sent, but their summary
-            // display defaults to "omitted" (empty text). Summarized, as Claude's app shows it.
-            // The blocks go back unchanged in the tool loop below (final.content).
-            thinking: { type: 'adaptive', display: 'summarized' },
-            // Effort is Claude 5's control for how hard it thinks (default medium).
-            ...(request.reasoningEffort ? { output_config: { effort: request.reasoningEffort } } : {}),
-            messages,
-            ...(systemParam !== undefined ? { system: systemParam } : {}),
-            ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
-            ...(toolChoice ? { tool_choice: toolChoice } : {}),
-          },
-          { signal: request.signal },
-        );
+        // AL-5: a thinking-signature 400 is repaired once per turn: the round is re-sent with its
+        // thinking blocks stripped (Stage 15 EH24). Nothing was shown in the round and no tool ran
+        // in it, so the re-send repeats no step.
+        let final!: Anthropic.Message;
+        for (;;) {
+          roundUsage = EMPTY_USAGE;
+          roundOpened = false;
+          roundYielded = false;
+          try {
+            const stream = this.getClient().messages.stream(
+              {
+                model: request.providerModelId,
+                max_tokens: request.maxOutputTokens,
+                // Claude 5 models think adaptively whether or not this is sent, but their summary
+                // display defaults to "omitted" (empty text). Summarized, as Claude's app shows it.
+                // The blocks go back unchanged in the tool loop below (final.content).
+                thinking: { type: 'adaptive', display: 'summarized' },
+                // Effort is Claude 5's control for how hard it thinks (default medium).
+                ...(request.reasoningEffort ? { output_config: { effort: request.reasoningEffort } } : {}),
+                messages,
+                ...(systemParam !== undefined ? { system: systemParam } : {}),
+                ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
+                ...(toolChoice ? { tool_choice: toolChoice } : {}),
+              },
+              { signal: request.signal },
+            );
 
-        let roundUsage = EMPTY_USAGE;
-        let lastPartialAt = 0;
-        for await (const event of stream) {
-          if (request.signal.aborted) {
-            usage = addRequestUsage(usage, requestUsage(roundUsage));
-            break roundLoop;
-          }
-          switch (event.type) {
-            case 'content_block_delta': {
-              const delta = event.delta;
-              if (delta.type === 'text_delta' && delta.text) {
-                yield { type: 'delta', text: delta.text };
-              } else if (delta.type === 'thinking_delta' && delta.thinking) {
-                yield { type: 'thinking', text: delta.thinking };
-              } else if (delta.type === 'input_json_delta') {
-                // ADR-0037: a visual drawn while written. The SDK's snapshot parses the partial
-                // JSON on each read, so reads are spaced out; only show_widget is shown.
-                const content = stream.currentMessage?.content ?? [];
-                const block = content[event.index];
-                const now = Date.now();
-                if (block?.type === 'tool_use' && block.name === 'show_widget' && now - lastPartialAt >= PARTIAL_INPUT_INTERVAL_MS) {
-                  lastPartialAt = now;
-                  const input = block.input;
-                  if (input && typeof input === 'object') {
-                    const index = content.slice(0, event.index).filter((b) => b.type === 'tool_use').length;
-                    yield { type: 'tool_input_partial', index, name: block.name, input: input as Record<string, unknown> };
-                  }
-                }
+            let lastPartialAt = 0;
+            for await (const event of stream) {
+              roundOpened = true;
+              if (event.type === 'content_block_delta') roundYielded = true;
+              if (request.signal.aborted) {
+                usage = addRequestUsage(usage, requestUsage(roundUsage));
+                break roundLoop;
               }
-              break;
+              switch (event.type) {
+                case 'content_block_delta': {
+                  const delta = event.delta;
+                  if (delta.type === 'text_delta' && delta.text) {
+                    yield { type: 'delta', text: delta.text };
+                  } else if (delta.type === 'thinking_delta' && delta.thinking) {
+                    yield { type: 'thinking', text: delta.thinking };
+                  } else if (delta.type === 'input_json_delta') {
+                    // ADR-0037: a visual drawn while written. The SDK's snapshot parses the partial
+                    // JSON on each read, so reads are spaced out; only show_widget is shown.
+                    const content = stream.currentMessage?.content ?? [];
+                    const block = content[event.index];
+                    const now = Date.now();
+                    if (block?.type === 'tool_use' && block.name === 'show_widget' && now - lastPartialAt >= PARTIAL_INPUT_INTERVAL_MS) {
+                      lastPartialAt = now;
+                      const input = block.input;
+                      if (input && typeof input === 'object') {
+                        const index = content.slice(0, event.index).filter((b) => b.type === 'tool_use').length;
+                        yield { type: 'tool_input_partial', index, name: block.name, input: input as Record<string, unknown> };
+                      }
+                    }
+                  }
+                  break;
+                }
+                case 'message_start':
+                  roundUsage = merge(roundUsage, usageFrom(event.message.usage as AnthropicUsage));
+                  break;
+                case 'message_delta': {
+                  roundUsage = merge(roundUsage, usageFrom(event.usage as AnthropicUsage));
+                  if (event.delta.stop_reason) finishReason = String(event.delta.stop_reason);
+                  break;
+                }
+                case 'content_block_start':
+                  // Search results arrive complete in the block-start event; `content_block_stop`
+                  // carries only the index, so this is the streaming-time hook for them.
+                  searchBlocks.push(...collectSearchResults(event.content_block));
+                  break;
+                default:
+                  break;
+              }
             }
-            case 'message_start':
-              roundUsage = merge(roundUsage, usageFrom(event.message.usage as AnthropicUsage));
-              break;
-            case 'message_delta': {
-              roundUsage = merge(roundUsage, usageFrom(event.usage as AnthropicUsage));
-              if (event.delta.stop_reason) finishReason = String(event.delta.stop_reason);
-              break;
+
+            final = await stream.finalMessage();
+            break;
+          } catch (err) {
+            if (!thinkingRepaired && !roundYielded && !request.signal.aborted && isThinkingSignature400(err) && hasThinking(messages)) {
+              thinkingRepaired = true;
+              messages = withoutThinking(messages);
+              log.warn({ code: 'thinking_signature_repair', round }, 'thinking block refused; round re-sent without thinking blocks');
+              continue;
             }
-            case 'content_block_start':
-              // Search results arrive complete in the block-start event; `content_block_stop`
-              // carries only the index, so this is the streaming-time hook for them.
-              searchBlocks.push(...collectSearchResults(event.content_block));
-              break;
-            default:
-              break;
+            throw err;
           }
         }
-
-        const final = await stream.finalMessage();
         roundUsage = merge(roundUsage, usageFrom(final.usage as AnthropicUsage));
         usage = addRequestUsage(usage, requestUsage(roundUsage));
+        // The round's usage is in the turn's now; a later failure does not count it twice.
+        roundOpened = false;
         if (final.stop_reason) finishReason = String(final.stop_reason);
         if (final.stop_reason === 'refusal') {
           const details = final.stop_details ?? null;
@@ -641,16 +749,28 @@ export class AnthropicProvider implements Provider {
       }
     } catch (err) {
       if (request.signal.aborted) throw err;
+      // AL-1: what was reported before the failure (the last cumulative usage); undefined when
+      // no response stream had opened in this turn's requests (nothing billed).
+      const billed = roundOpened ? addRequestUsage(usage, requestUsage(roundUsage)) : usage;
+      const partialUsage = billed ?? undefined;
       // Not the caller's abort: the SDK's timeout or a dropped connection, both transient
       // (ER-2: "connection/408/409"); the app's retry decides, the SDK's is off.
       if (isAbort(err) || err instanceof APIConnectionError) {
         const timedOut = isAbort(err) || err instanceof APIConnectionTimeoutError;
         throw new ProviderError(`Claude request ${timedOut ? 'timed out' : 'lost its connection'}: ${String(err)}`, {
-          retryable: true,
+          kind: timedOut ? 'timeout' : 'transient',
           ...(timedOut ? { code: 'provider_timeout' as const } : {}),
+          ...(partialUsage !== undefined ? { partialUsage } : {}),
         });
       }
-      throw classifyAnthropicError(err, request.providerModelId);
+      // M-24 (Claude): a stream that ended without a message or a stop reason.
+      if (!(err instanceof APIError) && /stream ended|without producing a message|no message_stop/i.test(String(err))) {
+        throw new ProviderError(`Claude stream ended without a stop reason: ${String(err)}`, {
+          kind: 'transient',
+          ...(partialUsage !== undefined ? { partialUsage } : {}),
+        });
+      }
+      throw classifyAnthropicError(err, request.providerModelId, partialUsage);
     }
 
     if (grounded && !request.signal.aborted) {
@@ -674,7 +794,7 @@ export class AnthropicProvider implements Provider {
       }
     }
 
-    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason };
+    yield { type: 'completed', usage: usage ?? EMPTY_USAGE, finishReason: normalisedFinish(finishReason) };
   }
 
   /**

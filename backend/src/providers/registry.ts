@@ -40,6 +40,8 @@ export type UnavailableReason =
   | 'vertex_not_configured'
   | 'anthropic_not_configured'
   | 'probe_failed'
+  /** P11 (ER-13): named in MODELS_DISABLED, the kill switch. */
+  | 'disabled'
   | 'unknown';
 
 export interface ModelStatus {
@@ -116,6 +118,17 @@ export class ModelRegistry {
 
   /** Statuses knowable without a network call. */
   private staticStatus(entry: ModelEntry): ModelStatus | null {
+    // P11: the kill switch wins over everything else; the turn goes down the chain, labelled.
+    const disabled = new Set(this.cfg.MODELS_DISABLED.map((d) => d.trim().toLowerCase()));
+    if (disabled.has(entry.alias.toLowerCase()) || (entry.providerModelId && disabled.has(entry.providerModelId.toLowerCase()))) {
+      return {
+        entry,
+        available: false,
+        reason: 'disabled',
+        detail: 'Switched off by the operator (MODELS_DISABLED).',
+        checkedAt: null,
+      };
+    }
     if (entry.provider === 'google' && !this.cfg.vertexConfigured) {
       return {
         entry,

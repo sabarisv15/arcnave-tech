@@ -226,6 +226,13 @@ function baseEnv(): Record<string, string> {
     UPLOADS_PER_USER_PER_DAY: '100000',
     // N-42's 1 s → 2 s backoff is real time; a retry test checks that it retries, not how long.
     PROVIDER_RETRY_BASE_MS: '5',
+    // P11: the instance retry budget (N-47 10 %, reserve 2) spans every test of a file that
+    // shares one app; a test of the budget sets its own. Raised like the rate limits above.
+    RETRY_BUDGET_MIN_RESERVE: '100000',
+    // …and so does each model's circuit breaker (N-47: 5 failures / 30 s): failures one test
+    // provokes must not open the breaker for the next. breaker.test.ts tests the real values.
+    BREAKER_FAILURES: '100000',
+    BREAKER_MIN_CALLS: '100000',
   };
 }
 

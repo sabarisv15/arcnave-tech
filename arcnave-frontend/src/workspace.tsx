@@ -550,6 +550,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               status: "generating",
               modelAlias: event.model.resolved,
               providerModelId: event.model.providerModelId,
+              // ER-12a: the support code a failure card shows.
+              ...(event.requestId ? { requestId: event.requestId } : {}),
             });
             setMessages((all) => ({ ...all, [chatId]: adopt(all[chatId] ?? []) }));
             assistantId = realId;
@@ -686,9 +688,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               // Ignore in non-browser context
             }
           }
+          if (event.type === "model_switch") {
+            // P11: the label shows at once; the stored row carries it after a reload.
+            const switched = { from: event.from, to: event.to, reason: event.reason };
+            patchMessage(chatId, assistantId, (m) => ({
+              ...m,
+              modelAlias: switched.to,
+              fallbackFrom: m.fallbackFrom ?? switched.from,
+              fallbackReason: m.fallbackReason ?? switched.reason,
+            }));
+          }
           if (event.type === "done") {
             completed = true;
             outcome = "complete";
+            const fallback = event.fallback;
             patchMessage(chatId, assistantId, (m) => ({
               ...m,
               visualDrafts: undefined,
@@ -697,6 +710,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               usage: toUsage(event.usage),
               finishReason: event.finishReason,
               ...(event.effort ? { effort: event.effort } : {}),
+              ...(fallback ? { fallbackFrom: fallback.from, fallbackReason: fallback.reason } : {}),
             }));
           }
           if (event.type === "error") {

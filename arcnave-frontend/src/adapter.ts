@@ -94,10 +94,14 @@ export type StreamEvent =
       usage: UsageDto;
       finishReason: string;
       effort?: ReasoningEffort | null;
-      /** The model failed after a tool ran; the turn ended with what it had (ADR-0072). */
+      /** The answer stopped early and was kept: after a tool ran (ADR-0072) or after text (ADR-0081). */
       partial?: boolean;
       errorCode?: string;
+      /** P11: another model answered than the first; the label's facts. */
+      fallback?: { from: string; reason: string };
     }
+  /** P11 (Stage 7 7.12): the turn moved to the next model of its chain before anything was shown. */
+  | { type: "model_switch"; from: string; to: string; reason: string }
   | {
       type: "error";
       code: string;

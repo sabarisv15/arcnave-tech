@@ -113,6 +113,9 @@ const messageSchema = z.object({
   effort: z.string().nullable(),
   providerModelId: z.string().nullable(),
   finishReason: z.string().nullable(),
+  /** P11 (7.12): the model this answer was handed over from, and why; null = the first model answered. */
+  fallbackFrom: z.string().nullable(),
+  fallbackReason: z.string().nullable(),
   artifactId: z.string().nullable(),
   searchEntryPoint: z.string().nullable(),
   /** The model's thought summary, when it gave one. */
@@ -884,6 +887,8 @@ async function loadMessages(
     effort: m.effort ?? null,
     providerModelId: m.providerModelId,
     finishReason: m.finishReason,
+    fallbackFrom: m.fallbackFrom ?? null,
+    fallbackReason: m.fallbackReason ?? null,
     artifactId: m.artifactId,
     searchEntryPoint: m.searchEntryPoint,
     thinking: m.thinking,
@@ -986,6 +991,8 @@ async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, user
         provider: m.provider,
         providerModelId: m.providerModelId,
         finishReason: m.finishReason,
+        fallbackFrom: m.fallbackFrom,
+        fallbackReason: m.fallbackReason,
         artifactId: m.artifactId,
         searchEntryPoint: m.searchEntryPoint,
         thinking: m.thinking,

@@ -72,6 +72,8 @@ export type MessageWrite =
       mode: Mode;
       questions?: string[];
       effort?: ReasoningEffort;
+      /** P11 (7.12, ADR-0081): the model the turn moved away from, and why; a reload shows the label. */
+      fallback?: { from: string; reason: string };
     }
   | {
       /** The turn failed before an answer could be written (or its runner died): the row keeps
@@ -92,6 +94,8 @@ export interface UsageWrite {
   status: 'complete' | 'cancelled' | 'error' | 'blocked';
   finishReason?: string | null;
   errorCode?: string | null;
+  /** P11 (AL-2): a refusal's or a block's category. */
+  refusalCategory?: string | null;
 }
 
 export interface SettleIds {
@@ -168,6 +172,9 @@ export async function settleTurnTx(
         providerModelId: m.model.providerModelId,
         finishReason: m.finishReason,
         searchEntryPoint: m.searchEntryPoint ?? null,
+        // P11: the switch label (null = the first model answered).
+        fallbackFrom: m.fallback?.from.slice(0, 64) ?? null,
+        fallbackReason: m.fallback?.reason.slice(0, 32) ?? null,
         completedAt: new Date(),
       })
       .where(eq(messages.id, ids.messageId));
@@ -221,6 +228,7 @@ export async function settleTurnTx(
         status: write.usage.status,
         ...(write.usage.finishReason !== undefined ? { finishReason: write.usage.finishReason } : {}),
         ...(write.usage.errorCode !== undefined ? { errorCode: write.usage.errorCode } : {}),
+        ...(write.usage.refusalCategory ? { refusalCategory: write.usage.refusalCategory } : {}),
       },
       tx,
     );

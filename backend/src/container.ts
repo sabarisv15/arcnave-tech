@@ -41,6 +41,7 @@ import { GcsModelInputStore, type ModelInputStore } from './services/attachments
 import { Storage as GcsClient } from '@google-cloud/storage';
 import { logger } from './logger.js';
 import { FileService, type WorkerOptions } from './services/attachments/fileJobs.js';
+import { ProviderGateway } from './providers/gateway.js';
 
 const log = logger.child({ module: 'container' });
 
@@ -77,6 +78,8 @@ export interface Services {
   warmSandbox: WarmSandboxClient | null;
   /** The file pipeline: job queue, worker and in-request reading (ADR-0062). */
   files: FileService;
+  /** P11 (ADR-0081): the provider gateway (retries, breaker, kill switch, fallback chain). */
+  gateway: ProviderGateway;
 }
 
 export interface BuildOptions {
@@ -233,6 +236,8 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
 
   const modelInputs =
     options.modelInputs ?? (cfg.MODEL_INPUT_BUCKET ? new GcsModelInputStore(new GcsClient().bucket(cfg.MODEL_INPUT_BUCKET)) : undefined);
+  // P11 (ADR-0081): retries, breaker, kill switch and the fallback chain, one per instance.
+  const gateway = new ProviderGateway(cfg);
   const generation = new GenerationService(
     db,
     cfg,
@@ -245,6 +250,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     capabilities,
     executionRuntime,
     modelInputs,
+    gateway,
   );
 
   return {
@@ -278,6 +284,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
       },
       options.fileWorker,
     ),
+    gateway,
   };
 }
 

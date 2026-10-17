@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, RotateCcw, Shield, Square } from "lucide-react";
 import { AiStateMark } from "./brand";
-import { errorCopy } from "./api";
+import { api, errorCopy } from "./api";
 import { EFFORT_COPY } from "./Composer";
 import { cutOffReason } from "./types";
 import type { ReasoningEffort } from "./types";
@@ -47,6 +47,9 @@ const BOARD_COPY: Record<string, { title: string; detail: string }> = {
 /** Codes that are a limit, not a fault: shown in the board's amber note. */
 const LIMIT_CODES = new Set(["budget_exceeded", "rate_limit", "provider_limit"]);
 
+/** Codes that say the model declined or a safety filter stopped it: information, not a fault. */
+const DECLINED_CODES = new Set(["model_refused", "response_blocked"]);
+
 const UNKNOWN = {
   title: "That did not work",
   detail:
@@ -67,7 +70,7 @@ export function failureView(
 ): FailureView {
   const known = code ? (BOARD_COPY[code] ?? errorCopy[code]) : undefined;
   const base = known ?? UNKNOWN;
-  const tone: FailureTone = code === "model_refused" ? "info" : code && LIMIT_CODES.has(code) ? "warn" : "err";
+  const tone: FailureTone = code && DECLINED_CODES.has(code) ? "info" : code && LIMIT_CODES.has(code) ? "warn" : "err";
   return {
     tone,
     title: known ? base.title : server?.title || base.title,
@@ -90,6 +93,7 @@ export function FailureCard({
   onRetry,
   retryDisabled = false,
   onOpenLimits,
+  supportCode,
 }: {
   code: string | null | undefined;
   title?: string;
@@ -97,6 +101,8 @@ export function FailureCard({
   onRetry: () => void;
   retryDisabled?: boolean;
   onOpenLimits?: () => void;
+  /** ER-12a: shown small, so a person can quote it; never part of the sentence. */
+  supportCode?: string;
 }) {
   const view = failureView(code, { title, detail });
   const Glyph = TONE_ICON[view.tone];
@@ -110,6 +116,7 @@ export function FailureCard({
       <span className="cs-text">
         <b>{view.title}</b>
         <span>{view.detail}</span>
+        {supportCode && <small className="cs-support">Support code: {supportCode}</small>}
       </span>
       <span className="cs-actions">
         {view.limits && onOpenLimits && (
@@ -180,7 +187,9 @@ export function CutShortNote({
             ? "This answer was cut short. It hit the length limit."
             : reason === "partial"
               ? "This answer stopped early. The model failed after a tool had already run; the tool was not run again."
-              : "This answer was cut short. It used every tool step this turn allows."}
+              : reason === "interrupted"
+                ? "This answer was cut short by an error. The part above is kept."
+                : "This answer was cut short. It used every tool step this turn allows."}
         </b>
       </span>
       <span className="cs-actions">
@@ -216,22 +225,71 @@ export function DroppedNote({
 }
 
 /**
+ * The switch label of an answer another model gave (Stage 7 7.12: "Answered by X because Y was
+ * unavailable"), from the stored reason code (Invariant 5), never from prose.
+ */
+export function switchLabel(alias: string, from: string, reason: string | undefined): string {
+  if (reason === "claude_limit") return `Answered by ${alias} because ${from}’s account limit was reached`;
+  if (reason === "disabled") return `Answered by ${alias} because ${from} is switched off`;
+  return `Answered by ${alias} because ${from} was unavailable`;
+}
+
+/**
  * Which model wrote an answer and at what effort, under every answer (board 2). What the
  * server resolved is shown; a model the person did not name is not described as one they chose.
+ * When another model answered than the first, the label says which and why (P11, OQ-02 A).
  */
 export function ModelLabel({
   modelAlias,
   effort,
+  fallbackFrom,
+  fallbackReason,
 }: {
   modelAlias: string | undefined;
   effort: ReasoningEffort | undefined;
+  fallbackFrom?: string;
+  fallbackReason?: string;
 }) {
   if (!modelAlias) return null;
   return (
     <span className="cs-mlab">
       <b>{modelAlias}</b>
       {effort && <span> · {EFFORT_COPY[effort].label}</span>}
+      {fallbackFrom && (
+        <span className="cs-switch" data-reason={fallbackReason ?? "unavailable"}>
+          {" · "}
+          {switchLabel(modelAlias, fallbackFrom, fallbackReason)}
+        </span>
+      )}
     </span>
+  );
+}
+
+/**
+ * The ops incident banner (Stage 15 ER-12b): text ops set, read from `GET /status` once per page
+ * load. Nothing shows when there is no incident or the status cannot be read.
+ */
+export function IncidentBanner({ load = () => api.status.get() }: { load?: () => Promise<{ incidentBanner: string | null }> }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    load()
+      .then((s) => {
+        if (live) setText(s.incidentBanner);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [load]);
+  if (!text) return null;
+  return (
+    <div className="cs-note cs-warn cs-incident" role="status">
+      <CircleAlert size={14} aria-hidden="true" className="cs-glyph" />
+      <span className="cs-text">
+        <b>{text}</b>
+      </span>
+    </div>
   );
 }
 

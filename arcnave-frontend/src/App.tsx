@@ -44,6 +44,7 @@ import {
   CutShortNote,
   DroppedNote,
   FailureCard,
+  IncidentBanner,
   InlineEdit,
   ModelLabel,
   StoppedNote,
@@ -285,6 +286,7 @@ function Shell() {
         </Dialog.Portal>
       </Dialog.Root>
       <main className="an-sheet" id="main-content">
+        <IncidentBanner />
         <header
           className={`an-topbar ${activeChat ? "an-topbar-chat" : "an-topbar-idle"}`}
         >
@@ -1138,6 +1140,7 @@ function MessageView({
           onRetry={() => retry(chatId, m.id)}
           retryDisabled={chatRunning || pending}
           onOpenLimits={() => navigate("/settings?section=usage")}
+          supportCode={m.requestId ?? m.id.slice(0, 8)}
         />
       ) : null}
       {m.sources && m.sources.length > 0 && (
@@ -1260,7 +1263,7 @@ function MessageView({
             ]}
           />
           {copied && <span className="copy-label">Copied</span>}
-          <ModelLabel modelAlias={m.modelAlias} effort={m.effort} />
+          <ModelLabel modelAlias={m.modelAlias} effort={m.effort} fallbackFrom={m.fallbackFrom} fallbackReason={m.fallbackReason} />
         </div>
       )}
       {!loading && !m.text && !pending && (m.status === "error" || m.status === "stopped") && (

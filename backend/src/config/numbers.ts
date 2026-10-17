@@ -156,6 +156,22 @@ export const NUMBERS = {
   DB_MAX_LIFETIME_S: n(1_800, 'N-45', 'register: pool_recycle 1,800 s'),
   /** A whole settle transaction is retried at most this often on a serialization failure or deadlock. */
   DB_TX_MAX_RETRIES: n(2, 'N-45', 'register: whole-tx retry ≤2'),
+
+  // --- P11: error matrix, breaker, fallback (ADR-0081) ------------------------------------
+  /** A model's breaker opens after this many counted failures inside the window. */
+  BREAKER_FAILURES: n(5, 'N-47', 'register: open after 5 failures / 30 s'),
+  BREAKER_WINDOW_MS: n(30_000, 'N-47', 'register: open after 5 failures / 30 s'),
+  /** …or when this share of the last BREAKER_MIN_CALLS outcomes failed. */
+  BREAKER_RATIO: n(0.5, 'N-47', 'register: or ≥50 % of 20 calls'),
+  BREAKER_MIN_CALLS: n(20, 'N-47', 'register: or ≥50 % of 20 calls'),
+  /** An open breaker admits one trial call after this long. */
+  BREAKER_HALF_OPEN_MS: n(30_000, 'N-47', 'register: half-open 30 s'),
+  /** At most this share of an instance's provider calls may be retries. */
+  RETRY_BUDGET_RATIO: n(0.1, 'N-47', 'register: retry budget ≤10 %'),
+  /** Tool timers (ER-4c); fetch_url is FETCH_URL_TIMEOUT_MS above, run_code is P18's. */
+  TOOL_TIMEOUT_WEB_SEARCH_MS: n(20_000, 'N-43', 'register: tools web_search 20 s'),
+  TOOL_TIMEOUT_FILE_SEARCH_MS: n(2_000, 'N-43', 'register: tools file_search 2 s'),
+  TOOL_TIMEOUT_MEMORY_MS: n(2_000, 'N-43', 'register: tools memory 2 s'),
 } as const satisfies Record<string, RegisteredNumber>;
 
 export type NumberKey = keyof typeof NUMBERS;

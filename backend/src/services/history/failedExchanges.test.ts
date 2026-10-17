@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { HistoryToolCall } from '../../providers/types.js';
-import { withoutFailedExchanges, type StoredMessage } from './failedExchanges.js';
+import { CUT_MARKERS, historyText, withoutFailedExchanges, type StoredMessage } from './failedExchanges.js';
 
 let seq = 0;
 const msg = (role: 'user' | 'assistant', text: string, status = 'complete'): StoredMessage => ({ id: `m${String(++seq)}`, role, text, seq, status });
@@ -50,5 +50,18 @@ describe('withoutFailedExchanges', () => {
   it('still leaves out a user message with no text', () => {
     const rows = [msg('user', ' '), msg('assistant', 'A')];
     expect(withoutFailedExchanges(rows, new Map()).map((r) => r.text)).toEqual(['A']);
+  });
+});
+
+describe('the cut marker on an unfinished answer (P11, ours)', () => {
+  it('marks a stopped answer and an interrupted or partial one; leaves the rest as they are', () => {
+    expect(historyText({ ...msg('assistant', 'half', 'stopped') })).toBe(`half\n\n${CUT_MARKERS.stopped}`);
+    expect(historyText({ ...msg('assistant', 'half'), finishReason: 'interrupted' })).toBe(`half\n\n${CUT_MARKERS.cut}`);
+    expect(historyText({ ...msg('assistant', 'half'), finishReason: 'partial' })).toBe(`half\n\n${CUT_MARKERS.cut}`);
+    expect(historyText({ ...msg('assistant', 'whole'), finishReason: 'stop' })).toBe('whole');
+    expect(historyText({ ...msg('assistant', 'whole'), finishReason: 'MAX_TOKENS' })).toBe('whole');
+    // A user message, and an empty answer, are never marked.
+    expect(historyText(msg('user', 'stopped?', 'stopped'))).toBe('stopped?');
+    expect(historyText(msg('assistant', '', 'stopped'))).toBe('');
   });
 });

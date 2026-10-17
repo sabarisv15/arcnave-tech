@@ -433,6 +433,8 @@ export class UsageService {
       status: 'complete' | 'cancelled' | 'error' | 'blocked';
       finishReason?: string | null;
       errorCode?: string | null;
+      /** P11 (AL-2): a refusal's or a block's category. */
+      refusalCategory?: string | null;
     },
     tx?: Transaction,
   ): Promise<void> {
@@ -466,6 +468,7 @@ export class UsageService {
         finishReason: input.finishReason ?? null,
         status: input.status,
         errorCode: input.errorCode ?? null,
+        refusalCategory: input.refusalCategory?.slice(0, 32) ?? null,
         costUsd,
         costInr: usdToInr(this.cfg, costUsd),
       });

@@ -46,6 +46,8 @@ export interface GenerateInput {
   /** The durable turn this run writes for (ADR-0078). Absent for a script calling the service. */
   turn?: TurnBinding;
   checkpoint?: TurnCheckpoint;
+  /** P11 (ER-4f): epoch ms of the turn's deadline; past it no retry and no hop starts. */
+  deadlineAt?: number;
 }
 
 export interface PreferencesRow {

@@ -30,6 +30,10 @@ export interface PreparedTurn {
   provider: Provider;
   grounded: boolean;
   modelInfo: ModelInfo;
+  /** P11 (K-15): the asked-for model was unavailable and the turn starts down its chain. */
+  switched?: { from: string; reason: string };
+  /** What any model of the turn must be able to do (P11: the fallback chain checks it). */
+  needs: { vision: boolean; grounding: boolean };
 }
 
 export async function prepareTurn(
@@ -74,7 +78,7 @@ export async function prepareTurn(
   const requiresGrounding = input.mode !== 'chat';
   const requiresVision =
     (input.attachments?.length ?? 0) > 0 || history.some((t) => (t.attachments?.length ?? 0) > 0);
-  const { entry, routing } = await resolveModel(svc, input, requiresGrounding, requiresVision);
+  const { entry, routing, switched } = await resolveModel(svc, input, requiresGrounding, requiresVision);
   timing.mark('model_resolve');
   if (historyAlias !== entry.alias) {
     historyAlias = entry.alias;
@@ -88,6 +92,7 @@ export async function prepareTurn(
     needsVision: requiresVision,
     needsGrounding: requiresGrounding,
     ...(routing ? { autoRule: routing.rule, considered: routing.considered } : {}),
+    ...(switched ? { switchedFrom: switched.from, switchReason: switched.reason } : {}),
   });
   // A probe ran inside resolution when the alias's status was checked during this turn.
   timing.note('probed', (svc.registry.lastProbedAt(entry.alias) ?? 0) >= timing.since);
@@ -140,7 +145,19 @@ export async function prepareTurn(
 
   turnLog.setModel({ requested: input.modelAlias, resolved: entry.alias, providerModelId: entry.providerModelId!, grounded });
   turnLog.stage('capabilities', { builtInSearch: grounded, searchAvailable, codeExecution });
-  return { input, prefs, project, latestCompaction, history, entry, provider, grounded, modelInfo };
+  return {
+    input,
+    prefs,
+    project,
+    latestCompaction,
+    history,
+    entry,
+    provider,
+    grounded,
+    modelInfo,
+    ...(switched ? { switched } : {}),
+    needs: { vision: requiresVision, grounding: requiresGrounding },
+  };
 }
 
 /** The compaction stage's result: the latest compaction and the history, reloaded if it ran. */

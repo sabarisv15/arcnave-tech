@@ -5,7 +5,9 @@
  * (ADR-0073). Its fields were `runTurn`'s locals, with the same initial values.
  */
 import type { MessageSegment } from '../../db/schema.js';
-import { type HistoryToolCall, type ProviderSource, type ProviderUsage, EMPTY_USAGE } from '../../providers/types.js';
+import type { AttemptCall } from '../../providers/gateway.js';
+import type { ModelEntry } from '../../providers/registry.js';
+import { type GenerationRequest, type HistoryToolCall, type Provider, type ProviderSource, type ProviderUsage, type ReasoningEffort, EMPTY_USAGE } from '../../providers/types.js';
 import { AnswerProtocolGuard } from '../answerProtocolGuard.js';
 
 /** What the turn log's outcome records; filled as the turn ends, written by the outer finally. */
@@ -47,6 +49,17 @@ export interface TurnState {
   turnCalls: HistoryToolCall[];
   /** Characters of each visual draft already sent, by draft id. */
   draftSent: Map<string, number>;
+  /**
+   * P11 (7.12, ADR-0081): the model that answers after the turn moved down its fallback chain,
+   * with the request rebuilt for it; null while the first model serves.
+   */
+  served: { entry: ModelEntry; provider: Provider; request: GenerationRequest; reasoningEffort: ReasoningEffort | undefined } | null;
+  /** P11: the labelled switch, stored on the message (`fallback_from`, `fallback_reason`). */
+  fallback: { from: string; reason: string } | null;
+  /** P11 (AL-1, P22 contract): one row per provider attempt, for the ledger at merge. */
+  attempts: AttemptCall[];
+  /** P11 (AL-2): the refusal or block category, for the usage row. */
+  refusalCategory: string | null;
 }
 
 export function createTurnState(segments: MessageSegment[], eventOrdinal: number): TurnState {
@@ -68,5 +81,9 @@ export function createTurnState(segments: MessageSegment[], eventOrdinal: number
     toolsCalled: [],
     turnCalls: [],
     draftSent: new Map<string, number>(),
+    served: null,
+    fallback: null,
+    attempts: [],
+    refusalCategory: null,
   };
 }

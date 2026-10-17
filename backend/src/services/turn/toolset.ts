@@ -4,7 +4,7 @@
  */
 import type { ToolDefinition, ToolExecutor, Turn } from '../../providers/types.js';
 import { CodeExecutionToolExecutor } from '../../tools/codeExecutionExecutor.js';
-import { DispatchingToolExecutor } from '../../tools/dispatchingExecutor.js';
+import { DispatchingToolExecutor, toolTimeouts } from '../../tools/dispatchingExecutor.js';
 import { ProjectToolExecutor } from '../../tools/executor.js';
 import { WebToolExecutor } from '../../tools/webExecutor.js';
 import { WebFetchService } from '../webFetch.js';
@@ -138,6 +138,7 @@ export function buildToolExecutors(
     for (const name of CODE_TOOL_NAMES) toolMap.set(name, codeExecutor);
   }
 
-  const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap) : undefined;
+  // P11 (ER-4c): N-43 tool timers.
+  const toolExecutor = toolMap.size > 0 ? new DispatchingToolExecutor(toolMap, toolTimeouts(svc.cfg)) : undefined;
   return { pendingUiEvents, toolMap, codeExecutor, toolExecutor };
 }

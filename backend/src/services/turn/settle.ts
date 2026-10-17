@@ -66,6 +66,7 @@ export async function* settleTurn(
         mode: input.mode,
         questions,
         ...(reasoningEffort ? { effort: reasoningEffort } : {}),
+        ...(state.fallback ? { fallback: state.fallback } : {}),
       },
       usage: {
         prefs,
@@ -78,7 +79,16 @@ export async function* settleTurn(
         finishReason,
       },
       end: endStateFor(status, state.errorCode),
-      finishCode: state.status === 'complete' ? (state.endedPartial ? 'partial_after_tool_run' : state.finishReason) : (state.errorCode ?? finishReason),
+      // An answer kept after a failure (ER-2b / ER-3c) ends as what cut it: `partial_after_tool_run`
+      // or `interrupted` (P11).
+      finishCode:
+        state.status === 'complete'
+          ? state.endedPartial
+            ? state.finishReason === 'interrupted'
+              ? 'interrupted'
+              : 'partial_after_tool_run'
+            : state.finishReason
+          : (state.errorCode ?? finishReason),
     },
   );
 
@@ -108,7 +118,8 @@ export async function* settleTurn(
       usage: toUsageDto(state.usage, costUsd, usdToInr(svc.cfg, costUsd)),
       finishReason: state.finishReason,
       ...(reasoningEffort ? { effort: reasoningEffort } : {}),
-      ...(state.endedPartial ? { partial: true as const, errorCode: 'partial_after_tool_run' as const } : {}),
+      ...(state.endedPartial ? { partial: true as const, errorCode: state.errorCode ?? 'partial_after_tool_run' } : {}),
+      ...(state.fallback ? { fallback: state.fallback } : {}),
     };
   }
 }

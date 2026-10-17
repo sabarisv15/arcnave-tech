@@ -10,7 +10,7 @@ import type { ModelEntry } from '../../providers/registry.js';
 import { getModelCapability } from '../../providers/capabilitiesTable.js';
 import { type AttachmentBlock, type AttachmentRef, type Provider, type ReasoningEffort, type Turn, EMPTY_USAGE, isAbort } from '../../providers/types.js';
 import { loadToolCalls, toolCallChars } from '../history/toolHistory.js';
-import { withoutFailedExchanges } from '../history/failedExchanges.js';
+import { historyText, withoutFailedExchanges } from '../history/failedExchanges.js';
 import { compact, shouldCompact, lastContextTokens } from '../compaction/autoCompact.js';
 import { toAttachmentRef } from '../attachments/attachmentRef.js';
 import type { TurnServices } from './services.js';
@@ -101,7 +101,7 @@ export async function loadHistory(
   }
 
   const rows = await svc.db
-    .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq, status: messages.status })
+    .select({ id: messages.id, role: messages.role, text: messages.text, seq: messages.seq, status: messages.status, finishReason: messages.finishReason })
     .from(messages)
     .where(and(...conditions))
     // No turn count: the whole conversation goes, up to the model's window. What
@@ -194,7 +194,8 @@ export async function loadHistory(
     // Extracted text travels once, on the attachment itself; the adapters render it (G16).
     return {
       role: r.role === 'user' ? 'user' : 'assistant',
-      text: r.text,
+      // P11: an unfinished answer says so (failedExchanges.ts historyText).
+      text: historyText(r),
       ...(atts ? { attachments: atts } : {}),
       ...(calls?.length ? { toolCalls: calls } : {}),
     };
