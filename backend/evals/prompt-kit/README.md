@@ -57,7 +57,10 @@ and "hai". The offline proof that the stopped partial is in the next request's h
 
 ## What a case is run against
 
-The deployed prompt and tools, not the v3 pack the kit was written for (P03 is the "before" for
-P07/P10). Where the kit has no deployed equivalent (company tier, per-format switch, pending
-operations, effort profile, document memory) the case runs with the nearest thing and the report
-lists the approximation next to the result.
+Since P07 (ADR-0075) the v3 prompt the kit was written for: each case is built on the rendering of
+the model that answers it (`buildCaseRun(case, now, provider)`), with the session state, the
+per-turn state and the profile's effort as a turn sends them. The tools are still the deployed set
+(the stage names are mapped to them, `backend/src/services/prompt/toolNameMap.ts`). Where the
+request cannot express what a case sets (company tier, per-format switch, pending operations,
+document memory) the case runs with the nearest thing and the report lists the approximation
+next to the result.

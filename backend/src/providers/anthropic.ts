@@ -5,6 +5,7 @@
  * `streamWithRetry`, per the Stage 15 matrix (ER-1, ER-2), so attempts, backoff and usage stay
  * in one place. The API key comes from the environment and is never logged.
  */
+import { neutraliseReservedTags } from '../services/prompt/reservedTags.js';
 import Anthropic, { APIConnectionError, APIConnectionTimeoutError, APIError } from '@anthropic-ai/sdk';
 
 import type { Config } from '../config.js';
@@ -247,7 +248,7 @@ function attachmentBlocks(attachments: GenerationRequest['attachments']): Cachea
             : []),
         {
           type: 'text',
-          text: page.text ? `Text of page ${String(page.num)}:\n${page.text}` : `Page ${String(page.num)} has no text layer; read it from the image.`,
+          text: page.text ? `Text of page ${String(page.num)}:\n${neutraliseReservedTags(page.text)}` : `Page ${String(page.num)} has no text layer; read it from the image.`,
         },
       ]));
     }
@@ -358,11 +359,13 @@ export function buildAnthropicMessages(request: GenerationRequest): Anthropic.Me
     return last ? [...replay, last] : replay;
   });
 
+  // The turn preamble starts the user turn (Stage 6 fallback for the `clear_at` beta, which is not used).
+  const preamble: CacheableBlock[] = request.turnPreamble ? [{ type: 'text', text: request.turnPreamble }] : [];
   const currentBlocks = attachmentBlocks(request.attachments);
-  if (currentBlocks.length === 0) {
+  if (currentBlocks.length === 0 && preamble.length === 0) {
     messages.push({ role: 'user', content: request.prompt });
   } else {
-    messages.push({ role: 'user', content: [...currentBlocks, { type: 'text', text: request.prompt }] });
+    messages.push({ role: 'user', content: [...preamble, ...currentBlocks, { type: 'text', text: request.prompt }] });
   }
 
   // Merge consecutive same-role messages so roles strictly alternate (e.g. after a terminal tool result)

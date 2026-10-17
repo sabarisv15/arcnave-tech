@@ -73,7 +73,7 @@ async function main() {
   const anthropicClient = createAnthropicClient(cfg);
 
   for (const b of BUNDLES) {
-    const prefix = buildStablePrefix(b.tools);
+    const prefix = buildStablePrefix('google', b.tools);
 
     console.log(`----------------------------------------------------------------------`);
     console.log(`Tool Bundle: ${b.name.toUpperCase()} (${prefix.tools.length} tools)`);

@@ -423,6 +423,46 @@ is in brackets. Each is old behaviour the split kept on purpose.
   current attachment hydration in parallel (`turnContext.ts:205`, a timing change); one exported
   project row type.
 
+## tech-p07 — v3 prompt and Auto routing: left open, with the reason (ADR-0075, ADR-0076)
+
+- **Silent fallback of a manual pick (Invariant 1).** `backend/src/services/turn/modelRouting.ts:56`:
+  a picked model that is disabled or unavailable is answered by Auto (Gemini) with a log line only;
+  no machine-readable fallback reason, no "Answered by X because Y was unavailable" label (RT-5,
+  7.12). Behaviour design → P11 (Prompt 5).
+- **`routingPreference` column and request field.** Accepted and ignored, not read, not returned.
+  Drop the field and the `preferences.routing_preference` column together, in one migration, once
+  no client sends it.
+- **Gemini 3.8 Flash knowledge cutoff.** The Google model pages could not be reached from the build
+  sandbox (DNS / proxy 403); `knowledgeCutoff: null`, so `<model_info>` has no cutoff for Gemini.
+  Read the Vertex model page and set it in `backend/src/providers/capabilitiesTable.ts` (Stage 7.9
+  says Mar 2026, unverified).
+- **Gemini explicit cache (stage ADR-0004 / FD-26).** Not built in this repo; the system instruction
+  is now the stable text only (no user, memory or date text), so it can be cached as the stage
+  designed. Decide with the token count (minimum 4,096) when Prompt 6 shrinks the tool declarations.
+- **`<memory_snapshot>` size.** Capped in characters (`MEMORY_CONTEXT_MAX_CHARS`, per part), not at
+  N-17's 1.5k tokens: there is no estimator (Invariant 3). An exact count needs the provider.
+- **Dormant v3 rules** (prompt text present, feature not built): typed citations (P15/P16),
+  `<pending_operations>` + status tool (P08/P13), `<retrieval_status>` + typed `<documents>` (P20),
+  `<company_instructions>` (Phase 5), sensitive-memory opt-in, `load_skill` (Prompt 6). Table in
+  [`p07-result.md`](../p07-result.md).
+- **Transitional pieces Prompt 6 removes:** the tool-name map (→ identity) and the product-tools
+  appendix (`backend/prompts/system/v3/appendix-product-tools.md`).
+- **Owner decisions** (listed in `p07-result.md`): past-chat tools vs v3 LM-1; "Google Search
+  grounding" wording in the Gemini rendering; `skill_loader` off while skills are read with `view`;
+  Auto keeping a manually picked Sonnet/Opus for later turns (stage silent).
+- **Review round 1 minors left:** the math normaliser does not protect indented code blocks, does
+  not convert `\(` … `\\)` (a closer after an escaped backslash), and `$5 … \(x\)` pairs the price's
+  `$` with the converted math; `promptVersion` hashes the prompt files only, not the assembly code;
+  the P07 eval-runner test greps the runner's source (the runner cannot run in tests).
+- **Review round 2 limits (ours, accepted):** the reserved-tag list matches the rendered lowercase
+  names only, so `<CURRENT_TIME>` in pasted text is left as written (a different tag to a parser;
+  the model could still read it as the block); the stage's `<profile>` is not on the list (it is
+  ordinary code in XML and Maven files). Escaping all user text (the spec's wording) would close
+  both and change pasted code; revisit with Prompt 6's input fencing. `arr\[i-1\]` (a hyphen next to
+  a digit) still renders as math: telling it from `\[x-1\]` needs more than one character's context.
+- **Live checks not run** (owner-run): `npm run eval:prompt` on the branch, and
+  [`p07-live-checklist.md`](../p07-live-checklist.md) after the merge.
+
 ## tech-p03 — found while building the quality measurement harness, not fixed (measurement-only task, ADR-0074)
 
 P03 measures; it changes no prompt, tool, routing or gateway behaviour. Each item below was seen and
@@ -432,8 +472,7 @@ left. The prompt gaps the offline gates found are in `backend/evals/prompt-kit/o
 
 - **Stale live scripts (X-6), not repaired.** `backend/src/scripts/` (the scripts live under `src/`,
   not `backend/scripts/`). Seven were repaired (one-line `P03 (X-6) repaired:` header). The rest:
-  - `runBehaviorEvaluation.ts` — stale: frozen Master Prompt v1 scenarios, removed tool `read_uploaded_file`, hard-coded project id and retired model name; superseded by `npm run eval:prompt`.
-  - `runReliabilityMatrix.ts` — stale: built on the `runBehaviorEvaluation` scenarios and the old builder, hard-coded project id; superseded by `npm run eval:prompt`.
+  - `runBehaviorEvaluation.ts`, `runReliabilityMatrix.ts` — **deleted in tech-p07**: both were built on the legacy prompt builder P07 removed (ADR-0075); `npm run eval:prompt` replaces them.
   - `testBatch6RehydrationLive.ts` — stale: describes the removed in-memory tool registry (LOAD_SKILL / SEARCH_TOOLS) and the `inspectPdf` tool.
   - `testCloudRunDirect.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).
   - `testDynamicOutput.ts` — stale: hard-coded project, bucket and service-account identifiers (outside the identifier guard, which skips scripts).

@@ -30,7 +30,6 @@ export async function loadPreferences(svc: TurnServices, userId: string): Promis
       dailyTokenBudget: preferencesTable.dailyTokenBudget,
       monthlyTokenBudget: preferencesTable.monthlyTokenBudget,
       warnThresholdPct: preferencesTable.warnThresholdPct,
-      routingPreference: preferencesTable.routingPreference,
       timezone: preferencesTable.timezone,
       effort: preferencesTable.effort,
       memoryEnabled: preferencesTable.memoryEnabled,

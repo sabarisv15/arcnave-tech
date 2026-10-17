@@ -61,6 +61,16 @@ export class CompactionService {
   }
 
   /**
+   * The summary's text without its wrapper tag: the prompt places it in
+   * `<earlier_conversation_summary>` and escapes it (ADR-0075).
+   */
+  formatCompactionBody(compaction: ConversationCompaction): string {
+    const lines = this.formatCompactionForPrompt(compaction).split('\n');
+    if (lines.length < 2) return '';
+    return lines.slice(1, -1).join('\n').trim();
+  }
+
+  /**
    * Formats a compaction summary for injection into the dynamic prompt context.
    */
   formatCompactionForPrompt(compaction: ConversationCompaction): string {

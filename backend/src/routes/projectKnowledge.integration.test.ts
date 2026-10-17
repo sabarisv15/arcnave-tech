@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, multipart, parseSse, postProjectFile, signUp } from '../test/harness.js';
+import { createTestApp, multipart, parseSse, postProjectFile, signUp, promptOf } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -50,11 +50,11 @@ describe('project knowledge (ADR-0020)', () => {
     const projectId = await projectWith({ 'plan.txt': plan, 'notes.txt': 'Notes: budget is 4200.' });
     const { frames, request } = await ask(projectId, 'hello');
 
-    expect(request.systemInstruction).toContain('They are whole documents, not excerpts.');
+    expect(promptOf(request)).toContain('They are whole documents, not excerpts.');
     // The whole text, once: no chunk overlap repeated, nothing cut.
-    expect(request.systemInstruction).toContain(plan);
-    expect(request.systemInstruction.split('plan paragraph 17:').length).toBe(2);
-    expect(request.systemInstruction).toContain('Notes: budget is 4200.');
+    expect(promptOf(request)).toContain(plan);
+    expect(promptOf(request).split('plan paragraph 17:').length).toBe(2);
+    expect(promptOf(request)).toContain('Notes: budget is 4200.');
     const labels = frames.filter((f) => f.event === 'research').map((f) => (f.data.event as { label: string }).label);
     expect(labels).toContain('Using all 2 project files in full');
   });
@@ -65,17 +65,17 @@ describe('project knowledge (ADR-0020)', () => {
     const second = await ask(projectId, 'and the plan?');
 
     for (const { request } of [first, second]) {
-      expect(request.systemInstruction).not.toContain('They are whole documents');
-      expect(request.systemInstruction).not.toContain('The budget figure is 4200.');
-      expect(request.systemInstruction).toContain('Search them with search_project_files');
-      expect(request.systemInstruction).toContain('Files: "big.txt"');
+      expect(promptOf(request)).not.toContain('They are whole documents');
+      expect(promptOf(request)).not.toContain('The budget figure is 4200.');
+      expect(promptOf(request)).toContain('Search them with search_project_files');
+      expect(promptOf(request)).toContain('Files: "big.txt"');
       expect((request.tools ?? []).map((t) => t.name)).toEqual(
         expect.arrayContaining(['search_project_files', 'read_project_file']),
       );
     }
     // The same text whatever the question, so the prompt's cached prefix holds (audit B9).
     const knowledge = (s: string) => s.slice(s.indexOf('<project_knowledge>'), s.indexOf('</project_knowledge>'));
-    expect(knowledge(first.request.systemInstruction)).toBe(knowledge(second.request.systemInstruction));
+    expect(knowledge(promptOf(first.request))).toBe(knowledge(promptOf(second.request)));
   });
 });
 
@@ -99,7 +99,7 @@ describe('project knowledge on a turn without tools', () => {
     const chat = await bare.app.inject({ method: 'POST', url: '/v1/chats', headers: h, payload: { title: 'c', projectId } });
     const chatId = (chat.json() as { id: string }).id;
     await bare.app.inject({ method: 'POST', url: `/v1/chats/${chatId}/generate`, headers: h, payload: { prompt: 'what is the budget figure' } });
-    const system = bare.provider.seen.at(-1)!.systemInstruction;
+    const system = promptOf(bare.provider.seen.at(-1)!);
     expect(system).toContain('The budget figure is 4200.');
     expect(system).not.toContain('search_project_files');
   });

@@ -29,6 +29,7 @@ import { buildEntries } from '../src/providers/registry.js';
 import type { Provider, ProviderUsage } from '../src/providers/types.js';
 import { EMPTY_USAGE } from '../src/providers/types.js';
 import { computeCost } from '../src/services/usage.js';
+import { promptVersion, type PromptProvider } from '../src/services/prompt/v3Prompt.js';
 import { BACKEND_DIR, buildCaseRun, JUDGE_SYSTEM, judgeMessage, kitSha256, labelAskedOrBuilt, loadCases, loadExtraCases, MockToolExecutor, parseJudgeVerdict, toGenerationRequest } from '../evals/prompt-kit/kit.js';
 import type { ExtraCase, RunnableCase } from '../evals/prompt-kit/kit.js';
 import {
@@ -43,7 +44,6 @@ import {
   NO_TOKENS,
   parseArgs,
   planLine,
-  promptStamp,
   RunnerUsageError,
   summarise,
   summaryFileName,
@@ -82,8 +82,11 @@ interface Answer {
   approximations: number;
 }
 
-async function answerCase(c: RunnableCase, backend: Backend, cfg: Config): Promise<Answer> {
-  const run = await buildCaseRun(c, new Date());
+/** The v3 rendering a model family is sent (ADR-0075). */
+const PROVIDER_OF: Record<Family, PromptProvider> = { gemini: 'google', claude: 'anthropic' };
+
+async function answerCase(c: RunnableCase, backend: Backend, cfg: Config, family: Family): Promise<Answer> {
+  const run = await buildCaseRun(c, new Date(), PROVIDER_OF[family]);
   const executor = new MockToolExecutor();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CASE_DEADLINE_MS);
@@ -198,10 +201,12 @@ async function main(): Promise<number> {
     }
   }
 
+  // The version stamped on every turn: the base file of each rendering used, with the appendix.
+  const versions = [...families].map((f) => ({ f, v: promptVersion(PROVIDER_OF[f]) }));
+  const prompt12 = versions.map((x) => x.v).join('+');
   const canonical = await buildCaseRun(kitCases.find((c) => c.id === 'T1')!, new Date('2026-10-14T09:30:00.000Z'));
-  const prompt12 = promptStamp(canonical.scenario.assembly.stablePrefix.systemText);
   const tools12 = toolsStamp(canonical.scenario.tools);
-  console.log(`prompt version ${prompt12} · tools ${tools12} (same builder for both providers)`);
+  console.log(`prompt version ${versions.map((x) => `${x.f} ${x.v}`).join(' · ')} · tools ${tools12} (v3 renderings)`);
 
   const records: RunRecord[] = [];
   const answers: Array<Record<string, unknown>> = [];
@@ -217,7 +222,7 @@ async function main(): Promise<number> {
       record = { ...base, outcome: 'error:model_unavailable', judgePass: null, tokens: NO_TOKENS, latencyMs: 0, finishReason: backend.unavailable };
     } else {
       try {
-        const answer = await answerCase(c, backend, cfg);
+        const answer = await answerCase(c, backend, cfg, MODELS[model].family);
         const latencyMs = Date.now() - started;
         let judgePass: boolean | null = null;
         const judged = c.gate === 'C' || c.gate === 'S' || Boolean((c as ExtraCase).judge_question);

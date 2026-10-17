@@ -7,7 +7,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { usageRecords } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
+import { preferences, usageRecords } from '../db/schema.js';
 import type { TestContext, TestUser } from '../test/harness.js';
 import { createTestApp, signUp } from '../test/harness.js';
 
@@ -133,31 +134,24 @@ describe('limits', () => {
     expect(response.statusCode).toBe(422);
   });
 
-  it.each(['fast', 'cheap', 'best'])(
-    'refuses the routing preference %j, which the router would silently read as balanced',
-    async (routingPreference) => {
-      const response = await ctx.app.inject({
-        method: 'PATCH',
-        url: '/v1/usage/limits',
-        headers: auth(),
-        payload: { routingPreference },
-      });
-      expect(response.statusCode).toBe(422);
-    },
-  );
-
-  it.each(['economy', 'balanced', 'quality'])(
-    'accepts the routing preference %j, which the router acts on',
+  it.each(['economy', 'quality', 'fast'])(
+    'accepts and ignores the deprecated routing preference %j (ADR-0076): not stored, not returned',
     async (routingPreference) => {
       const owner = await signUp(ctx);
       const response = await ctx.app.inject({
         method: 'PATCH',
         url: '/v1/usage/limits',
         headers: { cookie: owner.cookie },
-        payload: { routingPreference },
+        payload: { routingPreference, warnThresholdPct: 70 },
       });
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ routingPreference });
+      expect(response.json()).not.toHaveProperty('routingPreference');
+      // The rest of the save went through.
+      expect(response.json()).toMatchObject({ warnThresholdPct: 70 });
+      const [row] = await ctx.db.select({ v: preferences.routingPreference }).from(preferences).where(eq(preferences.userId, owner.id));
+      expect(row?.v).toBe('balanced');
+      const prefs = await ctx.app.inject({ method: 'GET', url: '/v1/preferences', headers: { cookie: owner.cookie } });
+      expect(prefs.json()).not.toHaveProperty('routingPreference');
     },
   );
 

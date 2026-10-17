@@ -7,8 +7,11 @@ import { messages, toolCalls } from '../../db/schema.js';
 import { nameForModel } from '../../providers/attachmentContent.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { SKILLS_ROOT } from '../../tools/codeExecutionExecutor.js';
-import { buildDynamicRuntimeContext, currentDateLine, mobileClientLine } from '../systemPrompt.js';
-import { assemblePrompt } from '../promptCache/promptAssembly.js';
+import { usesWarmSandbox } from '../../tools/catalog.js';
+import type { ModelEntry } from '../../providers/registry.js';
+import { getModelCapability } from '../../providers/capabilitiesTable.js';
+import { assemblePrompt, type ListedSkill } from '../promptCache/promptAssembly.js';
+import { profileForEffort, projectKnowledgeBlock } from '../prompt/sessionState.js';
 import type { PromptAssembly } from '../promptCache/types.js';
 import { memoryService } from '../memory/memoryService.js';
 import { compactionService } from '../compaction/compactionService.js';
@@ -39,25 +42,14 @@ export async function buildSkillsContext(
   input: GenerateInput,
   activeToolNames: Set<string>,
   latestCompaction: { throughSeq: number } | null,
-): Promise<{ skillsContext: string | undefined; loadedSkills: SkillDetail[]; skillsEnabled: boolean }> {
-  let skillsContext: string | undefined;
+): Promise<{ skills: ListedSkill[]; skillsReadEarlier: string | undefined; loadedSkills: SkillDetail[]; skillsEnabled: boolean }> {
+  const skills: ListedSkill[] = [];
+  let skillsReadEarlier: string | undefined;
   const loadedSkills: SkillDetail[] = [];
   const skillsEnabled = svc.cfg.ENABLE_SKILLS && svc.skills !== undefined && activeToolNames.has('view');
   if (skillsEnabled) {
-    const availableSkills = svc.skills!.listSkills(activeToolNames).filter((s) => s.missingTools.length === 0);
-    const parts: string[] = [];
-    if (availableSkills.length > 0) {
-      parts.push(
-        '<available_skills>\n' +
-          availableSkills
-            .map(
-              (s) =>
-                `<skill>\n<name>${s.name}</name>\n<description>${s.description}</description>\n` +
-                `<location>${SKILLS_ROOT}/${s.name}/SKILL.md</location>\n</skill>`,
-            )
-            .join('\n') +
-          '\n</available_skills>',
-      );
+    for (const s of svc.skills!.listSkills(activeToolNames).filter((x) => x.missingTools.length === 0)) {
+      skills.push({ name: s.name, version: s.version, description: s.description, path: `${SKILLS_ROOT}/${s.name}/SKILL.md` });
     }
     const reinjected = latestCompaction
       ? await skillsLoadedThrough(svc, input.chatId, latestCompaction.throughSeq)
@@ -67,21 +59,18 @@ export async function buildSkillsContext(
       if (detail && !loadedSkills.some((s) => s.name === detail.name)) loadedSkills.push(detail);
     }
     if (loadedSkills.length > 0) {
-      parts.push(
-        loadedSkills
-          .map((s) => {
-            const body =
-              s.content.length > REINJECTED_SKILL_MAX_CHARS
-                ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: view ${SKILLS_ROOT}/${s.name}/SKILL.md for the whole skill.]`
-                : s.content;
-            return `### Skill read earlier: ${SKILLS_ROOT}/${s.name}/SKILL.md\n\n${body}`;
-          })
-          .join('\n\n---\n\n'),
-      );
+      skillsReadEarlier = loadedSkills
+        .map((s) => {
+          const body =
+            s.content.length > REINJECTED_SKILL_MAX_CHARS
+              ? `${s.content.slice(0, REINJECTED_SKILL_MAX_CHARS)}\n[Truncated: view ${SKILLS_ROOT}/${s.name}/SKILL.md for the whole skill.]`
+              : s.content;
+          return `### Skill read earlier: ${SKILLS_ROOT}/${s.name}/SKILL.md\n\n${body}`;
+        })
+        .join('\n\n---\n\n');
     }
-    if (parts.length > 0) skillsContext = parts.join('\n\n');
   }
-  return { skillsContext, loadedSkills, skillsEnabled };
+  return { skills, skillsReadEarlier, loadedSkills, skillsEnabled };
 }
 
 /** Skills a view of /skills/<name>/SKILL.md read in this chat's turns up to `throughSeq`. */
@@ -111,39 +100,41 @@ export async function buildSystemInstruction(
   input: GenerateInput,
   prefs: PreferencesRow,
   project: { id: string; title: string; instructions: string } | null,
-  availableTools: ToolDefinition[] = [],
-  skillsContext?: string,
-  /** Every tool allowed this turn, declared or discoverable; tool policies key on these. */
-  allowedToolNames?: string[],
+  availableTools: ToolDefinition[],
+  skills: { skills: ListedSkill[]; skillsReadEarlier?: string },
   /** The model's own web search is on this turn (Gemini grounding, the Anthropic adapter's web_search). */
-  builtInWebSearch = false,
+  builtInWebSearch: boolean,
+  /** The model serving the turn: its provider picks the rendering and the layout (ADR-0075). */
+  entry: Pick<ModelEntry, 'alias' | 'provider'>,
+  /** The turn's effort; `<profile>` is read from it (RT-4). */
+  effort: string | undefined,
 ): Promise<{
   systemInstruction: string;
+  turnPreamble: string;
   contextEvents: StreamEvent[];
   promptAssembly: PromptAssembly;
 }> {
   const events: StreamEvent[] = [];
+  const declared = new Set(availableTools.map((t) => t.name));
 
-  // 1. Standing preferences: the user's own instructions.
-  const combinedStandingPrefs = prefs.instructions.trim();
+  // 1. Memory snapshot: the listing of every file, and the profile and preferences in full, only
+  // when memory is on (ME-1). The same text from turn to turn, so the session state stays put.
+  const memory =
+    svc.cfg.ENABLE_MEMORY && declared.has('memory_read')
+      ? await memoryService.memorySnapshot(input.userId, project?.id ?? null, svc.cfg.MEMORY_CONTEXT_MAX_CHARS)
+      : undefined;
 
-  // 2. Memory: the listing of every file, and the profile and preferences in full. The same
-  // text from turn to turn, so it does not break the prompt cache (ADR-0025, ADR-0047).
-  let relevantMemoryText = '';
-  if (svc.cfg.ENABLE_MEMORY && allowedToolNames?.includes('memory_read')) {
-    relevantMemoryText = await memoryService.memoryPrompt(input.userId, project?.id ?? null, svc.cfg.MEMORY_CONTEXT_MAX_CHARS);
-  }
-
-  // 3. Conversation compaction summary
-  let compactionText = '';
+  // 2. Conversation compaction summary: per-turn state (doc-sync 2026-10-14).
+  let summary: { throughSeq: number; text: string } | undefined;
   if (svc.cfg.ENABLE_CONTEXT_COMPACTION) {
     const latestCompaction = await compactionService.getLatestCompaction(input.chatId, svc.db);
     if (latestCompaction) {
-      compactionText = compactionService.formatCompactionForPrompt(latestCompaction);
+      const text = compactionService.formatCompactionBody(latestCompaction);
+      if (text) summary = { throughSeq: latestCompaction.throughSeq, text };
     }
   }
 
-  // 4. Project knowledge. A project's files stay in context, switching to search only when
+  // 3. Project knowledge. A project's files stay in context, switching to search only when
   // the project knowledge approaches the context window limit (ADR-0020). So: every file whole while they fit, excerpts by relevance past that.
   let retrievedContextText: string | undefined;
   const wholeFiles = project ? await projectFileTexts(svc.db, project.id, undefined, svc.storage) : [];
@@ -154,7 +145,7 @@ export async function buildSystemInstruction(
     wholeFiles.every((f) => f.whole) &&
     wholeChars <= svc.cfg.PROJECT_FULL_CONTEXT_MAX_CHARS
   ) {
-    retrievedContextText = formatWholeFiles(wholeFiles);
+    retrievedContextText = projectKnowledgeBlock(formatWholeFiles(wholeFiles));
     events.push({
       type: 'research',
       event: {
@@ -164,7 +155,7 @@ export async function buildSystemInstruction(
         at: new Date().toISOString(),
       },
     });
-  } else if (project && wholeFiles.length > 0 && allowedToolNames?.includes('search_project_files')) {
+  } else if (project && wholeFiles.length > 0 && declared.has('search_project_files')) {
     // Past the limit the model searches when it needs to. Chunks
     // picked here by the prompt's words changed the system prompt every turn and broke its
     // cache (audit B9, B10).
@@ -192,7 +183,7 @@ export async function buildSystemInstruction(
     const chunks = await svc.retriever.search(svc.db, project.id, input.prompt, PROJECT_EXCERPTS_WITHOUT_TOOLS);
     const context = formatContext(chunks, PROJECT_EXCERPT_CHARS_WITHOUT_TOOLS);
     if (context) {
-      retrievedContextText = context;
+      retrievedContextText = projectKnowledgeBlock(context);
       events.push({
         type: 'research',
         event: {
@@ -205,7 +196,7 @@ export async function buildSystemInstruction(
     }
   }
 
-  // 5. Mode directive
+  // 4. Mode directive (ours, carried from the legacy builder unchanged)
   const modeDirective =
     input.mode === 'research'
       ? 'Conduct deep, rigorous research using web search and web fetch. Answer with a comprehensive, well-structured research report complete with citations directly in the chat text stream. Do not put the report in a file unless the user asked for one. If live web research fails or search providers are unavailable, state plainly: "Live web research could not be completed at this time due to search provider unavailability."'
@@ -215,30 +206,52 @@ export async function buildSystemInstruction(
           'the question.'
         : undefined;
 
-  // 6. Style instructions (WP-05 / ADR-0033)
+  // 5. Style instructions (WP-05 / ADR-0033)
   const effectiveStyleId = input.styleId ?? prefs.styleId ?? 'normal';
   const resolvedStyle = await resolveStyle(svc.db, input.userId, effectiveStyleId);
   const styleInstructions = resolvedStyle.instructions.trim() || undefined;
 
-  // 7. Assemble prompt separating stable prefix from dynamic suffix
-  const promptAssembly = assemblePrompt(availableTools, {
-    currentDate:
-      currentDateLine(new Date(), prefs.timezone) +
-      (input.clientPlatform === 'mobile' ? '\n' + mobileClientLine(availableTools.some((t) => t.name === 'read_me')) : ''),
-    runtimeCapabilities: buildDynamicRuntimeContext(svc.cfg, svc.capabilities, allowedToolNames, builtInWebSearch, availableTools.map((tool) => tool.name)),
-    standingPreferences: combinedStandingPrefs || undefined,
-    projectInstructions: project?.instructions?.trim() || undefined,
-    styleInstructions,
-    relevantMemory: relevantMemoryText || undefined,
-    compactionSummary: compactionText || undefined,
-    retrievedContext: retrievedContextText,
-    modePrompt: modeDirective,
-    skillsContext,
-  }, allowedToolNames);
+  // 6. The v3 prompt, laid out for the provider (ADR-0075).
+  const promptAssembly = assemblePrompt({
+    provider: entry.provider,
+    tools: availableTools,
+    builtInWebSearch,
+    persistentSandbox: usesWarmSandbox(svc.cfg),
+    skills: skills.skills,
+    session: {
+      model: { name: entry.alias, knowledgeCutoff: getModelCapability(entry.alias).knowledgeCutoff },
+      profile: profileForEffort(effort),
+      ...(memory ? { memory } : {}),
+      ...(project
+        ? {
+            project: {
+              name: project.title,
+              ...(project.instructions?.trim() ? { instructions: project.instructions } : {}),
+              ...(retrievedContextText ? { knowledge: retrievedContextText } : {}),
+            },
+          }
+        : {}),
+      ...(prefs.instructions.trim() ? { userInstructions: prefs.instructions } : {}),
+      ...(styleInstructions ? { styleInstructions } : {}),
+      ...(skills.skillsReadEarlier ? { skillsReadEarlier: skills.skillsReadEarlier } : {}),
+    },
+    perTurn: {
+      now: new Date(),
+      ...(summary ? { summary } : {}),
+      ...(modeDirective ? { modeDirective } : {}),
+      ...(input.clientPlatform === 'mobile' ? { clientNote: mobileClientLine(declared.has('read_me')) } : {}),
+    },
+  });
 
   return {
     systemInstruction: promptAssembly.fullSystemInstruction,
+    turnPreamble: promptAssembly.turnPreamble,
     contextEvents: events,
     promptAssembly,
   };
+}
+
+/** Told to the model when the request came from a phone, so read_me sizes a visual for it (ADR-0049). */
+export function mobileClientLine(readMeOn: boolean): string {
+  return 'The user is on a mobile device: a narrow screen, about 380 px wide.' + (readMeOn ? ' Pass platform "mobile" to read_me.' : '');
 }

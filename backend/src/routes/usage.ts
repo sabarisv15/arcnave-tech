@@ -51,7 +51,6 @@ const limitsSchema = z.object({
   dailyTokenBudget: z.number().nullable(),
   monthlyTokenBudget: z.number().nullable(),
   warnThresholdPct: z.number(),
-  routingPreference: z.string(),
   timezone: z.string(),
   dailyUsed: z.number(),
   monthlyUsed: z.number(),
@@ -152,10 +151,14 @@ export async function usageRoutes(app: AppInstance): Promise<void> {
           dailyTokenBudget: z.number().int().min(1).nullable().optional(),
           monthlyTokenBudget: z.number().int().min(1).nullable().optional(),
           warnThresholdPct: z.number().int().min(1).max(100).optional(),
-          // These are the exact strings `normalizeTier` in the generation service accepts.
-          // Anything else it silently reads as 'balanced', so accepting a friendlier word
-          // here would store a preference that is echoed back but never acted on.
-          routingPreference: z.enum(['economy', 'balanced', 'quality']).optional(),
+          // Accepted and ignored so an older client's save does not fail; nothing reads it and it
+          // is not stored (Auto is rules only, Stage 7 RT-1, ADR-0076). DEFERRED: drop the field
+          // and the column together.
+          routingPreference: z
+            .string()
+            .max(32)
+            .optional()
+            .describe('Deprecated, no effect. Auto routes by rules only (ADR-0076); the value is accepted and ignored.'),
           timezone: z.string().max(64).optional(),
           version: z.number().int().optional(),
         }),
@@ -196,7 +199,6 @@ export async function usageRoutes(app: AppInstance): Promise<void> {
         'dailyTokenBudget',
         'monthlyTokenBudget',
         'warnThresholdPct',
-        'routingPreference',
         'timezone',
       ] as const) {
         if (body[field] !== undefined) patch[field] = body[field];

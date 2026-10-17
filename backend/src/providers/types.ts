@@ -315,6 +315,12 @@ export interface GenerationRequest {
    *  which are carried forward from earlier turns. */
   attachments?: AttachmentBlock[];
   systemInstruction: string;
+  /**
+   * Text that leads the current user turn, before its attachments and the user's message: the
+   * per-turn state (current time, an earlier-conversation summary) and, for Gemini, the session
+   * state too (ADR-0075). Never stored with the message; a later turn sends its own.
+   */
+  turnPreamble?: string;
   mode: Mode;
   maxOutputTokens: number;
   /**
@@ -334,7 +340,7 @@ export interface GenerationRequest {
   tools?: ToolDefinition[];
   /** Required when `tools` is non-empty; absent otherwise. */
   toolExecutor?: ToolExecutor;
-  /** Phase 5 canonical prompt assembly (stable prefix + dynamic suffix). */
+  /** The prompt as assembled: stable text, session state, per-turn state (ADR-0075). */
   promptAssembly?: import('../services/promptCache/types.js').PromptAssembly;
   signal: AbortSignal;
 }

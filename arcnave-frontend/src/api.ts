@@ -751,7 +751,6 @@ export interface PreferencesDto {
   dailyTokenBudget: number | null;
   monthlyTokenBudget: number | null;
   warnThresholdPct: number;
-  routingPreference: string;
   timezone: string;
   version: number;
   updatedAt: string | null;
@@ -783,7 +782,6 @@ export interface LimitsDto {
   dailyTokenBudget: number | null;
   monthlyTokenBudget: number | null;
   warnThresholdPct: number;
-  routingPreference: string;
   timezone: string;
   dailyUsed: number;
   monthlyUsed: number;
@@ -1137,7 +1135,6 @@ export const api = {
       dailyTokenBudget?: number | null;
       monthlyTokenBudget?: number | null;
       warnThresholdPct?: number;
-      routingPreference?: string;
       timezone?: string;
       version?: number;
     }) => patch<LimitsDto & { version: number }>("/usage/limits", body),

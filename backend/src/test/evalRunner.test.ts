@@ -309,6 +309,14 @@ describe('eval runner: the live path cannot be reached from CI, vitest or the ap
     }
   });
 
+  it('builds each case on its model\'s own v3 rendering and stamps each rendering\'s prompt version (P07)', () => {
+    const runner = readFileSync(join(BACKEND_DIR, 'scripts', 'evalPrompt.ts'), 'utf8');
+    expect(runner).toContain('buildCaseRun(c, new Date(), PROVIDER_OF[family])');
+    expect(runner).toContain('const PROVIDER_OF: Record<Family, PromptProvider> = { gemini: \'google\', claude: \'anthropic\' };');
+    expect(runner).toContain('promptVersion(PROVIDER_OF[f])');
+    expect(runner).toContain('answerCase(c, backend, cfg, MODELS[model].family)');
+  });
+
   it('is imported by no application or test file', () => {
     for (const file of walk(join(BACKEND_DIR, 'src'))) {
       if (file.endsWith('evalRunner.test.ts')) continue;

@@ -440,10 +440,16 @@ export class MemoryService {
   }
 
   /**
-   * What a conversation starts from: the listing of every file, and /profile.md and
-   * /preferences.md in full. The same text from turn to turn, so it keeps the prompt cache.
+   * The memory snapshot's parts (Stage 6 `<memory_snapshot>`), what a conversation starts from:
+   * one listing line per file with its description and aliases, and /profile.md and
+   * /preferences.md in full, each cut at `maxChars`. The same text from turn to turn, so the
+   * session state stays put. Raw text; the prompt assembler escapes it.
    */
-  async memoryPrompt(userId: string, projectId: string | null, maxChars: number): Promise<string> {
+  async memorySnapshot(
+    userId: string,
+    projectId: string | null,
+    maxChars: number,
+  ): Promise<{ listing: string; profile?: string; preferences?: string }> {
     const rows = await getDb()
       .select()
       .from(memoryItems)
@@ -457,12 +463,13 @@ export class MemoryService {
     });
     let listing = lines.join('\n');
     if (listing.length > maxChars) listing = `${listing.slice(0, maxChars)}\n(more files: memory_list shows them)`;
-    const parts = [`<memory_listing>\n${listing || '(empty)'}\n</memory_listing>`];
     const profile = byPath.get('/profile.md');
-    parts.push(`<profile>\n${profile ? profile.content.slice(0, maxChars) : '(not yet written)'}\n</profile>`);
     const preferences = byPath.get('/preferences.md');
-    if (preferences) parts.push(`<preferences>\n${preferences.content.slice(0, maxChars)}\n</preferences>`);
-    return parts.join('\n');
+    return {
+      listing,
+      ...(profile ? { profile: profile.content.slice(0, maxChars) } : {}),
+      ...(preferences ? { preferences: preferences.content.slice(0, maxChars) } : {}),
+    };
   }
 
   /**

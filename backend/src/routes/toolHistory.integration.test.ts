@@ -12,7 +12,7 @@ import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import { compactionTrigger, SUMMARY_PROMPT } from '../services/compaction/autoCompact.js';
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, signUp } from '../test/harness.js';
+import { createTestApp, signUp, promptOf } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -197,7 +197,7 @@ describe('tool calls in the history (ADR-0022)', () => {
     await send('turn 1');
     plainAnswer();
     const beforeCompaction = await send('turn 2');
-    expect(beforeCompaction.systemInstruction).not.toContain('### Skill read earlier: /skills/pdf/SKILL.md');
+    expect(promptOf(beforeCompaction)).not.toContain('### Skill read earlier: /skills/pdf/SKILL.md');
     await send('turn 3');
     ctx.provider.script = [
       { type: 'delta', text: 'ok' },
@@ -217,7 +217,7 @@ describe('tool calls in the history (ADR-0022)', () => {
     const after = await send('turn 5');
     ctx.provider.onRequest = null;
     expect(after.history.some((t) => t.toolCalls?.some((c) => c.name === 'view'))).toBe(false);
-    expect(after.systemInstruction).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
+    expect(promptOf(after)).toContain('### Skill read earlier: /skills/pdf/SKILL.md');
   });
 
   it('replays a turn-ending ask_user_input_v0 call and its {status:"shown"} result on the next turn (ADR-0034)', async () => {

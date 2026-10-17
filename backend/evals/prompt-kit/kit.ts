@@ -22,7 +22,9 @@ import { z } from 'zod';
 
 import { buildCapabilityRegistry } from '../../src/capabilities/factory.js';
 import { loadConfig } from '../../src/config.js';
-import type { GenerationRequest, ToolCall, ToolExecutor, ToolResult, Turn } from '../../src/providers/types.js';
+import type { GenerationRequest, ReasoningEffort, ToolCall, ToolExecutor, ToolResult, Turn } from '../../src/providers/types.js';
+import type { ListedSkill } from '../../src/services/promptCache/promptAssembly.js';
+import type { PromptProvider } from '../../src/services/prompt/v3Prompt.js';
 import { SkillService } from '../../src/services/skills.js';
 import type { TurnServices } from '../../src/services/turn/services.js';
 import type { GenerateInput } from '../../src/services/turn/input.js';
@@ -165,6 +167,8 @@ export interface CaseRun {
   history: Turn[];
   /** The user message as sent. */
   prompt: string;
+  /** The effort the case's profile maps to (RT-4), when it names one. */
+  effort?: ReasoningEffort;
   /** What the kit asks for that the deployed request cannot express; reported with the result. */
   approximations: string[];
 }
@@ -183,33 +187,41 @@ export function historyOf(c: RunnableCase): Turn[] {
   return turns;
 }
 
-let skillService: SkillService | undefined;
+/** The loaded skill service, shared. The promise is kept, not the service: cases built at once
+ *  (the live runner's pool) all wait for the one load instead of reading a half-loaded service. */
+let skillService: Promise<SkillService> | undefined;
 
-/** The skills listing as the turn builds it (the deployed function, the repo's skills directory). */
-async function skillsContextFor(toolNames: string[]): Promise<string | undefined> {
+/** The skills list as the turn builds it (the deployed function, the repo's skills directory). */
+async function skillsFor(toolNames: string[]): Promise<ListedSkill[]> {
   const cfg = loadConfig({ ENABLE_TOOL_USE: 'true', ENABLE_RUN_PYTHON: 'true', ENABLE_SKILLS: 'true' });
-  if (!skillService) {
-    skillService = new SkillService(BACKEND_DIR, cfg.SKILLS_DIR, buildCapabilityRegistry(cfg));
-    await skillService.load();
-  }
-  const out = await buildSkillsContext({ cfg, skills: skillService } as unknown as TurnServices, {} as GenerateInput, new Set(toolNames), null);
-  return out.skillsContext;
+  skillService ??= (async () => {
+    const service = new SkillService(BACKEND_DIR, cfg.SKILLS_DIR, buildCapabilityRegistry(cfg));
+    await service.load();
+    return service;
+  })();
+  const out = await buildSkillsContext({ cfg, skills: await skillService } as unknown as TurnServices, {} as GenerateInput, new Set(toolNames), null);
+  return out.skills;
 }
 
+/** A case's profile as the effort that produces it (RT-4: fast = low, deep = high). */
+const EFFORT_OF_PROFILE: Record<string, ReasoningEffort> = { fast: 'low', normal: 'medium', deep: 'high' };
+
 /**
- * The deployed request for one case. `now` is the turn's clock (a fixed value offline, so the
- * result is stable; the real time on a live run).
+ * The deployed request for one case, on one provider's rendering and layout. `now` is the turn's
+ * clock (a fixed value offline, so the result is stable; the real time on a live run).
  */
-export async function buildCaseRun(c: RunnableCase, now: Date): Promise<CaseRun> {
+export async function buildCaseRun(c: RunnableCase, now: Date, provider: PromptProvider = 'google'): Promise<CaseRun> {
   const approximations: string[] = [];
   const toolsOn = c.tools;
   const webOn = toolsOn && c.web_search !== 'off';
   const memoryOn = toolsOn && c.memory !== 'off';
   const skillsOn = toolsOn && c.skill_loader !== 'off';
+  const effort = c.profile ? EFFORT_OF_PROFILE[c.profile] : undefined;
 
   // The kit's mock tools are always on when tools are (file_search, run_code, artifacts), so the
   // project tools and the sandbox are on; the model's own search is not (it cannot be mocked).
   const base = {
+    provider,
     toolUse: toolsOn,
     python: toolsOn,
     skills: skillsOn,
@@ -218,7 +230,7 @@ export async function buildCaseRun(c: RunnableCase, now: Date): Promise<CaseRun>
     memory: memoryOn,
     project: toolsOn,
     now,
-    timeZone: 'Asia/Kolkata',
+    ...(effort ? { effort } : {}),
   };
 
   const projectInstructions = [c.company ? `Company instructions: ${c.company}` : '', c.project ? `Project instructions: ${c.project}` : '']
@@ -227,19 +239,16 @@ export async function buildCaseRun(c: RunnableCase, now: Date): Promise<CaseRun>
   if (c.company) approximations.push('company_instructions: ArcNave has no company tier; the text is sent as project instructions');
   if (c.company && c.project) approximations.push('authority order company > project is not expressible in the deployed request');
   if (c.formats) approximations.push('formats: ArcNave has no per-format switch; all formats stay available');
-  if (c.profile) approximations.push('profile: effort is an adapter setting, not prompt text; not applied');
   if (c.pending) approximations.push('pending_operations: no such block in the deployed request; sent at the start of the user message');
   if (c.app_note) approximations.push('app_state: no such block in the deployed request; sent at the start of the user message');
-  if (c.mem_records) approximations.push('mem_records: sent in the memory listing block, not as document memory');
+  if (c.mem_records) approximations.push('mem_records: sent as memory listing lines, not as document memory');
   if (c.docs) approximations.push('docs: sent as a <documents> block in the user message, not as a file attachment');
   if (c.skill_loader === 'off') approximations.push('skill_loader off: skills disabled');
 
   // Skills first need the tool names the scenario declares, so build once without, then with.
-  let scenario = buildScenario({ ...base, ...(projectInstructions ? { projectInstructions } : {}), ...memoryBlock(c) });
-  if (skillsOn) {
-    const skillsContext = await skillsContextFor(scenario.toolNames);
-    scenario = buildScenario({ ...base, ...(projectInstructions ? { projectInstructions } : {}), ...memoryBlock(c), ...(skillsContext ? { skillsContext } : {}) });
-  }
+  const blocks = { ...(projectInstructions ? { projectInstructions } : {}), ...memoryBlock(c) };
+  let scenario = buildScenario({ ...base, ...blocks });
+  if (skillsOn) scenario = buildScenario({ ...base, ...blocks, listedSkills: await skillsFor(scenario.toolNames) });
 
   const parts: string[] = [];
   if (c.pending) parts.push(`<pending_operations>${esc(c.pending)}</pending_operations>`);
@@ -253,13 +262,12 @@ export async function buildCaseRun(c: RunnableCase, now: Date): Promise<CaseRun>
   }
   parts.push(esc(c.user));
 
-  return { scenario, history: historyOf(c), prompt: parts.join('\n'), approximations };
+  return { scenario, history: historyOf(c), prompt: parts.join('\n'), ...(effort ? { effort } : {}), approximations };
 }
 
-function memoryBlock(c: RunnableCase): { relevantMemory?: string } {
+function memoryBlock(c: RunnableCase): { memorySnapshot?: { listing: string } } {
   if (!c.mem_records || c.memory === 'off') return {};
-  const lines = c.mem_records.map((m) => `${m.id} (${m.type}): ${esc(m.text)}`);
-  return { relevantMemory: `<memory_listing>\n${lines.join('\n')}\n</memory_listing>` };
+  return { memorySnapshot: { listing: c.mem_records.map((m) => `${m.id} (${m.type}): ${m.text}`).join('\n') } };
 }
 
 /** The request a provider adapter is handed for this case; the same fields the turn sets. */
@@ -272,7 +280,9 @@ export function toGenerationRequest(
     prompt: run.prompt,
     history: run.history,
     systemInstruction: run.scenario.system,
+    ...(run.scenario.preamble ? { turnPreamble: run.scenario.preamble } : {}),
     promptAssembly: run.scenario.assembly,
+    ...(run.effort ? { reasoningEffort: run.effort } : {}),
     mode: 'chat',
     maxOutputTokens: o.maxOutputTokens,
     providerModelId: o.providerModelId,

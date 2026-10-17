@@ -9,12 +9,38 @@
 import { createHash } from 'node:crypto';
 
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { expect } from 'vitest';
+import { afterAll, beforeAll, expect, vi } from 'vitest';
 
 import { attachments, chats, messages, researchEvents, toolCalls, usageRecords } from '../db/schema.js';
 import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import type { TestContext, TestUser } from './harness.js';
 import { FakeProvider, multipart, parseSse } from './harness.js';
+
+/* -------------------------------------------------------------------------- clock */
+
+/**
+ * The day the snapshots were recorded (a Friday in IST). The normaliser hides the time text, but
+ * the prompt assembly's `blockSizes.perTurn` counts the weekday name, so an unfrozen run on any
+ * other day ("Saturday" is two characters longer) fails every scenario.
+ */
+export const SNAPSHOT_NOW = '2026-10-16T10:00:00+05:30';
+
+/**
+ * Fakes `Date` (only `Date`: real timers keep driving deadlines, polls and the database client)
+ * for the calling test file, starting at `at`. The fake clock still moves forward with real time:
+ * a clock that stands still makes "probed since the turn began" (`lastProbedAt >= since`) true for
+ * a model probed by the warm-up turn, and the turn log records `probed: true` where it did not.
+ * Call once at the top level of the file.
+ */
+export function freezeSnapshotClock(at: string = SNAPSHOT_NOW): void {
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true, advanceTimeDelta: 1 });
+    vi.setSystemTime(new Date(at));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+}
 
 /* -------------------------------------------------------------------------- normaliser */
 
@@ -26,6 +52,8 @@ const STORAGE_KEY = /\b[0-9a-f]{4}\/\d{4}\/\d{2}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const ISO = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g;
 const DATE_LINE = /The current date is [^()]+? \(time zone ([^)]+)\)\./g;
+/** The v3 per-turn time (ADR-0075): IST with offset and weekday. */
+const CURRENT_TIME = /<current_time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:30 [A-Z][a-z]+day IST<\/current_time>/g;
 
 export function plain(value: unknown): string {
   return JSON.stringify(value, function (this: unknown, _key, v: unknown) {
@@ -68,7 +96,8 @@ export function normalise(value: unknown): unknown {
       return `<uuid-${String(ids.get(key))}>`;
     })
     .replace(ISO, '<iso>')
-    .replace(DATE_LINE, 'The current date is <date> (time zone $1).');
+    .replace(DATE_LINE, 'The current date is <date> (time zone $1).')
+    .replace(CURRENT_TIME, '<current_time><ist-now></current_time>');
   return extractLong(JSON.parse(text));
 }
 

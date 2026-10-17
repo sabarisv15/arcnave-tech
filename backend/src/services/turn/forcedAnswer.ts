@@ -6,6 +6,7 @@
 import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { type GenerationRequest, type Provider, addRequestUsage, toolCallAsText } from '../../providers/types.js';
+import { neutraliseReservedTags } from '../prompt/reservedTags.js';
 import type { TurnLog } from '../turnLog.js';
 import { type StreamEvent, toUsageDto } from './events.js';
 import type { TurnState } from './turnState.js';
@@ -34,7 +35,8 @@ export async function* forcedAnswer(
     try {
       // The loop's tool steps live only in the adapter's own request, so they are written into
       // this one: an answer "from the results above" with no results in the request is a re-do.
-      const workDone = state.turnCalls.map((c) => toolCallAsText(c)).join('\n\n');
+      // Tool output (a fetched page, a viewed file) joins the user turn here: it must not forge a block.
+      const workDone = neutraliseReservedTags(state.turnCalls.map((c) => toolCallAsText(c)).join('\n\n'));
       const synthesisRequest: GenerationRequest = {
         ...request,
         tools: [],

@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, signUp } from '../test/harness.js';
+import { createTestApp, signUp, promptOf } from '../test/harness.js';
 
 let ctx: TestContext;
 
@@ -35,7 +35,7 @@ async function turn(user: TestUser) {
   });
   expect(res.statusCode).toBe(200);
   const seen = ctx.provider.seen.at(-1)!;
-  return { system: seen.systemInstruction ?? '', declared: new Set((seen.tools ?? []).map((t) => t.name)) };
+  return { system: promptOf(seen), declared: new Set((seen.tools ?? []).map((t) => t.name)) };
 }
 
 describe('memory and past-chat search are user settings', () => {
@@ -48,9 +48,12 @@ describe('memory and past-chat search are user settings', () => {
     const { system, declared } = await turn(user);
     expect(declared.has('memory_read')).toBe(true);
     expect(declared.has('conversation_search')).toBe(true);
-    expect(system).toContain('<memory_policy>');
+    // v3 (ADR-0075): the memory rules are in the base; the memory-file rules and the snapshot
+    // ride with the memory tools, the past-chat rules with theirs.
+    expect(system).toContain('memory="on"');
+    expect(system).toContain('<memory_files>');
+    expect(system).toContain('<memory_snapshot version="');
     expect(system).toContain('<past_chats_policy>');
-    expect(system).toContain('"Use and update memory" in Settings > Personalization');
     expect(system).toContain('"Search and reference past chats" in Settings > Personalization');
   });
 
@@ -70,8 +73,10 @@ describe('memory and past-chat search are user settings', () => {
     for (const t of ['memory_list', 'memory_read', 'memory_write', 'memory_append', 'memory_str_replace', 'memory_delete']) {
       expect(declared.has(t), t).toBe(false);
     }
-    expect(system).not.toContain('<memory_policy>');
+    expect(system).not.toContain('<memory_files>');
     expect(system).not.toContain('<memory_listing>');
+    expect(system).not.toContain('<memory_snapshot version="');
+    expect(system).toContain('memory="off"');
     expect(declared.has('conversation_search')).toBe(true);
     expect(system).toContain('<past_chats_policy>');
   });
@@ -90,6 +95,6 @@ describe('memory and past-chat search are user settings', () => {
     for (const t of ['conversation_search', 'read_conversation', 'recent_chats']) expect(declared.has(t), t).toBe(false);
     expect(system).not.toContain('<past_chats_policy>');
     expect(declared.has('memory_read')).toBe(true);
-    expect(system).toContain('<memory_policy>');
+    expect(system).toContain('<memory_files>');
   });
 });

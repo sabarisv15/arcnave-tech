@@ -12,7 +12,7 @@ import { buildGeminiContents } from '../providers/gemini.js';
 import type { GenerationRequest, ProviderEvent } from '../providers/types.js';
 import { KEEP_TURNS, SUMMARY_PROMPT, compactionTrigger } from '../services/compaction/autoCompact.js';
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, multipart, parseSse, signUp } from '../test/harness.js';
+import { createTestApp, multipart, parseSse, signUp, promptOf } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -135,7 +135,7 @@ describe('long chats (ADR-0019)', () => {
     const main = requests[1]!;
     expect(main.history.map((t) => t.text)).toEqual(['Turn 3', 'ok', 'Turn 4', 'ok']);
     expect(main.history).toHaveLength(KEEP_TURNS * 2);
-    expect(main.systemInstruction).toContain('User shared notes.txt (budget 4200)');
+    expect(promptOf(main)).toContain('User shared notes.txt (budget 4200)');
     // The file of a compacted turn is still the chat's.
     expect(main.prompt).toContain(`fileId: "${fileId}"`);
 

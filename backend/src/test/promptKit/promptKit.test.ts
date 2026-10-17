@@ -60,7 +60,7 @@ describe('prompt test kit: structure', () => {
     expect(scenarios.noTools.toolNames).toEqual([]);
     expect(scenarios.bare.toolNames).toEqual(['ask_user_input_v0']);
     expect(scenarios.full.system.length).toBeGreaterThan(scenarios.bare.system.length);
-    expect(buildScenario({}).system).toBe(scenarios.bare.system);
+    expect(buildScenario({}).whole).toBe(scenarios.bare.whole);
   });
 });
 

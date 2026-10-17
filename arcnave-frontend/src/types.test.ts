@@ -201,7 +201,6 @@ describe("preferences mapping", () => {
     dailyTokenBudget: null,
     monthlyTokenBudget: null,
     warnThresholdPct: 80,
-    routingPreference: "balanced",
     timezone: "UTC",
     version: 3,
     updatedAt: null,

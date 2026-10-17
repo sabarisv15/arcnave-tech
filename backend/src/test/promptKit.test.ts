@@ -33,6 +33,8 @@ import {
 import type { CaseRun, KitCase } from '../../evals/prompt-kit/kit.js';
 import { CASE_PLAN, EXPECTED_GAPS, REQUIREMENTS, runOffline } from '../../evals/prompt-kit/offlineGates.js';
 import { FakeProvider } from './harness.js';
+import { promptVersion, v3BaseText } from '../services/prompt/v3Prompt.js';
+import type { Scenario } from './promptKit/scenarios.js';
 
 const NOW = new Date('2026-10-14T09:30:00.000Z');
 const SPEC = join(BACKEND_DIR, '..', 'docs', 'architecture', 'Stage-06-Context-Prompt-Assembly', '06-policy-spec-v3.md');
@@ -117,6 +119,35 @@ describe('prompt kit: the file', () => {
   });
 });
 
+describe('prompt kit: the live runner sends the v3 prompt (P07, wiring only; nothing is run)', () => {
+  it('builds each provider\'s own rendering, layout and per-turn state, and stamps the turn\'s prompt version', async () => {
+    const t1 = cases.find((c) => c.id === 'T1')!;
+    const now = new Date('2026-10-14T09:30:00.000Z');
+    const gemini = await buildCaseRun(t1, now, 'google');
+    const claude = await buildCaseRun(t1, now, 'anthropic');
+    const opts = { providerModelId: 'fake-model', maxOutputTokens: 1000, signal: new AbortController().signal };
+    const g = toGenerationRequest(gemini, opts);
+    const c = toGenerationRequest(claude, opts);
+    expect(g.systemInstruction.startsWith(v3BaseText('google'))).toBe(true);
+    expect(c.systemInstruction.startsWith(v3BaseText('anthropic'))).toBe(true);
+    // Gemini: the session state leads the turn; Claude: it follows the stable text in the system.
+    expect(g.turnPreamble?.startsWith('<model_info name="Gemini 3.8 Flash"/>')).toBe(true);
+    expect(c.systemInstruction).toContain('<model_info name="Sonnet 5.5" knowledge_cutoff="2026-06"/>');
+    expect(c.turnPreamble).toMatch(/^<current_time>2026-10-14T15:00:00\+05:30 Wednesday IST<\/current_time>/);
+    expect(g.promptAssembly?.promptVersion).toBe(promptVersion('google'));
+    // That the runner builds each case on its model's rendering is checked in evalRunner.test.ts.
+  });
+
+  it('maps a case profile to the effort that sets <profile> (RT-4)', async () => {
+    const deep = cases.find((c) => c.profile === 'deep');
+    expect(deep, 'the kit has a deep-profile case').toBeDefined();
+    const run = await buildCaseRun(deep!, new Date('2026-10-14T09:30:00.000Z'));
+    expect(run.effort).toBe('high');
+    expect(run.scenario.whole).toContain('<profile>deep</profile>');
+    expect(toGenerationRequest(run, { providerModelId: 'x', maxOutputTokens: 1, signal: new AbortController().signal }).reasoningEffort).toBe('high');
+  });
+});
+
 describe('prompt kit: every case builds a real request', () => {
   it('builds through the deployed prompt and tool builders and reaches the fake provider', async () => {
     const provider = new FakeProvider();
@@ -164,6 +195,37 @@ describe('prompt kit: the offline gates', () => {
     }
   });
 
+  it('every requirement fails on a prompt that does not carry it (negative case, mistakes.md 2026-10-16)', () => {
+    // A blank request with the words the patterns look near ("model", "files", "tools") but none
+    // of the rules. Only the requirements that ask for an absence may pass on it.
+    const text = 'You are a helpful assistant. <model> files are good. Use tools. The current year. Read <model_info> and <capabilities_state> when present.';
+    const blank = { whole: text, stable: text, system: '', toolNames: [], tools: [] } as unknown as Scenario;
+    const passing = Object.entries(REQUIREMENTS).filter(([, r]) => r.check(blank) === null).map(([k]) => k);
+    expect(passing.sort()).toEqual(['skills.absent_when_off', 'tool.memory_absent', 'web.off_no_tools']);
+  });
+
+  it('a rule is never met by the case\'s own data in the session state', () => {
+    // The rule's words appear only where the case puts its project instructions (whole), not in
+    // the prompt's own text (stable): the requirement must stay unmet.
+    const caseText = '<project_instructions project="p" version="v">\nGive a balanced overview; data may be out of date.\n</project_instructions>';
+    const s = { whole: caseText, stable: 'You are ArcNave.', system: '', toolNames: [], tools: [] } as unknown as Scenario;
+    expect(REQUIREMENTS['pt.balanced_politics']!.check(s)).not.toBeNull();
+    expect(REQUIREMENTS['web.out_of_date_notice']!.check(s)).not.toBeNull();
+  });
+
+  it('the tag-presence requirements ignore a tag named in the rules\' prose', () => {
+    const proseText = 'Use <company_instructions> and <pending_operations> when present. <available_skills> lists skills.';
+    const prose = { whole: proseText, stable: proseText, system: '', toolNames: [], tools: [] } as unknown as Scenario;
+    expect(REQUIREMENTS['authority.company_tier']!.check(prose)).not.toBeNull();
+    expect(REQUIREMENTS['state.pending_operations']!.check(prose)).not.toBeNull();
+    expect(REQUIREMENTS['skills.absent_when_off']!.check(prose)).toBeNull();
+    const renderedText = '<company_instructions version="1">\nx\n</company_instructions>\n<pending_operations>\nop\n</pending_operations>\n<available_skills>\n<skill id="docx"/>';
+    const rendered = { ...prose, whole: renderedText, stable: renderedText } as unknown as Scenario;
+    expect(REQUIREMENTS['authority.company_tier']!.check(rendered)).toBeNull();
+    expect(REQUIREMENTS['state.pending_operations']!.check(rendered)).toBeNull();
+    expect(REQUIREMENTS['skills.absent_when_off']!.check(rendered)).not.toBeNull();
+  });
+
   it('never marks an observe-gate case offline', () => {
     for (const c of cases.filter((x) => x.gate === 'O')) expect(CASE_PLAN[c.id]!.kind).toBe('live-only');
   });
@@ -198,13 +260,14 @@ describe('prompt kit: the offline gates', () => {
     const outcomes = critical.map((c) => runOffline(c.id, runs.get(c.id)!.scenario));
     const requirements = outcomes.flatMap((o) => o.results);
     const gapped = outcomes.filter((o) => o.results.some((r) => r.failure !== null));
-    // Pinned so a change to the plan or to the prompt shows in review; the figures and the table
-    // are in docs/ops/p03-result.md. When P07 closes a gap, lower the gap counts with its entry.
+    // Pinned so a change to the plan or to the prompt shows in review. P03 (before): 25 failing
+    // requirements, 20 gapped cases, 8 met (28.6 %). P07 (v3 prompt, ADR-0075): 5 failing, 4
+    // gapped, 24 met (85.7 %); the open ones need a backend feature (docs/ops/p07-result.md).
     expect(critical).toHaveLength(28);
     expect(requirements).toHaveLength(44);
-    expect(requirements.filter((r) => r.failure !== null)).toHaveLength(25);
-    expect(gapped).toHaveLength(20);
-    expect(outcomes.length - gapped.length).toBe(8);
+    expect(requirements.filter((r) => r.failure !== null)).toHaveLength(5);
+    expect(gapped).toHaveLength(4);
+    expect(outcomes.length - gapped.length).toBe(24);
     // Every failing requirement is a recorded gap (the per-case tests above hold this one by one).
     for (const o of outcomes) for (const r of o.results) if (r.failure) expect(EXPECTED_GAPS).toHaveProperty([`${o.id}:${r.requirement}`]);
   });

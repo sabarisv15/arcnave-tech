@@ -10,7 +10,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO = path.resolve(__dirname, '../../..');
-const LAUNCH_ROOTS = ['backend/src', 'backend/skills', 'backend/sandbox', 'arcnave-frontend/src'];
+// backend/prompts: the v3 system prompt files the image ships (ADR-0075).
+const LAUNCH_ROOTS = ['backend/src', 'backend/skills', 'backend/sandbox', 'backend/prompts', 'arcnave-frontend/src'];
 const SOURCE = /\.(ts|tsx|js|css|py|md|html)$|Dockerfile/;
 const NOT_LAUNCHED = /\.test\.|[\\/]test[\\/]|backend[\\/]src[\\/]scripts[\\/]/;
 
@@ -46,5 +47,12 @@ describe('launch files do not describe ArcNave as another assistant', () => {
         .filter(({ line }) => REFERENCE.test(line)),
     );
     expect(hits.map(({ f, n, line }) => `${f}:${String(n)}: ${line.trim()}`)).toEqual([]);
+  });
+});
+
+describe('the shipped prompt files are in scope', () => {
+  it('scans backend/prompts', () => {
+    const prompts = files(path.join(REPO, 'backend/prompts')).filter((f) => SOURCE.test(f));
+    expect(prompts.map((f) => path.basename(f)).sort()).toEqual(expect.arrayContaining(['appendix-product-tools.md', 'claude.md', 'gemini.md']));
   });
 });

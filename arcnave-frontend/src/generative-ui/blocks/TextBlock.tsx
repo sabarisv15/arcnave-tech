@@ -1,5 +1,5 @@
 import ReactMarkdown from 'react-markdown';
-import { remarkPlugins, rehypePlugins, sharedMarkdownComponents } from '../../markdownPlugins';
+import { normalizeMathDelimiters, remarkPlugins, rehypePlugins, sharedMarkdownComponents } from '../../markdownPlugins';
 import type { TextBlock as TextBlockType } from '../types';
 
 export function TextBlock({ block }: { block: TextBlockType }) {
@@ -10,7 +10,7 @@ export function TextBlock({ block }: { block: TextBlockType }) {
         rehypePlugins={rehypePlugins}
         components={sharedMarkdownComponents}
       >
-        {block.text}
+        {normalizeMathDelimiters(block.text)}
       </ReactMarkdown>
     </div>
   );

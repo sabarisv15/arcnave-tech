@@ -1,23 +1,20 @@
 /**
- * `Auto` routing rules.
+ * `Auto` routing rules (Stage 7 RT-1, 7.9; ADR-0076).
  *
- * Pure functions with no IO, so every rule is exercised directly rather than through a
- * request. The table in `buildEntries` is deliberately not imported: these tests fix the
- * behaviour of the rules, not the current contents of the model list.
+ * Pure functions with no IO, so every rule is exercised directly rather than through a request.
+ * The table in `buildEntries` is deliberately not imported: these tests fix the behaviour of the
+ * rules, not the current contents of the model list.
  */
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../config.js';
 import type { ModelEntry, Tier } from './registry.js';
-import { chooseTier, routeAuto, type RoutingInput } from './routing.js';
+import { AUTO_RULES, routeAuto, type RoutingInput } from './routing.js';
 
-const cfg = loadConfig({ NODE_ENV: 'test' });
-
-function entry(alias: string, tier: Tier, supportsGrounding: boolean, supportsVision = true): ModelEntry {
+function entry(alias: string, provider: ModelEntry['provider'], tier: Tier, supportsGrounding = true, supportsVision = true): ModelEntry {
   return {
     alias,
     description: '',
-    provider: alias === 'Gemini' ? 'google' : 'anthropic',
+    provider,
     tier,
     providerModelId: `model-${alias}`,
     location: 'global',
@@ -27,144 +24,57 @@ function entry(alias: string, tier: Tier, supportsGrounding: boolean, supportsVi
   };
 }
 
-/** Mirrors the shape of the real table: one grounded model per tier, plus a synthetic ungrounded, text-only one so the filters have something to drop. */
-const GEMINI = entry('Gemini', 'economy', true);
-const SONNET = entry('Sonnet', 'balanced', true);
-const OPUS = entry('Opus', 'quality', true);
-const TEXT_ONLY = entry('Text-only', 'balanced', false, false);
-const ALL = [GEMINI, SONNET, OPUS, TEXT_ONLY];
+const GEMINI = entry('Gemini 3.8 Flash', 'google', 'economy');
+const SONNET = entry('Sonnet 5.5', 'anthropic', 'balanced');
+const OPUS = entry('Opus 5.5', 'anthropic', 'quality');
+const ALL = [OPUS, SONNET, GEMINI];
 
-function input(over: Partial<RoutingInput> = {}): RoutingInput {
-  return {
-    mode: 'chat',
-    promptChars: 10,
-    contextChars: 0,
-    hasAttachments: false,
-    requiresVision: false,
-    routingPreference: 'balanced',
-    requiresGrounding: false,
-    ...over,
-  };
-}
+/** Every combination of what a turn can need. */
+const NEEDS: RoutingInput[] = [false, true].flatMap((requiresGrounding) =>
+  [false, true].map((requiresVision) => ({ requiresGrounding, requiresVision })),
+);
 
-describe('chooseTier', () => {
-  it('sends a short plain chat to the economy tier', () => {
-    expect(chooseTier(input(), cfg)).toEqual({ tier: 'economy', rule: 'default' });
+describe('routeAuto (RT-1: rules only → Gemini 3.8 Flash)', () => {
+  it('answers every turn with Gemini, whatever it needs, with the rule named', () => {
+    for (const needs of NEEDS) {
+      const decision = routeAuto(needs, ALL);
+      expect(decision?.alias, JSON.stringify(needs)).toBe('Gemini 3.8 Flash');
+      expect(decision?.rule).toBe('auto_gemini');
+      expect(decision?.considered).toEqual(['Gemini 3.8 Flash']);
+    }
   });
 
-  it('raises the tier for a long prompt', () => {
-    const { tier, rule } = chooseTier(input({ promptChars: cfg.AUTO_ROUTE_LONG_PROMPT_CHARS + 1 }), cfg);
-    expect({ tier, rule }).toEqual({ tier: 'balanced', rule: 'long_prompt' });
+  it('never picks a Claude model: not for attachments, not for search, not in any list order', () => {
+    for (const needs of NEEDS) {
+      for (const order of [ALL, [...ALL].reverse(), [SONNET, GEMINI, OPUS]]) {
+        expect(routeAuto(needs, order)?.entry.provider).toBe('google');
+      }
+    }
   });
 
-  it('raises the tier when attachments are present', () => {
-    expect(chooseTier(input({ hasAttachments: true }), cfg).tier).toBe('quality');
+  it('Opus is manual only: with Gemini gone Auto does not fall to Opus or Sonnet (no silent substitution)', () => {
+    for (const needs of NEEDS) {
+      expect(routeAuto(needs, [SONNET, OPUS]), JSON.stringify(needs)).toBeNull();
+    }
+    expect(routeAuto({ requiresGrounding: false, requiresVision: false }, [])).toBeNull();
   });
 
-  it('shifts one step down when the user prefers economy', () => {
-    expect(chooseTier(input({ hasAttachments: true, routingPreference: 'economy' }), cfg).tier).toBe(
-      'balanced',
-    );
+  it('refuses rather than routes elsewhere when Gemini cannot do what the turn needs', () => {
+    const noVision = entry('Gemini 3.8 Flash', 'google', 'economy', true, false);
+    const noGrounding = entry('Gemini 3.8 Flash', 'google', 'economy', false, true);
+    expect(routeAuto({ requiresGrounding: false, requiresVision: true }, [noVision, SONNET])).toBeNull();
+    expect(routeAuto({ requiresGrounding: true, requiresVision: false }, [noGrounding, SONNET])).toBeNull();
+    expect(routeAuto({ requiresGrounding: false, requiresVision: false }, [noVision])?.alias).toBe('Gemini 3.8 Flash');
   });
 
-  it('clamps rather than running off the end of the tier list', () => {
-    expect(chooseTier(input({ routingPreference: 'economy' }), cfg).tier).toBe('economy');
+  it('lists every Stage 7 Auto rule, each ending at Gemini, with its source', () => {
+    expect(AUTO_RULES.map((r) => r.id)).toEqual(['audio_video', 'large_pdf_or_request', 'claude_off_or_limit', 'default']);
+    for (const r of AUTO_RULES) expect(r.source).toMatch(/Stage 7|RT-\d/);
   });
 
-  describe('grounded modes', () => {
-    // Search and research default to the cheapest grounded model. Measured on the same
-    // question against Vertex on 2026-09-17: an Anthropic web search cost 20,440 tokens
-    // where the Gemini equivalent cost 368, because the Anthropic tool pulls page content
-    // into the prompt. Routing a grounded request to the quality tier by default therefore
-    // multiplies the bill without a matching gain.
-    it('sends search to the economy tier', () => {
-      const { tier, rule } = chooseTier(input({ mode: 'search', requiresGrounding: true }), cfg);
-      expect(tier).toBe('economy');
-      expect(rule).toBe('grounded_economy');
-    });
-
-    it('sends research to the economy tier too', () => {
-      expect(chooseTier(input({ mode: 'research', requiresGrounding: true }), cfg).tier).toBe(
-        'economy',
-      );
-    });
-
-    it('still honours an explicit quality preference', () => {
-      expect(
-        chooseTier(
-          input({ mode: 'research', requiresGrounding: true, routingPreference: 'quality' }),
-          cfg,
-        ).tier,
-      ).toBe('balanced');
-    });
-
-    it('does not let attachments override the grounded default', () => {
-      expect(
-        chooseTier(input({ mode: 'search', requiresGrounding: true, hasAttachments: true }), cfg)
-          .tier,
-      ).toBe('economy');
-    });
-  });
-});
-
-describe('routeAuto', () => {
-  it('resolves a plain chat to the economy model', () => {
-    expect(routeAuto(input(), cfg, ALL)?.alias).toBe('Gemini');
-  });
-
-  it('resolves search to Gemini', () => {
-    expect(routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, ALL)?.alias).toBe(
-      'Gemini',
-    );
-  });
-
-  it('resolves research to Gemini', () => {
-    expect(routeAuto(input({ mode: 'research', requiresGrounding: true }), cfg, ALL)?.alias).toBe(
-      'Gemini',
-    );
-  });
-
-  it('never considers an ungrounded model for a grounded request', () => {
-    const decision = routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, ALL);
-    expect(decision?.considered).not.toContain('Text-only');
-  });
-
-  it('falls back to the next grounded model when Gemini is not configured', () => {
-    const decision = routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, [
-      SONNET,
-      OPUS,
-      TEXT_ONLY,
-    ]);
-    expect(decision?.alias).toBe('Sonnet');
-    expect(decision?.rule).toContain('fallback');
-  });
-
-  it('returns null when nothing can ground, rather than guessing', () => {
-    expect(routeAuto(input({ mode: 'search', requiresGrounding: true }), cfg, [TEXT_ONLY])).toBeNull();
-  });
-
-  it('reports the rule that decided, so Auto is never opaque', () => {
-    expect(routeAuto(input({ mode: 'research', requiresGrounding: true }), cfg, ALL)?.rule).toBe(
-      'grounded_economy',
-    );
-  });
-
-  it('never considers a vision-incapable model when vision is required', () => {
-    const decision = routeAuto(input({ requiresVision: true }), cfg, ALL);
-    expect(decision?.considered).not.toContain('Text-only');
-  });
-
-  it('returns null when nothing configured can see an attachment', () => {
-    expect(routeAuto(input({ requiresVision: true }), cfg, [TEXT_ONLY])).toBeNull();
-  });
-
-  it('combines the grounding and vision filters', () => {
-    // Text-only fails both; only a model with both capabilities should be considered.
-    const decision = routeAuto(
-      input({ requiresGrounding: true, requiresVision: true }),
-      cfg,
-      ALL,
-    );
-    expect(decision?.considered).toEqual(['Gemini', 'Sonnet', 'Opus']);
+  it('takes no routing preference, prompt length or attachment count as input', () => {
+    // RoutingInput has exactly the two capability needs; anything else is a type error.
+    const keys: Array<keyof RoutingInput> = ['requiresGrounding', 'requiresVision'];
+    expect(Object.keys(NEEDS[0]!).sort()).toEqual([...keys].sort());
   });
 });

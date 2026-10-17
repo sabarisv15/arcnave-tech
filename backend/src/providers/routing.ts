@@ -1,125 +1,57 @@
 /**
- * `Auto` routing.
+ * `Auto` routing, by Stage 7 (RT-1, 7.9, ADR-0076).
  *
- * Deterministic and ordered: first matching rule wins, and the decision is always reported
- * back to the caller in response metadata so "Auto" is never opaque. Pure functions with no
- * IO, which is what makes them straightforward to test exhaustively.
+ * Auto is rules only, and every rule ends at Gemini 3.8 Flash: Auto never picks Sonnet or Opus
+ * (Opus is a manual choice only; Stage 18 "Opus never default"), and nothing about the turn
+ * promotes it to a Claude model (not an attachment, not research mode, not a long prompt). The
+ * Stage 7.9 capability rules (audio or video, PDFs over 600 pages, requests over 30 MB, the
+ * Claude switch and budget) all send a turn to Gemini, which Auto already is.
+ *
+ * When Gemini cannot take the turn, Auto answers nothing rather than substituting a Claude model
+ * the user did not choose (Invariant 1): the caller raises `no_model_available`.
+ *
+ * Pure: no IO, no configuration, so every rule is tested exhaustively.
  */
-import type { Config } from '../config.js';
-import type { ModelEntry, Tier } from './registry.js';
-import type { Mode } from './types.js';
+import type { ModelEntry } from './registry.js';
 
 export interface RoutingInput {
-  mode: Mode;
-  promptChars: number;
-  contextChars: number;
-  hasAttachments: boolean;
-  requiresVision: boolean;
-  routingPreference: Tier;
-  /** Search and research need a grounded model; ungrounded candidates are skipped. */
+  /** Search and research need a model that can ground. */
   requiresGrounding: boolean;
+  /** An image or a PDF is attached. */
+  requiresVision: boolean;
 }
 
 export interface RoutingDecision {
   alias: string;
   entry: ModelEntry;
+  /** The rule that chose: `auto_gemini` (RT-1), or `same_model_as_chat` (kept by the caller). */
   rule: string;
   considered: string[];
 }
 
-/** Capability order, low to high. Used for both preference shift and fallback distance. */
-const TIER_ORDER: readonly Tier[] = ['economy', 'balanced', 'quality'] as const;
-
-const PREFERENCE_SHIFT: Record<Tier, number> = { economy: -1, balanced: 0, quality: 1 };
-
-function shift(tier: Tier, preference: Tier): Tier {
-  const index = TIER_ORDER.indexOf(tier) + PREFERENCE_SHIFT[preference];
-  const clamped = Math.max(0, Math.min(TIER_ORDER.length - 1, index));
-  return TIER_ORDER[clamped]!;
-}
+/** The model Auto routes to (RT-1, Stage 7 doc-sync 2026-10-10 registry: `auto` → Gemini). */
+export const AUTO_PROVIDER: ModelEntry['provider'] = 'google';
 
 /**
- * Pick the tier a request deserves, before availability is considered.
- *
- * The user's routing preference shifts the result one step up or down, so "economy" does not
- * mean "never use a good model for research" — it means "prefer cheaper at each decision".
+ * The Auto rules in the order they apply, with their stage source. The first that holds decides;
+ * all of them decide Gemini (7.9 "Rules derived"). Kept as data so the table in
+ * docs/ops/p07-result.md and the tests read the same list.
  */
-export function chooseTier(input: RoutingInput, cfg: Config): { tier: Tier; rule: string } {
-  /**
-   * Grounded modes start at the cheapest model that can ground, and this rule comes first so
-   * neither research nor an attachment can quietly promote them.
-   *
-   * Measured against Vertex on 2026-09-17, same question, same quality of answer: an
-   * Anthropic web search cost 20,440 tokens where the Gemini equivalent cost 368. The
-   * Anthropic tool pulls page content into the prompt, so the gap is structural rather than
-   * a property of that one query. Defaulting a grounded request to the quality tier
-   * multiplies the bill roughly fiftyfold for no reliable gain.
-   *
-   * An explicit `quality` routing preference still shifts one step up, so this is a default
-   * and not a ceiling.
-   */
-  if (input.requiresGrounding) {
-    return { tier: shift('economy', input.routingPreference), rule: 'grounded_economy' };
-  }
-  if (input.mode === 'research') {
-    return { tier: shift('quality', input.routingPreference), rule: 'research_mode' };
-  }
-  if (input.hasAttachments) {
-    return { tier: shift('quality', input.routingPreference), rule: 'attachments_present' };
-  }
-  if (input.contextChars > cfg.AUTO_ROUTE_LONG_CONTEXT_CHARS) {
-    return { tier: shift('quality', input.routingPreference), rule: 'long_project_context' };
-  }
-  if (input.promptChars > cfg.AUTO_ROUTE_LONG_PROMPT_CHARS) {
-    return { tier: shift('balanced', input.routingPreference), rule: 'long_prompt' };
-  }
-  return { tier: shift('economy', input.routingPreference), rule: 'default' };
-}
+export const AUTO_RULES: ReadonlyArray<{ id: string; when: string; source: string }> = [
+  { id: 'audio_video', when: 'an audio or video input', source: 'Stage 7.9 / MR3: Claude takes no audio or video' },
+  { id: 'large_pdf_or_request', when: 'a PDF over 600 pages or a request over 30 MB', source: 'Stage 7.9 Rules derived' },
+  { id: 'claude_off_or_limit', when: 'the Claude switch is off or the Claude limit is reached', source: 'Stage 7.9, RT-6, RT-8 (switch and budget not built: single user)' },
+  { id: 'default', when: 'every other turn: plain chat, attachments, search, research, long prompts', source: 'RT-1: Auto = rules only → Gemini 3.8 Flash' },
+];
 
 /**
- * Resolve `Auto` to a concrete alias.
- *
- * Falls outward from the chosen tier through neighbouring tiers, preferring higher capability
- * at equal distance, so an unconfigured quality model degrades to the best available rather
- * than failing outright. Returns null when nothing qualifies — the caller then raises
- * `no_model_available` instead of guessing.
+ * Resolve `Auto` to Gemini 3.8 Flash, or null when Gemini is not available or cannot do what the
+ * turn needs. Never another model.
  */
-export function routeAuto(
-  input: RoutingInput,
-  cfg: Config,
-  available: ModelEntry[],
-): RoutingDecision | null {
-  const candidates = available.filter(
-    (e) => (!input.requiresGrounding || e.supportsGrounding) && (!input.requiresVision || e.supportsVision),
-  );
-  if (candidates.length === 0) return null;
-
-  const { tier, rule } = chooseTier(input, cfg);
-  const start = TIER_ORDER.indexOf(tier);
-
-  const byTier = new Map<Tier, ModelEntry[]>();
-  for (const entry of candidates) {
-    const list = byTier.get(entry.tier);
-    if (list) list.push(entry);
-    else byTier.set(entry.tier, [entry]);
-  }
-
-  const searchOrder = TIER_ORDER.map((_, i) => i).sort(
-    (a, b) => Math.abs(a - start) - Math.abs(b - start) || b - a,
-  );
-
-  for (const index of searchOrder) {
-    const tierName = TIER_ORDER[index]!;
-    const forTier = byTier.get(tierName);
-    if (forTier?.length) {
-      const chosen = forTier[0]!;
-      return {
-        alias: chosen.alias,
-        entry: chosen,
-        rule: index === start ? rule : `${rule}+fallback_to_${tierName}`,
-        considered: candidates.map((e) => e.alias),
-      };
-    }
-  }
-  return null;
+export function routeAuto(input: RoutingInput, available: ModelEntry[]): RoutingDecision | null {
+  const gemini = available.find((e) => e.provider === AUTO_PROVIDER);
+  if (!gemini) return null;
+  if (input.requiresGrounding && !gemini.supportsGrounding) return null;
+  if (input.requiresVision && !gemini.supportsVision) return null;
+  return { alias: gemini.alias, entry: gemini, rule: 'auto_gemini', considered: [gemini.alias] };
 }

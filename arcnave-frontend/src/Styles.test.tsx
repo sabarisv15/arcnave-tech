@@ -27,7 +27,6 @@ const basePrefsDto = (
   dailyTokenBudget: null,
   monthlyTokenBudget: null,
   warnThresholdPct: 80,
-  routingPreference: "balanced",
   timezone: "UTC",
   version: 1,
   updatedAt: null,

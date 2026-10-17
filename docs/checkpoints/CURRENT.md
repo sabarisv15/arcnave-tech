@@ -1,5 +1,14 @@
 # ArcNave — current checkpoint
 
+> **2026-10-16: tech-p07 — Stage 6 v3 system prompts replace the legacy builder (P07), and Auto routes to Gemini by Stage 7 rules (P10). Branch `build/prompt-v3` (from `origin/main` @ `7cd294b`, P03 merged); not merged, not deployed, not run live.**
+> - Record: [ADR-0075](../decisions/0075-v3-prompts-replace-the-legacy-builder.md) (prompt), [ADR-0076](../decisions/0076-auto-routes-to-gemini-by-rules.md) (routing); evidence: [`docs/ops/p07-result.md`](../ops/p07-result.md); owner live steps: [`docs/ops/p07-live-checklist.md`](../ops/p07-live-checklist.md).
+> - `backend/prompts/system/v3/{claude,gemini}.md` = the renderings' code blocks + a whole-token tool-name map (drift test, byte for byte); a transitional product-tools appendix (ours) for tools with no stage equivalent; Stage 6 layout (Claude: system = stable + session state, per-turn first in the user turn; Gemini: system = stable only, session + per-turn lead the turn); escaping; `promptVersion` on every turn. Legacy builder deleted. Frontend renders `\( \)` / `\[ \]`.
+> - Auto = Gemini 3.8 Flash always (never Sonnet/Opus; Opus never kept); `routingPreference` UI removed, API accept-and-ignore, column kept (DEFERRED).
+> - P03 harness: offline C-gate 8/28 → 24/28 (20/28 with the backing feature in place); snapshots, budgets, requirement patterns and the live-runner wiring updated on purpose.
+> - Review (ADR-0068): two rounds (fresh Opus reviewer, `/code-review`, `/security-review`); round 2 found and fixed a quadratic math join, a reserved-tag filter that changed pasted code, and file text that could forge a block. 0 BLOCKER / MAJOR open that this task can fix.
+> - Owner decisions open: past-chat tools vs v3 LM-1, Gemini knowledge cutoff (unverified), skill loader via `view`, IST for every user. Models: Opus 5.5 main and reviewers.
+> - Next: owner runs `npm run eval:prompt` on the branch against the P03 baseline, then the merge (= deploy), then the live checklist.
+
 > **2026-10-16: reply composer one row (owner UI request). Branch `claude/nifty-einstein-y2e74u` (from `origin/main` @ `7cd294b`); frontend only, not merged, not deployed.**
 > - Record: [ADR-0077](../decisions/0077-reply-composer-one-row-tools-under.md); live checks: [`reply-composer-live-checklist.md`](../ops/reply-composer-live-checklist.md).
 > - In a conversation the box holds only the text and send (idle 101 px → 50 px; composer area 157 → 106 px at 1440×900). +, mode, style and mic moved to the row under the box, + first, as in Claude's redesigned composer card. New chat / project / artifact composers unchanged.

@@ -7,7 +7,7 @@ import { memoryService, MemoryConcurrencyError } from '../services/memory/memory
 import { MemoryToolExecutor } from '../tools/memoryExecutor.js';
 import { ChatToolExecutor } from '../tools/chatExecutor.js';
 import type { TestContext, TestUser } from '../test/harness.js';
-import { createTestApp, signUp } from '../test/harness.js';
+import { createTestApp, signUp, promptOf } from '../test/harness.js';
 
 let ctx: TestContext;
 let user: TestUser;
@@ -246,13 +246,14 @@ describe('Phase 5.2 Memory Integration & Tools', () => {
         headers: auth(u),
         payload: { prompt },
       });
-      systems.push(ctx.provider.seen.at(-1)!.systemInstruction ?? '');
+      systems.push(promptOf(ctx.provider.seen.at(-1)!));
     }
-    const memoryBlock = (s: string) => s.slice(s.indexOf('<memory>'), s.indexOf('</memory>'));
+    const memoryBlock = (s: string) => s.slice(s.indexOf('<memory_snapshot '), s.indexOf('</memory_snapshot>'));
     expect(systems[0]).toContain('/topics/banks.md — Banks the user works with');
-    expect(systems[0]).toContain('<profile>\n---\nname: profile');
+    expect(systems[0]).toContain('<profile_document>\n---\nname: profile');
+    expect(memoryBlock(systems[0]!).length).toBeGreaterThan(50);
     expect(memoryBlock(systems[0]!)).toBe(memoryBlock(systems[1]!));
-    expect(systems[0]).toContain('<memory_policy>');
+    expect(systems[0]).toContain('<memory_files>');
   });
 
   it('conversation_search: outside projects from outside, one project from inside, never this chat (C6)', async () => {

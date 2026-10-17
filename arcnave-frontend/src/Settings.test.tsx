@@ -194,7 +194,6 @@ describe("Settings page", () => {
       dailyTokenBudget: null,
       monthlyTokenBudget: null,
       warnThresholdPct: 80,
-      routingPreference: "balanced",
       timezone: "Asia/Kolkata",
       dailyUsed: 15,
       monthlyUsed: 15,
@@ -222,5 +221,8 @@ describe("Settings page", () => {
     // All time has no verified price: it is "—", never ₹0.00.
     expect(text).toContain("—");
     expect(text).not.toContain("₹0.00");
+    // Auto is rules only (Stage 7 RT-1, ADR-0076): there is no routing preference to set.
+    expect(text).not.toContain("Routing preference");
+    expect(content().querySelector("select option[value='economy']")).toBeNull();
   });
 });
