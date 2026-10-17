@@ -59,6 +59,7 @@ export async function countTexts(
       }),
     );
   } catch {
+    // benign: no provider count: null, and the history budget counts the turn as unknown (never estimated)
     return null;
   }
 }

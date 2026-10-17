@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { CloudRunSandboxClient } from '../tools/sandbox/cloudRunSandboxClient.js';
+import { CloudRunSandboxClient } from '../../src/tools/sandbox/cloudRunSandboxClient.js';
 
 async function main() {
   console.log('Testing CloudRunSandboxClient with ADC and File Bridge...');

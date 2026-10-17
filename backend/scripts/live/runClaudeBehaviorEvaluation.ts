@@ -5,18 +5,18 @@
  * Tests Claude on the Claude API (the configured MODEL_SONNET) using AnthropicProvider
  * and the frozen Base System Prompt v1.
  */
-import { AnthropicProvider } from '../providers/anthropic.js';
-import type { GenerationRequest, ToolCall, ToolDefinition, ToolResult } from '../providers/types.js';
-import { loadConfig } from '../config.js';
-import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
-import { ProjectToolRegistry } from '../tools/registry.js';
+import { AnthropicProvider } from '../../src/providers/anthropic.js';
+import type { GenerationRequest, ToolCall, ToolDefinition, ToolResult } from '../../src/providers/types.js';
+import { loadConfig } from '../../src/config.js';
+import { buildStablePrefix } from '../../src/services/promptCache/promptAssembly.js';
+import { ProjectToolRegistry } from '../../src/tools/registry.js';
 import {
   ASK_USER_INPUT,
   codeToolDefinitions,
   SEARCH_PROJECT_FILES,
   WEB_FETCH,
   WEB_SEARCH,
-} from '../tools/definitions.js';
+} from '../../src/tools/definitions.js';
 
 const ALL_STANDARD_TOOLS: ToolDefinition[] = [
   WEB_SEARCH,

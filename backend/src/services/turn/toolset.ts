@@ -10,7 +10,6 @@ import { WebToolExecutor } from '../../tools/webExecutor.js';
 import { WebFetchService } from '../webFetch.js';
 import { WebSearchService, buildWebSearchAdapter } from '../webSearch.js';
 import type { MessageSegment } from '../../db/schema.js';
-import { memoryService } from '../memory/memoryService.js';
 import { MemoryToolExecutor } from '../../tools/memoryExecutor.js';
 import { ChatToolExecutor } from '../../tools/chatExecutor.js';
 import { CHAT_TOOL_DEFINITIONS, CODE_TOOL_NAMES, MEMORY_TOOL_DEFINITIONS, UI_TOOL_DEFINITIONS } from '../../tools/definitions.js';
@@ -78,10 +77,10 @@ export function buildToolExecutors(
   webToolExecutor?.allowUrlsIn(input.prompt, JSON.stringify(history));
 
   const memoryToolExecutor = memoryEnabled
-    ? new MemoryToolExecutor(memoryService, input.userId, project?.id ?? null)
+    ? new MemoryToolExecutor(svc.memory, input.userId, project?.id ?? null)
     : undefined;
   const chatToolExecutor = chatSearchEnabled
-    ? new ChatToolExecutor(input.userId, project?.id ?? null, input.chatId)
+    ? new ChatToolExecutor(svc.chatSearch, input.userId, project?.id ?? null, input.chatId)
     : undefined;
 
   const pendingUiEvents: StreamEvent[] = [];

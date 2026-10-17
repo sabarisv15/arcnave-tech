@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import { getDb } from '../../db/client.js';
+import type { Database } from '../../db/client.js';
+import { NUMBERS } from '../../config/numbers.js';
 import { memoryItems, type MemoryItem } from '../../db/schema.js';
 import { checkPrivacy, neverStoredMessage } from './privacy.js';
 import type { CreateMemoryInput, UpdateMemoryInput } from './types.js';
@@ -12,6 +13,14 @@ export function searchWords(query: string): string[] {
   return [...new Set(words.filter((w) => w.length > 1 || /\p{N}/u.test(w)))].slice(0, 32);
 }
 
+/** A memory the privacy check refused (a credential or secret in it); the message says which. */
+export class MemoryPrivacyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MemoryPrivacyError';
+  }
+}
+
 export class MemoryConcurrencyError extends Error {
   constructor(public readonly expectedVersion: number, public readonly actualVersion: number) {
     super(`Memory concurrency conflict: expected version ${expectedVersion}, but current version is ${actualVersion}`);
@@ -20,9 +29,9 @@ export class MemoryConcurrencyError extends Error {
 }
 
 /** Memory files a listing returns at once; the rest page with cursor. */
-const MEMORY_LIST_LIMIT = 100;
+const MEMORY_LIST_LIMIT = NUMBERS.MEMORY_LIST_LIMIT.value; // N-17
 /** A memory file's size cap. */
-export const MEMORY_FILE_MAX_BYTES = 16 * 1024;
+export const MEMORY_FILE_MAX_BYTES = NUMBERS.MEMORY_FILE_MAX_BYTES.value; // N-17
 const MEMORY_PATH = /^\/[A-Za-z0-9_\-./]{1,190}$/;
 
 export interface MemoryFileInfo {
@@ -106,23 +115,25 @@ function checkFile(path: string, content: string): string | null {
 }
 
 export class MemoryService {
+  constructor(private readonly db: Database) {}
+
   /**
    * Creates or updates a memory item with privacy validation and upsert logic.
    */
   async createMemory(input: CreateMemoryInput, retried = false): Promise<MemoryItem> {
     const contentCheck = checkPrivacy(input.content);
     if (contentCheck.secrets.length > 0) {
-      throw new Error(`Cannot store memory containing sensitive secrets or credentials: ${contentCheck.violations.join(', ')}`);
+      throw new MemoryPrivacyError(`Cannot store memory containing sensitive secrets or credentials: ${contentCheck.violations.join(', ')}`);
     }
-    if (contentCheck.hasSecret) throw new Error(neverStoredMessage(contentCheck));
+    if (contentCheck.hasSecret) throw new MemoryPrivacyError(neverStoredMessage(contentCheck));
 
     const keyCheck = checkPrivacy(input.key);
     if (keyCheck.hasSecret) {
-      throw new Error(`Memory key cannot contain sensitive secrets: ${keyCheck.violations.join(', ')}`);
+      throw new MemoryPrivacyError(`Memory key cannot contain sensitive secrets: ${keyCheck.violations.join(', ')}`);
     }
 
     input = { ...input, key: toMemoryPath(input.key) };
-    const db = getDb();
+    const db = this.db;
     const scope = input.scope ?? 'global';
     const projectId = scope === 'project' ? (input.projectId ?? null) : null;
     const kind = input.kind ?? 'preference';
@@ -195,7 +206,7 @@ export class MemoryService {
    * Retrieves a single memory item by ID ensuring user isolation.
    */
   async getMemoryById(userId: string, memoryId: string): Promise<MemoryItem | null> {
-    const db = getDb();
+    const db = this.db;
     const rows = await db
       .select()
       .from(memoryItems)
@@ -216,17 +227,17 @@ export class MemoryService {
     if (updates.content) {
       const check = checkPrivacy(updates.content);
       if (check.hasSecret) {
-        throw new Error(`Cannot store memory containing secrets: ${check.violations.join(', ')}`);
+        throw new MemoryPrivacyError(`Cannot store memory containing secrets: ${check.violations.join(', ')}`);
       }
     }
     if (updates.key) {
       const check = checkPrivacy(updates.key);
       if (check.hasSecret) {
-        throw new Error(`Memory key cannot contain secrets: ${check.violations.join(', ')}`);
+        throw new MemoryPrivacyError(`Memory key cannot contain secrets: ${check.violations.join(', ')}`);
       }
     }
 
-    const db = getDb();
+    const db = this.db;
     const patch: Partial<typeof memoryItems.$inferInsert> = {
       updatedAt: new Date(),
     };
@@ -268,7 +279,7 @@ export class MemoryService {
    * Invariant: Does not alter or delete the underlying chat messages.
    */
   async forgetMemory(userId: string, memoryId: string, expectedVersion?: number): Promise<boolean> {
-    const db = getDb();
+    const db = this.db;
     const conditions = [
       eq(memoryItems.id, memoryId),
       eq(memoryItems.userId, userId),
@@ -298,7 +309,7 @@ export class MemoryService {
   }
 
   private async fileRow(userId: string, projectId: string | null, path: string): Promise<MemoryItem | null> {
-    const rows = await getDb()
+    const rows = await this.db
       .select()
       .from(memoryItems)
       .where(and(this.storeWhere(userId, projectId), eq(memoryItems.key, path)))
@@ -313,7 +324,7 @@ export class MemoryService {
     options: { pathPrefix?: string; cursor?: string; limit?: number } = {},
   ): Promise<{ files: Array<MemoryFileInfo & { description: string }>; nextCursor: string | null }> {
     const limit = options.limit ?? MEMORY_LIST_LIMIT;
-    const rows = await getDb()
+    const rows = await this.db
       .select()
       .from(memoryItems)
       .where(
@@ -358,7 +369,7 @@ export class MemoryService {
         return { ok: false, error: `${path} already exists: read it and pass its version.`, current: toFile(current) };
       }
       try {
-        const [row] = await getDb()
+        const [row] = await this.db
           .insert(memoryItems)
           .values({
             userId,
@@ -384,7 +395,7 @@ export class MemoryService {
       return { ok: false, error: `${path} has changed since that version.`, current: toFile(current) };
     }
     // The version in the WHERE makes a concurrent write lose instead of overwrite (a transaction is not a lock).
-    const [row] = await getDb()
+    const [row] = await this.db
       .update(memoryItems)
       .set({ content, summary: fileDescription(content), version: current.version + 1, updatedAt: new Date() })
       .where(and(eq(memoryItems.id, current.id), eq(memoryItems.version, current.version)))
@@ -431,7 +442,7 @@ export class MemoryService {
     if (versionToken(current) !== ifVersion) {
       return { ok: false, error: `${path} has changed since that version.`, current: toFile(current) };
     }
-    const deleted = await getDb()
+    const deleted = await this.db
       .delete(memoryItems)
       .where(and(eq(memoryItems.id, current.id), eq(memoryItems.version, current.version)))
       .returning({ id: memoryItems.id });
@@ -450,7 +461,7 @@ export class MemoryService {
     projectId: string | null,
     maxChars: number,
   ): Promise<{ listing: string; profile?: string; preferences?: string }> {
-    const rows = await getDb()
+    const rows = await this.db
       .select()
       .from(memoryItems)
       .where(this.storeWhere(userId, projectId))
@@ -485,7 +496,7 @@ export class MemoryService {
       offset?: number;
     },
   ): Promise<{ items: MemoryItem[]; total: number }> {
-    const db = getDb();
+    const db = this.db;
     const conditions = [eq(memoryItems.userId, userId)];
 
     if (options?.scope) {
@@ -528,7 +539,7 @@ export class MemoryService {
    * Clears memories scoped to a specific project.
    */
   async clearProjectMemories(userId: string, projectId: string): Promise<number> {
-    const db = getDb();
+    const db = this.db;
     const deleted = await db
       .delete(memoryItems)
       .where(
@@ -546,7 +557,7 @@ export class MemoryService {
    * Clears all memories for a user.
    */
   async clearAllMemories(userId: string): Promise<number> {
-    const db = getDb();
+    const db = this.db;
     const deleted = await db
       .delete(memoryItems)
       .where(eq(memoryItems.userId, userId))
@@ -555,4 +566,3 @@ export class MemoryService {
   }
 }
 
-export const memoryService = new MemoryService();

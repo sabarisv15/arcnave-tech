@@ -15,6 +15,10 @@ import type { Database } from '../db/client.js';
 import { preferences, sessions, users } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { GoogleIdentity } from './googleSignIn.js';
+import { errorLogFields } from '../errorLog.js';
+import { logger } from '../logger.js';
+
+const log = logger.child({ module: 'auth' });
 
 export const MIN_PASSWORD_LENGTH = 12;
 /** Argon2 has no practical input limit; this bounds the work an attacker can force per try. */
@@ -78,6 +82,7 @@ export function needsRehash(passwordHash: string): boolean {
       parsed.outputLen < ARGON_POLICY.outputLen
     );
   } catch {
+    // benign: an unparsable stored hash is rehashed on the next sign-in
     return true;
   }
 }
@@ -86,7 +91,7 @@ export async function verifyPassword(password: string, passwordHash: string): Pr
   try {
     return await argonVerify(passwordHash, password);
   } catch {
-    // A malformed stored hash must read as "wrong password", never as a 500 that tells an
+    // benign: A malformed stored hash must read as "wrong password", never as a 500 that tells an
     // attacker something about the account.
     return false;
   }
@@ -218,7 +223,7 @@ export class AuthService {
           .where(eq(users.id, found.id));
       }
     } catch {
-      // A failed rehash must never block a valid sign-in.
+      // benign: A failed rehash must never block a valid sign-in.
     }
 
     return this.issueSession(
@@ -303,12 +308,17 @@ export class AuthService {
 
     if (!row || !row.isActive) return null;
 
+    // A-25: the read path writes at most once per SESSION_LAST_SEEN_WRITE_MS, not on every request;
+    // the WHERE makes the skip the database's decision, so concurrent requests write once.
     // Fire-and-forget: a failed last-seen write must not fail the request it decorates.
+    const now = new Date();
     void this.db
       .update(sessions)
-      .set({ lastSeenAt: new Date() })
-      .where(eq(sessions.id, row.sessionId))
-      .catch(() => undefined);
+      .set({ lastSeenAt: now })
+      .where(and(eq(sessions.id, row.sessionId), lt(sessions.lastSeenAt, new Date(now.getTime() - this.cfg.SESSION_LAST_SEEN_WRITE_MS))))
+      .catch((err: unknown) => {
+        log.warn({ ...errorLogFields(err) }, 'session last_seen write failed');
+      });
 
     return { id: row.userId, email: row.email, name: row.name };
   }

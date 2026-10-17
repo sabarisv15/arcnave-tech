@@ -48,6 +48,16 @@ import { streamAndCollect, type TurnHop } from './turn/streamAndCollect.js';
 import { loadHistory } from './turn/context.js';
 import { buildTurnContext } from './turn/turnContext.js';
 import { compactStage, prepareTurn } from './turn/prepareTurn.js';
+import { MemoryService } from './memory/memoryService.js';
+import { CompactionService } from './compaction/compactionService.js';
+import { ChatSearch } from './memory/chatSearch.js';
+
+/** The database-backed stores a turn reads (A-16): the container builds them once. */
+export interface TurnStores {
+  memory: MemoryService;
+  compaction: CompactionService;
+  chatSearch: ChatSearch;
+}
 
 const log = logger.child({ module: 'generation' });
 
@@ -100,6 +110,8 @@ export class GenerationService {
     helperJobs?: HelperJobs,
     /** P11 (ADR-0081): one per instance (the container's); a script gets its own. */
     gateway?: ProviderGateway,
+    /** P21 (A-16): the container's; built on `db` when a script constructs this service alone. */
+    stores?: TurnStores,
   ) {
     this.capabilities = capabilities ?? buildCapabilityRegistry(cfg);
     this.executionRuntime = executionRuntime ?? new ExecutionRuntime(sandboxClient);
@@ -117,6 +129,9 @@ export class GenerationService {
       modelInputs,
       helperJobs,
       gateway: gateway ?? new ProviderGateway(cfg),
+      memory: stores?.memory ?? new MemoryService(db),
+      compaction: stores?.compaction ?? new CompactionService(db),
+      chatSearch: stores?.chatSearch ?? new ChatSearch(db),
     };
   }
 

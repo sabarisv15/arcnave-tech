@@ -26,6 +26,7 @@ import { attachmentText, nameForModel, pageLabel, unavailableAttachmentNote } fr
 import { getModelCapability } from './capabilitiesTable.js';
 import type { HelperRequest, HelperResult, ReasoningEffort } from './types.js';
 import { normalisedFinish } from './finish.js';
+import { NUMBERS } from '../config/numbers.js';
 
 const log = logger.child({ module: 'provider:anthropic' });
 
@@ -67,7 +68,7 @@ export function isThinkingSignature400(err: unknown): boolean {
  * The 2026-02-09 version (dynamic filtering) is the one the first-party API serves for Sonnet 5.5
  * and Opus 5.5 (Claude docs, Web search tool); Vertex only had the 2025-03-05 one.
  */
-const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: 5 } as const;
+const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: NUMBERS.WEB_SEARCH_MAX_USES.value /* N-07 */ } as const;
 
 /** The SDK surface this adapter uses, so tests can inject a fake client (no network). */
 export type AnthropicClient = Pick<Anthropic, 'messages'>;
@@ -917,6 +918,7 @@ export class AnthropicProvider implements Provider {
     try {
       value = JSON.parse(result.text);
     } catch {
+      // benign: a helper answer that is not JSON is returned as value undefined; the caller validates it
       value = undefined;
     }
     return { ...result, value };

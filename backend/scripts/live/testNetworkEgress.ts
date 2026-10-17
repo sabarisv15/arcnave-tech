@@ -1,4 +1,4 @@
-import { CloudRunSandboxClient } from '../tools/sandbox/cloudRunSandboxClient.js';
+import { CloudRunSandboxClient } from '../../src/tools/sandbox/cloudRunSandboxClient.js';
 import { Storage as GcsStorage } from '@google-cloud/storage';
 
 const PROJECT_ID = 'project-8bcf740a-a7bd-4aea-974';

@@ -22,12 +22,12 @@ import crypto from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { Storage as GcsStorage } from '@google-cloud/storage';
 
-import { loadConfig } from '../config.js';
-import { getDb } from '../db/client.js';
-import { attachments, chats, messages, users } from '../db/schema.js';
-import { buildServices } from '../container.js';
-import { generateStorageKey } from '../services/storage.js';
-import type { GenerateInput } from '../services/generation.js';
+import { loadConfig } from '../../src/config.js';
+import { getDb } from '../../src/db/client.js';
+import { attachments, chats, messages, users } from '../../src/db/schema.js';
+import { buildServices } from '../../src/container.js';
+import { generateStorageKey } from '../../src/services/storage.js';
+import type { GenerateInput } from '../../src/services/generation.js';
 
 async function main() {
   process.loadEnvFile?.('.env');

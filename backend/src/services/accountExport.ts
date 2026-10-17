@@ -151,6 +151,7 @@ export async function buildAccountExport(db: DbLike, storage: ObjectStorage, use
         try {
           files[`${dir}/v${v.version}.${v.format}`] = new Uint8Array(await storage.get(v.storageKey));
         } catch {
+          // benign: a version whose bytes are gone is exported as a .missing.txt note
           files[`${dir}/v${v.version}.${v.format}.missing.txt`] = strToU8('This version is no longer stored.');
         }
       }

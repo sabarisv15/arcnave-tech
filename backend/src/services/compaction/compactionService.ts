@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm';
 import { config } from '../../config.js';
-import { type Database, getDb } from '../../db/client.js';
+import type { Database, DbLike } from '../../db/client.js';
 import { conversationCompactions, type ConversationCompaction } from '../../db/schema.js';
 import type { Provider, Turn } from '../../providers/types.js';
 import { isTextSummary } from './autoCompact.js';
@@ -11,6 +11,8 @@ import {
 } from './types.js';
 
 export class CompactionService {
+  constructor(private readonly db: Database) {}
+
   /**
    * Calculates remaining headroom and evaluates whether context pressure triggers compaction.
    * Headroom = contextWindow - currentInputTokens - outputReserve - safetyReserve.
@@ -26,8 +28,9 @@ export class CompactionService {
     const headroomTokens = contextWindow - currentInputTokens - outputReserve - safetyReserve;
     const headroomRatio = contextWindow > 0 ? headroomTokens / contextWindow : 1;
 
-    const minHeadroomTokens = cfg.COMPACTION_TRIGGER_HEADROOM_TOKENS ?? 8192;
-    const minHeadroomRatio = cfg.COMPACTION_TRIGGER_HEADROOM_RATIO ?? 0.15;
+    // N-16 / N-77: both always set by config (numbers.ts defaults).
+    const minHeadroomTokens = cfg.COMPACTION_TRIGGER_HEADROOM_TOKENS;
+    const minHeadroomRatio = cfg.COMPACTION_TRIGGER_HEADROOM_RATIO;
 
     const isEnabled = forceEnabled !== undefined ? forceEnabled : cfg.ENABLE_CONTEXT_COMPACTION;
     const shouldCompact =
@@ -49,7 +52,7 @@ export class CompactionService {
   /**
    * Retrieves the most recent compaction summary for a chat.
    */
-  async getLatestCompaction(chatId: string, db: Database = getDb()): Promise<ConversationCompaction | null> {
+  async getLatestCompaction(chatId: string, db: DbLike = this.db): Promise<ConversationCompaction | null> {
     const rows = await db
       .select()
       .from(conversationCompactions)
@@ -159,7 +162,7 @@ export class CompactionService {
     // Validate schema
     const validated = compactionSummarySchema.parse(params.summary);
 
-    const db = getDb();
+    const db = this.db;
     const [inserted] = await db
       .insert(conversationCompactions)
       .values({
@@ -179,4 +182,3 @@ export class CompactionService {
   }
 }
 
-export const compactionService = new CompactionService();

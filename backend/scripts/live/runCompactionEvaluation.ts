@@ -1,40 +1,44 @@
-// P03 (X-6) repaired: the Claude model comes from configuration only (no retired model name). Owner-run; spends quota; never run by tests or CI.
+// P03 (X-6) repaired: the project comes from configuration only (no hard-coded project id). Owner-run; spends quota; never run by tests or CI.
 /**
- * ArcNave Phase 5.3 — Claude Live Conversation Compaction E2E (Vertex AI).
+ * Live Conversation Compaction Evaluation Script (Phase 5.4).
  *
- * Validates conversation compaction and continuity on Claude Sonnet 5:
- * 1. Inserts multi-turn long-task conversation history with constraints and active goals into PostgreSQL.
- * 2. Evaluates compaction headroom trigger.
- * 3. Compacts earlier turns into a validated 11-field structured JSON summary using Claude Sonnet 5.
- * 4. Persists the compaction record in PostgreSQL conversation_compactions table.
- * 5. Verifies database invariant: zero raw messages deleted.
- * 6. Validates Claude maintains seamless task continuity on a follow-up turn using only the compacted summary.
+ * Tests multi-turn conversation compaction and continuity against live Vertex AI:
+ * 1. Generates synthetic multi-turn turns with architectural decisions and user constraints.
+ * 2. Triggers compaction headroom calculation.
+ * 3. Compacts earlier turns into validated 11-field structured JSON summary.
+ * 4. Stores compaction in conversation_compactions in PostgreSQL.
+ * 5. Verifies message table rows remain 100% intact (zero message deletion).
+ * 6. Validates model maintains seamless continuity from the compacted summary on a follow-up turn.
  */
 
-import { createAnthropicClient } from '../providers/anthropic.js';
-import { config } from '../config.js';
-import { compactionService } from '../services/compaction/compactionService.js';
-import { compactionSummarySchema } from '../services/compaction/types.js';
-import { getDb } from '../db/client.js';
-import { chats, messages, users } from '../db/schema.js';
+import { GoogleGenAI } from '@google/genai';
+import { config } from '../../src/config.js';
+import { CompactionService } from '../../src/services/compaction/compactionService.js';
+import { compactionSummarySchema } from '../../src/services/compaction/types.js';
+import { getDb } from '../../src/db/client.js';
+import { chats, messages, users } from '../../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 
 async function main() {
   const cfg = config();
-  const model = (cfg.MODEL_SONNET ?? (() => { throw new Error('MODEL_SONNET is not set'); })());
-
   console.log('===============================================================');
-  console.log('ArcNave Phase 5.3 — Claude Live Conversation Compaction E2E');
+  console.log('ArcNave Phase 5.3 — Live Conversation Compaction Evaluation');
   console.log('===============================================================');
-  console.log(`Endpoint:           Claude API (first party)`);
-  console.log(`Model:              ${model}\n`);
+  console.log(`GCP Project configured: ${Boolean(cfg.GOOGLE_CLOUD_PROJECT)}`);
+  console.log(`Gemini Location: ${cfg.geminiLocation}`);
 
-  const client = createAnthropicClient(config());
+  const googleClient = new GoogleGenAI({
+    vertexai: true,
+    project: cfg.GOOGLE_CLOUD_PROJECT ?? (() => { throw new Error('GOOGLE_CLOUD_PROJECT is not set'); })(),
+    location: cfg.geminiLocation,
+  });
 
   const db = getDb();
+  const compactionService = new CompactionService(db);
   const existingUsers = await db.select().from(users).limit(1);
   if (existingUsers.length === 0) {
-    throw new Error('No user found in database for testing.');
+    console.log('No user found in database. Skipping live compaction script.');
+    return;
   }
   const testUser = existingUsers[0]!;
 
@@ -43,7 +47,7 @@ async function main() {
     .insert(chats)
     .values({
       userId: testUser.id,
-      title: 'Claude Compaction Continuity Test Chat',
+      title: 'Compaction Continuity Test Chat',
     })
     .returning();
 
@@ -77,18 +81,18 @@ async function main() {
       .returning();
     insertedMessages.push(msg);
   }
-  console.log(`Inserted ${insertedMessages.length} test messages into PostgreSQL messages table.`);
+  console.log(`Inserted ${insertedMessages.length} test messages into messages table.`);
 
   // 2. Evaluate compaction trigger
   console.log('\n--- Step 1: Headroom & Trigger Evaluation ---');
   const triggerCheck = compactionService.checkTrigger(32768, 26000, 4096, 2048, true);
-  console.log(`Context Limit:  ${triggerCheck.totalContextTokens}`);
-  console.log(`Current Input:  ${triggerCheck.currentInputTokens}`);
-  console.log(`Headroom:       ${triggerCheck.headroomTokens} tokens (${(triggerCheck.headroomRatio * 100).toFixed(1)}%)`);
+  console.log(`Context Limit: ${triggerCheck.totalContextTokens}`);
+  console.log(`Current Input: ${triggerCheck.currentInputTokens}`);
+  console.log(`Headroom: ${triggerCheck.headroomTokens} tokens (${(triggerCheck.headroomRatio * 100).toFixed(1)}%)`);
   console.log(`Trigger Result: ${triggerCheck.shouldCompact ? '✅ COMPACTION TRIGGERED' : '❌ NOT TRIGGERED'}`);
 
-  // 3. Compact turns 1..6 into 11-field structured JSON summary using Claude Sonnet 5
-  console.log('\n--- Step 2: Structured 11-Field Compaction Distillation (Claude) ---');
+  // 3. Compact turns 1..6 into 11-field structured JSON summary using Gemini 3.8 Flash
+  console.log('\n--- Step 2: Structured 11-Field Compaction Distillation ---');
   const conversationTranscript = sampleTurns
     .map((t) => `${t.role.toUpperCase()}: ${t.text}`)
     .join('\n\n');
@@ -114,18 +118,12 @@ ${conversationTranscript}
 
 Return ONLY valid JSON matching this schema with no markdown code fences or commentary.`;
 
-  const compRes = await client.messages.create({
-    model,
-    max_tokens: 1500,
-    messages: [{ role: 'user', content: compactionPrompt }],
+  const compRes = await googleClient.models.generateContent({
+    model: 'gemini-3.8-flash',
+    contents: [{ role: 'user', parts: [{ text: compactionPrompt }] }],
   });
 
-  const compText = compRes.content
-    .filter((c) => c.type === 'text')
-    .map((c: any) => c.text)
-    .join('\n');
-
-  const rawJson = compText
+  const rawJson = (compRes.text ?? '')
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/```$/i, '')
@@ -133,14 +131,13 @@ Return ONLY valid JSON matching this schema with no markdown code fences or comm
 
   const parsedSummary = JSON.parse(rawJson);
   const validatedSummary = compactionSummarySchema.parse(parsedSummary);
-  console.log('Distilled and validated 11-field summary by Claude:');
+  console.log('Distilled and validated 11-field summary:');
   console.log(`- Topic: "${validatedSummary.conversationTopic}"`);
   console.log(`- Established Constraints: ${JSON.stringify(validatedSummary.establishedConstraints)}`);
   console.log(`- Active Goals: ${JSON.stringify(validatedSummary.activeGoalsAndState)}`);
-  console.log('✅ Step 2 Passed: 11-field structured schema parsed and validated.\n');
 
   // 4. Persist to conversation_compactions
-  console.log('--- Step 3: Persistence to PostgreSQL ---');
+  console.log('\n--- Step 3: Persistence to PostgreSQL ---');
   const lastMsg = insertedMessages[insertedMessages.length - 1]!;
   const storedCompaction = await compactionService.createCompaction({
     chatId: testChat.id,
@@ -149,15 +146,14 @@ Return ONLY valid JSON matching this schema with no markdown code fences or comm
     summary: validatedSummary,
     tokenCountBefore: 1250,
     tokenCountAfter: 180,
-    provider: 'anthropic',
-    model,
+    provider: 'google',
+    model: 'gemini-3.8-flash',
   });
 
   console.log(`Compaction record stored in DB: id=${storedCompaction.id}, throughSeq=${storedCompaction.throughSeq}`);
-  console.log('✅ Step 3 Passed: Compaction record persisted in PostgreSQL.\n');
 
   // 5. Invariant check: zero message deletion
-  console.log('--- Step 4: Invariant Check (Zero Message Deletion) ---');
+  console.log('\n--- Step 4: Invariant Check (Zero Message Deletion) ---');
   const remainingMessages = await db
     .select()
     .from(messages)
@@ -168,28 +164,26 @@ Return ONLY valid JSON matching this schema with no markdown code fences or comm
   if (remainingMessages.length !== insertedMessages.length) {
     throw new Error('INVARIANT VIOLATED: Raw messages were deleted from database!');
   }
-  console.log('✅ Step 4 Passed: Raw message history preserved completely (0 rows deleted).\n');
+  console.log('✅ Invariant Verified: Raw message history preserved completely.');
 
-  // 6. Test Model Continuity on compacted state using Claude
-  console.log('--- Step 5: Test Continuity on Compacted State (Claude) ---');
+  // 6. Test Model Continuity on compacted state
+  console.log('\n--- Step 5: Test Continuity on Compacted State ---');
   const formattedCompaction = compactionService.formatCompactionForPrompt(storedCompaction);
   console.log(`Formatted XML Prompt Block:\n${formattedCompaction}\n`);
 
   const continuityPrompt = 'What were our decisions regarding CDN assets, and what is our current task status?';
   console.log(`Follow-up User Prompt: "${continuityPrompt}"`);
 
-  const contRes = await client.messages.create({
-    model,
-    max_tokens: 500,
-    system: `You are ArcNave AI. Maintain continuity from the compacted conversation summary.\n\n${formattedCompaction}`,
-    messages: [{ role: 'user', content: continuityPrompt }],
+  const contRes = await googleClient.models.generateContent({
+    model: 'gemini-3.8-flash',
+    contents: [{ role: 'user', parts: [{ text: continuityPrompt }] }],
+    config: {
+      systemInstruction: `You are ArcNave AI. Maintain continuity from the compacted conversation summary.\n\n${formattedCompaction}`,
+    },
   });
 
-  const contText = contRes.content
-    .filter((c) => c.type === 'text')
-    .map((c: any) => c.text)
-    .join('\n');
-  console.log(`\nClaude Continuity Response:\n${contText.trim()}`);
+  const contText = contRes.text ?? '';
+  console.log(`\nModel Continuity Response:\n${contText.trim()}`);
 
   const mentionsCdn = contText.toLowerCase().includes('cdn') || contText.toLowerCase().includes('local');
   const mentionsCompaction = contText.toLowerCase().includes('compaction') || contText.toLowerCase().includes('folding');
@@ -198,21 +192,20 @@ Return ONLY valid JSON matching this schema with no markdown code fences or comm
   console.log(`Recall compaction task: ${mentionsCompaction ? '✅ YES' : '❌ NO'}`);
 
   if (!mentionsCdn || !mentionsCompaction) {
-    throw new Error('Step 5 Failed: Claude failed to maintain continuity from compaction summary!');
+    throw new Error('Test 5 Failed: Model failed to maintain continuity from compaction summary!');
   }
-  console.log('✅ Step 5 Passed: Claude maintained seamless task continuity from compaction summary.\n');
 
   // Cleanup test chat
   await db.delete(chats).where(eq(chats.id, testChat.id));
-  console.log('Cleaned up test chat.');
+  console.log('\nCleaned up test chat.');
 
   console.log('\n===============================================================');
-  console.log('Claude Conversation Compaction E2E: ALL CHECKS PASSED ✅');
+  console.log('Conversation Compaction Live Evaluation: ALL CHECKS PASSED ✅');
   console.log('===============================================================');
-  setTimeout(() => process.exit(0), 50);
+  process.exit(0);
 }
 
 main().catch((err) => {
-  console.error('Fatal error during Claude compaction evaluation:', err);
+  console.error('Error during compaction evaluation:', err);
   process.exit(1);
 });

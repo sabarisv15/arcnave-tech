@@ -9,7 +9,6 @@
 import { ApiError } from '../../errors.js';
 import { type ModelEntry, AUTO_ALIAS } from '../../providers/registry.js';
 import type { Provider, Turn } from '../../providers/types.js';
-import { compactionService } from '../compaction/compactionService.js';
 import type { ConversationCompactionRow } from '../compaction/types.js';
 import type { TurnLog } from '../turnLog.js';
 import type { TurnTiming } from '../turnTiming.js';
@@ -48,8 +47,8 @@ export async function prepareTurn(
   const prefs = await loadPreferences(svc, input.userId);
 
   const project = input.projectId ? await loadProject(svc, input.userId, input.projectId) : null;
-  let latestCompaction = svc.cfg.ENABLE_CONTEXT_COMPACTION
-    ? await compactionService.getLatestCompaction(input.chatId, svc.db)
+  const latestCompaction = svc.cfg.ENABLE_CONTEXT_COMPACTION
+    ? await svc.compaction.getLatestCompaction(input.chatId)
     : null;
   // P13 (ADR-0080): the history summary this turn may use, read once; history starts after it.
   if (svc.cfg.ENABLE_HISTORY_SUMMARY) {
@@ -204,7 +203,7 @@ export async function* compactStage(
     timing.note('compacted', compacted);
     turnLog.stage('compaction', { compacted });
     if (compacted) {
-      latestCompaction = await compactionService.getLatestCompaction(input.chatId, svc.db);
+      latestCompaction = await svc.compaction.getLatestCompaction(input.chatId);
       ({ turns: history } = await loadHistory(svc, input.chatId, input.messageId, latestCompaction?.throughSeq, entry.alias));
     }
   }

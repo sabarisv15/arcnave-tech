@@ -3,11 +3,12 @@ import { z } from 'zod';
 
 import { ApiError } from '../errors.js';
 import { PREVIEW_MAX_COLUMNS, PREVIEW_MAX_ROWS, previewWorkbook } from '../services/documents/sheetPreview.js';
+import { NUMBERS } from '../config/numbers.js';
 
 export { PREVIEW_MAX_COLUMNS, PREVIEW_MAX_ROWS };
 
 /** Parsing is in memory; beyond this a preview would cost more than the download. */
-export const PREVIEW_MAX_BYTES = 25 * 1024 * 1024;
+export const PREVIEW_MAX_BYTES = NUMBERS.SHEET_PREVIEW_MAX_BYTES.value; // N-41
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 

@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import { idempotencyKeys } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import { NUMBERS } from '../config/numbers.js';
 
 /**
  * Cursor pagination.
@@ -18,7 +19,7 @@ import { ApiError } from '../errors.js';
  * on the sort column still advance.
  */
 export const paginationQuery = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(30),
+  limit: z.coerce.number().int().min(1).max(NUMBERS.LIST_PAGE_MAX.value).default(NUMBERS.LIST_PAGE_DEFAULT.value), // N-73
   cursor: z.string().max(200).optional(),
 });
 
@@ -42,7 +43,7 @@ export function decodeCursor(value: string | undefined): Cursor | null {
     if (!Number.isFinite(at) || id === '') return null;
     return { at, id };
   } catch {
-    // A malformed cursor means "start from the beginning", not a 500. Clients paste these.
+    // benign: A malformed cursor means "start from the beginning", not a 500. Clients paste these.
     return null;
   }
 }

@@ -82,6 +82,12 @@ const envSchema = z.object({
   SESSION_COOKIE_NAME: z.string().default('arcnave_session'),
   /** N-49 (repo value, absolute session lifetime). */
   SESSION_TTL_HOURS: int(NUMBERS.SESSION_TTL_HOURS.value),
+  /** Ours (P21, A-25): a session's `last_seen_at` is written only when it is older than this, so a
+   *  signed-in request reads the session without a write. Nothing reads the column more finely. */
+  SESSION_LAST_SEEN_WRITE_MS: int(15 * 60 * 1000),
+  /** Ours (P21, C4): the body limit of every route that sets none. Upload routes and the few JSON
+   *  routes whose schema admits more set their own (app.ts `bodyLimits`). */
+  API_BODY_LIMIT_BYTES: int(1024 * 1024),
   /** Only set true behind HTTPS; a Secure cookie is silently dropped over plain HTTP. */
   SESSION_COOKIE_SECURE: bool(false),
   /** Signs the cookie so tampering is detectable. Required in production. */
@@ -130,10 +136,12 @@ const envSchema = z.object({
   MODEL_SONNET: modelId('claude-sonnet-5-5'),
   MODEL_OPUS: modelId('claude-opus-5-5'),
 
-  MODEL_PROBE_TTL_SECONDS: int(300),
+  /** N-74 (repo value). */
+  MODEL_PROBE_TTL_SECONDS: int(NUMBERS.MODEL_PROBE_TTL_SECONDS.value),
   /** N-43 (repo value, ADR-0024/0054): one provider request, stream included; no first-token cutoff. */
   PROVIDER_TIMEOUT_MS: int(NUMBERS.PROVIDER_TIMEOUT_MS.value),
-  PROVIDER_CONNECT_TIMEOUT_MS: int(10_000),
+  /** N-43 (repo value). */
+  PROVIDER_CONNECT_TIMEOUT_MS: int(NUMBERS.PROVIDER_CONNECT_TIMEOUT_MS.value),
   /** N-42: retries before the first token (Stage 15 ER-2). The SDKs' own retries stay 0. */
   PROVIDER_MAX_RETRIES: int(NUMBERS.PROVIDER_MAX_RETRIES.value),
   /** N-42: backoff base; attempt k waits a full-jitter random part of base·2^(k-1), capped. */
@@ -182,8 +190,11 @@ const envSchema = z.object({
   DB_IDLE_IN_TRANSACTION_MS: int(NUMBERS.DB_IDLE_IN_TRANSACTION_MS.value),
   /** N-45: pool recycle. */
   DB_MAX_LIFETIME_S: int(NUMBERS.DB_MAX_LIFETIME_S.value),
-  /** Ours: stream events a run keeps for a reconnect; past it the client is sent a `snapshot`. */
-  RUN_BUFFER_MAX_EVENTS: int(50_000),
+  /** N-73 (repo value): stream events a run keeps for a reconnect; past it the client is sent a `snapshot`. */
+  RUN_BUFFER_MAX_EVENTS: int(NUMBERS.RUN_BUFFER_MAX_EVENTS.value),
+  /** Ours (P21, A-26): serialised bytes of events a run keeps; past it the head drops (a reconnect from
+   *  before it gets a `snapshot`). Bounds one run's memory however large its frames. */
+  RUN_BUFFER_MAX_BYTES: int(64 * 1024 * 1024),
   /** N-45: whole-transaction retries of the settle on 40001 / 40P01. */
   DB_TX_MAX_RETRIES: int(NUMBERS.DB_TX_MAX_RETRIES.value),
 
@@ -202,12 +213,14 @@ const envSchema = z.object({
    *  characters; past it, the model searches them with search_project_files (ADR-0020).
    *  This one is ArcNave's: about 50,000 tokens, a fraction of every configured model's
    *  1M-token window, so the conversation keeps its room. */
-  PROJECT_FULL_CONTEXT_MAX_CHARS: int(200_000),
+  /** N-05 (repo value). */
+  PROJECT_FULL_CONTEXT_MAX_CHARS: int(NUMBERS.PROJECT_FULL_CONTEXT_MAX_CHARS.value),
   /** Bytes of earlier turns' image/PDF data sent inline to a model whose request limit is not
    *  verified (Gemini inline data), total, per generate call. Oldest drop first past it; a file
    *  of the current turn never does. The Anthropic adapter (verified request limit) and Gemini PDFs sent by
    *  gs:// URI are not held to it (ADR-0019). */
-  HISTORY_MAX_ATTACHMENT_BYTES: int(12_000_000),
+  /** N-13 (repo value). */
+  HISTORY_MAX_ATTACHMENT_BYTES: int(NUMBERS.HISTORY_MAX_ATTACHMENT_BYTES.value),
 
   // --- Search -------------------------------------------------------------
   ENABLE_GOOGLE_SEARCH_GROUNDING: bool(false),
@@ -293,7 +306,8 @@ const envSchema = z.object({
   /** Raw UTF-8 byte ceiling on submitted code, enforced client-side before any network call.
    *  Cloud Run caps a single env-var value at 32,768 bytes and base64 expands by ~33%, so the
    *  real ceiling is ~24.5 KiB; this stays comfortably under that. */
-  MAX_CODE_BYTES: int(20 * 1024),
+  /** N-08 (repo value). */
+  MAX_CODE_BYTES: int(NUMBERS.MAX_CODE_BYTES.value),
   /** In-container deadline (passed as RUN_PYTHON_CODE_TIMEOUT_MS) bounding only the user's
    *  Python subprocess — never reused as the client-side orchestration deadline below. */
   /** N-08 (repo value). */
@@ -301,7 +315,8 @@ const envSchema = z.object({
   /** Client-side deadline covering the entire jobs:run -> Operation -> Execution -> Cloud
    *  Logging round trip. Must stay comfortably larger than RUN_PYTHON_CODE_TIMEOUT_MS plus
    *  realistic Cloud Run scheduling and Cloud Logging indexing lag. */
-  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: int(45_000),
+  /** N-68 (repo value). */
+  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: int(NUMBERS.RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS.value),
   /** Streaming-capture cap enforced by the in-container runner as it reads each pipe — not a
    *  post-hoc slice, so an unbounded print loop can't OOM the container before this applies. */
   MAX_STDOUT_BYTES: int(64 * 1024),
@@ -316,12 +331,14 @@ const envSchema = z.object({
    *  Postgres (tools/sandbox/semaphore.ts), not per-instance, since the service autoscales.
    *  Chosen well under the project's Cloud Run quotas (RunningExecutionsPerProject: 1000;
    *  JobRunPerMinutePerProjectRegion: 180 — the latter is the binding one at this default). */
-  MAX_CONCURRENT_RUN_PYTHON: int(20),
+  /** N-08 (repo value). */
+  MAX_CONCURRENT_RUN_PYTHON: int(NUMBERS.MAX_CONCURRENT_RUN_PYTHON.value),
   /** Extra time added on top of RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS before a claim's lease
    *  expires and it stops counting against the cap. Must be positive slack, not a separate
    *  guess — an unreleased claim from a real still-running call must never be reaped as
    *  abandoned while it's genuinely in flight. */
-  SANDBOX_CLAIM_LEASE_BUFFER_MS: int(30_000),
+  /** N-68 (repo value). */
+  SANDBOX_CLAIM_LEASE_BUFFER_MS: int(NUMBERS.SANDBOX_CLAIM_LEASE_BUFFER_MS.value),
 
   // --- Skills System (Item 11) -------------------------------------------
   /** Master gate for the skills registry, progressive disclosure, and skill tools. */
@@ -338,17 +355,21 @@ const envSchema = z.object({
   /** Background conservative distillation of durable user-stated facts. */
   /** Maximum total characters allocated to standing context memories. */
   /** Characters of memory topics a conversation starts with; the rest stay searchable. */
-  MEMORY_CONTEXT_MAX_CHARS: int(8000),
+  /** N-17 (repo value). */
+  MEMORY_CONTEXT_MAX_CHARS: int(NUMBERS.MEMORY_CONTEXT_MAX_CHARS.value),
 
   /** Master gate for context pressure-driven conversation compaction (ADR-0019). */
   ENABLE_CONTEXT_COMPACTION: bool(true),
   /** Tokens of the previous request at which a chat compacts, used only when the model's window
    *  is unknown; otherwise compaction runs as the window fills (ADR-0027). */
-  COMPACTION_TRIGGER_TOKENS: int(150_000),
+  /** N-16 (repo value). */
+  COMPACTION_TRIGGER_TOKENS: int(NUMBERS.COMPACTION_TRIGGER_TOKENS.value),
   /** Headroom threshold in tokens below which compaction triggers. */
-  COMPACTION_TRIGGER_HEADROOM_TOKENS: int(10_000),
+  /** N-16 (repo value). */
+  COMPACTION_TRIGGER_HEADROOM_TOKENS: int(NUMBERS.COMPACTION_TRIGGER_HEADROOM_TOKENS.value),
   /** Headroom ratio (remaining context / total context window) below which compaction triggers. */
-  COMPACTION_TRIGGER_HEADROOM_RATIO: z.coerce.number().min(0.01).max(0.99).default(0.15),
+  /** N-77 (repo value). */
+  COMPACTION_TRIGGER_HEADROOM_RATIO: z.coerce.number().min(0.01).max(0.99).default(NUMBERS.COMPACTION_TRIGGER_HEADROOM_RATIO.value),
 
   // --- Phase 6: Generative UI & Phase 7: Analytics ------------------------
   /** Master gate for structured Generative UI (render_ui tool). */
@@ -494,9 +515,9 @@ const envSchema = z.object({
   RATE_LIMIT_GENERATE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_GENERATE_PER_MINUTE.value),
   /** N-01 (repo value). */
   RATE_LIMIT_WRITE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_WRITE_PER_MINUTE.value),
-  RATE_LIMIT_AUTH_PER_MINUTE: int(10),
+  RATE_LIMIT_AUTH_PER_MINUTE: int(NUMBERS.RATE_LIMIT_AUTH_PER_MINUTE.value), // N-01 (repo value)
   /** Anonymous reads of shared links, per IP (ADR-0039). */
-  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: int(60),
+  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: int(NUMBERS.RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE.value), // N-01 (repo value)
 
   // --- Pricing ------------------------------------------------------------
   /**

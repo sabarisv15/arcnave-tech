@@ -13,18 +13,26 @@
  * wait for the runs it stopped to settle (`services/shutdown.ts`).
  */
 import type { StreamEvent } from './generation.js';
+import { NUMBERS } from '../config/numbers.js';
 
 /** Events kept per run by default (RUN_BUFFER_MAX_EVENTS). Past it, a reconnect from before the
  *  dropped part is sent the stored row as a `snapshot` (ADR-0078). */
-const MAX_BUFFERED_EVENTS = 50_000;
+const MAX_BUFFERED_EVENTS = NUMBERS.RUN_BUFFER_MAX_EVENTS.value; // N-73
+/** Ours (no N-id, P21 A-26): bytes of serialised events a run keeps by default
+ *  (RUN_BUFFER_MAX_BYTES). A run with a few huge frames (big tool results) cannot hold an
+ *  instance's memory; past it the head is dropped, as past MAX_BUFFERED_EVENTS. */
+const MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
 /** How long a finished run stays replayable, so a client that reconnects just after the end
  *  still receives the final `done`/`error` frame instead of a 404. */
-const FINISHED_RETENTION_MS = 5 * 60_000;
+const FINISHED_RETENTION_MS = NUMBERS.RUN_FINISHED_RETENTION_MS.value; // N-24
 
 export type RunListener = (event: StreamEvent, index: number) => void;
 
 export class Run {
   private readonly events: StreamEvent[] = [];
+  /** Serialised size of each buffered event, and their sum. */
+  private readonly sizes: number[] = [];
+  private bytes = 0;
   /** Index of events[0]; grows when the head is dropped past MAX_BUFFERED_EVENTS. */
   private offset = 0;
   private readonly listeners = new Set<RunListener>();
@@ -40,6 +48,7 @@ export class Run {
     readonly controller: AbortController,
     readonly turnId: string | null = null,
     private readonly maxBuffered = MAX_BUFFERED_EVENTS,
+    private readonly maxBytes = MAX_BUFFERED_BYTES,
   ) {}
 
   /** The index of the last event published, -1 before the first. */
@@ -60,9 +69,14 @@ export class Run {
   publish(event: StreamEvent): void {
     if (this.finished) return;
     const index = this.length;
+    const size = Buffer.byteLength(JSON.stringify(event), 'utf8');
     this.events.push(event);
-    if (this.events.length > this.maxBuffered) {
+    this.sizes.push(size);
+    this.bytes += size;
+    // The newest event always stays: a reconnect at the live edge must never need a snapshot.
+    while (this.events.length > 1 && (this.events.length > this.maxBuffered || this.bytes > this.maxBytes)) {
       this.events.shift();
+      this.bytes -= this.sizes.shift()!;
       this.offset += 1;
     }
     for (const l of this.listeners) l(event, index);
@@ -106,7 +120,10 @@ export class RunHub {
   private readonly runs = new Map<string, Run>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
-  constructor(private readonly maxBuffered = MAX_BUFFERED_EVENTS) {}
+  constructor(
+    private readonly maxBuffered = MAX_BUFFERED_EVENTS,
+    private readonly maxBytes = MAX_BUFFERED_BYTES,
+  ) {}
 
   /** The run still working on this chat, if any. A finished, retained run is not active. */
   active(chatId: string): Run | undefined {
@@ -123,7 +140,7 @@ export class RunHub {
     const previous = this.timers.get(chatId);
     if (previous) clearTimeout(previous);
     this.timers.delete(chatId);
-    const run = new Run(chatId, userId, messageId, controller, turnId, this.maxBuffered);
+    const run = new Run(chatId, userId, messageId, controller, turnId, this.maxBuffered, this.maxBytes);
     this.runs.set(chatId, run);
     return run;
   }

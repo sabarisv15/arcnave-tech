@@ -196,6 +196,78 @@ export const NUMBERS = {
   TOOL_TIMEOUT_WEB_SEARCH_MS: n(20_000, 'N-43', 'register: tools web_search 20 s'),
   TOOL_TIMEOUT_FILE_SEARCH_MS: n(2_000, 'N-43', 'register: tools file_search 2 s'),
   TOOL_TIMEOUT_MEMORY_MS: n(2_000, 'N-43', 'register: tools memory 2 s'),
+  // --- P21: the literals the numbers sweep found, wired at their current value (ADR-0082) --
+  // Every value here is the repo's, unchanged; where the register says otherwise, the source
+  // says both. Changing one is an owner decision (OQ-15), not a P21 change.
+  /** The longest prompt a generate request takes. */
+  PROMPT_MAX_CHARS: n(100_000, 'N-02', 'repo value; register says message size 32k chars (OQ-15)'),
+  /** The provider's server web_search tool (providers/anthropic.ts): searches one request may make. */
+  WEB_SEARCH_MAX_USES: n(5, 'N-07', 'repo value; register says search per turn Fast 1 / Normal 3 / Deep 8'),
+  /** Project files go into the prompt whole while their text totals at most this (ADR-0020). */
+  PROJECT_FULL_CONTEXT_MAX_CHARS: n(200_000, 'N-05', 'repo value (characters, ~50k tokens); register says whole-file limit 30k tokens'),
+  /** Earlier turns' inline image / PDF bytes per generate call (ADR-0019). */
+  HISTORY_MAX_ATTACHMENT_BYTES: n(12_000_000, 'N-13', 'repo value; register counts page images (Fast 3 / Normal 8 / Deep 20), not bytes'),
+  /** Up to this many pages a PDF is rendered as text and page images; past it, text only. */
+  PDF_VISUAL_MAX_PAGES: n(100, 'N-13', 'repo value; register says page images Fast 3 / Normal 8 / Deep 20'),
+  /** An image's longest side. */
+  IMAGE_MAX_DIMENSION_PX: n(8_000, 'N-10', 'repo value (ADR-0011); the register sets bytes only'),
+  /** Character chunking, used when a file has no provider token count (P12 sizes by tokens otherwise). */
+  CHUNK_TARGET_CHARS: n(1_400, 'N-14', 'repo value (characters); register says chunk ~800 tokens'),
+  CHUNK_OVERLAP_CHARS: n(180, 'N-14', 'repo value (characters, ~13 %); register says overlap ~15 %'),
+  /** Characters of the memory snapshot a conversation starts with. */
+  MEMORY_CONTEXT_MAX_CHARS: n(8_000, 'N-17', 'repo value; register says snapshot <= 1.5k tokens, prefetch <= 3k'),
+  /** One memory file's size cap. */
+  MEMORY_FILE_MAX_BYTES: n(16 * 1024, 'N-17', 'repo value (16 KiB); register says <= 3k tokens per doc'),
+  /** Memory files one listing returns. */
+  MEMORY_LIST_LIMIT: n(100, 'N-17', 'repo value; register says <= 40 docs per user'),
+  /** A memory item's content, characters (settings, import). */
+  MEMORY_ITEM_MAX_CHARS: n(20_000, 'N-17', 'repo value; register says <= 3k tokens per doc'),
+  /** Memories one import may add. */
+  MEMORY_IMPORT_MAX_ITEMS: n(500, 'N-17', 'repo value; register says <= 40 docs per user'),
+  /** Compaction (when ENABLE_CONTEXT_COMPACTION): previous-request tokens, used only when the window is unknown. */
+  COMPACTION_TRIGGER_TOKENS: n(150_000, 'N-16', 'repo value (ADR-0027); register says summary at ~60 % of history budget (N-77)'),
+  /** The lowest compaction trigger, whatever the window. */
+  COMPACTION_MIN_TRIGGER_TOKENS: n(50_000, 'N-16', 'repo value; register says summary at ~60 % of history budget'),
+  COMPACTION_TRIGGER_HEADROOM_TOKENS: n(10_000, 'N-16', 'repo value; register says summary at ~60 % of history budget'),
+  COMPACTION_TRIGGER_HEADROOM_RATIO: n(0.15, 'N-77', 'repo value; register says trigger 0.6 x budget'),
+  /** Sign-in, registration and password routes, per client address per minute. */
+  RATE_LIMIT_AUTH_PER_MINUTE: n(10, 'N-01', 'repo value; register (Stage 18) lists user 20 / company 300 / edge 600'),
+  /** Public share links, per client address per minute. */
+  RATE_LIMIT_PUBLIC_SHARE_PER_MINUTE: n(60, 'N-01', 'repo value; register (Stage 18) lists user 20 / company 300 / edge 600'),
+  /** Opening a provider connection. */
+  PROVIDER_CONNECT_TIMEOUT_MS: n(10_000, 'N-43', 'repo value; register says WIF / cache admin timeouts 10 s (N-74)'),
+  /** How long a model's availability probe is trusted. */
+  MODEL_PROBE_TTL_SECONDS: n(300, 'N-74', 'repo value; no register row sets it'),
+  /** Concurrent run_python executions, across every instance (Postgres semaphore). */
+  MAX_CONCURRENT_RUN_PYTHON: n(20, 'N-08', 'repo value (global); register says ~5 parallel per company'),
+  /** Client-side deadline for one Cloud Run Job round trip (and the warm sandbox transfer budget). */
+  RUN_PYTHON_ORCHESTRATION_TIMEOUT_MS: n(45_000, 'N-68', 'repo value; register says dispatch deadline 20 s start -> first heartbeat'),
+  /** Submitted code, bytes (a Cloud Run env value is at most 32,768 bytes). */
+  MAX_CODE_BYTES: n(20 * 1024, 'N-08', 'repo value; the register sets no code size'),
+  /** Slack on a sandbox claim's lease past the call it guards. */
+  SANDBOX_CLAIM_LEASE_BUFFER_MS: n(30_000, 'N-68', 'repo value; the register sets no claim slack'),
+  /** Warm sandbox: file transfer chunk, and the least time a transfer is given. */
+  WARM_TRANSFER_CHUNK_BYTES: n(16 * 1024 * 1024, 'N-08', 'repo value; register says files <= 30 MB x 10'),
+  WARM_TRANSFER_FLOOR_MS: n(60_000, 'N-68', 'repo value; register says execution 60 s Normal / 120 s Deep'),
+  /** User and project instructions, characters each. */
+  INSTRUCTIONS_MAX_CHARS: n(20_000, 'N-35', 'repo value; register says company 3,000 / project 5,000 / memory line 300 (OQ-15)'),
+  /** An artifact version's content, characters. */
+  ARTIFACT_MAX_CHARS: n(400_000, 'N-39', 'repo value; register says 5 MB / 20 versions / 50 per chat (OQ-15)'),
+  /** Stream events a run keeps for a reconnect; past it the client gets a `snapshot`. */
+  RUN_BUFFER_MAX_EVENTS: n(50_000, 'N-73', 'repo value; register says stream MAXLEN 10,000'),
+  /** A finished run stays replayable this long. */
+  RUN_FINISHED_RETENTION_MS: n(5 * 60_000, 'N-24', 'repo value (5 min); register says stream kept ~15 min after done'),
+  /** Sheet preview: rows, columns, and the largest workbook previewed. */
+  SHEET_PREVIEW_MAX_ROWS: n(200, 'N-41', 'repo value; register leaves preview rows provisional'),
+  SHEET_PREVIEW_MAX_COLUMNS: n(50, 'N-41', 'repo value; register leaves preview rows provisional'),
+  SHEET_PREVIEW_MAX_BYTES: n(25 * 1024 * 1024, 'N-41', 'repo value; register leaves the preview bounds provisional'),
+  /** List pages: default and largest page. */
+  LIST_PAGE_DEFAULT: n(30, 'N-73', 'register: list page 30'),
+  LIST_PAGE_MAX: n(100, 'N-73', 'repo value; register sets the default only'),
+  /** A chat title, characters. */
+  CHAT_TITLE_MAX_CHARS: n(200, 'N-73', 'register: title <= 200'),
+  /** web_fetch: characters of a page the model gets when it asks for no length. */
+  WEB_FETCH_DEFAULT_MAX_CHARS: n(10_000, 'N-09', 'repo value (characters); register says tool result ~8k tokens + pagination'),
 } as const satisfies Record<string, RegisteredNumber>;
 
 export type NumberKey = keyof typeof NUMBERS;

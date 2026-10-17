@@ -20,14 +20,15 @@ import { Readable } from 'node:stream';
 import { ProviderError } from '../../providers/types.js';
 import type { SandboxClient, SandboxExecutionOptions, SandboxExecutionResult } from './client.js';
 import type { CheckpointManifest, WorkspaceStateStore } from './workspaceState.js';
+import { NUMBERS } from '../../config/numbers.js';
 
-const CHUNK_BYTES = 16 * 1024 * 1024;
+const CHUNK_BYTES = NUMBERS.WARM_TRANSFER_CHUNK_BYTES.value; // N-08
 const SAFE_NAME = /^[A-Za-z0-9._-]{1,200}$/;
 /**
  * Time to copy a checkpoint in or out: a floor plus 1 s per 10 MB. Not measured on Cloud Run;
  * a floor this generous means a slow copy is reported as a timeout, never cut short silently.
  */
-const TRANSFER_FLOOR_MS = 60_000;
+const TRANSFER_FLOOR_MS = NUMBERS.WARM_TRANSFER_FLOOR_MS.value; // N-68
 const TRANSFER_BYTES_PER_MS = 10_000;
 const transferBudget = (bytes: number): number => TRANSFER_FLOOR_MS + Math.ceil(bytes / TRANSFER_BYTES_PER_MS);
 
@@ -162,6 +163,7 @@ export class WarmSandboxClient implements SandboxClient {
       throw err;
     } finally {
       if (ephemeral) {
+        // benign: an ephemeral workspace the service cannot delete expires on its own
         await this.request('DELETE', `/v1/workspaces/${ws}`, undefined, AbortSignal.timeout(10_000)).catch(() => undefined);
       }
     }
@@ -170,6 +172,7 @@ export class WarmSandboxClient implements SandboxClient {
   private async readInputs(workspaceDir?: string): Promise<{ name: string; sha256: string; path: string; size: number }[]> {
     if (!workspaceDir) return [];
     const dir = path.join(workspaceDir, 'input');
+    // benign: no input directory: no inputs
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     const out: { name: string; sha256: string; path: string; size: number }[] = [];
     for (const e of entries) {
@@ -378,6 +381,7 @@ export class WarmSandboxClient implements SandboxClient {
   }
 
   private async deleteObjects(keys: string[]): Promise<void> {
+    // benign: an orphan costs storage, not data
     for (const key of keys) await this.deps.state!.storage.delete(key).catch(() => undefined);
   }
 

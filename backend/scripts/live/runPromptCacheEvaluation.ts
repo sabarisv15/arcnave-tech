@@ -8,18 +8,18 @@
  * - Validates normalized cache telemetry and cost calculation.
  */
 
-import { createAnthropicClient } from '../providers/anthropic.js';
-import { config } from '../config.js';
+import { createAnthropicClient } from '../../src/providers/anthropic.js';
+import { config } from '../../src/config.js';
 import {
   ASK_USER_INPUT,
   SEARCH_PROJECT_FILES,
   READ_PROJECT_FILE,
   WEB_SEARCH,
   WEB_FETCH,
-} from '../tools/definitions.js';
-import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
-import { toAnthropicTool } from '../providers/anthropic.js';
-import { normalizeCacheMetrics } from '../services/promptCache/telemetry.js';
+} from '../../src/tools/definitions.js';
+import { buildStablePrefix } from '../../src/services/promptCache/promptAssembly.js';
+import { toAnthropicTool } from '../../src/providers/anthropic.js';
+import { normalizeCacheMetrics } from '../../src/services/promptCache/telemetry.js';
 
 async function main() {
   const cfg = config();

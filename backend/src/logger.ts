@@ -29,6 +29,7 @@ function prettyAvailable(): boolean {
     createRequire(import.meta.url).resolve('pino-pretty');
     return true;
   } catch {
+    // benign: pino-pretty is a dev dependency; absent, logs stay JSON
     return false;
   }
 }

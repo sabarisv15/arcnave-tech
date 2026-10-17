@@ -24,6 +24,7 @@ function normalizeUrl(raw: string): string | null {
     u.hash = '';
     return u.toString().replace(/\/$/, '');
   } catch {
+    // benign: not a URL: not one the conversation allows
     return null;
   }
 }

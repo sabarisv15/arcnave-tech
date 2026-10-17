@@ -13,8 +13,6 @@ import { getModelCapability } from '../../providers/capabilitiesTable.js';
 import { assemblePrompt, type ListedSkill } from '../promptCache/promptAssembly.js';
 import { profileForEffort, projectKnowledgeBlock } from '../prompt/sessionState.js';
 import type { PromptAssembly } from '../promptCache/types.js';
-import { memoryService } from '../memory/memoryService.js';
-import { compactionService } from '../compaction/compactionService.js';
 import type { SkillDetail } from '../skills.js';
 import { formatContext, formatWholeFiles, projectFileTexts } from '../retrieval.js';
 import { resolveStyle } from '../styles.js';
@@ -123,7 +121,7 @@ export async function buildSystemInstruction(
   // when memory is on (ME-1). The same text from turn to turn, so the session state stays put.
   const memory =
     svc.cfg.ENABLE_MEMORY && declared.has('memory_read')
-      ? await memoryService.memorySnapshot(input.userId, project?.id ?? null, svc.cfg.MEMORY_CONTEXT_MAX_CHARS)
+      ? await svc.memory.memorySnapshot(input.userId, project?.id ?? null, svc.cfg.MEMORY_CONTEXT_MAX_CHARS)
       : undefined;
 
   // 2. Conversation compaction summary: per-turn state (doc-sync 2026-10-14).
@@ -132,9 +130,9 @@ export async function buildSystemInstruction(
   if (input.historySummary) {
     summary = { throughSeq: input.historySummary.coversUptoSeq, text: input.historySummary.text, version: input.historySummary.summaryVersion };
   } else if (svc.cfg.ENABLE_CONTEXT_COMPACTION) {
-    const latestCompaction = await compactionService.getLatestCompaction(input.chatId, svc.db);
+    const latestCompaction = await svc.compaction.getLatestCompaction(input.chatId);
     if (latestCompaction) {
-      const text = compactionService.formatCompactionBody(latestCompaction);
+      const text = svc.compaction.formatCompactionBody(latestCompaction);
       if (text) summary = { throughSeq: latestCompaction.throughSeq, text };
     }
   }

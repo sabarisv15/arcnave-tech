@@ -53,6 +53,9 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npx tsc --noEmit
+      # P21 (VS-33, ADR-0082): zero errors; warnings are the deliberate set listed in the ADR.
+      - name: Lint
+        run: npm run lint
       - name: Tests
         run: npx vitest run
 
@@ -71,6 +74,8 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npx tsc -b
+      - name: Lint
+        run: npm run lint
       # `npm run build` also runs scripts/prerender.mjs (needs a browser); the Cloudflare deploy
       # path runs that. CI checks the Vite build only.
       - name: Build

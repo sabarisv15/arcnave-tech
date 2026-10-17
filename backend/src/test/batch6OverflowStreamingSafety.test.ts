@@ -232,6 +232,7 @@ describe('Batch 6 Freeze Check: Overflow Recovery & Streaming Safety', () => {
       };
 
       let attemptsMade = 0;
+      // eslint-disable-next-line require-yield -- each attempt fails before its first event
       const openMock = async function* (req: GenerationRequest, attemptNum: number): AsyncGenerator<ProviderEvent> {
         attemptsMade++;
         // Both attempt 1 and attempt 2 overflow

@@ -9,16 +9,16 @@
  * - Validates normalized telemetry and exact token accounting.
  */
 import { GoogleGenAI } from '@google/genai';
-import { config } from '../config.js';
-import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
+import { config } from '../../src/config.js';
+import { buildStablePrefix } from '../../src/services/promptCache/promptAssembly.js';
 import {
   ASK_USER_INPUT,
   SEARCH_PROJECT_FILES,
   READ_PROJECT_FILE,
   WEB_SEARCH,
   WEB_FETCH,
-} from '../tools/definitions.js';
-import { normalizeCacheMetrics } from '../services/promptCache/telemetry.js';
+} from '../../src/tools/definitions.js';
+import { normalizeCacheMetrics } from '../../src/services/promptCache/telemetry.js';
 
 async function main() {
   const cfg = config();

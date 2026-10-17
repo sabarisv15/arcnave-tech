@@ -46,18 +46,18 @@ export class SseConnection {
     recheck: { userId: string; chatId: string },
   ) {
     const { cfg } = request.services;
-    const origin = request.headers.origin;
-    const corsHeaders: Record<string, string> =
-      origin && cfg.CORS_ORIGINS.includes(origin)
-        ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' }
-        : {};
+    // A-26: the stream is written to the socket, so Fastify is told it no longer sends this reply;
+    // the head carries what the plugins set on the reply in their hooks (@fastify/cors, the rate
+    // limiter) and, through Node's setHeader merge, the security plugin's headers. No CORS here.
+    reply.hijack();
+    const fromPlugins = Object.fromEntries(Object.entries(reply.getHeaders()).filter(([, v]) => v !== undefined)) as Record<string, string | string[] | number>;
     reply.raw.writeHead(200, {
+      ...fromPlugins,
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
       'X-Request-ID': request.id,
-      ...corsHeaders,
     });
     request.raw.on('close', this.onClose);
     const ping = setInterval(() => this.write('event: ping\ndata: {"type":"ping"}\n\n'), cfg.SSE_PING_MS);
@@ -107,7 +107,7 @@ export class SseConnection {
         .limit(1);
       if (!chat) return this.fail(new ApiError('not_found', { detail: 'This conversation was deleted.' }));
     } catch {
-      // A failed check is not a revoked session; the next one decides.
+      // benign: A failed check is not a revoked session; the next one decides.
     }
   }
 

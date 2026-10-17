@@ -15,11 +15,11 @@
 
 import { eq } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
-import { loadConfig } from '../config.js';
-import { getDb, getSql } from '../db/client.js';
-import { attachments, chats, messages, preferences, toolCalls, users } from '../db/schema.js';
-import { buildServices } from '../container.js';
-import { buildStorage, generateStorageKey } from '../services/storage.js';
+import { loadConfig } from '../../src/config.js';
+import { getDb, getSql } from '../../src/db/client.js';
+import { attachments, chats, messages, preferences, toolCalls, users } from '../../src/db/schema.js';
+import { buildServices } from '../../src/container.js';
+import { buildStorage, generateStorageKey } from '../../src/services/storage.js';
 
 async function main() {
   console.log('================================================================');

@@ -34,8 +34,10 @@ import {
   uuidParam,
 } from './helpers.js';
 import { PREVIEW_MAX_BYTES, readSheets, sheetPreviewSchema } from './sheetPreview.js';
+import { NUMBERS } from '../config/numbers.js';
+import { jsonBodyLimit } from './bodyLimits.js';
 
-const MAX_CONTENT_CHARS = 400_000;
+const MAX_CONTENT_CHARS = NUMBERS.ARTIFACT_MAX_CHARS.value; // N-39
 
 const kindSchema = z.enum(['document', 'code', 'webpage', 'svg', 'slides']);
 const formatSchema = z.enum(['xlsx', 'docx', 'pptx']);
@@ -127,6 +129,7 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
   typed.post(
     '/artifacts',
     {
+      bodyLimit: jsonBodyLimit(MAX_CONTENT_CHARS + 200) /* C4: content + title */,
       schema: {
         tags: ['artifacts'],
         summary: 'Create an artifact with its first version',
@@ -240,6 +243,7 @@ export async function artifactRoutes(app: AppInstance): Promise<void> {
   typed.post(
     '/artifacts/:id/versions',
     {
+      bodyLimit: jsonBodyLimit(MAX_CONTENT_CHARS) /* C4: content */,
       schema: {
         tags: ['artifacts'],
         summary: 'Append a new version and point the artifact at it',

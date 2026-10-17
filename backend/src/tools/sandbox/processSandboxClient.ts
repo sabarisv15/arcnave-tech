@@ -88,7 +88,7 @@ export class ProcessSandboxClient implements SandboxClient {
           try {
             proc.kill('SIGKILL');
           } catch {
-            // Already dead
+            // benign: Already dead
           }
         }, this.codeTimeoutMs);
 
@@ -96,7 +96,7 @@ export class ProcessSandboxClient implements SandboxClient {
           try {
             proc.kill('SIGKILL');
           } catch {
-            // Already dead
+            // benign: Already dead
           }
         };
 
@@ -215,7 +215,7 @@ export class ProcessSandboxClient implements SandboxClient {
       try {
         await fs.unlink(scriptPath);
       } catch {
-        // File may already be deleted or unwritten
+        // benign: File may already be deleted or unwritten
       }
     }
   }

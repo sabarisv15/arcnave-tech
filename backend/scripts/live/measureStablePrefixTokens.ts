@@ -4,9 +4,9 @@
  * models and tool bundles using live Vertex token-counting APIs.
  */
 
-import { createAnthropicClient } from '../providers/anthropic.js';
+import { createAnthropicClient } from '../../src/providers/anthropic.js';
 import { GoogleGenAI } from '@google/genai';
-import { loadConfig } from '../config.js';
+import { loadConfig } from '../../src/config.js';
 import {
   ASK_USER_INPUT,
   SEARCH_PROJECT_FILES,
@@ -14,11 +14,11 @@ import {
   WEB_SEARCH,
   WEB_FETCH,
   codeToolDefinitions,
-} from '../tools/definitions.js';
-import type { ToolDefinition } from '../providers/types.js';
-import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
-import { toAnthropicTool } from '../providers/anthropic.js';
-import { toGeminiFunctionDeclaration } from '../providers/gemini.js';
+} from '../../src/tools/definitions.js';
+import type { ToolDefinition } from '../../src/providers/types.js';
+import { buildStablePrefix } from '../../src/services/promptCache/promptAssembly.js';
+import { toAnthropicTool } from '../../src/providers/anthropic.js';
+import { toGeminiFunctionDeclaration } from '../../src/providers/gemini.js';
 
 const BUNDLES: { name: string; tools: ToolDefinition[] }[] = [
   {

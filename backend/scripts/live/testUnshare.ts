@@ -1,4 +1,4 @@
-import { CloudRunSandboxClient } from '../tools/sandbox/cloudRunSandboxClient.js';
+import { CloudRunSandboxClient } from '../../src/tools/sandbox/cloudRunSandboxClient.js';
 
 async function main() {
   const c = CloudRunSandboxClient.withAdc('project-8bcf740a-a7bd-4aea-974', 'asia-south1', 'arcnave-python-sandbox', {

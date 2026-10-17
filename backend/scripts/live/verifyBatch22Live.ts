@@ -4,8 +4,8 @@ import os from 'node:os';
 import { Storage as GcsStorage } from '@google-cloud/storage';
 import ExcelJS from 'exceljs';
 
-import { CloudRunSandboxClient } from '../tools/sandbox/cloudRunSandboxClient.js';
-import { ExecutionRuntime } from '../tools/execution/executionRuntime.js';
+import { CloudRunSandboxClient } from '../../src/tools/sandbox/cloudRunSandboxClient.js';
+import { ExecutionRuntime } from '../../src/tools/execution/executionRuntime.js';
 
 const PROJECT_ID = 'project-8bcf740a-a7bd-4aea-974';
 const REGION = 'asia-south1';

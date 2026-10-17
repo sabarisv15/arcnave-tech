@@ -50,6 +50,7 @@ export async function verifyLayoutHeuristics(
           }
           metrics.blankPagesDetected = blankCount;
         } finally {
+          // benign: releasing the parser after its result was read
           await parser.destroy().catch(() => undefined);
         }
       } catch (err) {

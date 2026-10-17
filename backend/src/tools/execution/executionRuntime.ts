@@ -240,7 +240,7 @@ export class ExecutionRuntime {
       safeFilename = `${base}_${uniqueSuffix}${ext}`;
       filePath = path.join(workspace.inputDir, safeFilename);
     } catch {
-      // File does not exist yet; safeFilename is unique
+      // benign: File does not exist yet; safeFilename is unique
     }
 
     await storage.downloadTo(row.storageKey, filePath);
@@ -785,7 +785,7 @@ ${scriptContent}
       try {
         raw = await fs.readFile(outPath, 'utf8');
       } catch {
-        // Say why, not just that: the exit code, a timeout, stderr, and any file the script
+        // benign: Say why, not just that: the exit code, a timeout, stderr, and any file the script
         // wrote that did not come back (a failed sandbox upload leaves it undeclared).
         const detail: string[] = [];
         try {
@@ -798,6 +798,7 @@ ${scriptContent}
           if (typeof run.exit_code === 'number') detail.push(`exit code ${String(run.exit_code)}`);
           if (run.msg_err?.trim()) detail.push(`stderr: ${run.msg_err.trim().slice(-1500)}`);
         } catch {
+          // benign: reported as "unstructured output" in the failure detail
           detail.push('the sandbox returned unstructured output');
         }
         if (res.undeclaredOutputs?.includes(outName)) detail.push('the result file was written but not returned by the sandbox');

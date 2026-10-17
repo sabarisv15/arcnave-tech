@@ -11,14 +11,14 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { loadConfig } from '../config.js';
-import { getDb, getSql } from '../db/client.js';
-import { chats, messages, preferences, users, attachments, goals, goalEvents } from '../db/schema.js';
-import { buildServices } from '../container.js';
-import { GenerationService } from '../services/generation.js';
-import { ModelRegistry, type ModelEntry } from '../providers/registry.js';
-import type { Provider, GenerationRequest, ProviderEvent } from '../providers/types.js';
-import { ProviderError } from '../providers/types.js';
+import { loadConfig } from '../../src/config.js';
+import { getDb, getSql } from '../../src/db/client.js';
+import { chats, messages, preferences, users, attachments, goals, goalEvents } from '../../src/db/schema.js';
+import { buildServices } from '../../src/container.js';
+import { GenerationService } from '../../src/services/generation.js';
+import { ModelRegistry, type ModelEntry } from '../../src/providers/registry.js';
+import type { Provider, GenerationRequest, ProviderEvent } from '../../src/providers/types.js';
+import { ProviderError } from '../../src/providers/types.js';
 
 interface ScenarioResult {
   scenario: string;

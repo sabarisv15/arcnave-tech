@@ -532,7 +532,7 @@ export class FileService {
     const beat =
       this.heartbeatMs > 0
         ? setInterval(() => {
-            if (!this.dead) void this.renew(fence).catch(() => undefined);
+            if (!this.dead) void this.renew(fence).catch((err: unknown) => this.logError(err, 'file job heartbeat failed', { jobId: job.id }));
           }, this.heartbeatMs)
         : undefined;
     beat?.unref();
@@ -919,6 +919,7 @@ export class FileService {
       .returning();
     for (const m of members) {
       if (await storageKeyInUse(db, m.storageKey)) continue;
+      // benign: an orphan costs storage, not data; the member rows are already gone
       await storage.delete(m.storageKey).catch(() => undefined);
     }
     await deleteObjects(storage, derived);

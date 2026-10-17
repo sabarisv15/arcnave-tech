@@ -27,6 +27,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { NUMBERS } from '../config/numbers.js';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 
@@ -105,7 +106,7 @@ export const preferences = pgTable(
     styleId: varchar('style_id', { length: 64 }).notNull().default('normal'),
 
     // Usage & limits
-    maxOutputTokens: integer('max_output_tokens').notNull().default(64000),
+    maxOutputTokens: integer('max_output_tokens').notNull().default(NUMBERS.DEFAULT_MAX_OUTPUT_TOKENS.value), // N-74
     dailyTokenBudget: integer('daily_token_budget'),
     monthlyTokenBudget: integer('monthly_token_budget'),
     warnThresholdPct: integer('warn_threshold_pct').notNull().default(80),
@@ -1439,7 +1440,8 @@ export const summaries = pgTable(
     uniqueIndex('uq_summaries_chat_version').on(t.chatId, t.summaryVersion),
     index('ix_summaries_chat_seq').on(t.chatId, t.coversUptoSeq),
     check('ck_summaries_status', sql`${t.status} in ('ready', 'discarded')`),
-    check('ck_summaries_text_len', sql`char_length(${t.text}) <= 6000`),
+    // N-77; raw, so the generated DDL stays the literal migration 0032 wrote.
+    check('ck_summaries_text_len', sql`char_length(${t.text}) <= ${sql.raw(String(NUMBERS.SUMMARY_TEXT_MAX_CHARS.value))}`),
   ],
 );
 

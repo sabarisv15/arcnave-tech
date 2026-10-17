@@ -55,7 +55,6 @@ vi.mock('../logger.js', async () => {
 
 import { users } from '../db/schema.js';
 import { FIELD_ALLOWLIST, logEvent } from '../observability/logEvent.js';
-import { memoryService } from '../services/memory/memoryService.js';
 import type { TestContext, TestUser } from './harness.js';
 import { createTestApp, multipart, signUp } from './harness.js';
 
@@ -82,13 +81,13 @@ afterAll(async () => {
 async function runTurn(): Promise<string> {
   // The profile is injected in full and the listing shows each file's description, so both
   // places a memory file's text can reach the prompt carry the sentinel.
-  await memoryService.createMemory({
+  await ctx.app.services.memory.createMemory({
     userId: user.id,
     scope: 'global',
     key: '/profile.md',
     content: `The user's profile. ${SENTINELS.memory}_PROFILE`,
   });
-  await memoryService.createMemory({
+  await ctx.app.services.memory.createMemory({
     userId: user.id,
     scope: 'global',
     key: '/topics/leak-check.md',

@@ -9,12 +9,12 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { loadConfig } from '../config.js';
-import { getDb } from '../db/client.js';
-import { chats, messages, users } from '../db/schema.js';
-import { GeminiProvider } from '../providers/gemini.js';
-import type { GenerationRequest } from '../providers/types.js';
-import { mapProviderError } from '../services/generation.js';
+import { loadConfig } from '../../src/config.js';
+import { getDb } from '../../src/db/client.js';
+import { chats, messages, users } from '../../src/db/schema.js';
+import { GeminiProvider } from '../../src/providers/gemini.js';
+import type { GenerationRequest } from '../../src/providers/types.js';
+import { mapProviderError } from '../../src/services/generation.js';
 
 async function main() {
   console.log('================================================================');

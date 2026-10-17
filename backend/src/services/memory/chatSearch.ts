@@ -7,7 +7,7 @@
  */
 import { sql } from 'drizzle-orm';
 
-import { getDb } from '../../db/client.js';
+import type { DbLike } from '../../db/client.js';
 import { searchWords } from './memoryService.js';
 
 export interface ChatScope {
@@ -32,6 +32,7 @@ const inScope = (scope: ChatScope) =>
   scope.projectId ? sql`c.project_id = ${scope.projectId}` : sql`c.project_id IS NULL`;
 
 export async function searchChats(
+  db: DbLike,
   userId: string,
   query: string,
   scope: ChatScope,
@@ -41,7 +42,7 @@ export async function searchChats(
   const words = searchWords(query);
   if (words.length === 0) return [];
   const tsquery = words.join(' | ');
-  const rows = (await getDb().execute(sql`
+  const rows = (await db.execute(sql`
     SELECT m.chat_id AS "chatId",
            c.title AS "chatTitle",
            m.role AS role,
@@ -84,18 +85,19 @@ export interface ConversationPage {
 
 /** Turns of one chat from a page token on, or null when the chat is not the user's in this scope. */
 export async function readConversation(
+  db: DbLike,
   userId: string,
   chatId: string,
   scope: ChatScope,
   fromSeq: number,
   maxTurns: number,
 ): Promise<ConversationPage | null> {
-  const [chat] = (await getDb().execute(sql`
+  const [chat] = (await db.execute(sql`
     SELECT c.id, c.title FROM chats c
     WHERE c.id = ${chatId} AND c.user_id = ${userId} AND c.deleted_at IS NULL AND ${inScope(scope)}
   `)) as unknown as Array<{ id: string; title: string }>;
   if (!chat) return null;
-  const rows = (await getDb().execute(sql`
+  const rows = (await db.execute(sql`
     SELECT m.seq AS seq, m.role AS role, m.created_at AS at, m.text AS text
     FROM messages m
     WHERE m.chat_id = ${chatId} AND m.seq >= ${fromSeq} AND m.text <> ''
@@ -121,13 +123,14 @@ export interface RecentChat {
 
 /** The user's chats in this scope, most recently updated first, with the start of each. */
 export async function recentChats(
+  db: DbLike,
   userId: string,
   scope: ChatScope,
   n: number,
   before?: string,
   after?: string,
 ): Promise<RecentChat[]> {
-  const rows = (await getDb().execute(sql`
+  const rows = (await db.execute(sql`
     SELECT c.id AS "chatId", c.title AS "chatTitle", c.updated_at AS "updatedAt",
            coalesce((SELECT left(m.text, 300) FROM messages m
                      WHERE m.chat_id = c.id AND m.role = 'user' AND m.text <> ''
@@ -143,4 +146,21 @@ export async function recentChats(
     LIMIT ${n}
   `)) as unknown as Array<{ chatId: string; chatTitle: string; updatedAt: string | Date; excerpt: string }>;
   return rows.map((r) => ({ ...r, updatedAt: iso(r.updatedAt) }));
+}
+
+/** The three reads bound to one database handle: what the container hands a turn (A-16). */
+export class ChatSearch {
+  constructor(private readonly db: DbLike) {}
+
+  search(userId: string, query: string, scope: ChatScope, limit: number, withinChatId?: string): Promise<ChatSearchHit[]> {
+    return searchChats(this.db, userId, query, scope, limit, withinChatId);
+  }
+
+  read(userId: string, chatId: string, scope: ChatScope, fromSeq: number, maxTurns: number): Promise<ConversationPage | null> {
+    return readConversation(this.db, userId, chatId, scope, fromSeq, maxTurns);
+  }
+
+  recent(userId: string, scope: ChatScope, n: number, before?: string, after?: string): Promise<RecentChat[]> {
+    return recentChats(this.db, userId, scope, n, before, after);
+  }
 }

@@ -210,6 +210,7 @@ describe('the retry gate counts tool and thinking events (Stage 15 ER-2b)', () =
 
   it('a transient failure before any step is still retried', async () => {
     provider.attempts = [
+      // eslint-disable-next-line require-yield -- a stream that fails before its first event
       async function* () {
         throw new ProviderError('busy', { retryable: true, statusCode: 503 });
       },

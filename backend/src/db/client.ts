@@ -107,6 +107,7 @@ export async function pingDb(): Promise<boolean> {
     await getSql()`select 1`;
     return true;
   } catch {
+    // benign: the readiness probe answers "not ready"; /readyz reports it
     return false;
   }
 }

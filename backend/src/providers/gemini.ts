@@ -258,6 +258,7 @@ function googleRpcError(err: unknown): GoogleRpcError | undefined {
     const parsed = JSON.parse(message.slice(start)) as { error?: GoogleRpcError };
     return typeof parsed.error === 'object' && parsed.error !== null ? parsed.error : undefined;
   } catch {
+    // benign: not a Google RPC error body; the caller classifies by status
     return undefined;
   }
 }

@@ -4,9 +4,9 @@
  * Verifies the exact sequence:
  * MODEL -> tool call #1 -> warning tool result -> MODEL -> tool call #2 (corrective) -> pass result -> final response
  */
-import { loadConfig } from '../config.js';
-import { GeminiProvider } from '../providers/gemini.js';
-import type { GenerationRequest, ToolCall, ToolResult, ToolDefinition } from '../providers/types.js';
+import { loadConfig } from '../../src/config.js';
+import { GeminiProvider } from '../../src/providers/gemini.js';
+import type { GenerationRequest, ToolCall, ToolResult, ToolDefinition } from '../../src/providers/types.js';
 
 interface CapturedStep {
   round: number;

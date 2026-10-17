@@ -8,10 +8,10 @@
  * - Word & character distributions
  */
 import { GoogleGenAI } from '@google/genai';
-import { createAnthropicClient } from '../providers/anthropic.js';
-import { loadConfig } from '../config.js';
-import { buildStablePrefix } from '../services/promptCache/promptAssembly.js';
-import { ProjectToolRegistry } from '../tools/registry.js';
+import { createAnthropicClient } from '../../src/providers/anthropic.js';
+import { loadConfig } from '../../src/config.js';
+import { buildStablePrefix } from '../../src/services/promptCache/promptAssembly.js';
+import { ProjectToolRegistry } from '../../src/tools/registry.js';
 
 async function main() {
   console.log('=== ArcNave Master System Prompt v1: Exact Token Measurement ===\n');

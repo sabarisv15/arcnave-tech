@@ -4,9 +4,10 @@
  * the same to preview as a small one, and says when it was cut.
  */
 import ExcelJS from 'exceljs';
+import { NUMBERS } from '../../config/numbers.js';
 
-export const PREVIEW_MAX_ROWS = 200;
-export const PREVIEW_MAX_COLUMNS = 50;
+export const PREVIEW_MAX_ROWS = NUMBERS.SHEET_PREVIEW_MAX_ROWS.value; // N-41
+export const PREVIEW_MAX_COLUMNS = NUMBERS.SHEET_PREVIEW_MAX_COLUMNS.value; // N-41
 
 export type PreviewCellType = 'number' | 'string' | 'boolean' | 'date' | 'error';
 

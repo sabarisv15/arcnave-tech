@@ -16,6 +16,9 @@ import type { ObjectStorage } from '../storage.js';
 import type { Retriever } from '../retrieval.js';
 import type { UsageService } from '../usage.js';
 import type { HelperJobs } from '../helpers/helperJobs.js';
+import type { MemoryService } from '../memory/memoryService.js';
+import type { ChatSearch } from '../memory/chatSearch.js';
+import type { CompactionService } from '../compaction/compactionService.js';
 
 export interface TurnServices {
   readonly db: Database;
@@ -33,4 +36,8 @@ export interface TurnServices {
   readonly helperJobs?: HelperJobs | undefined;
   /** P11 (ADR-0081): every model call goes through it (retries, breaker, fallback chain). */
   readonly gateway: ProviderGateway;
+  /** P21 (A-16): memory files, conversation compactions and chat search, on the container's database. */
+  readonly memory: MemoryService;
+  readonly compaction: CompactionService;
+  readonly chatSearch: ChatSearch;
 }

@@ -276,7 +276,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         tags: ['chats'],
         summary: 'Create an empty chat',
         body: z.object({
-          title: z.string().trim().min(1).max(200).default('New conversation'),
+          title: z.string().trim().min(1).max(NUMBERS.CHAT_TITLE_MAX_CHARS.value /* N-73 */).default('New conversation'),
           projectId: z.string().uuid().nullable().default(null),
         }),
         response: { 201: chatSchema },
@@ -384,7 +384,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         summary: 'Rename, pin, or move a chat between projects',
         params: uuidParam,
         body: z.object({
-          title: z.string().trim().min(1).max(200).optional(),
+          title: z.string().trim().min(1).max(NUMBERS.CHAT_TITLE_MAX_CHARS.value /* N-73 */).optional(),
           pinned: z.boolean().optional(),
           // `null` moves the chat out of its project; omitted leaves it where it is.
           projectId: z.string().uuid().nullable().optional(),
@@ -566,7 +566,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
                 }
               : {
                   userId: user.id,
-                  title: `${chat.title} · branch`.slice(0, 200),
+                  title: `${chat.title} · branch`.slice(0, NUMBERS.CHAT_TITLE_MAX_CHARS.value /* N-73 */),
                   projectId: chat.projectId,
                 },
           )
@@ -597,7 +597,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         params: uuidParam,
         headers: idempotencyHeader.passthrough(),
         body: z.object({
-          prompt: z.string().min(1).max(100_000),
+          prompt: z.string().min(1).max(NUMBERS.PROMPT_MAX_CHARS.value /* N-02 */),
           mode: modeSchema.default('chat'),
           model: z.string().max(64).default(AUTO_ALIAS),
           attachmentIds: z.array(z.string().uuid()).max(NUMBERS.FILES_PER_MESSAGE.value /* N-10 */).default([]),

@@ -46,6 +46,9 @@ import { logger } from './logger.js';
 import { FileService, type WorkerOptions } from './services/attachments/fileJobs.js';
 import { HelperJobs } from './services/helpers/helperJobs.js';
 import { ProviderGateway } from './providers/gateway.js';
+import { MemoryService } from './services/memory/memoryService.js';
+import { CompactionService } from './services/compaction/compactionService.js';
+import { ChatSearch } from './services/memory/chatSearch.js';
 
 const log = logger.child({ module: 'container' });
 
@@ -94,6 +97,13 @@ export interface Services {
   helperJobs: HelperJobs;
   /** P11 (ADR-0081): the provider gateway (retries, breaker, kill switch, fallback chain). */
   gateway: ProviderGateway;
+  // --- P21 (ADR-0082, A-16): stores that used to be module singletons on `getDb()`.
+  /** Memory items and memory files (ADR-0047). */
+  memory: MemoryService;
+  /** Conversation compaction rows (ADR-0019). */
+  compaction: CompactionService;
+  /** conversation_search / read_conversation / recent_chats. */
+  chatSearch: ChatSearch;
 }
 
 export interface BuildOptions {
@@ -124,6 +134,11 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     google: new GeminiProvider(cfg),
     anthropic: new AnthropicProvider(cfg),
   };
+  // The Gemini slot does OCR, transcription and the Gemini token count (ADR-0004); the Claude
+  // slot its own count. Both are required: a missing one is a wiring bug, said at boot.
+  const google = providers.google;
+  const anthropic = providers.anthropic;
+  if (!google || !anthropic) throw new Error('buildServices: both provider slots (google, anthropic) are required.');
 
   const registry = new ModelRegistry(cfg, providers);
   const pricing = new PricingService(cfg);
@@ -132,7 +147,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = cfg.isProduction;
   let rawSandboxClient = options.sandboxClient;
   // G20: one sandbox, built when any of its three grants is on. Each grant is enforced by the
   // runtime, so building it for pdftoppm never exposes run_python.
@@ -255,6 +270,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   const helperJobs = new HelperJobs({ db, cfg, registry, ledger, log: logger.child({ module: 'helpers' }) });
   // P11 (ADR-0081): retries, breaker, kill switch and the fallback chain, one per instance.
   const gateway = new ProviderGateway(cfg);
+  const stores = { memory: new MemoryService(db), compaction: new CompactionService(db), chatSearch: new ChatSearch(db) };
   const generation = new GenerationService(
     db,
     cfg,
@@ -269,6 +285,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     modelInputs,
     helperJobs,
     gateway,
+    stores,
   );
 
   return {
@@ -284,8 +301,8 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     storage,
     retriever,
     executionRuntime,
-    visionProvider: providers.google!,
-    runHub: new RunHub(cfg.RUN_BUFFER_MAX_EVENTS),
+    visionProvider: google,
+    runHub: new RunHub(cfg.RUN_BUFFER_MAX_EVENTS, cfg.RUN_BUFFER_MAX_BYTES),
     instanceId: `${hostname().slice(0, 40)}:${String(process.pid)}:${randomUUID().slice(0, 8)}`,
     lifecycle: { draining: false },
     warmSandbox: rawSandboxClient instanceof WarmSandboxClient ? rawSandboxClient : null,
@@ -295,9 +312,9 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
         db,
         storage,
         cfg,
-        visionProvider: providers.google!,
+        visionProvider: google,
         // Stage 9 TOKENS: each family's own count API (Gemini countTokens, Claude count_tokens).
-        tokenCounters: { gemini: providers.google!, claude: providers.anthropic! },
+        tokenCounters: { gemini: google, claude: anthropic },
         ...(modelInputs ? { modelInputs } : {}),
         log: logger.child({ module: 'files' }),
       },
@@ -307,6 +324,7 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
     ledger,
     deletionLedger: new DeletionLedger(storage, cfg.DELETION_LEDGER_PREFIX),
     gateway,
+    ...stores,
   };
 }
 

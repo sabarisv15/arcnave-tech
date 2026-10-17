@@ -100,6 +100,7 @@ export const SUPPORTED_CAPABILITIES = new Set<string>([
 ]);
 
 import type { CapabilityRegistry } from '../capabilities/registry.js';
+import { errorLogFields } from '../errorLog.js';
 
 export class SkillService {
   private skills = new Map<string, SkillEntry>();
@@ -155,7 +156,7 @@ export class SkillService {
         skillsPath = cand;
         break;
       } catch {
-        // Continue searching
+        // benign: Continue searching
       }
     }
 
@@ -180,7 +181,7 @@ export class SkillService {
             try {
               raw = await fs.readFile(skillFilePath, 'utf8');
             } catch {
-              // Not a skill directory.
+              // benign: Not a skill directory.
               continue;
             }
             const parsed = this.parseSkillContent(raw, skillFilePath);
@@ -196,11 +197,14 @@ export class SkillService {
             } else {
               skills.set(key, parsed);
             }
-          } catch {
+          } catch (err) {
+            // A-23: a skill that cannot be read or parsed is skipped, and said so by directory name.
+            log.warn({ ...errorLogFields(err), dir: entry }, 'skill could not be loaded, skipping');
             continue;
           }
         }
-      } catch {
+      } catch (err) {
+        log.warn({ ...errorLogFields(err), dir: entry }, 'skill directory could not be read, skipping');
         continue;
       }
     }
@@ -438,6 +442,7 @@ export class SkillService {
     try {
       return await fs.readFile(resolvedPath, 'utf8');
     } catch {
+      // benign: a missing skill resource reads as null; the tool says it does not exist
       return null;
     }
   }
@@ -463,6 +468,7 @@ export class SkillService {
     try {
       return await fs.readFile(resolvedPath);
     } catch {
+      // benign: a missing skill resource reads as null; the tool says it does not exist
       return null;
     }
   }

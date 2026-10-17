@@ -7,7 +7,7 @@
 import { z } from 'zod';
 
 import type { ToolCall, ToolExecutor, ToolResult } from '../providers/types.js';
-import { readConversation, recentChats, searchChats, type ChatScope } from '../services/memory/chatSearch.js';
+import type { ChatScope, ChatSearch } from '../services/memory/chatSearch.js';
 
 const searchInput = z.object({
   query: z.string().trim().min(1),
@@ -37,6 +37,7 @@ export class ChatToolExecutor implements ToolExecutor {
   private readonly scope: ChatScope;
 
   constructor(
+    private readonly chats: ChatSearch,
     private readonly userId: string,
     projectId: string | null,
     chatId: string | null,
@@ -51,7 +52,7 @@ export class ChatToolExecutor implements ToolExecutor {
         case 'conversation_search': {
           const p = searchInput.safeParse(call.input);
           if (!p.success) return textResult(call.id, false, `Invalid input: ${p.error.message}`);
-          const hits = await searchChats(
+          const hits = await this.chats.search(
             this.userId,
             p.data.query,
             this.scope,
@@ -63,7 +64,7 @@ export class ChatToolExecutor implements ToolExecutor {
         case 'read_conversation': {
           const p = readInput.safeParse(call.input);
           if (!p.success) return textResult(call.id, false, `Invalid input: ${p.error.message}`);
-          const page = await readConversation(
+          const page = await this.chats.read(
             this.userId,
             p.data.conversation_id,
             this.scope,
@@ -76,7 +77,7 @@ export class ChatToolExecutor implements ToolExecutor {
         case 'recent_chats': {
           const p = recentInput.safeParse(call.input);
           if (!p.success) return textResult(call.id, false, `Invalid input: ${p.error.message}`);
-          const chats = await recentChats(
+          const chats = await this.chats.recent(
             this.userId,
             this.scope,
             p.data.n ?? 3,

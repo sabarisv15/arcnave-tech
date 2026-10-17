@@ -31,7 +31,7 @@ const SUMMARY_TEXT = `- ${SENTINEL} The user asked about <b>budgets</b>; decided
 
 let ctx: TestContext;
 let user: TestUser;
-let logLines: unknown[] = [];
+const logLines: unknown[] = [];
 
 function usageOf(input: number, output: number): HelperResult['usage'] {
   return { inputTokens: input, outputTokens: output, cacheReadTokens: 0, cacheWriteTokens: 0, exact: true };

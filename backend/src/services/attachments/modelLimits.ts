@@ -45,6 +45,7 @@ export async function pdfPageCount(base64: string): Promise<number | null> {
     });
     return doc.getPageCount();
   } catch {
+    // benign: an unparsable PDF has no page count; the caller reads it as unknown
     return null;
   }
 }

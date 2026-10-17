@@ -165,7 +165,7 @@ export function normalizeWorkbookRow(
 
   columns.forEach((col, idx) => {
     let rawVal: unknown;
-    let cellSource: SourceReference | undefined = rowSource;
+    const cellSource: SourceReference | undefined = rowSource;
 
     if (Array.isArray(rawRow)) {
       rawVal = rawRow[idx];

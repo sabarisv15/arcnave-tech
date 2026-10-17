@@ -252,7 +252,7 @@ export class UIToolExecutor implements ToolExecutor {
       items.map((item) =>
         this.images!.searchImages!(item.name, spec.per, signal)
           .then((imgs) => imgs.slice(0, spec.per).map(({ thumbnailUrl, imageUrl, sourceUrl, title }) => ({ thumbnailUrl, imageUrl, sourceUrl, title })))
-          // A card without photos is still the answer; a failed photo search is not the model's to handle.
+          // benign: A card without photos is still the answer; a failed photo search is not the model's to handle.
           .catch(() => [] as Photo[]),
       ),
     );

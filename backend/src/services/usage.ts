@@ -38,6 +38,7 @@ function isValidZone(name: string): boolean {
     new Intl.DateTimeFormat('en-US', { timeZone: name });
     return true;
   } catch {
+    // benign: an unknown time zone is invalid
     return false;
   }
 }

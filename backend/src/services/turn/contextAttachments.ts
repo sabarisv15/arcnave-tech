@@ -139,7 +139,7 @@ export async function hydrateAttachmentBytes(
         try {
           return await asPdfForModel(att, data);
         } catch {
-          // The bytes arrived; reading them failed. That is the file, not storage (D1 #34).
+          // benign: The bytes arrived; reading them failed. That is the file, not storage (D1 #34).
           return { ...att, omittedReason: 'unreadable' as const, omittedDetail: 'the PDF could not be rendered' };
         }
       }
@@ -185,7 +185,7 @@ export async function hydrateHistoryAttachments(
   currentPrompt: string | undefined,
   alias: string,
 ): Promise<Turn[]> {
-  const maxBudget = svc.cfg.HISTORY_MAX_ATTACHMENT_BYTES ?? 12_000_000;
+  const maxBudget = svc.cfg.HISTORY_MAX_ATTACHMENT_BYTES; // N-13 (always set by config)
   let cumulativeBytes = 0;
 
   // Every earlier image of the chat stays available. The budget only guards bytes that ride inline in a request whose limit is

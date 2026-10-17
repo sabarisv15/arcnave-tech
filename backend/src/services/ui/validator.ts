@@ -52,6 +52,7 @@ export function validateAndNormalizeUI(input: unknown, maxBytes: number = 100_00
     try {
       parsedInput = JSON.parse(parsedInput);
     } catch {
+      // benign: not JSON text: validated as given
       // ignore
     }
   }
@@ -74,6 +75,7 @@ export function validateAndNormalizeUI(input: unknown, maxBytes: number = 100_00
         raw = { blocks: (parsedBlocks as any).blocks };
       }
     } catch {
+      // benign: not JSON text: validated as given
       // ignore
     }
   }

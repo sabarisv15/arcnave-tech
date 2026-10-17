@@ -12,7 +12,7 @@
  * from the environment; nothing is written to the repo.
  *
  *   ARCNAVE_BASE=https://<api host> ARCNAVE_EMAIL=... ARCNAVE_PASSWORD=... \
- *     npx tsx src/scripts/evalScope.ts [--cases ../docs/evals/scope-cases.json] [--files <dir>] [--out report.json]
+ *     npx tsx scripts/live/evalScope.ts [--cases ../docs/evals/scope-cases.json] [--files <dir>] [--out report.json]
  *
  * A case with a `file` field needs `--files <dir>` holding that file; the user's own documents stay
  * on their machine.

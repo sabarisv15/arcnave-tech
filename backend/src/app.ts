@@ -45,6 +45,7 @@ import { usageRoutes } from './routes/usage.js';
 import { errorLogFields } from './errorLog.js';
 import { sqlState } from './services/turn/turnStore.js';
 import type { AppInstance } from './types.js';
+import { NUMBERS } from './config/numbers.js';
 
 /**
  * SQLSTATEs that mean the database could not serve the request in time, not that the request
@@ -83,9 +84,10 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
     // is what makes `request.log` real: it binds the request id automatically, so every line
     // a handler or the error handler writes is correlated without passing the id around.
     loggerInstance: logger,
-    // Uploads are additionally capped per-file by @fastify/multipart; this is the hard
-    // transport ceiling, with headroom for multipart framing.
-    bodyLimit: cfg.MAX_UPLOAD_BYTES + 1024 * 1024,
+    // C4 (P21): 1 MiB for every route that sets no limit of its own; uploads and the JSON routes
+    // whose schema admits more set theirs (routes/bodyLimits.ts). Multipart files are also capped
+    // per file by @fastify/multipart below.
+    bodyLimit: cfg.API_BODY_LIMIT_BYTES,
     // request.ip is the client, not the platform's front end, and a client-written
     // X-Forwarded-For entry cannot choose it (ADR-0065).
     trustProxy: trustProxyHops(cfg.TRUST_PROXY_HOPS),
@@ -128,7 +130,7 @@ export async function createApp(cfg: Config, options: CreateAppOptions = {}): Pr
   });
 
   await app.register(multipart, {
-    limits: { fileSize: cfg.MAX_UPLOAD_BYTES, files: 10, fields: 20 },
+    limits: { fileSize: cfg.MAX_UPLOAD_BYTES, files: NUMBERS.FILES_PER_MESSAGE.value /* N-10 */, fields: 20 },
   });
 
   await app.register(contextPlugin, { services });

@@ -211,7 +211,6 @@ describe('labelled fallback (7.12, OQ-02 A)', () => {
   it('a failure after text keeps the partial answer (interrupted), and the next turn sees its cut marker', async () => {
     const chatId = await newChat(s);
     gemini.attempts = [
-      // eslint-disable-next-line require-yield
       async function* () {
         yield { type: 'delta', text: 'The first half' };
         throw busy();
