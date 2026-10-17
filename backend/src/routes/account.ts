@@ -113,8 +113,15 @@ export async function accountRoutes(app: AppInstance): Promise<void> {
       const owned = await db.select({ id: chats.id }).from(chats).where(eq(chats.userId, user.id));
       await requestCancel(db, owned.map((c) => c.id));
       for (const chat of owned) runHub.active(chat.id)?.controller.abort();
+      // P22 (Stage 5 P11): the deletion ledger records the request before anything goes, and
+      // its completion after the bytes, before the rows. A failed record stops the deletion
+      // here: the account is intact and the request can be retried.
+      const { deletionLedger } = request.services;
+      const counts = { chats: owned.length };
+      await deletionLedger.write({ kind: 'account_delete', phase: 'requested', subjectId: user.id, userId: user.id, at: new Date(), counts });
       // Bytes first: if storage fails, the rows that name the bytes are still there to retry.
-      await storage.deleteOwned(user.id);
+      const objects = await storage.deleteOwned(user.id);
+      await deletionLedger.write({ kind: 'account_delete', phase: 'completed', subjectId: user.id, userId: user.id, at: new Date(), counts: { ...counts, objects } });
       // Every other table's rows cascade from the user (ADR-0040 lists them).
       await db.delete(users).where(eq(users.id, user.id));
       void reply.clearCookie(cfg.SESSION_COOKIE_NAME, { path: '/' });

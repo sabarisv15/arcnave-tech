@@ -22,10 +22,18 @@ vi.mock("./session", () => ({
 
 vi.mock("./adapter", () => ({
   attach: async function* () {},
-  async *generate(chatId: string, _req: unknown, signal: AbortSignal, options?: { idempotencyKey?: string }): AsyncGenerator<StreamEvent> {
-    signals.set(chatId, signal);
+  async *generate(chatId: string, req: { retryMessageId?: string }, signal: AbortSignal, options?: { idempotencyKey?: string }): AsyncGenerator<StreamEvent> {
+    // P22: a regenerate of a finished answer runs in a new version, which the ack names.
+    const ran = req.retryMessageId ? `${chatId}-v2` : chatId;
+    signals.set(ran, signal);
     keys.push(options?.idempotencyKey ?? "");
-    yield { type: "ack", turnId: `t-${chatId}`, messageId: `m-${chatId}`, userMessageId: `u-${chatId}` };
+    yield {
+      type: "ack",
+      turnId: `t-${ran}`,
+      messageId: `m-${ran}`,
+      userMessageId: `u-${ran}`,
+      ...(ran !== chatId ? { chatId: ran } : {}),
+    };
     // A run that goes on until it is stopped.
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     throw new DOMException("Aborted", "AbortError");
@@ -36,14 +44,24 @@ const stopCalls: string[] = [];
 vi.mock("./api", async (importOriginal) => {
   const real = await importOriginal<typeof import("./api")>();
   const page = { items: [], nextCursor: null };
-  const chat = (id: string) => ({ id, familyId: id, title: id, projectId: null, pinned: false, version: 1, createdAt: null, updatedAt: null, messages: [] });
+  const msg = (id: string, seq: number, role: string, text: string) => ({
+    id, seq, role, text, mode: "chat", status: "complete", errorCode: null, researchStage: null, questions: [], feedback: null,
+    modelAlias: null, effort: null, providerModelId: null, finishReason: "stop", artifactId: null, searchEntryPoint: null,
+    thinking: null, segments: null, createdAt: null, completedAt: null, sources: [], events: [], toolCalls: [], attachments: [],
+    versions: null, usage: null,
+  });
+  // Chat "c" has an answered prompt, for the regenerate case.
+  const chat = (id: string) => ({
+    id, familyId: id, title: id, projectId: null, pinned: false, version: 1, createdAt: null, updatedAt: null,
+    messages: id === "c" ? [msg("uc", 0, "user", "Say it."), msg("ac", 1, "assistant", "Old answer.")] : [],
+  });
   return {
     ...real,
     api: {
       ...real.api,
       chats: {
         ...real.api.chats,
-        list: async () => ({ items: [chat("a"), chat("b")], nextCursor: null }),
+        list: async () => ({ items: [chat("a"), chat("b"), chat("c")], nextCursor: null }),
         read: async (id: string) => chat(id),
         stop: async (id: string) => {
           stopCalls.push(id);
@@ -129,5 +147,36 @@ describe("a controller per chat", () => {
 
     act(() => ws.stop("b"));
     await waitFor(() => expect(signals.get("b")!.aborted).toBe(true));
+  });
+});
+
+describe("a regenerate that keeps the old answer (ADR-0079)", () => {
+  it("follows the turn into its new version: the run, its row and Stop move there", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <MemoryRouter initialEntries={["/chat/c"]}>
+          <WorkspaceProvider>
+            <Probe />
+          </WorkspaceProvider>
+        </MemoryRouter>,
+      ),
+    );
+    await waitFor(() => expect(ws.ready).toBe(true));
+    act(() => ws.openChat("c"));
+    await waitFor(() => expect(ws.messages["c"]?.map((m) => m.id)).toEqual(["uc", "ac"]));
+
+    act(() => ws.retry("c", "ac"));
+    await waitFor(() => expect(signals.has("c-v2")).toBe(true));
+    await waitFor(() => expect(ws.runningChats).toEqual(["c-v2"]));
+    // The new version holds the prompt and the new answer's row; the old chat is read again when opened.
+    await waitFor(() => expect(ws.messages["c-v2"]?.map((m) => [m.id, m.role])).toEqual([["uc", "user"], ["m-c-v2", "assistant"]]));
+    expect(ws.messages["c"]).toBeUndefined();
+
+    act(() => ws.stop("c-v2"));
+    await waitFor(() => expect(signals.get("c-v2")!.aborted).toBe(true));
+    expect(stopCalls).toEqual(["c-v2"]);
   });
 });

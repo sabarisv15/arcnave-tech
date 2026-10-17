@@ -5,11 +5,11 @@
  */
 import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
-import { type GenerationRequest, type Provider, addRequestUsage, toolCallAsText } from '../../providers/types.js';
+import { type GenerationRequest, type Provider, toolCallAsText } from '../../providers/types.js';
 import { neutraliseReservedTags } from '../prompt/reservedTags.js';
 import type { TurnLog } from '../turnLog.js';
 import { type StreamEvent, toUsageDto } from './events.js';
-import type { TurnState } from './turnState.js';
+import { type TurnState, addCall, addCallFromCompleted } from './turnState.js';
 
 // The module tag the turn's log lines had before the split (ADR-0067).
 const log = logger.child({ module: 'generation' });
@@ -48,7 +48,14 @@ export async function* forcedAnswer(
           'Do not call a tool. If the work is not finished, say what is done and what remains.]',
       };
       const synthesisStream = provider.stream(synthesisRequest);
+      let reported = 0;
       for await (const event of synthesisStream) {
+        if (event.type === 'call_usage') {
+          // P22: the forced answer's own request, a row of its own in the ledger.
+          addCall(state, event, 'forced_answer', request.providerModelId, new Date());
+          reported += 1;
+          continue;
+        }
         if (event.type === 'delta' && event.text) {
           const safe = state.answerGuard.push(event.text);
           state.collectedText.push(safe);
@@ -63,8 +70,12 @@ export async function* forcedAnswer(
             turnLog.text(tail);
             yield { type: 'delta', text: tail };
           }
-          // A second request of the same turn: billed on top of the first.
-          state.usage = addRequestUsage(state.usage, event.usage);
+          // A second request of the same turn: billed on top of the first (its own call row).
+          // One request, so its own size is the last request's (as `addRequestUsage` counted it).
+          const own = event.usage.exact && !event.usage.lastRequest
+            ? { ...event.usage, lastRequest: { inputTokens: event.usage.inputTokens, outputTokens: event.usage.outputTokens } }
+            : event.usage;
+          if (reported === 0) addCallFromCompleted(state, own, event.finishReason, 'forced_answer', request.providerModelId);
           // A loop that ran out of tool steps stays marked so: the user is offered Continue, and
           // the forced answer's own "stop" must not hide that the work was cut short.
           if (state.finishReason !== 'tool_limit') state.finishReason = event.finishReason;

@@ -990,6 +990,8 @@ export const api = {
         throughMessageId ? { throughMessageId } : {},
       ),
     stop: (id: string) => post<{ stopped: boolean }>(`/chats/${id}/stop`),
+    /** Makes this version the one the conversation opens on, on the server (ADR-0079). */
+    activateVersion: (id: string) => request<void>("PUT", `/chats/${id}/active-version`),
     feedback: (id: string, messageId: string, feedback: "up" | "down" | null) =>
       post<void>(`/chats/${id}/messages/${messageId}/feedback`, { feedback }),
     /** A reply's turn log, as a text-file download (ADR-0050). */

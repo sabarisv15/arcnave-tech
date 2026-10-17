@@ -161,6 +161,27 @@ describe('GeminiProvider tool-calling loop', () => {
     });
   });
 
+  it('P22: reports each request as its own call_usage, with its response id; a round with no count is none', async () => {
+    const call = (id: string): FakeChunk => ({ functionCalls: [{ id, name: 'search_project_files', args: { query: 'q' } }] });
+    const usage = (prompt: number, out: number, responseId: string): FakeChunk =>
+      ({ responseId, usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: out } }) as FakeChunk;
+    const client = new FakeGeminiClient();
+    client.responses = [
+      [call('a'), usage(1000, 5, 'r1'), usage(1000, 10, 'r1')],
+      [call('b')],
+      [{ text: 'done', candidates: [{ finishReason: 'STOP' }] } as FakeChunk, usage(1200, 30, 'r3')],
+    ].map(fakeStream);
+    const provider = new GeminiProvider(loadConfig({ NODE_ENV: 'test' }), client as never);
+    const events = await collect(provider.stream(baseRequest({ tools: [SEARCH_TOOL], toolExecutor: new ScriptedExecutor() })));
+    const calls = events.filter((e) => e.type === 'call_usage');
+    expect(calls.map((c) => ({ ordinal: c.ordinal, source: c.usageSource, ref: c.providerRef?.value, inT: c.usage.inputTokens, outT: c.usage.outputTokens, exact: c.usage.exact }))).toEqual([
+      { ordinal: 0, source: 'provider', ref: 'r1', inT: 1000, outT: 10, exact: true },
+      { ordinal: 1, source: 'none', ref: undefined, inT: 0, outT: 0, exact: false },
+      { ordinal: 2, source: 'provider', ref: 'r3', inT: 1200, outT: 30, exact: true },
+    ]);
+    expect(calls[2]).toMatchObject({ finishReason: 'STOP' });
+  });
+
   it('feeds a tool failure back to the model rather than throwing', async () => {
     const client = new FakeGeminiClient();
     client.responses = [

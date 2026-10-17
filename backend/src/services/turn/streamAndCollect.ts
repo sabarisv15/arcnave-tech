@@ -11,7 +11,7 @@
 import { VISUAL_MAX_HTML_BYTES } from '../ui/validator.js';
 import { logger } from '../../logger.js';
 import type { ModelEntry } from '../../providers/registry.js';
-import { type GenerationRequest, type Provider, type ReasoningEffort, isAbort, ModelNotFoundError, toolResultPreview, withoutImageBytes } from '../../providers/types.js';
+import { type GenerationRequest, type Provider, type ReasoningEffort, isAbort, ModelNotFoundError, ProviderError, toolResultPreview, withoutImageBytes } from '../../providers/types.js';
 import type { TurnLog } from '../turnLog.js';
 import { StreamTimeSplit, type TurnTiming } from '../turnTiming.js';
 import { type StreamEvent, presentedFiles, toSourceDto, toUsageDto } from './events.js';
@@ -20,7 +20,7 @@ import { persistEvent, persistToolCall } from './persistence.js';
 import { FailedAfterToolRun, isTypedStop, mapProviderError, refusalError, streamWithRetry, visualDrafts } from './providerLoop.js';
 import { endStateFor, settleTurn } from './turnStore.js';
 import type { TurnServices } from './services.js';
-import type { TurnLogOutcome, TurnState } from './turnState.js';
+import { type TurnLogOutcome, type TurnState, addCall, addCallFromCompleted, addFailedCall } from './turnState.js';
 
 // The module tag the turn's log lines had before the split (ADR-0067).
 const log = logger.child({ module: 'generation' });
@@ -52,9 +52,15 @@ export async function* streamAndCollect(
   const checkpoint = async (): Promise<void> => {
     await input.checkpoint?.flush({ text: state.collectedText.join(''), thinking: state.collectedThinking.join(''), segments: state.segments });
   };
+  // P22: whether the provider's refusal (already reported with its own call) ended the stream.
+  let refused = false;
+  // P22: calls reported since the last `completed`; a stream that reports none gets one from it.
+  let callsSinceCompleted = 0;
+  const providerModelId = entry.providerModelId ?? request.providerModelId;
   try {
     const stream = streamWithRetry(svc, provider.stream.bind(provider), request);
     timing.mark('before_provider');
+    const providerSentAt = Date.now();
     let firstProviderEvent = true;
     let toolCallCount = 0;
     // Splits the stream's time between waiting on the model and waiting on tools, so a slow
@@ -64,6 +70,8 @@ export async function* streamAndCollect(
     for await (const event of stream) {
       if (firstProviderEvent) {
         firstProviderEvent = false;
+        // OD-8 provider_ttft: request sent → first stream event (retries included).
+        state.clocks.providerTtftMs = Date.now() - providerSentAt;
         timing.mark('provider_first_event');
         turnLog.stage('provider first event', { event: event.type });
       }
@@ -76,7 +84,11 @@ export async function* streamAndCollect(
           state.collectedText.push(safe);
           addSegment('text', safe);
           turnLog.text(safe);
-          if (safe) yield { type: 'delta', text: safe };
+          if (safe) {
+            // OD-8 first_visible: turn start → the first answer text sent to the client.
+            state.clocks.firstVisibleMs ??= Date.now() - startedAt.getTime();
+            yield { type: 'delta', text: safe };
+          }
           await checkpoint();
           break;
         }
@@ -189,7 +201,14 @@ export async function* streamAndCollect(
         }
 
         case 'refusal':
+          refused = true;
           throw refusalError(event);
+
+        case 'call_usage':
+          // P22 (E19): one row per provider request; the turn's usage is their sum.
+          addCall(state, event, 'answer', providerModelId, new Date());
+          callsSinceCompleted += 1;
+          break;
 
         case 'completed':
           {
@@ -201,7 +220,8 @@ export async function* streamAndCollect(
               yield { type: 'delta', text: tail };
             }
           }
-          state.usage = event.usage;
+          if (callsSinceCompleted === 0) addCallFromCompleted(state, event.usage, event.finishReason, 'answer', providerModelId);
+          callsSinceCompleted = 0;
           state.finishReason = event.finishReason;
           svc.registry.recordOutcome(entry.alias, { available: true });
           turnLog.stage('provider completed', { finishReason: event.finishReason, toolCalls: state.toolsCalled.length, stream: split.summary() });
@@ -217,6 +237,8 @@ export async function* streamAndCollect(
     if (err instanceof FailedAfterToolRun && !deadlineHit && !input.signal.aborted) {
       // The answer so far, the tool calls already stored, and a typed code: never a second run
       // of a tool, never a failure presented as a finished answer (done carries `partial`).
+      // The request that failed was sent: a row with no counts (P22).
+      addFailedCall(state, 'answer', providerModelId);
       state.endedPartial = true;
       state.errorCode = 'partial_after_tool_run';
       state.finishReason = 'partial';
@@ -234,6 +256,9 @@ export async function* streamAndCollect(
       state.status = 'cancelled';
     } else {
       state.status = 'error';
+      // A provider request that failed was sent: a row with no counts (P22). A refusal already has
+      // its own call; an error of ours (a database write, say) made no request.
+      if (!refused && (err instanceof ProviderError || deadlineHit)) addFailedCall(state, 'answer', providerModelId);
       const mapped = mapProviderError(deadlineHit ? input.signal.reason : err);
       state.errorCode = mapped.code;
       turnLog.fail(err);
@@ -269,6 +294,8 @@ export async function* streamAndCollect(
             startedAt,
             status: 'error',
             errorCode: mapped.code,
+            calls: state.calls,
+            clocks: state.clocks,
           },
           end: endStateFor('error', mapped.code),
           finishCode: mapped.code,

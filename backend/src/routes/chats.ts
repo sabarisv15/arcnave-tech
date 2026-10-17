@@ -223,14 +223,19 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       const filters = [eq(chats.userId, user.id), isNull(chats.deletedAt)];
       if (projectId) filters.push(eq(chats.projectId, projectId));
       if (q?.trim()) filters.push(sql`${chats.title} ilike ${'%' + q.trim() + '%'}`);
-      // One row per conversation: of its versions, the one used last (ADR-0038).
+      // One row per conversation: the version chosen last (the root's `active_chat_id`, set by a
+      // generate or PUT /active-version; ADR-0079), else the one used last (ADR-0038).
       filters.push(sql`not exists (
         select 1 from chats newer
         where newer.user_id = ${chats.userId}
           and newer.deleted_at is null
+          and newer.id <> ${chats.id}
           and coalesce(newer.root_chat_id, newer.id) = coalesce(${chats.rootChatId}, ${chats.id})
-          and (newer.updated_at > ${chats.updatedAt}
-               or (newer.updated_at = ${chats.updatedAt} and newer.id > ${chats.id})))`);
+          and (
+            newer.id = (select fam.active_chat_id from chats fam where fam.id = coalesce(${chats.rootChatId}, ${chats.id}))
+            or (${chats.id} is distinct from (select fam.active_chat_id from chats fam where fam.id = coalesce(${chats.rootChatId}, ${chats.id}))
+                and (newer.updated_at > ${chats.updatedAt}
+                     or (newer.updated_at = ${chats.updatedAt} and newer.id > ${chats.id})))))`);
       if (decoded) {
         // Keyset pagination: strictly older, or same timestamp with a smaller id.
         filters.push(
@@ -354,7 +359,8 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       const versions = await loadVersions(
         request,
         chat,
-        transcript.filter((m) => m.role === 'user').map((m) => m.seq),
+        // A prompt's versions (edits, ADR-0038) and an answer's (regenerates, ADR-0079).
+        transcript.map((m) => m.seq),
       );
       return {
         ...toChatDto(chat),
@@ -458,6 +464,33 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         .update(chats)
         .set({ deletedAt: new Date() })
         .where(inArray(chats.id, family.map((m) => m.id)));
+      return reply.status(204).send(null);
+    },
+  );
+
+  /* ---------------------------------------------------------------- active version */
+
+  typed.put(
+    '/chats/:id/active-version',
+    {
+      schema: {
+        tags: ['chats'],
+        summary: 'Make this version the one the conversation opens on (ADR-0079)',
+        description:
+          'Stores the choice on the server: `GET /chats` lists this version for the conversation ' +
+          'until another is chosen or a generate runs in another one.',
+        params: uuidParam,
+        response: { 204: z.null() },
+      },
+    },
+    async (request, reply) => {
+      const { db } = request.services;
+      const chat = await loadChat(request, request.params.id);
+      // A switch does not move the conversation up the list: `updated_at` stays.
+      await db
+        .update(chats)
+        .set({ activeChatId: chat.id, updatedAt: sql`${chats.updatedAt}` })
+        .where(eq(chats.id, chat.rootChatId ?? chat.id));
       return reply.status(204).send(null);
     },
   );
@@ -587,7 +620,7 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
       // A send retried with its key reattaches before any other check: it was accepted once.
       if (key) {
         const replay = await services.db.transaction((tx) => peekIdempotent(tx, user.id, key, chat.id, body));
-        if (replay) return reattach(request, reply, chat.id, replay.turnId);
+        if (replay) return reattach(request, reply, replay.chatId ?? chat.id, replay.turnId);
       }
 
       // --- refused before anything is written (Stage 3 1.6) -------------------------
@@ -603,13 +636,15 @@ export async function chatRoutes(app: AppInstance): Promise<void> {
         instanceId: services.instanceId,
         idempotencyKey: key,
       });
-      if (started.replayed) return reattach(request, reply, chat.id, started.turnId);
+      if (started.replayed) return reattach(request, reply, started.chatId, started.turnId);
 
       // --- the run lives on its own; this connection is only its first subscriber ------
       // Closing the socket does not stop the run (a sleeping tab or a dropped mobile network
       // would otherwise throw away minutes of tool work). Stop is explicit: POST /stop.
-      const run = launchTurn(services, started, { userId: user.id, chatId: chat.id, requestId: request.id, prefs });
-      const conn = new SseConnection(request, reply, { userId: user.id, chatId: chat.id });
+      // A regenerate that keeps the old answer runs in a new version (P22, ADR-0079): the run
+      // and its stream belong to that chat, which the `ack` and `start` frames name.
+      const run = launchTurn(services, started, { userId: user.id, chatId: started.chatId, requestId: request.id, prefs });
+      const conn = new SseConnection(request, reply, { userId: user.id, chatId: started.chatId });
       await streamLive(conn, run, -1, () => snapshotOfTurnId(request, started.turnId));
       return reply;
     },
@@ -770,7 +805,7 @@ async function peekIdempotent(
   key: string,
   chatId: string,
   body: StartTurnBody,
-): Promise<{ turnId: string } | null> {
+): Promise<{ turnId: string; chatId?: string } | null> {
   const [row] = await tx
     .select({ requestFingerprint: idempotencyKeys.requestFingerprint, responseJson: idempotencyKeys.responseJson })
     .from(idempotencyKeys)
@@ -778,7 +813,7 @@ async function peekIdempotent(
     .limit(1);
   if (!row) return null;
   if (row.requestFingerprint !== sendFingerprint(chatId, body)) throw new ApiError('idempotency_conflict');
-  return row.responseJson as { turnId: string };
+  return row.responseJson as { turnId: string; chatId?: string };
 }
 
 /**
@@ -963,7 +998,7 @@ async function loadVersions(
  * calls and attachments. An attachment row is copied, not its bytes; retention deletes the bytes
  * only when no row outside the purged chat still names them.
  */
-async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, userId: string): Promise<void> {
+export async function copyMessages(tx: DbLike, rows: MessageRow[], chatId: string, userId: string): Promise<void> {
   if (rows.length === 0) return;
   const inserted = await tx
     .insert(messages)

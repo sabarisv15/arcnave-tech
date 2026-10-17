@@ -19,7 +19,7 @@
  * - **The file rules.** A file already in a sent message, or not ready, refuses the send; a chat
  *   holds at most N-10 files (`FILE_LIMITS.maxFilesPerChat`).
  */
-import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 import {
   attachments as attachmentsTable,
@@ -38,6 +38,9 @@ import { logger } from '../../logger.js';
 import type { AppInstance } from '../../types.js';
 import { errorLogFields } from '../../errorLog.js';
 import { fingerprint } from '../../routes/helpers.js';
+// The same copy the edit-a-prompt version uses (ADR-0038); a cycle with the routes module that is
+// only read at call time.
+import { copyMessages } from '../../routes/chats.js';
 import { FILE_LIMITS } from '../attachments/pipeline.js';
 import { isUniqueViolation } from '../auth.js';
 import type { BudgetPrefs } from '../usage.js';
@@ -94,6 +97,13 @@ export interface StartTurnOptions {
 
 export interface StartedTurn {
   turnId: string;
+  /**
+   * The chat the turn runs in: the chat asked for, or, for a regenerate that keeps the old answer
+   * (P22, ADR-0079), the new version made for it. The `ack` and `start` frames carry it.
+   */
+  chatId: string;
+  /** Set when `chatId` is a new version made for this turn: the chat the request named. */
+  forkedFrom?: string;
   assistantMessageId: string;
   userMessageId: string | null;
   /** An Idempotency-Key matched an earlier send with the same body: nothing new was written. */
@@ -105,6 +115,8 @@ type TurnServicesForStart = { services: Pick<AppInstance['services'], 'db' | 'us
 /** What an Idempotency-Key's row holds for a send. */
 interface StoredTurn {
   turnId: string;
+  /** Absent on keys stored before P22: the chat the key was used on. */
+  chatId?: string;
   assistantMessageId: string;
   userMessageId: string | null;
 }
@@ -123,6 +135,19 @@ async function findIdempotent(db: DbLike, userId: string, key: string, print: st
   if (!row) return null;
   if (row.requestFingerprint !== print) throw new ApiError('idempotency_conflict');
   return row.responseJson as StoredTurn;
+}
+
+/** A stored turn as a started one: a key from before P22 names no chat, so it is the one asked for. */
+function replayed(hit: StoredTurn, chatId: string): StartedTurn {
+  const ran = hit.chatId ?? chatId;
+  return {
+    turnId: hit.turnId,
+    chatId: ran,
+    ...(ran !== chatId ? { forkedFrom: chatId } : {}),
+    assistantMessageId: hit.assistantMessageId,
+    userMessageId: hit.userMessageId,
+    replayed: true,
+  };
 }
 
 function constraintOf(err: unknown): string | undefined {
@@ -150,23 +175,37 @@ export async function startTurn(
   const print = sendFingerprint(chatId, body);
   try {
     return await db.transaction(async (tx) => {
-      // Serialises every start on this chat: two sends, a send and a regenerate, two regenerates.
-      await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, chatId)).for('update');
+      // Serialises every start in this conversation: two sends, a send and a regenerate, two
+      // regenerates. The family's root is locked first, then the chat (P22, ADR-0079): a
+      // regenerate may run in a new version, so "one running turn" is checked over the family.
+      const [found] = await tx.select({ rootChatId: chats.rootChatId }).from(chats).where(eq(chats.id, chatId)).limit(1);
+      if (!found) throw notFound('conversation');
+      const familyId = found.rootChatId ?? chatId;
+      if (familyId !== chatId) await tx.select({ id: chats.id }).from(chats).where(eq(chats.id, familyId)).for('update');
+      const [chat] = await tx.select().from(chats).where(eq(chats.id, chatId)).for('update');
+      if (!chat) throw notFound('conversation');
 
       if (opts.idempotencyKey) {
         const hit = await findIdempotent(tx, userId, opts.idempotencyKey, print);
-        if (hit) return { ...hit, replayed: true };
+        if (hit) return replayed(hit, chatId);
       }
-      if (await activeTurnForUpdate({ usage }, tx, chatId)) throw new ApiError('run_in_progress');
+      if (await activeTurnInFamily({ usage }, tx, familyId)) throw new ApiError('run_in_progress');
 
-      const pair = body.retryMessageId
-        ? await resetForRetry(tx, chatId, userId, body.retryMessageId, body.attachmentIds)
-        : await appendMessages(tx, chatId, userId, body.prompt, body.mode, body.attachmentIds);
+      const pair: StartPair = body.retryMessageId
+        ? await resetForRetry(tx, chat, userId, body.retryMessageId, body.attachmentIds)
+        : { ...(await appendMessages(tx, chatId, userId, body.prompt, body.mode, body.attachmentIds)), chatId, attachmentIds: body.attachmentIds };
+
+      // The version the user is on is the one this generate writes to (ADR-0079 replaces ADR-0038 5).
+      // Not a change the list orders by: `updated_at` stays (the chat's own settle moves it).
+      await tx
+        .update(chats)
+        .set({ activeChatId: pair.chatId, updatedAt: sql`${chats.updatedAt}` })
+        .where(and(eq(chats.id, familyId), sql`${chats.activeChatId} is distinct from ${pair.chatId}`));
 
       const params: TurnParams = {
         mode: body.mode,
         modelAlias: body.model,
-        attachmentIds: body.attachmentIds,
+        attachmentIds: pair.attachmentIds,
         codeExecution: body.codeExecution,
         ...(body.effort ? { effort: body.effort } : {}),
         ...(body.styleId ? { styleId: body.styleId } : {}),
@@ -176,7 +215,7 @@ export async function startTurn(
       const [turn] = await tx
         .insert(turns)
         .values({
-          chatId,
+          chatId: pair.chatId,
           userId,
           userMessageId: pair.userMessageId,
           assistantMessageId: pair.assistantMessageId,
@@ -201,7 +240,7 @@ export async function startTurn(
         tx,
       });
 
-      const stored: StoredTurn = { turnId: turn!.id, ...pair };
+      const stored: StoredTurn = { turnId: turn!.id, chatId: pair.chatId, assistantMessageId: pair.assistantMessageId, userMessageId: pair.userMessageId };
       if (opts.idempotencyKey) {
         await tx.insert(idempotencyKeys).values({
           userId,
@@ -212,14 +251,21 @@ export async function startTurn(
           statusCode: 200,
         });
       }
-      return { ...stored, replayed: false };
+      return {
+        turnId: turn!.id,
+        chatId: pair.chatId,
+        ...(pair.chatId !== chatId ? { forkedFrom: chatId } : {}),
+        assistantMessageId: pair.assistantMessageId,
+        userMessageId: pair.userMessageId,
+        replayed: false,
+      };
     });
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
     // The same key, sent at once for another chat: the first one's row decides.
     if (constraintOf(err) === 'uq_idempotency' && opts.idempotencyKey) {
       const hit = await findIdempotent(db, userId, opts.idempotencyKey, print);
-      if (hit) return { ...hit, replayed: true };
+      if (hit) return replayed(hit, chatId);
     }
     // The chat lock makes these unreachable from this code; another writer (or an older
     // instance during a rollout) still meets the constraint, and the caller gets a 409.
@@ -343,22 +389,53 @@ async function appendMessages(
 }
 
 /**
- * Clear a previous attempt so a retry does not append duplicate sources, events or tool calls.
- * The tool calls go too: a call is stored with `onConflictDoNothing` on (message, ordinal), so
- * the old attempt's rows would win over the new attempt's and be replayed as its history.
+ * Any queued or running turn in the conversation (every version of it), each taken over first
+ * when its lease lapsed (`activeTurnForUpdate`). P22: a regenerate runs in a new version, so the
+ * one-running-turn rule is kept over the family, under the root's lock the caller holds.
+ */
+async function activeTurnInFamily(deps: Pick<SettleDeps, 'usage'>, tx: Transaction, familyId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ chatId: turns.chatId })
+    .from(turns)
+    .innerJoin(chats, eq(chats.id, turns.chatId))
+    .where(and(sql`coalesce(${chats.rootChatId}, ${chats.id}) = ${familyId}`, inArray(turns.state, ['queued', 'running'])));
+  for (const chatId of new Set(rows.map((r) => r.chatId))) {
+    if (await activeTurnForUpdate(deps, tx, chatId)) return true;
+  }
+  return false;
+}
+
+/** What a start writes to: the chat, its user + assistant pair, and the files the turn reads. */
+interface StartPair {
+  chatId: string;
+  userMessageId: string | null;
+  assistantMessageId: string;
+  attachmentIds: string[];
+}
+
+/**
+ * A regenerate. An answer that was finished with text is kept (Stage 5 F4b, ADR-0079): the
+ * conversation up to and including its prompt is copied into a new version (ADR-0038's
+ * versions, `fork_seq` = the answer's seq) with a fresh assistant row, and the run goes there.
+ * An answer that failed or is empty is cleared in place, as before.
+ *
+ * Clearing in place: a retry must not append duplicate sources, events or tool calls. The tool
+ * calls go too: a call is stored with `onConflictDoNothing` on (message, ordinal), so the old
+ * attempt's rows would win over the new attempt's and be replayed as its history.
  *
  * Guarded (D3 A-04): the row is reset only while it is not `generating`, in the caller's
  * transaction with the turn insert, so a regenerate cannot clear an answer still being written.
  */
 async function resetForRetry(
   tx: Transaction,
-  chatId: string,
+  chat: ChatRow,
   userId: string,
   messageId: string,
   attachmentIds: string[],
-): Promise<{ userMessageId: string | null; assistantMessageId: string }> {
+): Promise<StartPair> {
+  const chatId = chat.id;
   const [existing] = await tx
-    .select({ id: messages.id, role: messages.role, seq: messages.seq })
+    .select({ id: messages.id, role: messages.role, seq: messages.seq, status: messages.status, text: messages.text, mode: messages.mode })
     .from(messages)
     .where(and(eq(messages.id, messageId), eq(messages.chatId, chatId)))
     .limit(1);
@@ -372,6 +449,10 @@ async function resetForRetry(
       .from(attachmentsTable)
       .where(and(inArray(attachmentsTable.id, attachmentIds), eq(attachmentsTable.userId, userId)));
     if ((owned?.n ?? 0) !== new Set(attachmentIds).size) throw notFound('file');
+  }
+
+  if ((existing.status === 'complete' || existing.status === 'stopped') && existing.text.trim().length > 0) {
+    return forkForRegenerate(tx, chat, userId, existing, attachmentIds);
   }
 
   const [reset] = await tx
@@ -403,7 +484,64 @@ async function resetForRetry(
     .where(and(eq(messages.chatId, chatId), eq(messages.role, 'user'), lt(messages.seq, existing.seq)))
     .orderBy(desc(messages.seq))
     .limit(1);
-  return { userMessageId: prompt?.id ?? null, assistantMessageId: messageId };
+  return { chatId, userMessageId: prompt?.id ?? null, assistantMessageId: messageId, attachmentIds };
+}
+
+/**
+ * The new version a kept answer's regenerate runs in: the messages before the answer (its
+ * prompt included) copied with everything shown with them, then an empty assistant row at the
+ * answer's seq. The turn's files are the copies on the copied prompt, so the new version reads
+ * its own rows (the bytes are shared, as with every version).
+ */
+async function forkForRegenerate(
+  tx: Transaction,
+  chat: ChatRow,
+  userId: string,
+  answer: { seq: number; mode: string },
+  attachmentIds: string[],
+): Promise<StartPair> {
+  const history = await tx
+    .select()
+    .from(messages)
+    .where(and(eq(messages.chatId, chat.id), lt(messages.seq, answer.seq)))
+    .orderBy(asc(messages.seq));
+  const [created] = await tx
+    .insert(chats)
+    .values({
+      userId,
+      title: chat.title,
+      projectId: chat.projectId,
+      pinned: chat.pinned,
+      parentChatId: chat.id,
+      rootChatId: chat.rootChatId ?? chat.id,
+      forkSeq: answer.seq,
+    })
+    .returning({ id: chats.id });
+  const versionId = created!.id;
+  await copyMessages(tx, history, versionId, userId);
+  const [assistant] = await tx
+    .insert(messages)
+    .values({ chatId: versionId, userId, seq: answer.seq, role: 'assistant', text: '', mode: answer.mode, status: 'generating' })
+    .returning({ id: messages.id });
+  const [prompt] = await tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(eq(messages.chatId, versionId), eq(messages.role, 'user'), lt(messages.seq, answer.seq)))
+    .orderBy(desc(messages.seq))
+    .limit(1);
+
+  let files = attachmentIds;
+  if (prompt && attachmentIds.length > 0) {
+    // The request named the old prompt's files; the copies on the new prompt stand for them.
+    const [asked, copies] = await Promise.all([
+      tx.select({ id: attachmentsTable.id, storageKey: attachmentsTable.storageKey }).from(attachmentsTable).where(inArray(attachmentsTable.id, attachmentIds)),
+      tx.select({ id: attachmentsTable.id, storageKey: attachmentsTable.storageKey }).from(attachmentsTable).where(eq(attachmentsTable.messageId, prompt.id)),
+    ]);
+    const byKey = new Map(copies.map((c) => [c.storageKey, c.id]));
+    const keyOf = new Map(asked.map((a) => [a.id, a.storageKey]));
+    files = attachmentIds.map((id) => byKey.get(keyOf.get(id) ?? '') ?? id);
+  }
+  return { chatId: versionId, userMessageId: prompt?.id ?? null, assistantMessageId: assistant!.id, attachmentIds: files };
 }
 
 /**

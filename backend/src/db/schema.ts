@@ -11,6 +11,8 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   bigint,
+  numeric,
+  primaryKey,
   boolean,
   check,
   doublePrecision,
@@ -268,6 +270,8 @@ export const chats = pgTable(
     parentChatId: uuid('parent_chat_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
     rootChatId: uuid('root_chat_id'),
     forkSeq: integer('fork_seq'),
+    /** P22 (ADR-0079): on the family's root, the version the user chose last; the list shows it. Not a foreign key (a purge never splits the family). */
+    activeChatId: uuid('active_chat_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -836,6 +840,16 @@ export const usageRecords = pgTable(
      * rate is unknown; they are not back-filled with today's). Null != 0.
      */
     costInr: doublePrecision('cost_inr'),
+    /** P22: the price-book rate set the cost was taken from (`model_calls` has one per call). */
+    priceVersion: varchar('price_version', { length: 64 }),
+    /** P22 OD-8 clocks, null when not measured (never 0 for "unknown"): request sent → first stream event. */
+    providerTtftMs: integer('provider_ttft_ms'),
+    /** P22 OD-8: turn start → first answer text sent to the client. */
+    firstVisibleMs: integer('first_visible_ms'),
+    /** P22 OD-8: turn start → settle. */
+    turnTotalMs: integer('turn_total_ms'),
+    /** P22 OD-8: output tokens per second of generation; null unless the counts are exact. */
+    outputTps: doublePrecision('output_tps'),
   },
   (t) => [
     index('ix_usage_user_started').on(t.userId, t.startedAt),
@@ -1263,6 +1277,10 @@ export const budgetReservations = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     createdAt: createdAt(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
+    /** P22: the usage row this hold was settled against (status `settled`). */
+    settledUsageRecordId: uuid('settled_usage_record_id').references(() => usageRecords.id, { onDelete: 'set null' }),
+    /** P22: the price-book rate set of that usage row. */
+    priceVersion: varchar('price_version', { length: 64 }),
   },
   (t) => [
     index('ix_reservations_held').on(t.expiresAt).where(sql`${t.status} = 'held'`),
@@ -1274,3 +1292,93 @@ export const budgetReservations = pgTable(
 
 export type TurnRow = typeof turns.$inferSelect;
 export type BudgetReservation = typeof budgetReservations.$inferSelect;
+
+// --- P22: data model and the ledger (ADR-0079) ---------------------------------------------
+
+/**
+ * The price book in the database (Stage 5 TF, Stage 18 CD-1): the rows of `config/priceBook.ts`,
+ * upserted at boot. Effective-dated; no two rows of one model, token type and tier overlap in
+ * time (`price_table_no_overlap` trigger, migration 0031). Money as `numeric`, not a double.
+ */
+export const priceTable = pgTable(
+  'price_table',
+  {
+    id: id(),
+    providerModelId: varchar('provider_model_id', { length: 128 }).notNull(),
+    /** input | output | cache_read | cache_write_5m */
+    tokenType: varchar('token_type', { length: 16 }).notNull(),
+    trafficTier: varchar('traffic_tier', { length: 16 }).notNull().default('standard'),
+    usdPerMtok: numeric('usd_per_mtok', { precision: 12, scale: 6 }).notNull(),
+    effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull(),
+    effectiveTo: timestamp('effective_to', { withTimezone: true }),
+    priceVersion: varchar('price_version', { length: 64 }).notNull(),
+    source: text('source').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('uq_price_row').on(t.providerModelId, t.tokenType, t.trafficTier, t.effectiveFrom),
+    check('ck_price_token_type', sql`${t.tokenType} in ('input', 'output', 'cache_read', 'cache_write_5m')`),
+    check('ck_price_dates', sql`${t.effectiveTo} is null or ${t.effectiveTo} > ${t.effectiveFrom}`),
+    check('ck_price_nonnegative', sql`${t.usdPerMtok} >= 0`),
+  ],
+);
+
+/**
+ * One row per model call (Stage 4 E19, Stage 17 OD-13, Stage 5 TF): the ledger. A turn's
+ * `usage_records` row is the sum of its calls. Partitioned by month on `started_at` (with a
+ * DEFAULT partition) in the hand-edited migration 0031; `ensureLedgerPartitions` creates this
+ * and next month's. Ids, codes and counts only: no text (Stage 17 NO_CONTENT).
+ */
+export const modelCalls = pgTable(
+  'model_calls',
+  {
+    id: uuid('id').notNull().defaultRandom(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    usageRecordId: uuid('usage_record_id').references(() => usageRecords.id, { onDelete: 'set null' }),
+    turnId: uuid('turn_id').references(() => turns.id, { onDelete: 'set null' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    chatId: uuid('chat_id').references(() => chats.id, { onDelete: 'set null' }),
+    messageId: uuid('message_id').references(() => messages.id, { onDelete: 'set null' }),
+    ordinal: integer('ordinal').notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    /** answer | forced_answer | title | style | summary | router */
+    role: varchar('role', { length: 16 }).notNull(),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    providerModelId: varchar('provider_model_id', { length: 128 }).notNull(),
+    /** message_id | response_id | request_id; null when the provider gave none. */
+    providerRefType: varchar('provider_ref_type', { length: 16 }),
+    providerRef: varchar('provider_ref', { length: 128 }),
+    finishReason: varchar('finish_reason', { length: 48 }),
+    /** ok | partial (stopped mid-request) | no_usage | error (the request failed) */
+    outcome: varchar('outcome', { length: 16 }).notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    tokensExact: boolean('tokens_exact').notNull().default(false),
+    /** provider | provider_partial | none (no `estimated`: Invariant 3). */
+    usageSource: varchar('usage_source', { length: 16 }).notNull(),
+    trafficTier: varchar('traffic_tier', { length: 16 }).notNull().default('standard'),
+    priceVersion: varchar('price_version', { length: 64 }),
+    /** Null when the call has no verified price. Null != 0. */
+    costUsd: doublePrecision('cost_usd'),
+    costInr: doublePrecision('cost_inr'),
+    /** The rate `cost_inr` was taken at (N-37), null when there is no cost. */
+    fxInrPerUsd: doublePrecision('fx_inr_per_usd'),
+    providerTtftMs: integer('provider_ttft_ms'),
+    durationMs: integer('duration_ms'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id, t.startedAt] }),
+    index('ix_model_calls_usage').on(t.usageRecordId),
+    index('ix_model_calls_user_started').on(t.userId, t.startedAt),
+    check('ck_model_calls_role', sql`${t.role} in ('answer', 'forced_answer', 'title', 'style', 'summary', 'router')`),
+    check('ck_model_calls_source', sql`${t.usageSource} in ('provider', 'provider_partial', 'none')`),
+    check('ck_model_calls_outcome', sql`${t.outcome} in ('ok', 'partial', 'no_usage', 'error')`),
+  ],
+);
+
+export type ModelCallRow = typeof modelCalls.$inferSelect;
+export type PriceTableRow = typeof priceTable.$inferSelect;

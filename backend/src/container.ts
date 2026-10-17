@@ -26,6 +26,9 @@ import type { ObjectStorage } from './services/storage.js';
 import { buildStorage } from './services/storage.js';
 import { SkillService } from './services/skills.js';
 import { UsageService } from './services/usage.js';
+import { PricingService } from './services/pricing.js';
+import { LedgerService } from './services/ledger.js';
+import { DeletionLedger } from './services/deletionLedger.js';
 import { ExecutionRuntime } from './tools/execution/executionRuntime.js';
 import { ProcessSandboxClient } from './tools/sandbox/processSandboxClient.js';
 import { CloudRunSandboxClient } from './tools/sandbox/cloudRunSandboxClient.js';
@@ -77,6 +80,13 @@ export interface Services {
   warmSandbox: WarmSandboxClient | null;
   /** The file pipeline: job queue, worker and in-request reading (ADR-0062). */
   files: FileService;
+  // --- P22 (ADR-0079)
+  /** Prices a call from the price book (or the env JSON, `PRICE_SOURCE`). */
+  pricing: PricingService;
+  /** The model-call ledger (`model_calls`), written in each turn's settle. */
+  ledger: LedgerService;
+  /** Deletion records in object storage, outside the database (Stage 5 P11). */
+  deletionLedger: DeletionLedger;
 }
 
 export interface BuildOptions {
@@ -109,7 +119,9 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
   };
 
   const registry = new ModelRegistry(cfg, providers);
-  const usage = new UsageService(db, cfg);
+  const pricing = new PricingService(cfg);
+  const ledger = new LedgerService(pricing);
+  const usage = new UsageService(db, cfg, pricing, ledger);
   const retriever = options.retriever ?? new LexicalRetriever();
   const storage = options.storage ?? buildStorage(cfg);
 
@@ -278,6 +290,9 @@ export function buildServices(cfg: Config, options: BuildOptions = {}): Services
       },
       options.fileWorker,
     ),
+    pricing,
+    ledger,
+    deletionLedger: new DeletionLedger(storage, cfg.DELETION_LEDGER_PREFIX),
   };
 }
 

@@ -586,7 +586,7 @@ function Conversation() {
   useLayoutEffect(() => {
     // After a version switch the prompt stays where it was on screen (ADR-0038).
     if (versionAnchor && versionAnchor.chatId === id) {
-      const row = scroll.current?.querySelector(`.user-message[data-seq="${versionAnchor.seq}"]`);
+      const row = scroll.current?.querySelector(`[data-seq="${versionAnchor.seq}"]`);
       if (row && scroll.current) {
         scroll.current.scrollTop += row.getBoundingClientRect().top - versionAnchor.offset;
         const el = scroll.current;
@@ -935,7 +935,7 @@ function MessageView({
     const target = m.versions?.chatIds[index];
     if (!target) return;
     // Hold the prompt where it is on screen, so the switch reads as the text changing in place.
-    const row = document.querySelector(`.user-message[data-seq="${m.seq}"]`);
+    const row = document.querySelector(`[data-seq="${m.seq}"]`);
     switchVersion(chatId, target, m.seq, row ? row.getBoundingClientRect().top : 0);
   };
 
@@ -1002,6 +1002,7 @@ function MessageView({
     <article
       className={`assistant-message ${loading ? "is-generating" : ""}`}
       aria-label="ArcNave response"
+      data-seq={m.seq}
     >
       {m.mode !== "chat" && (
         <div className="response-meta">
@@ -1210,6 +1211,28 @@ function MessageView({
           >
             <RotateCcw size={15} />
           </IconButton>
+          {m.versions && (
+            // A regenerated answer keeps the earlier one as a version (ADR-0079): `< i / n >`.
+            <div className="version-switcher cs-vers" role="group" aria-label="Versions of this response">
+              <IconButton
+                label="Previous response"
+                disabled={chatRunning || m.versions.index === 0}
+                onClick={() => showVersion(m.versions!.index - 1)}
+              >
+                <ChevronLeft size={14} />
+              </IconButton>
+              <span className="version-count" aria-live="polite">
+                {m.versions.index + 1} / {m.versions.chatIds.length}
+              </span>
+              <IconButton
+                label="Next response"
+                disabled={chatRunning || m.versions.index === m.versions.chatIds.length - 1}
+                onClick={() => showVersion(m.versions!.index + 1)}
+              >
+                <ChevronRight size={14} />
+              </IconButton>
+            </div>
+          )}
           <IconButton
             label="Helpful response"
             className={m.feedback === "up" ? "feedback-selected" : ""}

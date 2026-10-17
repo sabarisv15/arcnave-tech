@@ -23,6 +23,7 @@ import type {
   Provider,
   ProviderEvent,
   ProviderUsage,
+  UsageSource,
   ToolDefinition,
   ToolResult,
 } from './types.js';
@@ -352,6 +353,28 @@ function incompleteMediaNote(finishReason: string): string {
   return `\n\n[Incomplete: the reading stopped early (finish reason ${finishReason}), so the text above may be cut off.]`;
 }
 
+/** P22: one request's `call_usage` event (ADR-0079). The id is Gemini's response id. */
+function geminiCallUsage(
+  round: number,
+  usage: ProviderUsage,
+  usageSource: UsageSource,
+  finishReason: string,
+  ref: string | undefined,
+  startedAt: number,
+  firstAt: number | undefined,
+): ProviderEvent {
+  return {
+    type: 'call_usage',
+    ordinal: round,
+    usage,
+    usageSource,
+    finishReason,
+    ...(ref ? { providerRef: { type: 'response_id' as const, value: ref } } : {}),
+    ...(firstAt !== undefined ? { ttftMs: firstAt - startedAt } : {}),
+    durationMs: Date.now() - startedAt,
+  };
+}
+
 interface GeminiUsageMetadata {
   promptTokenCount?: number;
   candidatesTokenCount?: number;
@@ -552,6 +575,9 @@ export class GeminiProvider implements Provider {
     let contents = buildGeminiContents(request);
     // A call that failed with this exact input is not run again this turn (D2 X-10).
     const failedToolCalls = new Set<string>();
+    // P22: the request in flight, as a partial `call_usage`, for a stop that ends it (the SDK
+    // throws on the abort, so the loop's own abort check is not always reached).
+    let inFlight: (() => ProviderEvent) | null = null;
     const maxRounds = resolveMaxRounds(this.cfg.TOOL_MAX_ROUNDS, useTools);
 
     try {
@@ -612,6 +638,11 @@ export class GeminiProvider implements Provider {
           },
         });
 
+        // P22: this request's own clocks, id and stop reason, for its `call_usage` (OD-8, OD-13).
+        const roundStartedAt = Date.now();
+        let roundFirstAt: number | undefined;
+        let roundRef: string | undefined;
+        let roundFinish = 'unknown';
         let stream: Awaited<ReturnType<typeof open>>;
         try {
           stream = await open(finalToolRound, streamArgs && !finalToolRound);
@@ -634,11 +665,17 @@ export class GeminiProvider implements Provider {
         let roundUsage = EMPTY_USAGE;
         const assembler = new StreamedCallAssembler();
 
+        // Stopped mid-request: Gemini's last cumulative count so far, labelled partial.
+        inFlight = () => geminiCallUsage(round, roundUsage, roundUsage.exact ? 'provider_partial' : 'none', 'cancelled', roundRef, roundStartedAt, roundFirstAt);
         for await (const chunk of stream) {
+          roundFirstAt ??= Date.now();
           if (request.signal.aborted) {
             usage = addRequestUsage(usage, roundUsage);
+            yield inFlight();
+            inFlight = null;
             break roundLoop;
           }
+          if (chunk.responseId) roundRef = chunk.responseId;
 
           for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
             if (part.thought && part.text) yield { type: 'thinking', text: part.text };
@@ -681,10 +718,15 @@ export class GeminiProvider implements Provider {
             if (candidate.groundingMetadata) {
               lastMetadata = candidate.groundingMetadata as GeminiGroundingMetadata;
             }
-            if (candidate.finishReason) finishReason = String(candidate.finishReason);
+            if (candidate.finishReason) {
+              finishReason = String(candidate.finishReason);
+              roundFinish = finishReason;
+            }
           }
         }
+        inFlight = null;
         usage = addRequestUsage(usage, roundUsage);
+        yield geminiCallUsage(round, roundUsage, roundUsage.exact ? 'provider' : 'none', roundFinish, roundRef, roundStartedAt, roundFirstAt);
         assembler.close();
         const roundCalls = assembler.calls;
 
@@ -740,7 +782,10 @@ export class GeminiProvider implements Provider {
 
       }
     } catch (err) {
-      if (request.signal.aborted) throw err;
+      if (request.signal.aborted) {
+        if (inFlight) yield inFlight();
+        throw err;
+      }
       // The caller did not abort, so this is the SDK's own per-request timeout firing: a typed,
       // retryable timeout, as the other adapter's SDK treats one.
       if (isAbort(err)) {

@@ -1511,7 +1511,7 @@ exports[`turn characterization: fake provider > a refused turn 1`] = `
 }
 `;
 
-exports[`turn characterization: fake provider > a regenerated reply (retryMessageId) replaces the earlier attempt 1`] = `
+exports[`turn characterization: fake provider > a regenerated reply (retryMessageId) keeps the earlier answer as a version 1`] = `
 {
   "requests": [
     {
@@ -1774,17 +1774,18 @@ Answer using the web search results available to you. Cite the sources you actua
       "frames": [
         {
           "data": {
-            "messageId": "<uuid-2>",
+            "chatId": "<uuid-7>",
+            "messageId": "<uuid-8>",
             "turnId": "<uuid-6>",
             "type": "ack",
-            "userMessageId": "<uuid-3>",
+            "userMessageId": "<uuid-9>",
           },
           "event": "ack",
         },
         {
           "data": {
-            "chatId": "<uuid-4>",
-            "messageId": "<uuid-2>",
+            "chatId": "<uuid-7>",
+            "messageId": "<uuid-8>",
             "model": {
               "codeExecution": false,
               "grounded": true,
@@ -1799,7 +1800,7 @@ Answer using the web search results available to you. Cite the sources you actua
                 "rule": "auto_gemini",
               },
             },
-            "requestId": "<uuid-7>",
+            "requestId": "<uuid-10>",
             "type": "start",
           },
           "event": "start",
@@ -1870,6 +1871,83 @@ Answer using the web search results available to you. Cite the sources you actua
       ],
       "statusCode": 200,
     },
+    {
+      "version": {
+        "attachments": [],
+        "chat": {
+          "title": "Say it.",
+        },
+        "messages": [
+          {
+            "completed": true,
+            "effort": null,
+            "errorCode": null,
+            "finishReason": null,
+            "id": "<uuid-9>",
+            "mode": "search",
+            "modelAlias": null,
+            "provider": null,
+            "providerModelId": null,
+            "questions": [],
+            "researchStage": null,
+            "role": "user",
+            "searchEntryPoint": null,
+            "segments": null,
+            "seq": 0,
+            "status": "complete",
+            "text": "Say it.",
+            "thinking": null,
+          },
+          {
+            "completed": true,
+            "effort": "medium",
+            "errorCode": null,
+            "finishReason": "stop",
+            "id": "<uuid-8>",
+            "mode": "search",
+            "modelAlias": "Gemini 3.8 Flash",
+            "provider": "google",
+            "providerModelId": "fake-flash",
+            "questions": [],
+            "researchStage": "partial",
+            "role": "assistant",
+            "searchEntryPoint": null,
+            "segments": [
+              {
+                "text": "New answer.",
+                "type": "text",
+              },
+            ],
+            "seq": 1,
+            "status": "complete",
+            "text": "New answer.",
+            "thinking": null,
+          },
+        ],
+        "researchEvents": [],
+        "toolCalls": [],
+        "usage": [
+          {
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "contextTokens": 12,
+            "costInr": null,
+            "costUsd": null,
+            "errorCode": null,
+            "finishReason": "stop",
+            "inputTokens": 10,
+            "messageId": "<uuid-8>",
+            "modelAlias": "Gemini 3.8 Flash",
+            "outputTokens": 2,
+            "provider": "google",
+            "providerModelId": "fake-flash",
+            "status": "complete",
+            "tokensExact": true,
+            "totalTokens": 12,
+          },
+        ],
+      },
+    },
   ],
   "rows": {
     "attachments": [],
@@ -1913,37 +1991,27 @@ Answer using the web search results available to you. Cite the sources you actua
         "searchEntryPoint": null,
         "segments": [
           {
-            "text": "New answer.",
+            "text": "Old answer.",
             "type": "text",
           },
         ],
         "seq": 1,
         "status": "complete",
-        "text": "New answer.",
+        "text": "Old answer.",
         "thinking": null,
       },
     ],
-    "researchEvents": [],
+    "researchEvents": [
+      {
+        "detail": "once",
+        "label": "Look",
+        "messageId": "<uuid-2>",
+        "ordinal": 0,
+        "stage": "reading",
+      },
+    ],
     "toolCalls": [],
     "usage": [
-      {
-        "cacheReadTokens": 0,
-        "cacheWriteTokens": 0,
-        "contextTokens": 12,
-        "costInr": null,
-        "costUsd": null,
-        "errorCode": null,
-        "finishReason": "stop",
-        "inputTokens": 10,
-        "messageId": "<uuid-2>",
-        "modelAlias": "Gemini 3.8 Flash",
-        "outputTokens": 2,
-        "provider": "google",
-        "providerModelId": "fake-flash",
-        "status": "complete",
-        "tokensExact": true,
-        "totalTokens": 12,
-      },
       {
         "cacheReadTokens": 0,
         "cacheWriteTokens": 0,

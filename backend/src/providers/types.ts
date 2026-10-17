@@ -219,7 +219,89 @@ export type ProviderEvent =
   | { type: 'tool_input_partial'; index: number; name: string; input: Record<string, unknown> }
   /** G13: the model declined. Never folded into an ordinary finish (Invariant 1). */
   | { type: 'refusal'; category: string | null; explanation: string | null }
+  /**
+   * P22 (ADR-0079, Stage 17 OD-13): one provider request has ended. `usage` is that request's
+   * alone (never the running total), as the provider reported it. Emitted at each round end,
+   * before `completed`; a stop mid-request reports what the provider had sent so far
+   * (`provider_partial`). No metadata: `exact: false`, zeros, `none` (Invariant 3).
+   */
+  | {
+      type: 'call_usage';
+      /** The request's place in this adapter call, 0-based (one per tool round). */
+      ordinal: number;
+      usage: ProviderUsage;
+      usageSource: UsageSource;
+      /** The provider's own stop reason for this request (`end_turn`, `tool_use`, `STOP`, …). */
+      finishReason: string;
+      providerRef?: ProviderRef;
+      /** Request sent → its first stream event. */
+      ttftMs?: number;
+      /** Request sent → its last stream event. */
+      durationMs?: number;
+    }
   | { type: 'completed'; usage: ProviderUsage; finishReason: string };
+
+/* -------------------------------------------------------------------------- P22: per-call usage */
+
+/**
+ * Where a call's counts came from (OD-13). There is no `estimated` (Invariant 3): a stopped
+ * request keeps the provider's own partial counts, and a request with no metadata has none.
+ */
+export const USAGE_SOURCES = ['provider', 'provider_partial', 'none'] as const;
+export type UsageSource = (typeof USAGE_SOURCES)[number];
+
+/** What a call was for. `title` / `style` / `summary` / `router` are helper calls (P13). */
+export const CALL_ROLES = ['answer', 'forced_answer', 'title', 'style', 'summary', 'router'] as const;
+export type CallRole = (typeof CALL_ROLES)[number];
+
+/** The provider's id for a request: Claude's message id, Gemini's response id. */
+export interface ProviderRef {
+  type: 'message_id' | 'response_id' | 'request_id';
+  value: string;
+}
+
+/**
+ * One model call of a turn, as the ledger stores it (wave-plan §4 contract: P13's helper jobs
+ * and P11's attempts build this same shape and hand it to `ledger.recordCalls`).
+ */
+export interface CallUsage {
+  /** 1-based place of the call in its turn. */
+  ordinal: number;
+  /** 1-based gateway attempt that made it (P11 fills retries; a retried attempt that failed has no row). */
+  attempt: number;
+  role: CallRole;
+  providerModelId: string;
+  usage: ProviderUsage;
+  usageSource: UsageSource;
+  finishReason: string;
+  providerRef?: ProviderRef;
+  ttftMs?: number;
+  durationMs?: number;
+  /** When the request was sent; the ledger's partition key. Defaults to the turn's start. */
+  startedAt?: Date;
+}
+
+/**
+ * A turn's usage from its calls (E19): the sum of every call's counts when every call is exact.
+ * One call without counts makes the turn `exact: false` with zeros (Invariant 3: a part is never
+ * shown as the whole); that call's row says so and the others keep their own counts in the
+ * ledger. `lastRequest` is the last call's own (what the next turn resends).
+ */
+export function usageFromCalls(calls: readonly CallUsage[]): ProviderUsage {
+  if (calls.length === 0) return EMPTY_USAGE;
+  const exact = calls.every((c) => c.usage.exact);
+  if (!exact) return EMPTY_USAGE;
+  const last = calls.at(-1)!.usage;
+  return {
+    inputTokens: calls.reduce((n, c) => n + c.usage.inputTokens, 0),
+    outputTokens: calls.reduce((n, c) => n + c.usage.outputTokens, 0),
+    cacheReadTokens: calls.reduce((n, c) => n + c.usage.cacheReadTokens, 0),
+    cacheWriteTokens: calls.reduce((n, c) => n + c.usage.cacheWriteTokens, 0),
+    exact,
+    // Only a size the provider reported for that request: a call without one has no claim to it.
+    ...(exact && last.lastRequest ? { lastRequest: last.lastRequest } : {}),
+  };
+}
 
 /** An attachment ready to hand a provider: native binary content (PDF/image) or extracted document text. */
 /**

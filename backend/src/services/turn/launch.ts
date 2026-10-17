@@ -25,7 +25,13 @@ export function launchTurn(
   const { db, cfg, runHub, generation } = services;
   const controller = new AbortController();
   const run = runHub.start(ctx.chatId, ctx.userId, started.assistantMessageId, controller, started.turnId);
-  run.publish({ type: 'ack', turnId: started.turnId, messageId: started.assistantMessageId, userMessageId: started.userMessageId });
+  run.publish({
+    type: 'ack',
+    turnId: started.turnId,
+    ...(started.forkedFrom ? { chatId: started.chatId } : {}),
+    messageId: started.assistantMessageId,
+    userMessageId: started.userMessageId,
+  });
 
   run.done = (async () => {
     const startedAt = new Date();
