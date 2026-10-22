@@ -65,7 +65,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Then open <http://localhost:8080>. Only the frontend publishes a port; nginx proxies `/v1` to the backend on the internal network.
+Then open <http://localhost:8080>. The app is served on that port; the backend API is not published and nginx proxies `/v1` to it on the internal network. Postgres is also published on host port 5432 (`db.ports` in `compose.yaml`); remove that mapping if the database should stay internal-only.
 
 > Without `SESSION_COOKIE_SECURE=false` the browser drops the Secure cookie over `http://`, and you will be signed out right after registering. Do not use these development settings in a real deployment.
 
