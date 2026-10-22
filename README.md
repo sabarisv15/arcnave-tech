@@ -4,6 +4,8 @@
 
 > **Status:** active development, single-user. Multi-user / company features are planned for a later phase.
 
+ArcNave is built for college teams. It starts with academic document workflows; wider faculty operations are planned, not yet built.
+
 ## What it does
 
 - **Chat with three models.** Gemini 3.8 Flash, Claude Sonnet 5.5 and Claude Opus 5.5, each reported as available or unavailable with a reason.
