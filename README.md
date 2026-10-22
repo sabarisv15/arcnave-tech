@@ -4,6 +4,18 @@
 
 > **Status:** active development, single-user. Multi-user / company features are planned for a later phase.
 
+## What it does
+
+- **Chat with three models.** Gemini 3.8 Flash, Claude Sonnet 5.5 and Claude Opus 5.5, each reported as available or unavailable with a reason.
+- **Projects.** Attach files to a project and they go into context; once they no longer fit, project knowledge is searched with BM25.
+- **Read and edit files.** PDFs and Office files are read, and there are tools to merge and split PDFs and to edit spreadsheet cells, Word documents and slide decks.
+- **Artifacts and visuals.** The model can create, read and update artifacts, slide decks and sandboxed interactive visuals.
+- **Run code.** Python runs in an isolated sandbox with no general network egress.
+- **Skills and tools.** Built-in skills (docx, pdf, pptx, xlsx, dataviz, data analysis and more), tool discovery, and optional web search / fetch, memory and image generation behind `ENABLE_*` flags.
+- **Long chats.** Conversations are compacted as the context window fills.
+- **Cost and usage.** Every turn records exact token counts and cost in USD and INR, plus a turn log.
+- **Accounts.** Google sign-in, public share links, data export and account deletion. The UI includes Tamil fonts and voice dictation.
+
 ## Why ArcNave is different
 
 ArcNave is built around a few rules that are enforced in code and tests, not just documented:
