@@ -136,4 +136,4 @@ Ground rules: work on a branch and open a pull request (never push to `main`, si
 
 ## License
 
-No license file has been added to this repository yet. Until one is added, the default copyright rules apply. The maintainer should choose and add a `LICENSE` file (for example MIT or Apache-2.0).
+Licensed under the Apache License, Version 2.0. See the LICENSE file for the full text.
